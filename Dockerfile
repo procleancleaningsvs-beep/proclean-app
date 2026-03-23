@@ -16,8 +16,8 @@ COPY . .
 ENV PROCLEAN_INSTANCE_DIR=/data/instance \
     PROCLEAN_GENERATED_DIR=/data/generated \
     PROCLEAN_TEMPLATES_DIR=/data/docx_templates \
-    PORT=5000
+    PORT=8080
 
 RUN mkdir -p /data/instance /data/generated /data/docx_templates
-EXPOSE 5000
-CMD sh -c "gunicorn --bind 0.0.0.0:${PORT} app:app"
+EXPOSE 8080
+CMD ["python", "app.py"]
