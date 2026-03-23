@@ -1,23 +1,18 @@
-FROM python:3.13-slim
+FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libreoffice-core libreoffice-writer libreoffice-common fonts-liberation \
-    && rm -rf /var/lib/apt/lists/*
+# Instalar LibreOffice
+RUN apt-get update && apt-get install -y \
+    libreoffice \
+    libreoffice-writer \
+    fonts-liberation \
+    && apt-get clean
 
 WORKDIR /app
-COPY requirements.txt ./
-RUN pip install -r requirements.txt
+
 COPY . .
 
-ENV PROCLEAN_INSTANCE_DIR=/data/instance \
-    PROCLEAN_GENERATED_DIR=/data/generated \
-    PROCLEAN_TEMPLATES_DIR=/data/docx_templates \
-    PORT=8080
+RUN pip install --no-cache-dir -r requirements.txt
 
-RUN mkdir -p /data/instance /data/generated /data/docx_templates
-EXPOSE 8080
+ENV PORT=8080
+
 CMD ["python", "app.py"]
