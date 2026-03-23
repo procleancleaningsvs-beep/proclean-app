@@ -323,3 +323,33 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   background: #f8fafc;
   color: #334155;
 }
+
+.hidden-form {
+  display: none;
+}
+
+.inline-form {
+  display: inline;
+  margin: 0;
+}
+
+.actions-cell {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.danger-btn {
+  background: #fee2e2;
+  color: var(--error-text);
+}
+
+.table-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  background: white;
+}

@@ -64,13 +64,17 @@ def create_app() -> Flask:
     @app.route("/")
     def index():
         if g.user:
-            return redirect(url_for("dashboard"))
+            if g.user["role"] == "admin":
+                return redirect(url_for("dashboard"))
+            return redirect(url_for("nuevo_formato"))
         return redirect(url_for("login"))
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if g.user:
-            return redirect(url_for("dashboard"))
+            if g.user["role"] == "admin":
+                return redirect(url_for("dashboard"))
+            return redirect(url_for("nuevo_formato"))
 
         if request.method == "POST":
             username = (request.form.get("username") or "").strip()
@@ -84,7 +88,9 @@ def create_app() -> Flask:
             session.clear()
             session["user_id"] = user["id"]
             flash(f"Bienvenido a {APP_NAME}, {user['username']}.", "success")
-            return redirect(url_for("dashboard"))
+            if user["role"] == "admin":
+                return redirect(url_for("dashboard"))
+            return redirect(url_for("nuevo_formato"))
 
         return render_template("login.html")
 
@@ -97,9 +103,10 @@ def create_app() -> Flask:
 
     @app.route("/dashboard")
     @login_required
+    @role_required("admin")
     def dashboard():
-        stats = get_dashboard_stats(g.user)
-        recent_history = list_history(g.user, limit=5)
+        stats = get_dashboard_stats()
+        recent_history = list_history(limit=5)
         return render_template("dashboard.html", stats=stats, recent_history=recent_history)
 
     @app.route("/formatos/nuevo", methods=["GET", "POST"])
@@ -143,7 +150,7 @@ def create_app() -> Flask:
     @app.route("/historial")
     @login_required
     def historial():
-        records = list_history(g.user)
+        records = list_history()
         return render_template("history.html", records=records)
 
     @app.route("/descargar/<int:record_id>")
@@ -152,12 +159,21 @@ def create_app() -> Flask:
         record = get_history_record(record_id)
         if not record:
             abort(404)
-        if g.user["role"] != "admin" and record["user_id"] != g.user["id"]:
-            abort(403)
         pdf_path = Path(record["pdf_path"])
         if not pdf_path.exists():
             abort(404)
         return send_file(pdf_path, as_attachment=True, download_name=record["filename"])
+
+    @app.route("/historial/eliminar/<int:record_id>", methods=["POST"])
+    @login_required
+    @role_required("admin")
+    def eliminar_historial(record_id: int):
+        removed = delete_history_record(record_id)
+        if not removed:
+            flash("Registro no encontrado.", "error")
+        else:
+            flash("Registro eliminado del historial.", "success")
+        return redirect(url_for("historial"))
 
     @app.route("/admin/usuarios", methods=["GET", "POST"])
     @login_required
@@ -165,27 +181,59 @@ def create_app() -> Flask:
     def admin_usuarios():
         generated_password = None
         if request.method == "POST":
-            username = (request.form.get("username") or "").strip()
-            password = request.form.get("password") or ""
-            role = (request.form.get("role") or "usuario").strip()
+            action = (request.form.get("action") or "create").strip()
 
-            if not username:
-                flash("El usuario es obligatorio.", "error")
-            elif role not in {"admin", "usuario"}:
-                flash("Rol no válido.", "error")
-            else:
-                if not password:
-                    password = make_random_password()
-                    generated_password = password
+            if action == "update_user":
                 try:
-                    create_user(username=username, password=password, role=role)
-                    msg = f"Usuario {username} creado correctamente con rol {role}."
-                    if generated_password:
-                        msg += f" Contraseña generada: {generated_password}"
-                    flash(msg, "success")
-                    return redirect(url_for("admin_usuarios"))
-                except sqlite3.IntegrityError:
-                    flash("Ese nombre de usuario ya existe.", "error")
+                    user_id = int(request.form.get("user_id") or 0)
+                except ValueError:
+                    user_id = 0
+                username = (request.form.get("edit_username") or "").strip()
+                role = (request.form.get("edit_role") or "usuario").strip()
+                new_password = request.form.get("edit_password") or ""
+
+                if not user_id:
+                    flash("Usuario no válido.", "error")
+                elif not username:
+                    flash("El usuario es obligatorio.", "error")
+                elif role not in {"admin", "usuario"}:
+                    flash("Rol no válido.", "error")
+                elif g.user["id"] == user_id and role != "admin":
+                    flash("No puedes quitarte el rol de administrador a ti mismo.", "error")
+                else:
+                    try:
+                        update_user(
+                            user_id=user_id,
+                            username=username,
+                            role=role,
+                            new_password=new_password if new_password.strip() else None,
+                        )
+                        flash(f"Usuario {username} actualizado.", "success")
+                        return redirect(url_for("admin_usuarios"))
+                    except sqlite3.IntegrityError:
+                        flash("Ese nombre de usuario ya existe.", "error")
+            else:
+                username = (request.form.get("username") or "").strip()
+                password = request.form.get("password") or ""
+                role = (request.form.get("role") or "usuario").strip()
+
+                if not username:
+                    flash("El usuario es obligatorio.", "error")
+                elif role not in {"admin", "usuario"}:
+                    flash("Rol no válido.", "error")
+                else:
+                    if not password:
+                        password = make_random_password()
+                        generated_password = password
+                    try:
+                        create_user(username=username, password=password, role=role)
+                        msg = f"Usuario {username} creado correctamente con rol {role}."
+                        if generated_password:
+                            msg += f" Contraseña generada: {generated_password}"
+                        flash(msg, "success")
+                        return redirect(url_for("admin_usuarios"))
+                    except sqlite3.IntegrityError:
+                        flash("Ese nombre de usuario ya existe.", "error")
 
         users = list_users()
         return render_template("users.html", users=users)
@@ -384,23 +432,19 @@ def insert_history(user_id: int, filename: str, pdf_path: str, folio: str, lote:
         conn.close()
 
 
-def list_history(user, limit: int | None = None):
+def list_history(limit: int | None = None):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
-        params = []
         query = """
             SELECT h.*, u.username
             FROM format_history h
             JOIN users u ON u.id = h.user_id
+            ORDER BY h.created_at DESC
         """
-        if user["role"] != "admin":
-            query += " WHERE h.user_id = ?"
-            params.append(user["id"])
-        query += " ORDER BY h.created_at DESC"
         if limit:
             query += f" LIMIT {int(limit)}"
-        return conn.execute(query, params).fetchall()
+        return conn.execute(query).fetchall()
     finally:
         conn.close()
 
@@ -422,21 +466,69 @@ def get_history_record(record_id: int):
         conn.close()
 
 
-def get_dashboard_stats(user):
+def get_dashboard_stats():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
-        base_query = "SELECT COUNT(*) AS total, COALESCE(SUM(movement_count), 0) AS movimientos FROM format_history"
-        user_query = base_query + " WHERE user_id = ?"
-        row = conn.execute(base_query if user["role"] == "admin" else user_query, () if user["role"] == "admin" else (user["id"],)).fetchone()
-
-        users_total = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0] if user["role"] == "admin" else None
+        row = conn.execute(
+            "SELECT COUNT(*) AS total, COALESCE(SUM(movement_count), 0) AS movimientos FROM format_history"
+        ).fetchone()
+        users_total = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
         return {
             "formatos": row["total"],
             "movimientos": row["movimientos"],
             "usuarios": users_total,
             "plantilla": "Set 1-4 movimientos",
         }
+    finally:
+        conn.close()
+
+
+def delete_history_record(record_id: int) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT pdf_path FROM format_history WHERE id = ?",
+            (record_id,),
+        ).fetchone()
+        if not row:
+            return False
+        file_path = Path(row["pdf_path"])
+        conn.execute("DELETE FROM format_history WHERE id = ?", (record_id,))
+        conn.commit()
+        if file_path.exists():
+            try:
+                file_path.unlink()
+            except OSError:
+                pass
+        return True
+    finally:
+        conn.close()
+
+
+def update_user(user_id: int, username: str, role: str, new_password: str | None) -> None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        if new_password:
+            conn.execute(
+                """
+                UPDATE users
+                SET username = ?, role = ?, password_hash = ?
+                WHERE id = ?
+                """,
+                (username, role, generate_password_hash(new_password), user_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET username = ?, role = ?
+                WHERE id = ?
+                """,
+                (username, role, user_id),
+            )
+        conn.commit()
     finally:
         conn.close()
 

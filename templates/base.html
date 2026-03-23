@@ -18,7 +18,9 @@
         </div>
       </div>
       <nav class="nav">
+        {% if current_user.role == 'admin' %}
         <a href="{{ url_for('dashboard') }}" class="nav-link">Dashboard</a>
+        {% endif %}
         <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo formato</a>
         <a href="{{ url_for('historial') }}" class="nav-link">Historial</a>
         {% if current_user.role == 'admin' %}

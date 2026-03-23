@@ -20,7 +20,7 @@
           <th>Movs.</th>
           <th>Folio</th>
           <th>Lote</th>
-          <th>Acción</th>
+          <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
@@ -32,7 +32,14 @@
           <td>{{ item.movement_count }}</td>
           <td>{{ item.folio }}</td>
           <td>{{ item.lote }}</td>
-          <td><a class="btn btn-small" href="{{ url_for('descargar', record_id=item.id) }}">Descargar</a></td>
+          <td class="actions-cell">
+            <a class="btn btn-small" href="{{ url_for('descargar', record_id=item.id) }}">Descargar</a>
+            {% if current_user.role == 'admin' %}
+            <form method="post" action="{{ url_for('eliminar_historial', record_id=item.id) }}" class="inline-form" onsubmit="return confirm('¿Eliminar este registro del historial y su archivo?');">
+              <button type="submit" class="btn btn-small danger-btn">Eliminar</button>
+            </form>
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>

@@ -38,19 +38,37 @@
             <th>Usuario</th>
             <th>Rol</th>
             <th>Creado</th>
+            <th>Editar</th>
           </tr>
         </thead>
         <tbody>
           {% for user in users %}
           <tr>
             <td>{{ user.id }}</td>
-            <td>{{ user.username }}</td>
-            <td>{{ user.role }}</td>
+            <td>
+              <input type="text" name="edit_username" form="user-edit-{{ user.id }}" value="{{ user.username }}" required class="table-input">
+            </td>
+            <td>
+              <select name="edit_role" form="user-edit-{{ user.id }}" class="table-input">
+                <option value="usuario" {% if user.role == 'usuario' %}selected{% endif %}>usuario</option>
+                <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>admin</option>
+              </select>
+            </td>
             <td>{{ user.created_at }}</td>
+            <td>
+              <input type="text" name="edit_password" form="user-edit-{{ user.id }}" placeholder="Nueva contraseña (opcional)" class="table-input" style="margin-bottom:6px;">
+              <button type="submit" form="user-edit-{{ user.id }}" class="btn btn-small">Guardar</button>
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
+      {% for user in users %}
+      <form id="user-edit-{{ user.id }}" method="post" class="hidden-form">
+        <input type="hidden" name="action" value="update_user">
+        <input type="hidden" name="user_id" value="{{ user.id }}">
+      </form>
+      {% endfor %}
     </div>
   </section>
 </section>
