@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Panel ejecutivo</span>
+    <h2>Operación central</h2>
+    <p>Vista rápida del pipeline documental. Menos drama, más PDFs.</p>
+  </div>
+  <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Generar nuevo formato</a>
+</section>
+
+<section class="stats-grid">
+  <article class="stat-card">
+    <span>Formatos generados</span>
+    <strong>{{ stats.formatos }}</strong>
+  </article>
+  <article class="stat-card">
+    <span>Movimientos procesados</span>
+    <strong>{{ stats.movimientos }}</strong>
+  </article>
+  <article class="stat-card">
+    <span>Plantilla activa</span>
+    <strong>{{ stats.plantilla }}</strong>
+  </article>
+  {% if stats.usuarios is not none %}
+  <article class="stat-card">
+    <span>Usuarios</span>
+    <strong>{{ stats.usuarios }}</strong>
+  </article>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h3>Actividad reciente</h3>
+    <a href="{{ url_for('historial') }}">Ver historial completo</a>
+  </div>
+  {% if recent_history %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Archivo</th>
+          <th>Usuario</th>
+          <th>Movs.</th>
+          <th>Folio</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in recent_history %}
+        <tr>
+          <td>{{ item.created_at }}</td>
+          <td>{{ item.filename }}</td>
+          <td>{{ item.username }}</td>
+          <td>{{ item.movement_count }}</td>
+          <td>{{ item.folio }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Aún no hay formatos generados.</p>
+  {% endif %}
+</section>
+{% endblock %}

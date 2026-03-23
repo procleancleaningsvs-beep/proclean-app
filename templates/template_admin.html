@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Configuración</span>
+    <h2>Set de plantillas activas</h2>
+    <p>La app usa una plantilla distinta según el número de movimientos: 1, 2, 3 o 4 personas.</p>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Plantillas en uso</h3>
+  <div class="grid-2">
+    {% for item in template_info %}
+    <article class="hint-box">
+      <p><strong>{{ item.count }} movimiento{% if item.count > 1 %}s{% endif %}</strong></p>
+      <p><strong>Archivo:</strong> {{ item.filename }}</p>
+      <p><strong>Ruta:</strong> {{ item.path }}</p>
+      <p><strong>Última actualización:</strong> {{ item.modified }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<form method="post" enctype="multipart/form-data" class="form-card compact-form">
+  <h3>Actualizar plantillas</h3>
+  <p class="helper">Puedes subir una o varias. Cada una reemplaza únicamente el formato correspondiente.</p>
+  {% for item in template_info %}
+  <label>Plantilla para {{ item.count }} movimiento{% if item.count > 1 %}s{% endif %}
+    <input type="file" name="template_docx_{{ item.count }}" accept=".docx">
+  </label>
+  {% endfor %}
+  <button type="submit" class="btn btn-primary">Actualizar set</button>
+</form>
+{% endblock %}

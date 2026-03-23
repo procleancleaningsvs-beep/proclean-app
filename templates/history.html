@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Trazabilidad</span>
+    <h2>Historial de formatos</h2>
+    <p>Repositorio operativo de constancias generadas. Todo queda registrado, porque la auditoría nunca duerme.</p>
+  </div>
+</section>
+
+<section class="panel">
+  {% if records %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Archivo</th>
+          <th>Usuario</th>
+          <th>Movs.</th>
+          <th>Folio</th>
+          <th>Lote</th>
+          <th>Acción</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in records %}
+        <tr>
+          <td>{{ item.created_at }}</td>
+          <td>{{ item.filename }}</td>
+          <td>{{ item.username }}</td>
+          <td>{{ item.movement_count }}</td>
+          <td>{{ item.folio }}</td>
+          <td>{{ item.lote }}</td>
+          <td><a class="btn btn-small" href="{{ url_for('descargar', record_id=item.id) }}">Descargar</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="empty-state">Todavía no hay formatos en historial.</p>
+  {% endif %}
+</section>
+{% endblock %}

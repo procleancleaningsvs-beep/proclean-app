@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Gobernanza</span>
+    <h2>Usuarios y roles</h2>
+    <p>Administra accesos para perfiles <strong>admin</strong> y <strong>usuario</strong>.</p>
+  </div>
+</section>
+
+<section class="two-col">
+  <form method="post" class="form-card compact-form">
+    <h3>Alta de usuario</h3>
+    <label>Usuario
+      <input type="text" name="username" required>
+    </label>
+    <label>Contraseña
+      <input type="text" name="password" placeholder="Opcional: si lo dejas vacío, se genera una aleatoria">
+    </label>
+    <label>Rol
+      <select name="role">
+        <option value="usuario">usuario</option>
+        <option value="admin">admin</option>
+      </select>
+    </label>
+    <button type="submit" class="btn btn-primary">Crear usuario</button>
+  </form>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h3>Usuarios registrados</h3>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Usuario</th>
+            <th>Rol</th>
+            <th>Creado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td>{{ user.id }}</td>
+            <td>{{ user.username }}</td>
+            <td>{{ user.role }}</td>
+            <td>{{ user.created_at }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</section>
+{% endblock %}

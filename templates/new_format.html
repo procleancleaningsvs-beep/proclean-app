@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Producción documental</span>
+    <h2>Nuevo formato AFIL</h2>
+    <p>Captura hasta 4 movimientos por constancia. El sistema selecciona automáticamente la plantilla correcta según la cantidad de personas.</p>
+  </div>
+</section>
+
+<form method="post" class="form-card movement-form" id="movement-form">
+  <section class="lot-card">
+    <div class="grid-3 top-grid">
+      <label>Fecha de recepción del lote
+        <input type="date" name="fecha_lote" id="fecha_lote" required value="{{ current_date or '' }}">
+      </label>
+      <label>Hora de recepción del lote
+        <input type="time" name="hora_lote" id="hora_lote" required value="{{ current_time or '' }}">
+      </label>
+      <div class="hint-box compact-hint">Estos datos alimentan la línea de recepción del lote en el PDF.</div>
+    </div>
+
+    <label class="checkbox-line">
+      <input type="checkbox" id="sync_dates" checked>
+      <span>Usar la misma fecha de recepción del lote como fecha de movimiento</span>
+    </label>
+  </section>
+
+  <div class="movement-actions">
+    <button type="button" class="btn btn-secondary" id="add-row">Agregar movimiento</button>
+    <span class="helper">Límite operativo: 4 movimientos por constancia.</span>
+  </div>
+
+  <div id="movement-rows">
+    {% for i in range(1,5) %}
+    <section class="movement-row {% if i > 1 %}is-hidden{% endif %}" data-row="{{ i }}">
+      <div class="row-head">
+        <h3>Movimiento {{ i }}</h3>
+        {% if i > 1 %}<button type="button" class="link-btn remove-row">Quitar</button>{% endif %}
+      </div>
+      <div class="grid-3">
+        <label>Tipo
+          <select name="tipo_{{ i }}" class="tipo-field">
+            <option value="alta" selected>Alta / Reingreso</option>
+            <option value="baja">Baja</option>
+          </select>
+        </label>
+        <label>NSS
+          <input type="text" name="nss_{{ i }}" maxlength="11" placeholder="11 dígitos" inputmode="numeric">
+        </label>
+        <label>Fecha del movimiento
+          <input type="date" name="fecha_{{ i }}" class="fecha-field">
+        </label>
+      </div>
+      <div class="grid-2">
+        <label>Nombre completo
+          <input type="text" name="nombre_{{ i }}" placeholder="APELLIDO1 APELLIDO2 NOMBRE">
+        </label>
+        <div>
+          <label>Salario base
+            <select name="salario_tipo_{{ i }}" class="salario-type-field">
+              <option value="normal" selected>330.57 - Normal</option>
+              <option value="fronterizo">462.61 - Fronterizo</option>
+              <option value="otro">Otro</option>
+            </select>
+          </label>
+          <input
+            type="text"
+            name="salario_otro_{{ i }}"
+            class="salario-otro-field"
+            placeholder="Ej. 1250.50"
+            pattern="^\d{1,4}\.\d{2}$"
+            inputmode="decimal"
+            style="display:none; margin-top:10px;"
+          >
+        </div>
+      </div>
+      <div class="grid-2">
+        <label class="causa-wrap is-hidden">Causa de baja
+          <input type="text" name="causa_baja_{{ i }}" value="0" class="causa-field" placeholder="2">
+        </label>
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+
+  <div class="form-footer">
+    <button type="submit" class="btn btn-primary">Generar PDF</button>
+  </div>
+</form>
+
+<script>
+  const maxRows = 4;
+  const rows = Array.from(document.querySelectorAll('.movement-row'));
+  const addButton = document.getElementById('add-row');
+  const syncDatesCheckbox = document.getElementById('sync_dates');
+  const lotDateInput = document.getElementById('fecha_lote');
+
+  function setRowDisabled(row, disabled) {
+    row.querySelectorAll('input, select').forEach((el) => {
+      if (disabled) {
+        el.dataset.wasDisabledByHide = '1';
+        el.disabled = true;
+      } else if (el.dataset.wasDisabledByHide === '1') {
+        el.disabled = false;
+        delete el.dataset.wasDisabledByHide;
+      }
+    });
+  }
+
+  function syncSalaryField(row, tipo) {
+    const salaryType = row.querySelector('.salario-type-field');
+    const salaryOther = row.querySelector('.salario-otro-field');
+
+    if (tipo === 'baja') {
+      salaryType.value = 'normal';
+      salaryType.disabled = true;
+      salaryOther.value = '';
+      salaryOther.style.display = 'none';
+      salaryOther.required = false;
+      salaryOther.disabled = true;
+      return;
+    }
+
+    salaryType.disabled = false;
+    if (salaryType.value === 'otro') {
+      salaryOther.style.display = 'block';
+      salaryOther.required = true;
+      salaryOther.disabled = false;
+    } else {
+      salaryOther.value = '';
+      salaryOther.style.display = 'none';
+      salaryOther.required = false;
+      salaryOther.disabled = true;
+    }
+  }
+
+  function updateDateBounds() {
+    const lotDate = lotDateInput.value;
+    rows.forEach((row) => {
+      const fechaField = row.querySelector('.fecha-field');
+      if (!lotDate) {
+        fechaField.min = '';
+        fechaField.max = '';
+        return;
+      }
+      const maxDate = new Date(lotDate + 'T00:00:00');
+      const minDate = new Date(maxDate);
+      minDate.setDate(minDate.getDate() - 8);
+      fechaField.max = lotDate;
+      fechaField.min = minDate.toISOString().slice(0, 10);
+    });
+  }
+
+  function syncMovementDates() {
+    if (!syncDatesCheckbox.checked || !lotDateInput.value) return;
+    rows.forEach((row) => {
+      if (!row.classList.contains('is-hidden')) {
+        row.querySelector('.fecha-field').value = lotDateInput.value;
+      }
+    });
+  }
+
+  function updateDateInputsMode() {
+    rows.forEach((row) => {
+      const fechaField = row.querySelector('.fecha-field');
+      if (syncDatesCheckbox.checked) {
+        fechaField.value = lotDateInput.value;
+        fechaField.readOnly = true;
+        fechaField.classList.add('locked-field');
+      } else {
+        fechaField.readOnly = false;
+        fechaField.classList.remove('locked-field');
+      }
+    });
+  }
+
+  function syncRowState(row) {
+    const tipo = row.querySelector('.tipo-field').value;
+    const causaWrap = row.querySelector('.causa-wrap');
+    const causa = row.querySelector('.causa-field');
+
+    if (tipo === 'baja') {
+      causaWrap.classList.remove('is-hidden');
+      causa.disabled = false;
+      causa.value = causa.value && causa.value !== '0' ? causa.value : '2';
+    } else {
+      causa.value = '0';
+      causa.disabled = true;
+      causaWrap.classList.add('is-hidden');
+    }
+
+    syncSalaryField(row, tipo);
+  }
+
+  function visibleRows() {
+    return rows.filter(row => !row.classList.contains('is-hidden'));
+  }
+
+  function updateAddButton() {
+    addButton.disabled = visibleRows().length >= maxRows;
+  }
+
+  rows.forEach((row) => {
+    const tipoField = row.querySelector('.tipo-field');
+    const salaryType = row.querySelector('.salario-type-field');
+
+    syncRowState(row);
+    if (row.classList.contains('is-hidden')) {
+      setRowDisabled(row, true);
+    }
+
+    tipoField.addEventListener('change', () => syncRowState(row));
+    salaryType.addEventListener('change', () => syncSalaryField(row, tipoField.value));
+
+    const removeBtn = row.querySelector('.remove-row');
+    if (removeBtn) {
+      removeBtn.addEventListener('click', () => {
+        row.classList.add('is-hidden');
+        row.querySelectorAll('input').forEach((el) => {
+          if (el.type !== 'time' && el.type !== 'date') {
+            el.value = '';
+          }
+        });
+        row.querySelector('.fecha-field').value = '';
+        row.querySelector('.tipo-field').value = 'alta';
+        row.querySelector('.salario-type-field').value = 'normal';
+        row.querySelector('.causa-field').value = '0';
+        syncRowState(row);
+        setRowDisabled(row, true);
+        syncMovementDates();
+        updateAddButton();
+      });
+    }
+  });
+
+  addButton.addEventListener('click', () => {
+    const nextHidden = rows.find(row => row.classList.contains('is-hidden'));
+    if (nextHidden) {
+      nextHidden.classList.remove('is-hidden');
+      setRowDisabled(nextHidden, false);
+      syncRowState(nextHidden);
+      updateDateBounds();
+      syncMovementDates();
+      updateDateInputsMode();
+      updateAddButton();
+    }
+  });
+
+  syncDatesCheckbox.addEventListener('change', () => {
+    updateDateInputsMode();
+    syncMovementDates();
+  });
+
+  lotDateInput.addEventListener('change', () => {
+    updateDateBounds();
+    syncMovementDates();
+  });
+
+  document.getElementById('movement-form').addEventListener('submit', () => {
+    updateDateBounds();
+    syncMovementDates();
+  });
+
+  updateDateBounds();
+  updateDateInputsMode();
+  syncMovementDates();
+  updateAddButton();
+</script>
+{% endblock %}

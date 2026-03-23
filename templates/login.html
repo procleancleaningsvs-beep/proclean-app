@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="auth-card">
+  <div class="hero-copy">
+    <span class="eyebrow">Acceso seguro</span>
+    <h2>Bienvenido a {{ app_name }}</h2>
+    <p>Genera constancias AFIL, administra usuarios y consulta el histórico de formatos en un solo frente operativo.</p>
+  </div>
+  <form method="post" class="form-card compact-form">
+    <label>Usuario
+      <input type="text" name="username" placeholder="Tu usuario" required>
+    </label>
+    <label>Contraseña
+      <input type="password" name="password" placeholder="Tu contraseña" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Entrar</button>
+  </form>
+</section>
+{% endblock %}
