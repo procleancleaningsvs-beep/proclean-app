@@ -108,6 +108,12 @@ def create_app() -> Flask:
         if request.method == "POST":
             try:
                 movimientos, fecha_lote, hora_lote = movimientos_from_form(request.form)
+                output_format = (request.form.get("output_format") or "pdf").strip().lower()
+                if output_format not in {"pdf", "png"}:
+                    raise ValueError("Formato de salida no válido. Usa PDF o PNG.")
+
+                first_page_only = request.form.get("first_page_only") in {"1", "on", "true", "yes"}
+
                 result = generate_constancia(
                     template_path=Path(app.config["DOCX_TEMPLATES_DIR"]),
                     output_dir=Path(app.config["GENERATED_DIR"]),
@@ -115,6 +121,8 @@ def create_app() -> Flask:
                     keep_docx=False,
                     fecha_lote=fecha_lote,
                     hora_lote=hora_lote,
+                    output_format=output_format,
+                    first_page_only=first_page_only,
                 )
                 record_id = insert_history(
                     user_id=g.user["id"],
@@ -125,7 +133,7 @@ def create_app() -> Flask:
                     movement_count=result["movimientos"],
                     payload_json=result["movimientos_data"],
                 )
-                flash("Formato generado con éxito. El PDF ya quedó en historial.", "success")
+                flash("Formato generado con éxito. El archivo ya quedó en historial.", "success")
                 return redirect(url_for("descargar", record_id=record_id))
             except Exception as exc:
                 flash(str(exc), "error")

@@ -14,6 +14,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Iterable
 
+from pypdf import PdfReader, PdfWriter
+
 HEX_LOWER = "0123456789abcdef"
 HEX_UPPER = "0123456789ABCDEF"
 DIGITS = string.digits
@@ -485,6 +487,8 @@ def generate_constancia(
     keep_docx: bool = False,
     fecha_lote: str | None = None,
     hora_lote: str | None = None,
+    output_format: str = "pdf",
+    first_page_only: bool = False,
 ) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -501,6 +505,9 @@ def generate_constancia(
     total = len(movimientos)
     col_reing = n_altas + n_reing
     template_file = resolve_template_path(template_path, total)
+
+    if output_format not in {"pdf", "png"}:
+        raise ValueError("Solo se admiten formatos de salida: pdf o png")
 
     with tempfile.TemporaryDirectory(prefix="imss_afil_") as td:
         workdir = Path(td)
@@ -568,9 +575,56 @@ def generate_constancia(
         if not keep_docx and docx_path.exists():
             docx_path.unlink()
 
+    final_artifact_path = pdf_path
+    base_name = pdf_filename[:-4]
+
+    if output_format == "pdf":
+        if first_page_only:
+            # Si el PDF solo tiene 1 página, no generamos otro archivo.
+            reader = PdfReader(str(pdf_path))
+            if len(reader.pages) > 1:
+                first_pdf_path = output_dir / f"{base_name}_p1.pdf"
+                writer = PdfWriter()
+                writer.add_page(reader.pages[0])
+                with first_pdf_path.open("wb") as f:
+                    writer.write(f)
+                final_artifact_path = first_pdf_path
+    else:  # output_format == "png"
+        # Import tardío para que el backend "pdf" funcione sin requerir PyMuPDF.
+        import fitz  # type: ignore
+
+        doc = fitz.open(str(pdf_path))
+        page_count = doc.page_count
+
+        def render_page_png(page_idx: int, out_png: Path) -> None:
+            page = doc.load_page(page_idx)
+            # Aumenta resolución para que el PNG sea legible al imprimir.
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            pix.save(str(out_png))
+
+        if first_page_only or page_count <= 1:
+            png_path = output_dir / f"{base_name}_p1.png"
+            render_page_png(0, png_path)
+            final_artifact_path = png_path
+        else:
+            png_paths: list[Path] = []
+            for i in range(page_count):
+                png_path = output_dir / f"{base_name}_p{i + 1}.png"
+                render_page_png(i, png_path)
+                png_paths.append(png_path)
+
+            zip_path = output_dir / f"{base_name}_pages.zip"
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for p in png_paths:
+                    zf.write(p, arcname=p.name)
+
+            for p in png_paths:
+                p.unlink(missing_ok=True)
+            final_artifact_path = zip_path
+
     return {
         "ok": True,
-        "pdf": str(pdf_path),
+        "pdf": str(final_artifact_path),
         "docx": str(docx_path) if keep_docx else None,
         "folio": folio,
         "lote": lote,

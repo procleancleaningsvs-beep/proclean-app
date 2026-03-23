@@ -84,8 +84,26 @@
     {% endfor %}
   </div>
 
+  <section class="export-section">
+    <div class="grid-2">
+      <label>
+        Salida
+          <select name="output_format" id="output_format">
+            <option value="pdf" selected>PDF</option>
+            <option value="png">PNG (páginas como imágenes)</option>
+          </select>
+      </label>
+
+      <label class="checkbox-line">
+        <input type="checkbox" name="first_page_only" id="first_page_only" value="1" checked>
+        <span>Solo primera página</span>
+      </label>
+    </div>
+    <p class="helper">Si eliges PNG y hay varias páginas, se descargará un ZIP con las imágenes.</p>
+  </section>
+
   <div class="form-footer">
-    <button type="submit" class="btn btn-primary">Generar PDF</button>
+    <button type="submit" class="btn btn-primary">Generar archivo</button>
   </div>
 </form>
 

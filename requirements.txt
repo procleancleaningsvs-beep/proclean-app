@@ -1,3 +1,4 @@
 Flask>=3.0,<4.0
 Werkzeug>=3.0,<4.0
+pypdf
 gunicorn==25.1.0
