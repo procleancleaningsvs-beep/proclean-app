@@ -321,12 +321,17 @@ def create_app() -> Flask:
                     movement_count=result["movimientos"],
                     payload_json=result["movimientos_data"],
                 )
-                flash("Formato generado con éxito. El archivo ya quedó en historial.", "success")
+                flash("Constancia generada con éxito. El archivo ya quedó en el historial de movimientos.", "success")
                 return redirect(url_for("descargar", record_id=record_id))
             except Exception as exc:
                 flash(str(exc), "error")
 
         return render_template("new_format.html", current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
+
+    @app.route("/checkid")
+    @login_required
+    def checkid_consulta():
+        return render_template("checkid.html")
 
     @app.route("/historial")
     @login_required

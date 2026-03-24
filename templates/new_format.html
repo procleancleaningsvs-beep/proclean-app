@@ -2,9 +2,9 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <span class="eyebrow">Producción documental</span>
-    <h2>Nuevo formato AFIL</h2>
-    <p>Captura hasta 4 movimientos por constancia. El sistema selecciona automáticamente la plantilla correcta según la cantidad de personas.</p>
+    <span class="eyebrow">Movimientos IMSS</span>
+    <h2>Nuevo movimiento</h2>
+    <p>Constancia AFIL: captura hasta 4 movimientos por documento. El sistema elige la plantilla según la cantidad de personas.</p>
   </div>
 </section>
 
@@ -38,22 +38,14 @@
         <h3>Movimiento {{ i }}</h3>
         {% if i > 1 %}<button type="button" class="link-btn remove-row">Quitar</button>{% endif %}
       </div>
-      <div class="grid-3 fiscal-top">
+      <div class="grid-2">
         <label>RFC
           <input type="text" name="rfc_{{ i }}" class="rfc-field" maxlength="13" placeholder="12–13 caracteres" autocomplete="off" autocapitalize="characters">
         </label>
         <label>CURP
           <input type="text" name="curp_{{ i }}" class="curp-field" maxlength="18" placeholder="18 caracteres" autocomplete="off" autocapitalize="characters">
         </label>
-        <div class="checkid-action-cell">
-          <span class="helper">Datos SAT (CheckID)</span>
-          <div class="checkid-buttons">
-            <button type="button" class="btn btn-small btn-secondary checkid-btn">Consultar CheckID</button>
-            <span class="checkid-loader" hidden aria-hidden="true">Consultando…</span>
-          </div>
-        </div>
       </div>
-      <p class="checkid-msg" data-row="{{ i }}" role="status" aria-live="polite"></p>
       <div class="grid-3">
         <label>Tipo
           <select name="tipo_{{ i }}" class="tipo-field">
@@ -272,12 +264,10 @@
         const curpF = row.querySelector('.curp-field');
         const regF = row.querySelector('.regimen-field');
         const cpF = row.querySelector('.cp-field');
-        const msg = row.querySelector('.checkid-msg');
         if (rfcF) rfcF.value = '';
         if (curpF) curpF.value = '';
         if (regF) regF.value = '';
         if (cpF) cpF.value = '';
-        if (msg) { msg.textContent = ''; msg.classList.remove('checkid-msg--error'); }
         syncRowState(row);
         setRowDisabled(row, true);
         syncMovementDates();
@@ -318,127 +308,5 @@
   updateDateInputsMode();
   syncMovementDates();
   updateAddButton();
-
-  // --- CheckID: autollenado RFC, CURP, NSS, régimen fiscal y CP (usa POST /api/checkid/buscar) ---
-  const CHECKID_RFC_MIN = 12;
-  const CHECKID_CURP_LEN = 18;
-
-  function deepFindValue(obj, candidateKeys) {
-    if (obj == null || typeof obj !== 'object') return '';
-    const lower = candidateKeys.map((k) => k.toLowerCase());
-    const queue = [obj];
-    const seen = new Set();
-    while (queue.length) {
-      const cur = queue.shift();
-      if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
-      seen.add(cur);
-      for (const [k, v] of Object.entries(cur)) {
-        if (lower.includes(k.toLowerCase()) && v != null && String(v).trim() !== '') {
-          return String(v).trim();
-        }
-        if (v && typeof v === 'object') {
-          if (Array.isArray(v)) {
-            v.forEach((item) => {
-              if (item && typeof item === 'object') queue.push(item);
-            });
-          } else {
-            queue.push(v);
-          }
-        }
-      }
-    }
-    return '';
-  }
-
-  function mapCheckidDataToFields(payload) {
-    const d = payload && typeof payload === 'object' ? payload : {};
-    return {
-      rfc: deepFindValue(d, ['RFC', 'Rfc', 'rfc']),
-      curp: deepFindValue(d, ['CURP', 'Curp', 'curp']),
-      nss: deepFindValue(d, ['NSS', 'Nss', 'nss', 'NumeroSeguridadSocial', 'NumeroSegSocial']),
-      regimenFiscal: deepFindValue(d, [
-        'RegimenFiscal', 'Regimen', 'regimen_fiscal', 'DescripcionRegimen', 'RegimenFiscalDescripcion',
-      ]),
-      cp: deepFindValue(d, ['CodigoPostal', 'CP', 'CódigoPostal', 'codigo_postal', 'Codigo_Postal']),
-    };
-  }
-
-  function setCheckidMessage(row, text, isError) {
-    const el = row.querySelector('.checkid-msg');
-    if (!el) return;
-    el.textContent = text || '';
-    el.classList.toggle('checkid-msg--error', !!isError);
-  }
-
-  function setCheckidLoading(row, on) {
-    const loader = row.querySelector('.checkid-loader');
-    const btn = row.querySelector('.checkid-btn');
-    if (loader) loader.hidden = !on;
-    if (btn) btn.disabled = !!on;
-  }
-
-  async function runCheckid(row) {
-    const rfcEl = row.querySelector('.rfc-field');
-    const curpEl = row.querySelector('.curp-field');
-    const rfc = (rfcEl && rfcEl.value) ? rfcEl.value.trim() : '';
-    const curp = (curpEl && curpEl.value) ? curpEl.value.trim() : '';
-    if (!rfc && !curp) {
-      setCheckidMessage(row, 'Ingresa RFC o CURP para consultar CheckID.', true);
-      return;
-    }
-    const body = rfc ? { rfc } : { curp };
-    setCheckidLoading(row, true);
-    setCheckidMessage(row, '', false);
-    try {
-      const res = await fetch('/api/checkid/buscar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!json.ok) {
-        const msg = json.message || json.error_code || 'No se pudo completar la consulta.';
-        setCheckidMessage(row, msg, true);
-        return;
-      }
-      const raw = json.data;
-      const mapped = mapCheckidDataToFields(raw);
-      if (mapped.rfc && rfcEl) rfcEl.value = mapped.rfc;
-      if (mapped.curp && curpEl) curpEl.value = mapped.curp;
-      const nssEl = row.querySelector('.nss-field');
-      if (mapped.nss && nssEl) nssEl.value = mapped.nss.replace(/\D/g, '').slice(0, 11);
-      const regEl = row.querySelector('.regimen-field');
-      if (mapped.regimenFiscal && regEl) regEl.value = mapped.regimenFiscal;
-      const cpEl = row.querySelector('.cp-field');
-      if (mapped.cp && cpEl) cpEl.value = mapped.cp.replace(/\D/g, '').slice(0, 5);
-      setCheckidMessage(row, 'Datos cargados desde CheckID. Revisa y ajusta si es necesario.', false);
-    } catch (e) {
-      setCheckidMessage(row, 'Error de red al consultar CheckID. Puedes continuar y capturar a mano.', true);
-    } finally {
-      setCheckidLoading(row, false);
-    }
-  }
-
-  function maybeAutoCheckid(row, source) {
-    const rfcEl = row.querySelector('.rfc-field');
-    const curpEl = row.querySelector('.curp-field');
-    const rfc = rfcEl ? rfcEl.value.trim() : '';
-    const curp = curpEl ? curpEl.value.trim() : '';
-    if (source === 'rfc' && rfc.length >= CHECKID_RFC_MIN) {
-      runCheckid(row);
-    } else if (source === 'curp' && curp.length >= CHECKID_CURP_LEN) {
-      runCheckid(row);
-    }
-  }
-
-  rows.forEach((row) => {
-    const btn = row.querySelector('.checkid-btn');
-    if (btn) btn.addEventListener('click', () => runCheckid(row));
-    const rfcEl = row.querySelector('.rfc-field');
-    const curpEl = row.querySelector('.curp-field');
-    if (rfcEl) rfcEl.addEventListener('blur', () => maybeAutoCheckid(row, 'rfc'));
-    if (curpEl) curpEl.addEventListener('blur', () => maybeAutoCheckid(row, 'curp'));
-  });
 </script>
 {% endblock %}

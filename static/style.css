@@ -67,7 +67,28 @@ a { color: var(--primary-dark); text-decoration: none; }
   font-weight: 700;
 }
 
-.nav { display: grid; gap: 10px; }
+.nav { display: grid; gap: 0; }
+.nav-group {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.nav > .nav-group:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+.nav-group-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+  padding: 0 14px 2px;
+}
 .nav-link {
   color: #e2e8f0;
   padding: 12px 14px;
@@ -76,6 +97,19 @@ a { color: var(--primary-dark); text-decoration: none; }
 }
 .nav-link:hover { background: rgba(255,255,255,.09); }
 .nav-link.danger { color: #fecaca; }
+.nav-link-logout {
+  margin-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 14px;
+  border-radius: 0;
+  background: transparent;
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.nav-link-logout:hover {
+  background: rgba(255,255,255,.06);
+  border-radius: 12px;
+}
 
 .user-box {
   margin-top: auto;
@@ -374,31 +408,52 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   font-weight: 600;
 }
 
-/* CheckID en formulario de movimiento */
-.fiscal-top .checkid-action-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  justify-content: flex-end;
-}
-.checkid-buttons {
+/* Herramienta CheckID (/checkid) */
+.checkid-tool { display: grid; gap: 18px; }
+.checkid-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
 }
 .checkid-loader {
-  font-size: 0.88rem;
+  font-size: 0.92rem;
   color: var(--muted);
   font-weight: 600;
 }
-.checkid-msg {
-  margin: 0 0 12px;
-  font-size: 0.9rem;
-  color: var(--muted);
-  min-height: 1.2em;
-}
-.checkid-msg--error {
+.checkid-inline-error {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--error);
   color: var(--error-text);
   font-weight: 600;
+  font-size: 0.95rem;
+}
+.checkid-results-wrap {
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.checkid-results-title {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+}
+.checkid-dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: 8px 16px;
+  font-size: 0.95rem;
+}
+.checkid-dl dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 600;
+}
+.checkid-dl dd {
+  margin: 0;
+  word-break: break-word;
+}
+.checkid-meta {
+  margin-top: 12px;
 }

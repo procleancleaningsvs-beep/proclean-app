@@ -14,20 +14,34 @@
         <div class="brand-mark">PC</div>
         <div>
           <h1>{{ app_name }}</h1>
-          <p>Motor AFIL IMSS</p>
+          <p>Plataforma documental</p>
         </div>
       </div>
-      <nav class="nav">
+      <nav class="nav" aria-label="Principal">
         {% if current_user.role == 'admin' %}
         <a href="{{ url_for('dashboard') }}" class="nav-link">Dashboard</a>
         {% endif %}
-        <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo formato</a>
-        <a href="{{ url_for('historial') }}" class="nav-link">Historial</a>
+
+        <div class="nav-group">
+          <span class="nav-group-label">Movimientos IMSS</span>
+          <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo movimiento</a>
+          <a href="{{ url_for('historial') }}" class="nav-link">Historial de movimientos</a>
+        </div>
+
+        <div class="nav-group">
+          <span class="nav-group-label">Herramientas</span>
+          <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
+        </div>
+
         {% if current_user.role == 'admin' %}
+        <div class="nav-group">
+          <span class="nav-group-label">Administración</span>
           <a href="{{ url_for('admin_usuarios') }}" class="nav-link">Usuarios</a>
           <a href="{{ url_for('admin_plantilla') }}" class="nav-link">Plantilla</a>
+        </div>
         {% endif %}
-        <a href="{{ url_for('logout') }}" class="nav-link danger">Cerrar sesión</a>
+
+        <a href="{{ url_for('logout') }}" class="nav-link danger nav-link-logout">Cerrar sesión</a>
       </nav>
       <div class="user-box">
         <strong>{{ current_user.username }}</strong>

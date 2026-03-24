@@ -2,16 +2,16 @@
 {% block content %}
 <section class="page-head">
   <div>
-    <span class="eyebrow">Panel ejecutivo</span>
-    <h2>Operación central</h2>
-    <p>Vista rápida del pipeline documental. Menos drama, más PDFs.</p>
+    <span class="eyebrow">Dashboard</span>
+    <h2>Resumen</h2>
+    <p>Resumen de la plataforma: movimientos IMSS, constancias y uso reciente.</p>
   </div>
-  <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Generar nuevo formato</a>
+  <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Nuevo movimiento</a>
 </section>
 
 <section class="stats-grid">
   <article class="stat-card">
-    <span>Formatos generados</span>
+    <span>Constancias generadas</span>
     <strong>{{ stats.formatos }}</strong>
   </article>
   <article class="stat-card">
@@ -33,7 +33,7 @@
 <section class="panel">
   <div class="panel-head">
     <h3>Actividad reciente</h3>
-    <a href="{{ url_for('historial') }}">Ver historial completo</a>
+    <a href="{{ url_for('historial') }}">Ver historial de movimientos</a>
   </div>
   {% if recent_history %}
   <div class="table-wrap">
@@ -61,7 +61,7 @@
     </table>
   </div>
   {% else %}
-  <p class="empty-state">Aún no hay formatos generados.</p>
+  <p class="empty-state">Aún no hay constancias generadas.</p>
   {% endif %}
 </section>
 {% endblock %}

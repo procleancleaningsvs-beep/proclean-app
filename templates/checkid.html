@@ -1,0 +1,202 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Herramientas</span>
+    <h2>CheckID</h2>
+    <p>Consulta SAT por RFC o CURP. Los resultados son solo de referencia en esta pantalla.</p>
+  </div>
+</section>
+
+<section class="form-card checkid-tool">
+  <div class="grid-2">
+    <label>RFC
+      <input type="text" id="checkid-rfc" maxlength="13" placeholder="12–13 caracteres" autocomplete="off" autocapitalize="characters">
+    </label>
+    <label>CURP
+      <input type="text" id="checkid-curp" maxlength="18" placeholder="18 caracteres" autocomplete="off" autocapitalize="characters">
+    </label>
+  </div>
+  <p class="helper">Indica al menos uno de los dos. Si ambos tienen formato válido, se envía primero el RFC.</p>
+
+  <div class="checkid-actions">
+    <button type="button" class="btn btn-primary" id="checkid-submit">Consultar CheckID</button>
+    <span class="checkid-loader" id="checkid-loader" hidden aria-hidden="true">Consultando…</span>
+  </div>
+
+  <div id="checkid-error" class="checkid-inline-error" hidden role="alert"></div>
+
+  <div id="checkid-results-wrap" class="checkid-results-wrap" hidden>
+    <h3 class="checkid-results-title">Resultado</h3>
+    <dl class="checkid-dl" id="checkid-dl"></dl>
+    <p class="helper checkid-meta" id="checkid-meta"></p>
+  </div>
+</section>
+
+<script>
+(function () {
+  const RFC_MIN = 12;
+  const CURP_LEN = 18;
+
+  const elRfc = document.getElementById('checkid-rfc');
+  const elCurp = document.getElementById('checkid-curp');
+  const elSubmit = document.getElementById('checkid-submit');
+  const elLoader = document.getElementById('checkid-loader');
+  const elError = document.getElementById('checkid-error');
+  const elWrap = document.getElementById('checkid-results-wrap');
+  const elDl = document.getElementById('checkid-dl');
+  const elMeta = document.getElementById('checkid-meta');
+
+  function deepFindValue(obj, candidateKeys) {
+    if (obj == null || typeof obj !== 'object') return '';
+    const lower = candidateKeys.map((k) => k.toLowerCase());
+    const queue = [obj];
+    const seen = new Set();
+    while (queue.length) {
+      const cur = queue.shift();
+      if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+      seen.add(cur);
+      for (const [k, v] of Object.entries(cur)) {
+        if (lower.includes(k.toLowerCase()) && v != null && String(v).trim() !== '') {
+          return String(v).trim();
+        }
+        if (v && typeof v === 'object') {
+          if (Array.isArray(v)) {
+            v.forEach((item) => {
+              if (item && typeof item === 'object') queue.push(item);
+            });
+          } else {
+            queue.push(v);
+          }
+        }
+      }
+    }
+    return '';
+  }
+
+  function mapPayload(payload) {
+    const d = payload && typeof payload === 'object' ? payload : {};
+    const estado69 = deepFindValue(d, [
+      'Estado69O69B', 'Estado69o69B', 'Estado69', 'Estado69B', 'EstadoOpinion69',
+      'Opinion69', 'Opinion69B', 'Opinion69O69B', 'Situacion69', 'Situacion69o69B',
+      'Descripcion69', 'EstadoOpinion69B', 'Estatus69', 'Estatus69B',
+    ]);
+    return {
+      rfc: deepFindValue(d, ['RFC', 'Rfc', 'rfc']),
+      curp: deepFindValue(d, ['CURP', 'Curp', 'curp']),
+      nss: deepFindValue(d, ['NSS', 'Nss', 'nss', 'NumeroSeguridadSocial', 'NumeroSegSocial']),
+      regimenFiscal: deepFindValue(d, [
+        'RegimenFiscal', 'Regimen', 'regimen_fiscal', 'DescripcionRegimen', 'RegimenFiscalDescripcion',
+        'DescripcionRegimenFiscal', 'RegimenFiscalDesc',
+      ]),
+      cp: deepFindValue(d, ['CodigoPostal', 'CP', 'CódigoPostal', 'codigo_postal', 'Codigo_Postal', 'CodigoPostalSAT']),
+      estado69: estado69,
+    };
+  }
+
+  function bodyFromInputs() {
+    const rfc = (elRfc.value || '').trim();
+    const curp = (elCurp.value || '').trim();
+    const hasRfc = rfc.length >= RFC_MIN;
+    const hasCurp = curp.length >= CURP_LEN;
+    if (hasRfc && hasCurp) return { rfc };
+    if (hasRfc) return { rfc };
+    if (hasCurp) return { curp };
+    if (rfc) return { rfc };
+    if (curp) return { curp };
+    return null;
+  }
+
+  function setLoading(on) {
+    elLoader.hidden = !on;
+    elLoader.setAttribute('aria-hidden', on ? 'false' : 'true');
+    elSubmit.disabled = !!on;
+    elSubmit.setAttribute('aria-busy', on ? 'true' : 'false');
+  }
+
+  function setError(text) {
+    if (!text) {
+      elError.hidden = true;
+      elError.textContent = '';
+      return;
+    }
+    elError.textContent = text;
+    elError.hidden = false;
+  }
+
+  function renderResults(mapped, json) {
+    elDl.innerHTML = '';
+    const rows = [
+      ['RFC', mapped.rfc],
+      ['CURP', mapped.curp],
+      ['NSS', mapped.nss],
+      ['Régimen fiscal', mapped.regimenFiscal],
+      ['Código postal', mapped.cp],
+      ['Estado 69 / 69-B', mapped.estado69],
+    ];
+    let any = false;
+    rows.forEach(([label, val]) => {
+      if (!val) return;
+      any = true;
+      const dt = document.createElement('dt');
+      dt.textContent = label;
+      const dd = document.createElement('dd');
+      dd.textContent = val;
+      elDl.appendChild(dt);
+      elDl.appendChild(dd);
+    });
+    if (!any) {
+      const p = document.createElement('p');
+      p.className = 'empty-state';
+      p.style.gridColumn = '1 / -1';
+      p.textContent = 'La respuesta no incluyó datos reconocibles en estos campos.';
+      elDl.appendChild(p);
+    }
+    const parts = [];
+    if (json.error_code) parts.push('Código: ' + json.error_code);
+    if (json.http_status != null) parts.push('HTTP: ' + json.http_status);
+    elMeta.textContent = parts.length ? parts.join(' · ') : '';
+    elWrap.hidden = false;
+  }
+
+  async function run() {
+    setError('');
+    elWrap.hidden = true;
+    const body = bodyFromInputs();
+    if (!body) {
+      setError('Ingresa un RFC (12–13 caracteres) o CURP (18 caracteres) para consultar.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/checkid/buscar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) {
+        setError('Respuesta inesperada del servidor. Intenta de nuevo.');
+        return;
+      }
+      const json = await res.json();
+      if (!json.ok) {
+        const msg = json.message || json.error_code || 'No se pudo completar la consulta.';
+        setError(msg);
+        return;
+      }
+      const raw = json.data;
+      const mapped = mapPayload(raw);
+      renderResults(mapped, json);
+    } catch (e) {
+      setError('Error de red al consultar CheckID. Revisa tu conexión e intenta de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  elSubmit.addEventListener('click', run);
+})();
+</script>
+{% endblock %}
