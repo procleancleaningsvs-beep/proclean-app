@@ -20,6 +20,29 @@ HEX_LOWER = "0123456789abcdef"
 HEX_UPPER = "0123456789ABCDEF"
 DIGITS = string.digits
 INVALID_FILENAME_CHARS = r'[\\/*?:"<>|]'
+# Anchos relativos aproximados para glifos hex en Arial/Liberation Sans.
+# Se usan para evitar que SELLO_LINEA1 salte a una segunda línea.
+HEX_VISUAL_WIDTH = {
+    "0": 556,
+    "1": 556,
+    "2": 556,
+    "3": 556,
+    "4": 556,
+    "5": 556,
+    "6": 556,
+    "7": 556,
+    "8": 556,
+    "9": 556,
+    "A": 667,
+    "B": 667,
+    "C": 722,
+    "D": 722,
+    "E": 667,
+    "F": 611,
+}
+# El formato original estaba pensado para 111 caracteres.
+# Tomamos como presupuesto el ancho de 111 dígitos.
+SELLO_LINEA1_VISUAL_BUDGET = 111 * HEX_VISUAL_WIDTH["0"]
 TEMPLATE_FILENAMES = {
     1: "formato_movimiento.docx",
     2: "formato_alta (2).docx",
@@ -57,8 +80,22 @@ def gen_huella() -> str:
     return "".join(random.choices(HEX_LOWER, k=40))
 
 
+def fit_sello_linea1_single_line(raw: str) -> str:
+    candidate = (raw or "").strip().upper()
+    if not candidate:
+        return candidate
+
+    def visual_width(text: str) -> int:
+        return sum(HEX_VISUAL_WIDTH.get(ch, HEX_VISUAL_WIDTH["0"]) for ch in text)
+
+    # Ajuste mínimo: recorta de a 1 carácter hasta caber.
+    while candidate and visual_width(candidate) > SELLO_LINEA1_VISUAL_BUDGET:
+        candidate = candidate[:-1]
+    return candidate
+
+
 def gen_sello() -> tuple[str, str]:
-    linea1 = "".join(random.choices(HEX_UPPER, k=111))
+    linea1 = fit_sello_linea1_single_line("".join(random.choices(HEX_UPPER, k=111)))
     linea2 = "".join(random.choices(HEX_UPPER, k=20)) + " | " + "1" + rnd_digits(9)
     return linea1, linea2
 
