@@ -9,6 +9,9 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Ruta preparada para montar Volume en Railway.
+RUN mkdir -p /app/data
+
 COPY . .
 
 RUN pip install --no-cache-dir -r requirements.txt

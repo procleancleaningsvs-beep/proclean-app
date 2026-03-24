@@ -26,9 +26,36 @@ from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_
 
 BASE_DIR = Path(__file__).resolve().parent
 BUNDLED_TEMPLATES_DIR = BASE_DIR / "docx_templates"
-INSTANCE_DIR = Path(os.environ.get("PROCLEAN_INSTANCE_DIR", str(BASE_DIR / "instance")))
-GENERATED_DIR = Path(os.environ.get("PROCLEAN_GENERATED_DIR", str(BASE_DIR / "generated")))
-DOCX_TEMPLATES_DIR = Path(os.environ.get("PROCLEAN_TEMPLATES_DIR", str(BUNDLED_TEMPLATES_DIR)))
+
+# Persistencia (Railway Volume en /app/data)
+# - Si existen rutas específicas via env vars, se respetan para compatibilidad local.
+# - Si no, se intenta usar /app/data (o PROCLEAN_DATA_DIR) cuando está disponible,
+#   y si no, se cae a rutas locales del proyecto.
+_env_instance_dir = os.environ.get("PROCLEAN_INSTANCE_DIR")
+_env_generated_dir = os.environ.get("PROCLEAN_GENERATED_DIR")
+_env_templates_dir = os.environ.get("PROCLEAN_TEMPLATES_DIR")
+
+_local_instance_dir = BASE_DIR / "instance"
+_local_generated_dir = BASE_DIR / "generated"
+_local_templates_dir = BUNDLED_TEMPLATES_DIR
+
+_persist_base_dir = Path(os.environ.get("PROCLEAN_DATA_DIR", "/app/data"))
+_can_use_persist = (os.name != "nt") and (_persist_base_dir.exists() or os.environ.get("PROCLEAN_DATA_DIR"))
+
+if _env_instance_dir or _env_generated_dir or _env_templates_dir:
+    INSTANCE_DIR = Path(_env_instance_dir) if _env_instance_dir else _local_instance_dir
+    GENERATED_DIR = Path(_env_generated_dir) if _env_generated_dir else _local_generated_dir
+    DOCX_TEMPLATES_DIR = Path(_env_templates_dir) if _env_templates_dir else _local_templates_dir
+else:
+    if _can_use_persist:
+        INSTANCE_DIR = _persist_base_dir / "instance"
+        GENERATED_DIR = _persist_base_dir / "generated"
+        DOCX_TEMPLATES_DIR = _persist_base_dir / "docx_templates"
+    else:
+        INSTANCE_DIR = _local_instance_dir
+        GENERATED_DIR = _local_generated_dir
+        DOCX_TEMPLATES_DIR = _local_templates_dir
+
 ADMIN_CREDENTIALS_PATH = INSTANCE_DIR / "admin_credentials.txt"
 SECRET_KEY_PATH = INSTANCE_DIR / "secret_key.txt"
 DB_PATH = INSTANCE_DIR / "proclean.db"
