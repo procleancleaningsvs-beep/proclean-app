@@ -34,7 +34,11 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
 from services.checkid_client import CheckIDClient, CheckIDConfigurationError, normalize_termino_busqueda
-from services.checkid_history import list_checkid_queries_global, persist_checkid_query
+from services.checkid_history import (
+    delete_checkid_query_by_id,
+    list_checkid_queries_global,
+    persist_checkid_query,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +346,11 @@ def create_app() -> Flask:
     @login_required
     def checkid_consulta():
         checkid_history = list_checkid_queries_global(str(DB_PATH), limit=200)
-        return render_template("checkid.html", checkid_history=checkid_history)
+        return render_template(
+            "checkid.html",
+            checkid_history=checkid_history,
+            checkid_admin=g.user["role"] == "admin",
+        )
 
     @app.route("/historial")
     @login_required
@@ -634,6 +642,14 @@ def create_app() -> Flask:
             }
             _safe_persist_checkid_history(termino_log, _err_body)
             return jsonify(_err_body), 500
+
+    @app.delete("/api/checkid/historial/<int:entry_id>")
+    @login_required
+    @role_required("admin")
+    def api_checkid_historial_delete(entry_id: int):
+        if delete_checkid_query_by_id(str(DB_PATH), entry_id):
+            return jsonify({"ok": True}), 200
+        return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
 
     @app.get("/api/checkid/solicitudes-restantes")
     @login_required

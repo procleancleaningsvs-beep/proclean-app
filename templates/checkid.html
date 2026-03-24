@@ -59,6 +59,7 @@
           <th>C.P.</th>
           <th>69/69-B</th>
           <th>Detalle</th>
+          {% if checkid_admin %}<th class="checkid-h-actions">Acciones</th>{% endif %}
         </tr>
       </thead>
       <tbody id="checkid-history-tbody">
@@ -83,6 +84,11 @@
               {% if row.error_message %} {{ row.error_message }}{% elif not row.error_code %}—{% endif %}
             {% endif %}
           </td>
+          {% if checkid_admin %}
+          <td class="checkid-h-actions">
+            <button type="button" class="btn btn-secondary checkid-history-delete" data-id="{{ row.id }}" aria-label="Eliminar consulta del historial">Eliminar</button>
+          </td>
+          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
@@ -98,6 +104,8 @@
   const RFC_MIN = 12;
   const CURP_LEN = 18;
   const ND = 'No disponible';
+  const SI = 'Sin información';
+  const COPY_FEEDBACK_MS = 1800;
 
   const elRfc = document.getElementById('checkid-rfc');
   const elCurp = document.getElementById('checkid-curp');
@@ -108,97 +116,47 @@
   const elDl = document.getElementById('checkid-dl');
   const elMeta = document.getElementById('checkid-meta');
 
-  /** Solo primitivos legibles; nunca devuelve objetos. */
-  function scalarStr(obj, ...keys) {
-    if (!obj || typeof obj !== 'object') return '';
-    for (let i = 0; i < keys.length; i += 1) {
-      const v = obj[keys[i]];
-      if (v == null || v === '') continue;
-      if (typeof v === 'object') continue;
-      const s = String(v).trim();
-      if (s) return s;
-    }
-    return '';
-  }
-
-  function nombreDesdeCurp(curpBlock) {
-    if (!curpBlock || typeof curpBlock !== 'object') return '';
-    const parts = [
-      scalarStr(curpBlock, 'nombres', 'Nombres'),
-      scalarStr(curpBlock, 'primerApellido', 'PrimerApellido'),
-      scalarStr(curpBlock, 'segundoApellido', 'SegundoApellido'),
-    ].filter(Boolean);
-    return parts.join(' ').trim();
-  }
-
-  function formatRegimenesFiscales(val) {
-    if (val == null || val === '') return '';
-    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
-      const s = String(val).trim();
-      return s;
-    }
-    if (Array.isArray(val)) {
-      const parts = val.map((item) => {
-        if (item == null) return '';
-        if (typeof item === 'string' || typeof item === 'number') return String(item).trim();
-        if (typeof item !== 'object') return '';
-        const desc = scalarStr(item, 'descripcion', 'Descripcion', 'nombre', 'Nombre');
-        const cod = scalarStr(item, 'codigo', 'Codigo', 'clave', 'Clave');
-        if (desc && cod) return desc + ' (' + cod + ')';
-        return desc || cod || '';
-      }).filter(Boolean);
-      return parts.join('; ') || '';
-    }
-    if (typeof val === 'object') {
-      return formatRegimenesFiscales([val]);
-    }
-    return '';
-  }
-
-  function bloqueEstado69(d) {
-    return d.estado69o69B || d.estado69O69B || null;
-  }
-
   /**
-   * Mapea json.data (estructura CheckID anidada) a strings legibles.
+   * payload = json.data.resultado (estructura real de /api/checkid/buscar).
    */
   function extractCheckidFields(payload) {
-    const d = payload && typeof payload === 'object' ? payload : {};
-    const rfcBlock = d.rfc && typeof d.rfc === 'object' ? d.rfc : null;
-    const curpBlock = d.curp && typeof d.curp === 'object' ? d.curp : null;
+    const p = payload && typeof payload === 'object' ? payload : {};
+    const rfc = p.rfc && typeof p.rfc === 'object' ? p.rfc : null;
+    const curp = p.curp && typeof p.curp === 'object' ? p.curp : null;
 
-    let nombre = scalarStr(rfcBlock, 'razonSocial', 'RazonSocial');
-    if (!nombre) {
-      const nb = nombreDesdeCurp(curpBlock);
-      if (nb) nombre = nb;
+    let nombre = rfc && rfc.razonSocial != null ? String(rfc.razonSocial).trim() : '';
+    if (!nombre && curp) {
+      nombre = [curp.nombres, curp.primerApellido, curp.segundoApellido]
+        .filter((x) => x != null && String(x).trim() !== '')
+        .map((x) => String(x).trim())
+        .join(' ');
     }
-    if (!nombre) {
-      const e69 = bloqueEstado69(d);
-      const det = e69 && typeof e69 === 'object' ? e69.detalles : null;
-      if (det && typeof det === 'object') {
-        nombre = scalarStr(det, 'nombre', 'Nombre');
+
+    const rfcVal = rfc && rfc.rfc != null ? String(rfc.rfc).trim() : '';
+    let curpVal = curp && curp.curp != null ? String(curp.curp).trim() : '';
+    if (!curpVal && rfc && rfc.curp != null) curpVal = String(rfc.curp).trim();
+
+    const nssObj = p.nss && typeof p.nss === 'object' ? p.nss : null;
+    const nssVal = nssObj && nssObj.nss != null ? String(nssObj.nss).trim() : '';
+
+    const regObj = p.regimenFiscal && typeof p.regimenFiscal === 'object' ? p.regimenFiscal : null;
+    let regimenVal = '';
+    if (regObj && regObj.regimenesFiscales != null) {
+      const rf = regObj.regimenesFiscales;
+      if (typeof rf === 'string' || typeof rf === 'number' || typeof rf === 'boolean') {
+        regimenVal = String(rf).trim();
       }
     }
 
-    const rfcVal = scalarStr(rfcBlock, 'rfc', 'RFC');
-    const curpVal = scalarStr(curpBlock, 'curp', 'CURP') || scalarStr(rfcBlock, 'curp', 'CURP');
+    const cpObj = p.codigoPostal && typeof p.codigoPostal === 'object' ? p.codigoPostal : null;
+    const cpVal = cpObj && cpObj.codigoPostal != null ? String(cpObj.codigoPostal).trim() : '';
 
-    const nssBlock = d.nss && typeof d.nss === 'object' ? d.nss : null;
-    const nssVal = scalarStr(nssBlock, 'nss', 'NSS');
-
-    const regBlock = d.regimenFiscal && typeof d.regimenFiscal === 'object' ? d.regimenFiscal : null;
-    const regimenVal = formatRegimenesFiscales(
-      regBlock && (regBlock.regimenesFiscales != null ? regBlock.regimenesFiscales : regBlock.RegimenesFiscales),
-    );
-
-    const cpBlock = d.codigoPostal && typeof d.codigoPostal === 'object' ? d.codigoPostal : null;
-    const cpVal = scalarStr(cpBlock, 'codigoPostal', 'CodigoPostal', 'CP');
-
-    const e69 = bloqueEstado69(d);
+    const e69 = p.estado69o69B && typeof p.estado69o69B === 'object' ? p.estado69o69B : null;
     let estado69Label = 'Sin información';
-    if (e69 && typeof e69 === 'object' && Object.prototype.hasOwnProperty.call(e69, 'conProblema')) {
-      if (e69.conProblema === true) estado69Label = 'Con problema';
-      else if (e69.conProblema === false) estado69Label = 'Sin problema';
+    if (e69 && Object.prototype.hasOwnProperty.call(e69, 'conProblema')) {
+      const cpv = e69.conProblema;
+      if (cpv === true) estado69Label = 'Con problema';
+      else if (cpv === false) estado69Label = 'Sin problema';
       else estado69Label = 'Sin información';
     }
 
@@ -256,6 +214,30 @@
     return s || fallback;
   }
 
+  function canCopyDisplayed(text) {
+    return text !== ND && text !== SI;
+  }
+
+  async function copyCheckidValue(text, btn) {
+    const labelDefault = 'Copiar';
+    try {
+      await navigator.clipboard.writeText(text);
+      btn.textContent = 'Copiado';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = labelDefault;
+        btn.disabled = false;
+      }, COPY_FEEDBACK_MS);
+    } catch (err) {
+      btn.textContent = 'Error';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.textContent = labelDefault;
+        btn.disabled = false;
+      }, COPY_FEEDBACK_MS);
+    }
+  }
+
   function renderResults(mapped, json) {
     elDl.innerHTML = '';
     const rows = [
@@ -265,13 +247,28 @@
       ['NSS', cellText(mapped.nss, ND)],
       ['Régimen fiscal', cellText(mapped.regimen, ND)],
       ['Código postal', cellText(mapped.cp, ND)],
-      ['Estado 69 / 69-B', cellText(mapped.estado69, 'Sin información')],
+      ['Estado 69 / 69-B', cellText(mapped.estado69, SI)],
     ];
     rows.forEach(([label, val]) => {
       const dt = document.createElement('dt');
       dt.textContent = label;
       const dd = document.createElement('dd');
-      dd.textContent = val;
+      dd.className = 'checkid-dd-row';
+      const span = document.createElement('span');
+      span.className = 'checkid-dd-text';
+      span.textContent = val;
+      dd.appendChild(span);
+      if (canCopyDisplayed(val)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary checkid-copy-btn';
+        btn.textContent = 'Copiar';
+        btn.setAttribute('aria-label', 'Copiar ' + label);
+        btn.addEventListener('click', function () {
+          copyCheckidValue(val, btn);
+        });
+        dd.appendChild(btn);
+      }
       elDl.appendChild(dt);
       elDl.appendChild(dd);
     });
@@ -306,13 +303,15 @@
         return;
       }
       const json = await res.json();
+      console.log('[CheckID] respuesta /api/checkid/buscar', json);
       if (!json.ok) {
         const msg = json.message || json.error_code || 'No se pudo completar la consulta.';
         setError(msg);
         return;
       }
-      const raw = json.data;
-      const mapped = extractCheckidFields(raw);
+      const payload = json?.data?.resultado || {};
+      console.log('[CheckID] payload (json.data.resultado)', payload);
+      const mapped = extractCheckidFields(payload);
       renderResults(mapped, json);
     } catch (e) {
       setError('Error de red al consultar CheckID. Revisa tu conexión e intenta de nuevo.');
@@ -345,6 +344,47 @@
 
   input.addEventListener('input', applyHistoryFilter);
   input.addEventListener('search', applyHistoryFilter);
+})();
+
+(function () {
+  const tbody = document.getElementById('checkid-history-tbody');
+  if (!tbody) return;
+  tbody.addEventListener('click', async function (ev) {
+    const btn = ev.target.closest('.checkid-history-delete');
+    if (!btn) return;
+    const id = btn.getAttribute('data-id');
+    if (!id) return;
+    if (!window.confirm('¿Eliminar esta consulta del historial? Esta acción no se puede deshacer.')) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/checkid/historial/' + encodeURIComponent(id), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      let data = {};
+      try {
+        data = await res.json();
+      } catch (_e) {
+        data = {};
+      }
+      if (!res.ok) {
+        window.alert(data.message || 'No se pudo eliminar el registro.');
+        btn.disabled = false;
+        return;
+      }
+      const tr = btn.closest('tr');
+      if (tr) tr.remove();
+      const searchInput = document.getElementById('checkid-history-search');
+      if (searchInput) searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+      if (!tbody.querySelector('tr')) {
+        window.location.reload();
+      }
+    } catch (_err) {
+      window.alert('Error de red al eliminar.');
+      btn.disabled = false;
+    }
+  });
 })();
 </script>
 {% endblock %}

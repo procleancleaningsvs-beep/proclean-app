@@ -477,6 +477,24 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   margin: 0;
   word-break: break-word;
 }
+.checkid-dd-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.checkid-dd-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+.checkid-copy-btn {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  border-radius: 10px;
+  font-weight: 700;
+}
 .checkid-meta {
   margin-top: 12px;
 }
@@ -516,6 +534,15 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 .checkid-h-code {
   font-weight: 700;
   color: var(--error-text);
+}
+.checkid-h-actions {
+  white-space: nowrap;
+}
+.checkid-history-delete {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  border-radius: 10px;
+  font-weight: 700;
 }
 .checkid-badge {
   display: inline-block;

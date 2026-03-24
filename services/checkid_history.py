@@ -214,3 +214,14 @@ def list_checkid_queries_global(db_path: str, limit: int = 200) -> list[dict[str
         return out
     finally:
         conn.close()
+
+
+def delete_checkid_query_by_id(db_path: str, entry_id: int) -> bool:
+    """Elimina una fila de historial CheckID por id. Devuelve True si se borró alguna fila."""
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute("DELETE FROM checkid_query_log WHERE id = ?", (int(entry_id),))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
