@@ -137,6 +137,41 @@ def create_app() -> Flask:
         recent_history = list_history(limit=5)
         return render_template("dashboard.html", stats=stats, recent_history=recent_history)
 
+    @app.route("/admin/diagnostico/persistencia", methods=["GET"])
+    @login_required
+    @role_required("admin")
+    def diagnostico_persistencia():
+        if os.environ.get("PROCLEAN_ENABLE_DIAGNOSTICS") != "1":
+            abort(404)
+
+        db_exists = DB_PATH.exists()
+        admin_credentials_exists = ADMIN_CREDENTIALS_PATH.exists()
+        users_total = 0
+        admins_total = 0
+        admin_usernames: list[str] = []
+
+        if db_exists:
+            conn = sqlite3.connect(DB_PATH)
+            try:
+                users_total = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                admins_total = conn.execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0]
+                admin_usernames = [row[0] for row in conn.execute("SELECT username FROM users WHERE role = 'admin' ORDER BY username").fetchall()]
+            finally:
+                conn.close()
+
+        return {
+            "INSTANCE_DIR": str(INSTANCE_DIR),
+            "DB_PATH": str(DB_PATH),
+            "ADMIN_CREDENTIALS_PATH": str(ADMIN_CREDENTIALS_PATH),
+            "GENERATED_DIR": str(GENERATED_DIR),
+            "DOCX_TEMPLATES_DIR": str(DOCX_TEMPLATES_DIR),
+            "db_exists": db_exists,
+            "admin_credentials_exists": admin_credentials_exists,
+            "users_total": users_total,
+            "admins_total": admins_total,
+            "admin_usernames": admin_usernames,
+        }
+
     @app.route("/formatos/nuevo", methods=["GET", "POST"])
     @login_required
     def nuevo_formato():
