@@ -41,8 +41,9 @@ HEX_VISUAL_WIDTH = {
     "F": 611,
 }
 # El formato original estaba pensado para 111 caracteres.
-# Tomamos como presupuesto el ancho de 111 dígitos.
-SELLO_LINEA1_VISUAL_BUDGET = 111 * HEX_VISUAL_WIDTH["0"]
+# Presupuesto estimado con el ancho promedio de los caracteres hex.
+AVG_HEX_WIDTH = sum(HEX_VISUAL_WIDTH.values()) / len(HEX_VISUAL_WIDTH)
+SELLO_LINEA1_VISUAL_BUDGET = int(111 * AVG_HEX_WIDTH)
 TEMPLATE_FILENAMES = {
     1: "formato_movimiento.docx",
     2: "formato_alta (2).docx",
@@ -88,10 +89,14 @@ def fit_sello_linea1_single_line(raw: str) -> str:
     def visual_width(text: str) -> int:
         return sum(HEX_VISUAL_WIDTH.get(ch, HEX_VISUAL_WIDTH["0"]) for ch in text)
 
-    # Ajuste mínimo: recorta de a 1 carácter hasta caber.
-    while candidate and visual_width(candidate) > SELLO_LINEA1_VISUAL_BUDGET:
-        candidate = candidate[:-1]
-    return candidate
+    # Probar desde la longitud actual hacia abajo; detenerse en la primera
+    # que quepa en una sola línea (según el estimador de ancho visual).
+    for n in range(len(candidate), 0, -1):
+        prefix = candidate[:n]
+        if visual_width(prefix) <= SELLO_LINEA1_VISUAL_BUDGET:
+            return prefix
+
+    return candidate[:1]
 
 
 def gen_sello() -> tuple[str, str]:
