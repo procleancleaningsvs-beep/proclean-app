@@ -33,6 +33,66 @@
   </div>
 </section>
 
+<section class="form-card checkid-recent-panel">
+  <h3 class="checkid-recent-title">Consultas recientes</h3>
+  <p class="helper">Historial compartido de todas las consultas CheckID (últimas 200). Tras consultar, actualiza la página para ver la nueva fila.</p>
+  {% if checkid_history %}
+  <div class="history-toolbar checkid-recent-toolbar">
+    <label class="history-search-label">Buscar en consultas
+      <input type="search" id="checkid-history-search" class="history-search-input" placeholder="Usuario, término, RFC, nombre, error…" autocomplete="off" aria-label="Filtrar consultas recientes">
+    </label>
+  </div>
+  <p id="checkid-history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
+  <div class="table-wrap checkid-history-table-wrap">
+    <table class="checkid-history-table">
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Usuario</th>
+          <th>Término</th>
+          <th>Resultado</th>
+          <th>RFC</th>
+          <th>CURP</th>
+          <th>Nombre</th>
+          <th>NSS</th>
+          <th>Régimen</th>
+          <th>C.P.</th>
+          <th>69/69-B</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody id="checkid-history-tbody">
+        {% for row in checkid_history %}
+        <tr data-search="{{ row.search_blob | e }}">
+          <td class="checkid-h-cell-nowrap">{{ row.created_at }}</td>
+          <td class="checkid-h-cell-nowrap">{% if row.username %}{{ row.username }}{% else %}id {{ row.user_id }}{% endif %}</td>
+          <td>{{ row.termino_busqueda or '—' }}</td>
+          <td>{% if row.ok %}<span class="checkid-badge checkid-badge--ok">Éxito</span>{% else %}<span class="checkid-badge checkid-badge--err">Error</span>{% endif %}</td>
+          <td>{{ row.rfc or '—' }}</td>
+          <td>{{ row.curp or '—' }}</td>
+          <td class="checkid-h-cell-wrap">{{ row.nombre or '—' }}</td>
+          <td>{{ row.nss or '—' }}</td>
+          <td class="checkid-h-cell-wrap">{{ row.regimen_fiscal or '—' }}</td>
+          <td>{{ row.codigo_postal or '—' }}</td>
+          <td>{{ row.estado_69 or '—' }}</td>
+          <td class="checkid-h-cell-wrap checkid-h-detail">
+            {% if row.ok %}
+              —
+            {% else %}
+              {% if row.error_code %}<span class="checkid-h-code">{{ row.error_code }}</span>{% endif %}
+              {% if row.error_message %} {{ row.error_message }}{% elif not row.error_code %}—{% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Aún no hay consultas guardadas. Al usar «Consultar CheckID» aparecerán aquí.</p>
+  {% endif %}
+</section>
+
 <script>
 (function () {
   const RFC_MIN = 12;
@@ -262,6 +322,29 @@
   }
 
   elSubmit.addEventListener('click', run);
+})();
+
+(function () {
+  const input = document.getElementById('checkid-history-search');
+  const tbody = document.getElementById('checkid-history-tbody');
+  const emptyMsg = document.getElementById('checkid-history-filter-empty');
+  if (!input || !tbody) return;
+
+  function applyHistoryFilter() {
+    const q = (input.value || '').trim().toLowerCase();
+    const rows = tbody.querySelectorAll('tr');
+    let visible = 0;
+    rows.forEach((tr) => {
+      const hay = tr.getAttribute('data-search') || '';
+      const show = !q || hay.includes(q);
+      tr.style.display = show ? '' : 'none';
+      if (show) visible += 1;
+    });
+    if (emptyMsg) emptyMsg.hidden = !(q && visible === 0);
+  }
+
+  input.addEventListener('input', applyHistoryFilter);
+  input.addEventListener('search', applyHistoryFilter);
 })();
 </script>
 {% endblock %}

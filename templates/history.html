@@ -10,8 +10,14 @@
 
 <section class="panel">
   {% if records %}
+  <div class="history-toolbar">
+    <label class="history-search-label">Buscar en historial
+      <input type="search" id="history-search" class="history-search-input" placeholder="Lote, NSS, nombre, folio, archivo…" autocomplete="off" aria-label="Filtrar filas del historial">
+    </label>
+  </div>
+  <p id="history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
   <div class="table-wrap">
-    <table>
+    <table class="history-table">
       <thead>
         <tr>
           <th>Fecha</th>
@@ -25,7 +31,7 @@
       </thead>
       <tbody>
         {% for item in records %}
-        <tr>
+        <tr data-search="{{ item.search_blob | e }}">
           <td>{{ item.created_at }}</td>
           <td>{{ item.filename }}</td>
           <td>{{ item.username }}</td>
@@ -59,4 +65,30 @@
     <p class="empty-state">Todavía no hay movimientos en el historial.</p>
   {% endif %}
 </section>
+{% if records %}
+<script>
+(function () {
+  const input = document.getElementById('history-search');
+  const emptyMsg = document.getElementById('history-filter-empty');
+  const tbody = document.querySelector('.history-table tbody');
+  if (!input || !tbody) return;
+
+  function applyFilter() {
+    const q = (input.value || '').trim().toLowerCase();
+    const rows = tbody.querySelectorAll('tr');
+    let visible = 0;
+    rows.forEach((tr) => {
+      const hay = tr.getAttribute('data-search') || '';
+      const show = !q || hay.includes(q);
+      tr.style.display = show ? '' : 'none';
+      if (show) visible += 1;
+    });
+    if (emptyMsg) emptyMsg.hidden = !(q && visible === 0);
+  }
+
+  input.addEventListener('input', applyFilter);
+  input.addEventListener('search', applyFilter);
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -388,6 +388,29 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   background: white;
 }
 
+.history-toolbar {
+  margin-bottom: 16px;
+}
+.history-search-label {
+  display: grid;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.history-search-input {
+  max-width: 420px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  background: white;
+}
+.history-filter-empty {
+  margin: 0 0 12px;
+}
+
 /* Ajustes puntuales para opciones de descarga en historial */
 .history-download-form {
   display: flex;
@@ -456,4 +479,56 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 }
 .checkid-meta {
   margin-top: 12px;
+}
+
+.checkid-recent-panel {
+  margin-top: 24px;
+  display: grid;
+  gap: 14px;
+}
+.checkid-recent-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.checkid-recent-toolbar {
+  margin-bottom: 0;
+}
+.checkid-history-table-wrap {
+  overflow-x: auto;
+}
+.checkid-history-table {
+  font-size: 0.88rem;
+}
+.checkid-history-table th,
+.checkid-history-table td {
+  vertical-align: top;
+}
+.checkid-h-cell-nowrap {
+  white-space: nowrap;
+}
+.checkid-h-cell-wrap {
+  max-width: 160px;
+  word-break: break-word;
+}
+.checkid-h-detail {
+  max-width: 220px;
+}
+.checkid-h-code {
+  font-weight: 700;
+  color: var(--error-text);
+}
+.checkid-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.checkid-badge--ok {
+  background: var(--success);
+  color: var(--success-text);
+}
+.checkid-badge--err {
+  background: var(--error);
+  color: var(--error-text);
 }

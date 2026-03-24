@@ -34,6 +34,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
 from services.checkid_client import CheckIDClient, CheckIDConfigurationError, normalize_termino_busqueda
+from services.checkid_history import list_checkid_queries_global, persist_checkid_query
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +129,15 @@ def _strip_secrets_for_log(obj: object) -> object:
     if isinstance(obj, list):
         return [_strip_secrets_for_log(i) for i in obj]
     return obj
+
+
+def _safe_persist_checkid_history(termino_log: str, body: dict) -> None:
+    if not getattr(g, "user", None):
+        return
+    try:
+        persist_checkid_query(str(DB_PATH), g.user["id"], termino_log, body)
+    except Exception:
+        logger.exception("checkid_query_log persist failed")
 
 
 def checkid_http_response(result: dict) -> tuple[dict, int]:
@@ -331,12 +341,13 @@ def create_app() -> Flask:
     @app.route("/checkid")
     @login_required
     def checkid_consulta():
-        return render_template("checkid.html")
+        checkid_history = list_checkid_queries_global(str(DB_PATH), limit=200)
+        return render_template("checkid.html", checkid_history=checkid_history)
 
     @app.route("/historial")
     @login_required
     def historial():
-        records = list_history()
+        records = [_history_row_to_template_dict(r) for r in list_history()]
         return render_template("history.html", records=records)
 
     @app.route("/descargar/<int:record_id>")
@@ -522,23 +533,22 @@ def create_app() -> Flask:
                 reason="missing_json",
                 user_id=g.user["id"] if g.user else None,
             )
-            return (
-                jsonify(
-                    {
-                        "ok": False,
-                        "internal": True,
-                        "error_code": "VALIDATION_ERROR",
-                        "message": "Se esperaba un cuerpo JSON.",
-                        "http_status": 400,
-                        "data": None,
-                    }
-                ),
-                400,
-            )
+            _bad_json = {
+                "ok": False,
+                "internal": True,
+                "error_code": "VALIDATION_ERROR",
+                "message": "Se esperaba un cuerpo JSON.",
+                "http_status": 400,
+                "data": None,
+            }
+            _safe_persist_checkid_history("", _bad_json)
+            return jsonify(_bad_json), 400
         termino = (
             (payload.get("rfc") or payload.get("curp") or payload.get("termino_busqueda") or "")
             .strip()
         )
+        termino_log = normalize_termino_busqueda(termino) or (termino.strip()[:512] if termino else "")
+        cache_key = normalize_termino_busqueda(termino)
         logger.debug(
             "checkid_buscar request meta: json_keys=%s termino_field=%s termino_len=%s",
             sorted(payload.keys()) if isinstance(payload, dict) else None,
@@ -555,21 +565,17 @@ def create_app() -> Flask:
                     user_id=g.user["id"],
                     error="CheckIDConfigurationError",
                 )
-                return (
-                    jsonify(
-                        {
-                            "ok": False,
-                            "internal": True,
-                            "error_code": "CONFIG_ERROR",
-                            "message": str(exc) or "Configure CHECKID_API_KEY.",
-                            "http_status": 503,
-                            "data": None,
-                        }
-                    ),
-                    503,
-                )
+                _cfg_body = {
+                    "ok": False,
+                    "internal": True,
+                    "error_code": "CONFIG_ERROR",
+                    "message": str(exc) or "Configure CHECKID_API_KEY.",
+                    "http_status": 503,
+                    "data": None,
+                }
+                _safe_persist_checkid_history(termino_log, _cfg_body)
+                return jsonify(_cfg_body), 503
 
-            cache_key = normalize_termino_busqueda(termino)
             cached = get_cached_busqueda(cache_key) if cache_key else None
             if cached is not None:
                 _log_checkid_struct(
@@ -580,6 +586,7 @@ def create_app() -> Flask:
                     termino_field=_checkid_payload_source(payload),
                 )
                 body, status = checkid_http_response(cached)
+                _safe_persist_checkid_history(termino_log, body)
                 return jsonify(body), status
 
             result = client.buscar(termino)
@@ -602,6 +609,7 @@ def create_app() -> Flask:
                 json.dumps(_strip_secrets_for_log(result), ensure_ascii=False, default=str),
             )
             body, status = checkid_http_response(result)
+            _safe_persist_checkid_history(termino_log, body)
             return jsonify(body), status
         except Exception as exc:
             logger.error(
@@ -616,19 +624,16 @@ def create_app() -> Flask:
                 ),
                 exc_info=True,
             )
-            return (
-                jsonify(
-                    {
-                        "ok": False,
-                        "internal": True,
-                        "error_code": "INTERNAL_ERROR",
-                        "message": "Error interno al consultar CheckID.",
-                        "http_status": 500,
-                        "data": None,
-                    }
-                ),
-                500,
-            )
+            _err_body = {
+                "ok": False,
+                "internal": True,
+                "error_code": "INTERNAL_ERROR",
+                "message": "Error interno al consultar CheckID.",
+                "http_status": 500,
+                "data": None,
+            }
+            _safe_persist_checkid_history(termino_log, _err_body)
+            return jsonify(_err_body), 500
 
     @app.get("/api/checkid/solicitudes-restantes")
     @login_required
@@ -738,6 +743,27 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS checkid_query_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                termino_busqueda TEXT NOT NULL,
+                ok INTEGER NOT NULL CHECK (ok IN (0, 1)),
+                error_code TEXT,
+                error_message TEXT,
+                rfc TEXT,
+                curp TEXT,
+                nombre TEXT,
+                nss TEXT,
+                regimen_fiscal TEXT,
+                codigo_postal TEXT,
+                estado_69 TEXT,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+            """
+        )
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
@@ -841,6 +867,42 @@ def insert_history(user_id: int, filename: str, pdf_path: str, folio: str, lote:
         return int(cursor.lastrowid)
     finally:
         conn.close()
+
+
+def _history_search_blob_from_row(row: sqlite3.Row) -> str:
+    """Texto en minúsculas para filtrado en cliente (columnas visibles + movimientos en JSON)."""
+    parts: list[str] = [
+        str(row["created_at"] or ""),
+        str(row["filename"] or ""),
+        str(row["username"] or ""),
+        str(row["movement_count"] or ""),
+        str(row["folio"] or ""),
+        str(row["lote"] or ""),
+    ]
+    raw = row["payload_json"]
+    if raw:
+        try:
+            movs = json.loads(raw)
+            if isinstance(movs, list):
+                for m in movs:
+                    if isinstance(m, dict):
+                        parts.extend(
+                            [
+                                str(m.get("tipo") or ""),
+                                str(m.get("nss") or ""),
+                                str(m.get("nombre") or ""),
+                                str(m.get("fecha") or ""),
+                            ]
+                        )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return " ".join(parts).casefold()
+
+
+def _history_row_to_template_dict(row: sqlite3.Row) -> dict:
+    d = {k: row[k] for k in row.keys()}
+    d["search_blob"] = _history_search_blob_from_row(row)
+    return d
 
 
 def list_history(limit: int | None = None):
