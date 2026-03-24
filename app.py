@@ -394,7 +394,7 @@ def ensure_forced_admin_from_env() -> None:
                 (username, password_hash, now_iso()),
             )
         conn.commit()
-        print(f"forced admin ensured: {username}")
+        print(f"forced admin ensured: {username} | db_path: {DB_PATH}")
     finally:
         conn.close()
 
