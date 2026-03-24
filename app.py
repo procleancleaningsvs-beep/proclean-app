@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import sqlite3
@@ -21,7 +22,7 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, replace_default_template
+from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
 
 BASE_DIR = Path(__file__).resolve().parent
 BUNDLED_TEMPLATES_DIR = BASE_DIR / "docx_templates"
@@ -163,6 +164,41 @@ def create_app() -> Flask:
         if not pdf_path.exists():
             abort(404)
         return send_file(pdf_path, as_attachment=True, download_name=record["filename"])
+
+    @app.route("/historial/descargar/<int:record_id>", methods=["POST"])
+    @login_required
+    def descargar_desde_historial(record_id: int):
+        record = get_history_record(record_id)
+        if not record:
+            abort(404)
+
+        output_format = (request.form.get("output_format") or "pdf").strip().lower()
+        if output_format not in {"pdf", "png"}:
+            flash("Formato de salida no válido. Usa PDF o PNG.", "error")
+            return redirect(url_for("historial"))
+        first_page_only = request.form.get("first_page_only") in {"1", "on", "true", "yes"}
+
+        movimientos_payload = json.loads(record["payload_json"])
+        movimientos = parse_movimientos({"movimientos": movimientos_payload})
+
+        try:
+            fecha_lote = str(record["created_at"]).split(" ")[0]
+            hora_lote = str(record["created_at"]).split(" ")[1][:5]
+            result = generate_constancia(
+                template_path=Path(app.config["DOCX_TEMPLATES_DIR"]),
+                output_dir=Path(app.config["GENERATED_DIR"]),
+                movimientos=movimientos,
+                keep_docx=False,
+                fecha_lote=fecha_lote,
+                hora_lote=hora_lote,
+                output_format=output_format,
+                first_page_only=first_page_only,
+            )
+            out_path = Path(result["pdf"])
+            return send_file(out_path, as_attachment=True, download_name=out_path.name)
+        except Exception as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("historial"))
 
     @app.route("/historial/eliminar/<int:record_id>", methods=["POST"])
     @login_required

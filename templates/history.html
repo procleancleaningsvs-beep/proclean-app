@@ -33,7 +33,17 @@
           <td>{{ item.folio }}</td>
           <td>{{ item.lote }}</td>
           <td class="actions-cell">
-            <a class="btn btn-small" href="{{ url_for('descargar', record_id=item.id) }}">Descargar</a>
+            <form method="post" action="{{ url_for('descargar_desde_historial', record_id=item.id) }}" class="inline-form history-download-form">
+              <select name="output_format" class="history-download-select">
+                <option value="pdf" selected>PDF</option>
+                <option value="png">PNG</option>
+              </select>
+              <label class="checkbox-line history-download-check">
+                <input type="checkbox" name="first_page_only" value="1">
+                <span>Solo primera página</span>
+              </label>
+              <button type="submit" class="btn btn-small">Descargar</button>
+            </form>
             {% if current_user.role == 'admin' %}
             <form method="post" action="{{ url_for('eliminar_historial', record_id=item.id) }}" class="inline-form" onsubmit="return confirm('¿Eliminar este registro del historial y su archivo?');">
               <button type="submit" class="btn btn-small danger-btn">Eliminar</button>

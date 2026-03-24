@@ -353,3 +353,23 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   font-size: 0.95rem;
   background: white;
 }
+
+/* Ajustes puntuales para opciones de descarga en historial */
+.history-download-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.history-download-select {
+  min-width: 84px;
+  width: auto;
+  padding: 8px 10px;
+}
+
+.history-download-check {
+  margin: 0;
+  white-space: nowrap;
+  font-weight: 600;
+}
