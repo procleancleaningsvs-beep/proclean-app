@@ -373,3 +373,32 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   white-space: nowrap;
   font-weight: 600;
 }
+
+/* CheckID en formulario de movimiento */
+.fiscal-top .checkid-action-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.checkid-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.checkid-loader {
+  font-size: 0.88rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.checkid-msg {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+.checkid-msg--error {
+  color: var(--error-text);
+  font-weight: 600;
+}

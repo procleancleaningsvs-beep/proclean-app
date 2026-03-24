@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import sqlite3
@@ -8,11 +9,16 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from flask import (
     Flask,
     abort,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -20,9 +26,43 @@ from flask import (
     session,
     url_for,
 )
+from flask_limiter import Limiter
+from flask_limiter.errors import RateLimitExceeded
+from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
+from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
+from services.checkid_client import CheckIDClient, CheckIDConfigurationError, normalize_termino_busqueda
+
+logger = logging.getLogger(__name__)
+
+CHECKID_BUSCAR_RATE_LIMIT = os.environ.get("CHECKID_BUSCAR_RATE_LIMIT", "20 per minute")
+
+
+def checkid_rate_limit_key() -> str:
+    """Clave por usuario autenticado o IP si no hay sesión."""
+    u = getattr(g, "user", None)
+    if u is not None:
+        return f"checkid:uid:{u['id']}"
+    return get_remote_address()
+
+
+limiter = Limiter(
+    key_func=checkid_rate_limit_key,
+    storage_uri=os.environ.get("RATELIMIT_STORAGE_URI", "memory://"),
+    default_limits=[],
+)
+
+
+def _log_checkid_struct(level: str, event: str, **fields: object) -> None:
+    """Log en una línea JSON (sin credenciales)."""
+    payload = {"event": f"checkid_{event}", **fields}
+    line = json.dumps(payload, ensure_ascii=False, default=str)
+    if level == "error":
+        logger.error("%s", line)
+    else:
+        logger.info("%s", line)
 
 BASE_DIR = Path(__file__).resolve().parent
 BUNDLED_TEMPLATES_DIR = BASE_DIR / "docx_templates"
@@ -63,6 +103,59 @@ DB_PATH = INSTANCE_DIR / "proclean.db"
 APP_NAME = "ProClean App"
 
 
+def _checkid_payload_source(payload: dict) -> str:
+    """Indica qué campo aportó el término (sin registrar el valor)."""
+    if payload.get("rfc"):
+        return "rfc"
+    if payload.get("curp"):
+        return "curp"
+    if payload.get("termino_busqueda"):
+        return "termino_busqueda"
+    return "none"
+
+
+def _strip_secrets_for_log(obj: object) -> object:
+    """Copia superficial/recursiva para logs: oculta ApiKey y campos sensibles similares."""
+    if isinstance(obj, dict):
+        out: dict[object, object] = {}
+        for k, v in obj.items():
+            lk = str(k).lower()
+            if lk in ("apikey", "api_key", "password", "secret", "token", "authorization"):
+                out[k] = "[redacted]"
+            else:
+                out[k] = _strip_secrets_for_log(v)
+        return out
+    if isinstance(obj, list):
+        return [_strip_secrets_for_log(i) for i in obj]
+    return obj
+
+
+def checkid_http_response(result: dict) -> tuple[dict, int]:
+    """
+    Convierte el dict del cliente CheckID en (cuerpo JSON, status HTTP).
+
+    El cliente ya devuelve siempre: ok, error_code, message, http_status, internal, data.
+    - Respuestas con internal=True (VALIDATION_ERROR, TIMEOUT, NETWORK_ERROR, etc.) → HTTP 4xx/5xx.
+    - Respuestas CheckID (internal=False, códigos E*) → HTTP 200; el detalle va en el JSON.
+
+    Ejemplos de status HTTP devueltos aquí:
+    - VALIDATION_ERROR → 400
+    - TIMEOUT → 504
+    - NETWORK_ERROR → 502
+    - Otro error interno no listado → 500
+    - Éxito o error de negocio CheckID → 200
+    """
+    if result.get("internal"):
+        code = result.get("error_code") or ""
+        status_map = {
+            "VALIDATION_ERROR": 400,
+            "TIMEOUT": 504,
+            "NETWORK_ERROR": 502,
+        }
+        return result, status_map.get(code, 500)
+    return result, 200
+
+
 def create_app() -> Flask:
     INSTANCE_DIR.mkdir(parents=True, exist_ok=True)
     GENERATED_DIR.mkdir(parents=True, exist_ok=True)
@@ -77,6 +170,30 @@ def create_app() -> Flask:
         SECRET_KEY=get_or_create_secret_key(),
         MAX_CONTENT_LENGTH=4 * 1024 * 1024,
     )
+
+    limiter.init_app(app)
+
+    @app.errorhandler(RateLimitExceeded)
+    def handle_checkid_rate_limit_exceeded(_exc: RateLimitExceeded):
+        _log_checkid_struct(
+            "info",
+            "rate_limited",
+            path=request.path,
+            user_id=g.user["id"] if g.user else None,
+        )
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "internal": True,
+                    "error_code": "RATE_LIMIT",
+                    "message": "Demasiadas consultas CheckID. Espera un momento e intenta de nuevo.",
+                    "http_status": 429,
+                    "data": None,
+                }
+            ),
+            429,
+        )
 
     init_db()
     ensure_forced_admin_from_env()
@@ -368,6 +485,169 @@ def create_app() -> Flask:
                 }
             )
         return render_template("template_admin.html", template_info=template_info)
+
+    # --- Pruebas manuales CheckID (POST /api/checkid/buscar, sesión autenticada) ---
+    # Sustituir HOST y COOKIE. No incluir ApiKey en el cuerpo; va por CHECKID_API_KEY.
+    #
+    # JSON vacío (objeto sin campos de término → validación en cliente):
+    #   curl -s -X POST "http://HOST/api/checkid/buscar" -H "Content-Type: application/json" -H "Cookie: session=COOKIE" -d "{}"
+    #
+    # RFC inválido (formato incorrecto; CheckID suele responder E201 u otro E*):
+    #   curl -s -X POST "http://HOST/api/checkid/buscar" -H "Content-Type: application/json" -H "Cookie: session=COOKIE" -d "{\"rfc\":\"XXX\"}"
+    #
+    # CURP inválido:
+    #   curl -s -X POST "http://HOST/api/checkid/buscar" -H "Content-Type: application/json" -H "Cookie: session=COOKIE" -d "{\"curp\":\"CURP00\"}"
+    #
+    # RFC válido (12 caracteres de ejemplo; reemplazar por uno real de prueba):
+    #   curl -s -X POST "http://HOST/api/checkid/buscar" -H "Content-Type: application/json" -H "Cookie: session=COOKIE" -d "{\"rfc\":\"ABCD010101ABC\"}"
+    #
+    # CURP válido (18 caracteres; reemplazar por uno real de prueba):
+    #   curl -s -X POST "http://HOST/api/checkid/buscar" -H "Content-Type: application/json" -H "Cookie: session=COOKIE" -d "{\"curp\":\"CURP000000HDFXXX00\"}"
+    #
+    # Habilitar logs DEBUG: LOG_LEVEL=DEBUG o logging del root en DEBUG para ver trazas temporales.
+    @app.post("/api/checkid/buscar")
+    @login_required
+    @limiter.limit(CHECKID_BUSCAR_RATE_LIMIT)
+    def api_checkid_buscar():
+        payload = request.get_json(silent=True)
+        if payload is None:
+            _log_checkid_struct(
+                "info",
+                "buscar_validation",
+                reason="missing_json",
+                user_id=g.user["id"] if g.user else None,
+            )
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "internal": True,
+                        "error_code": "VALIDATION_ERROR",
+                        "message": "Se esperaba un cuerpo JSON.",
+                        "http_status": 400,
+                        "data": None,
+                    }
+                ),
+                400,
+            )
+        termino = (
+            (payload.get("rfc") or payload.get("curp") or payload.get("termino_busqueda") or "")
+            .strip()
+        )
+        logger.debug(
+            "checkid_buscar request meta: json_keys=%s termino_field=%s termino_len=%s",
+            sorted(payload.keys()) if isinstance(payload, dict) else None,
+            _checkid_payload_source(payload),
+            len(termino),
+        )
+        try:
+            try:
+                client = CheckIDClient()
+            except CheckIDConfigurationError as exc:
+                _log_checkid_struct(
+                    "error",
+                    "buscar_config",
+                    user_id=g.user["id"],
+                    error="CheckIDConfigurationError",
+                )
+                return (
+                    jsonify(
+                        {
+                            "ok": False,
+                            "internal": True,
+                            "error_code": "CONFIG_ERROR",
+                            "message": str(exc) or "Configure CHECKID_API_KEY.",
+                            "http_status": 503,
+                            "data": None,
+                        }
+                    ),
+                    503,
+                )
+
+            cache_key = normalize_termino_busqueda(termino)
+            cached = get_cached_busqueda(cache_key) if cache_key else None
+            if cached is not None:
+                _log_checkid_struct(
+                    "info",
+                    "buscar_cache_hit",
+                    user_id=g.user["id"],
+                    termino_len=len(termino),
+                    termino_field=_checkid_payload_source(payload),
+                )
+                body, status = checkid_http_response(cached)
+                return jsonify(body), status
+
+            result = client.buscar(termino)
+            if result.get("ok") is True:
+                set_cached_busqueda(cache_key, result)
+
+            _log_checkid_struct(
+                "info",
+                "buscar_result",
+                user_id=g.user["id"],
+                termino_len=len(termino),
+                termino_field=_checkid_payload_source(payload),
+                ok=result.get("ok"),
+                internal=result.get("internal"),
+                error_code=result.get("error_code"),
+                http_status=result.get("http_status"),
+            )
+            logger.debug(
+                "checkid_buscar response (sanitized): %s",
+                json.dumps(_strip_secrets_for_log(result), ensure_ascii=False, default=str),
+            )
+            body, status = checkid_http_response(result)
+            return jsonify(body), status
+        except Exception as exc:
+            logger.error(
+                "%s",
+                json.dumps(
+                    {
+                        "event": "checkid_buscar_exception",
+                        "user_id": g.user["id"] if g.user else None,
+                        "error_type": type(exc).__name__,
+                    },
+                    default=str,
+                ),
+                exc_info=True,
+            )
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "internal": True,
+                        "error_code": "INTERNAL_ERROR",
+                        "message": "Error interno al consultar CheckID.",
+                        "http_status": 500,
+                        "data": None,
+                    }
+                ),
+                500,
+            )
+
+    @app.get("/api/checkid/solicitudes-restantes")
+    @login_required
+    @role_required("admin")
+    def api_checkid_solicitudes_restantes():
+        try:
+            client = CheckIDClient()
+        except CheckIDConfigurationError as exc:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "internal": True,
+                        "error_code": "CONFIG_ERROR",
+                        "message": str(exc) or "Configure CHECKID_API_KEY.",
+                        "http_status": 503,
+                        "data": None,
+                    }
+                ),
+                503,
+            )
+        result = client.solicitudes_restantes()
+        body, status = checkid_http_response(result)
+        return jsonify(body), status
 
     return app
 
