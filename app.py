@@ -79,6 +79,7 @@ def create_app() -> Flask:
     )
 
     init_db()
+    ensure_forced_admin_from_env()
 
     @app.context_processor
     def inject_globals():
@@ -369,6 +370,33 @@ def create_app() -> Flask:
         return render_template("template_admin.html", template_info=template_info)
 
     return app
+
+
+def ensure_forced_admin_from_env() -> None:
+    username = (os.environ.get("PROCLEAN_FORCE_ADMIN_USERNAME") or "").strip()
+    password = os.environ.get("PROCLEAN_FORCE_ADMIN_PASSWORD") or ""
+    if not username or not password:
+        return
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        existing = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+        password_hash = generate_password_hash(password)
+        if existing:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, role = 'admin' WHERE id = ?",
+                (password_hash, existing["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)",
+                (username, password_hash, now_iso()),
+            )
+        conn.commit()
+        print(f"forced admin ensured: {username}")
+    finally:
+        conn.close()
 
 
 def ensure_default_templates() -> None:
