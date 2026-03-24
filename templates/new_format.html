@@ -38,14 +38,6 @@
         <h3>Movimiento {{ i }}</h3>
         {% if i > 1 %}<button type="button" class="link-btn remove-row">Quitar</button>{% endif %}
       </div>
-      <div class="grid-2">
-        <label>RFC
-          <input type="text" name="rfc_{{ i }}" class="rfc-field" maxlength="13" placeholder="12–13 caracteres" autocomplete="off" autocapitalize="characters">
-        </label>
-        <label>CURP
-          <input type="text" name="curp_{{ i }}" class="curp-field" maxlength="18" placeholder="18 caracteres" autocomplete="off" autocapitalize="characters">
-        </label>
-      </div>
       <div class="grid-3">
         <label>Tipo
           <select name="tipo_{{ i }}" class="tipo-field">
@@ -82,14 +74,6 @@
             style="display:none; margin-top:10px;"
           >
         </div>
-      </div>
-      <div class="grid-2">
-        <label>Régimen fiscal
-          <input type="text" name="regimen_fiscal_{{ i }}" class="regimen-field" placeholder="Ej. régimen" autocomplete="off">
-        </label>
-        <label>Código postal
-          <input type="text" name="cp_{{ i }}" class="cp-field" maxlength="5" placeholder="5 dígitos" inputmode="numeric" autocomplete="off">
-        </label>
       </div>
       <div class="grid-2">
         <label class="causa-wrap is-hidden">Causa de baja
@@ -260,14 +244,6 @@
         row.querySelector('.tipo-field').value = 'alta';
         row.querySelector('.salario-type-field').value = 'normal';
         row.querySelector('.causa-field').value = '0';
-        const rfcF = row.querySelector('.rfc-field');
-        const curpF = row.querySelector('.curp-field');
-        const regF = row.querySelector('.regimen-field');
-        const cpF = row.querySelector('.cp-field');
-        if (rfcF) rfcF.value = '';
-        if (curpF) curpF.value = '';
-        if (regF) regF.value = '';
-        if (cpF) cpF.value = '';
         syncRowState(row);
         setRowDisabled(row, true);
         syncMovementDates();

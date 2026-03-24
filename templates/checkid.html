@@ -37,6 +37,7 @@
 (function () {
   const RFC_MIN = 12;
   const CURP_LEN = 18;
+  const ND = 'No disponible';
 
   const elRfc = document.getElementById('checkid-rfc');
   const elCurp = document.getElementById('checkid-curp');
@@ -47,50 +48,108 @@
   const elDl = document.getElementById('checkid-dl');
   const elMeta = document.getElementById('checkid-meta');
 
-  function deepFindValue(obj, candidateKeys) {
-    if (obj == null || typeof obj !== 'object') return '';
-    const lower = candidateKeys.map((k) => k.toLowerCase());
-    const queue = [obj];
-    const seen = new Set();
-    while (queue.length) {
-      const cur = queue.shift();
-      if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
-      seen.add(cur);
-      for (const [k, v] of Object.entries(cur)) {
-        if (lower.includes(k.toLowerCase()) && v != null && String(v).trim() !== '') {
-          return String(v).trim();
-        }
-        if (v && typeof v === 'object') {
-          if (Array.isArray(v)) {
-            v.forEach((item) => {
-              if (item && typeof item === 'object') queue.push(item);
-            });
-          } else {
-            queue.push(v);
-          }
-        }
-      }
+  /** Solo primitivos legibles; nunca devuelve objetos. */
+  function scalarStr(obj, ...keys) {
+    if (!obj || typeof obj !== 'object') return '';
+    for (let i = 0; i < keys.length; i += 1) {
+      const v = obj[keys[i]];
+      if (v == null || v === '') continue;
+      if (typeof v === 'object') continue;
+      const s = String(v).trim();
+      if (s) return s;
     }
     return '';
   }
 
-  function mapPayload(payload) {
+  function nombreDesdeCurp(curpBlock) {
+    if (!curpBlock || typeof curpBlock !== 'object') return '';
+    const parts = [
+      scalarStr(curpBlock, 'nombres', 'Nombres'),
+      scalarStr(curpBlock, 'primerApellido', 'PrimerApellido'),
+      scalarStr(curpBlock, 'segundoApellido', 'SegundoApellido'),
+    ].filter(Boolean);
+    return parts.join(' ').trim();
+  }
+
+  function formatRegimenesFiscales(val) {
+    if (val == null || val === '') return '';
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+      const s = String(val).trim();
+      return s;
+    }
+    if (Array.isArray(val)) {
+      const parts = val.map((item) => {
+        if (item == null) return '';
+        if (typeof item === 'string' || typeof item === 'number') return String(item).trim();
+        if (typeof item !== 'object') return '';
+        const desc = scalarStr(item, 'descripcion', 'Descripcion', 'nombre', 'Nombre');
+        const cod = scalarStr(item, 'codigo', 'Codigo', 'clave', 'Clave');
+        if (desc && cod) return desc + ' (' + cod + ')';
+        return desc || cod || '';
+      }).filter(Boolean);
+      return parts.join('; ') || '';
+    }
+    if (typeof val === 'object') {
+      return formatRegimenesFiscales([val]);
+    }
+    return '';
+  }
+
+  function bloqueEstado69(d) {
+    return d.estado69o69B || d.estado69O69B || null;
+  }
+
+  /**
+   * Mapea json.data (estructura CheckID anidada) a strings legibles.
+   */
+  function extractCheckidFields(payload) {
     const d = payload && typeof payload === 'object' ? payload : {};
-    const estado69 = deepFindValue(d, [
-      'Estado69O69B', 'Estado69o69B', 'Estado69', 'Estado69B', 'EstadoOpinion69',
-      'Opinion69', 'Opinion69B', 'Opinion69O69B', 'Situacion69', 'Situacion69o69B',
-      'Descripcion69', 'EstadoOpinion69B', 'Estatus69', 'Estatus69B',
-    ]);
+    const rfcBlock = d.rfc && typeof d.rfc === 'object' ? d.rfc : null;
+    const curpBlock = d.curp && typeof d.curp === 'object' ? d.curp : null;
+
+    let nombre = scalarStr(rfcBlock, 'razonSocial', 'RazonSocial');
+    if (!nombre) {
+      const nb = nombreDesdeCurp(curpBlock);
+      if (nb) nombre = nb;
+    }
+    if (!nombre) {
+      const e69 = bloqueEstado69(d);
+      const det = e69 && typeof e69 === 'object' ? e69.detalles : null;
+      if (det && typeof det === 'object') {
+        nombre = scalarStr(det, 'nombre', 'Nombre');
+      }
+    }
+
+    const rfcVal = scalarStr(rfcBlock, 'rfc', 'RFC');
+    const curpVal = scalarStr(curpBlock, 'curp', 'CURP') || scalarStr(rfcBlock, 'curp', 'CURP');
+
+    const nssBlock = d.nss && typeof d.nss === 'object' ? d.nss : null;
+    const nssVal = scalarStr(nssBlock, 'nss', 'NSS');
+
+    const regBlock = d.regimenFiscal && typeof d.regimenFiscal === 'object' ? d.regimenFiscal : null;
+    const regimenVal = formatRegimenesFiscales(
+      regBlock && (regBlock.regimenesFiscales != null ? regBlock.regimenesFiscales : regBlock.RegimenesFiscales),
+    );
+
+    const cpBlock = d.codigoPostal && typeof d.codigoPostal === 'object' ? d.codigoPostal : null;
+    const cpVal = scalarStr(cpBlock, 'codigoPostal', 'CodigoPostal', 'CP');
+
+    const e69 = bloqueEstado69(d);
+    let estado69Label = 'Sin información';
+    if (e69 && typeof e69 === 'object' && Object.prototype.hasOwnProperty.call(e69, 'conProblema')) {
+      if (e69.conProblema === true) estado69Label = 'Con problema';
+      else if (e69.conProblema === false) estado69Label = 'Sin problema';
+      else estado69Label = 'Sin información';
+    }
+
     return {
-      rfc: deepFindValue(d, ['RFC', 'Rfc', 'rfc']),
-      curp: deepFindValue(d, ['CURP', 'Curp', 'curp']),
-      nss: deepFindValue(d, ['NSS', 'Nss', 'nss', 'NumeroSeguridadSocial', 'NumeroSegSocial']),
-      regimenFiscal: deepFindValue(d, [
-        'RegimenFiscal', 'Regimen', 'regimen_fiscal', 'DescripcionRegimen', 'RegimenFiscalDescripcion',
-        'DescripcionRegimenFiscal', 'RegimenFiscalDesc',
-      ]),
-      cp: deepFindValue(d, ['CodigoPostal', 'CP', 'CódigoPostal', 'codigo_postal', 'Codigo_Postal', 'CodigoPostalSAT']),
-      estado69: estado69,
+      nombre: nombre,
+      rfc: rfcVal,
+      curp: curpVal,
+      nss: nssVal,
+      regimen: regimenVal,
+      cp: cpVal,
+      estado69: estado69Label,
     };
   }
 
@@ -124,20 +183,31 @@
     elError.hidden = false;
   }
 
+  function metaText(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'object') return JSON.stringify(v);
+    return String(v);
+  }
+
+  function cellText(val, fallback) {
+    if (val == null || val === '') return fallback;
+    if (typeof val === 'object') return fallback;
+    const s = String(val).trim();
+    return s || fallback;
+  }
+
   function renderResults(mapped, json) {
     elDl.innerHTML = '';
     const rows = [
-      ['RFC', mapped.rfc],
-      ['CURP', mapped.curp],
-      ['NSS', mapped.nss],
-      ['Régimen fiscal', mapped.regimenFiscal],
-      ['Código postal', mapped.cp],
-      ['Estado 69 / 69-B', mapped.estado69],
+      ['Nombre / Razón social', cellText(mapped.nombre, ND)],
+      ['RFC', cellText(mapped.rfc, ND)],
+      ['CURP', cellText(mapped.curp, ND)],
+      ['NSS', cellText(mapped.nss, ND)],
+      ['Régimen fiscal', cellText(mapped.regimen, ND)],
+      ['Código postal', cellText(mapped.cp, ND)],
+      ['Estado 69 / 69-B', cellText(mapped.estado69, 'Sin información')],
     ];
-    let any = false;
     rows.forEach(([label, val]) => {
-      if (!val) return;
-      any = true;
       const dt = document.createElement('dt');
       dt.textContent = label;
       const dd = document.createElement('dd');
@@ -145,16 +215,11 @@
       elDl.appendChild(dt);
       elDl.appendChild(dd);
     });
-    if (!any) {
-      const p = document.createElement('p');
-      p.className = 'empty-state';
-      p.style.gridColumn = '1 / -1';
-      p.textContent = 'La respuesta no incluyó datos reconocibles en estos campos.';
-      elDl.appendChild(p);
-    }
     const parts = [];
-    if (json.error_code) parts.push('Código: ' + json.error_code);
-    if (json.http_status != null) parts.push('HTTP: ' + json.http_status);
+    const ec = metaText(json.error_code);
+    if (ec) parts.push('Código: ' + ec);
+    const hs = metaText(json.http_status);
+    if (hs) parts.push('HTTP: ' + hs);
     elMeta.textContent = parts.length ? parts.join(' · ') : '';
     elWrap.hidden = false;
   }
@@ -187,7 +252,7 @@
         return;
       }
       const raw = json.data;
-      const mapped = mapPayload(raw);
+      const mapped = extractCheckidFields(raw);
       renderResults(mapped, json);
     } catch (e) {
       setError('Error de red al consultar CheckID. Revisa tu conexión e intenta de nuevo.');
