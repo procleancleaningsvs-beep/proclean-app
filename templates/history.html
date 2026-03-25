@@ -12,7 +12,7 @@
   {% if records %}
   <div class="history-toolbar">
     <label class="history-search-label">Buscar en historial
-      <input type="search" id="history-search" class="history-search-input" placeholder="Fecha movimiento, sueldo, NSS, nombre, archivo, folio, lote…" autocomplete="off" aria-label="Filtrar filas del historial">
+      <input type="search" id="history-search" class="history-search-input" placeholder="Fecha movimiento, formato realizado, sueldo, NSS, nombre, archivo, folio, lote…" autocomplete="off" aria-label="Filtrar filas del historial">
     </label>
   </div>
   <p id="history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
@@ -21,6 +21,7 @@
       <thead>
         <tr>
           <th>Fecha(s) movimiento</th>
+          <th>Formato realizado</th>
           <th>Sueldo(s)</th>
           <th>Archivo</th>
           <th>Usuario</th>
@@ -32,6 +33,7 @@
         {% for item in records %}
         <tr data-search="{{ item.search_blob | e }}">
           <td class="history-cell-wrap">{{ item.movement_dates_line }}</td>
+          <td class="history-cell-wrap">{{ item.formato_realizado_display }}</td>
           <td class="history-cell-wrap">{{ item.salarios_line }}</td>
           <td>{{ item.filename }}</td>
           <td>{{ item.username }}</td>

@@ -41,6 +41,7 @@
       <thead>
         <tr>
           <th>Fecha(s) movimiento</th>
+          <th>Formato realizado</th>
           <th>Sueldo(s)</th>
           <th>Archivo</th>
           <th>Usuario</th>
@@ -51,6 +52,7 @@
         {% for item in recent_history %}
         <tr>
           <td class="history-cell-wrap">{{ item.movement_dates_line }}</td>
+          <td class="history-cell-wrap">{{ item.formato_realizado_display }}</td>
           <td class="history-cell-wrap">{{ item.salarios_line }}</td>
           <td>{{ item.filename }}</td>
           <td>{{ item.username }}</td>

@@ -903,6 +903,21 @@ def insert_history(user_id: int, filename: str, pdf_path: str, folio: str, lote:
         conn.close()
 
 
+def _formato_realizado_display(created_at: str | None) -> str:
+    """Fecha/hora en que se guardó el formato en la app (columna format_history.created_at)."""
+    if not created_at or not str(created_at).strip():
+        return "—"
+    s = str(created_at).strip()
+    try:
+        dt = datetime.strptime(s[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        try:
+            dt = datetime.strptime(s[:16], "%Y-%m-%d %H:%M")
+        except ValueError:
+            return s
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
 def _history_movement_display_fields(payload_json: str | None) -> dict[str, str]:
     """Textos para historial: fechas y sueldos desde payload_json (lista de movimientos)."""
     movement_dates_line = "—"
@@ -935,8 +950,10 @@ def _history_movement_display_fields(payload_json: str | None) -> dict[str, str]
 
 def _history_search_blob_from_row(row: sqlite3.Row) -> str:
     """Texto en minúsculas para filtrado en cliente (columnas visibles + movimientos en JSON)."""
+    created_raw = str(row["created_at"] or "")
     parts: list[str] = [
-        str(row["created_at"] or ""),
+        created_raw,
+        _formato_realizado_display(row["created_at"]),
         str(row["filename"] or ""),
         str(row["username"] or ""),
         str(row["movement_count"] or ""),
@@ -968,6 +985,7 @@ def _history_row_to_template_dict(row: sqlite3.Row) -> dict:
     d = {k: row[k] for k in row.keys()}
     d["search_blob"] = _history_search_blob_from_row(row)
     d.update(_history_movement_display_fields(d.get("payload_json")))
+    d["formato_realizado_display"] = _formato_realizado_display(d.get("created_at"))
     return d
 
 
