@@ -1,7 +1,7 @@
 """
 Historial de consultas CheckID (persistencia SQLite + extracción de campos para UI).
 Listado global compartido; user_id queda en fila para auditoría.
-La extracción replica la lógica de templates/checkid.html (extractCheckidFields).
+La extracción usa body.data.resultado (misma forma que la vista CheckID / extractCheckidFields).
 """
 
 from __future__ import annotations
@@ -11,105 +11,56 @@ from datetime import datetime
 from typing import Any
 
 
-def _scalar_str(obj: Any, *keys: str) -> str:
-    if not obj or not isinstance(obj, dict):
-        return ""
-    for k in keys:
-        v = obj.get(k)
-        if v is None or v == "":
-            continue
-        if isinstance(v, (dict, list)):
-            continue
-        s = str(v).strip()
-        if s:
-            return s
-    return ""
+def extract_checkid_display_fields(data: Any) -> dict[str, str]:
+    """
+    Mapea el objeto `data` del JSON de respuesta (bajo `ok`) usando `data.resultado` como base.
+    """
+    wrapper = data if isinstance(data, dict) else {}
+    r = wrapper.get("resultado")
+    r = r if isinstance(r, dict) else {}
 
+    rfc_block = r.get("rfc") if isinstance(r.get("rfc"), dict) else None
+    curp_block = r.get("curp") if isinstance(r.get("curp"), dict) else None
 
-def _nombre_desde_curp(curp_block: Any) -> str:
-    if not curp_block or not isinstance(curp_block, dict):
-        return ""
-    parts = [
-        _scalar_str(curp_block, "nombres", "Nombres"),
-        _scalar_str(curp_block, "primerApellido", "PrimerApellido"),
-        _scalar_str(curp_block, "segundoApellido", "SegundoApellido"),
-    ]
-    return " ".join(p for p in parts if p).strip()
+    nombre = ""
+    if rfc_block and rfc_block.get("razonSocial") is not None:
+        nombre = str(rfc_block["razonSocial"]).strip()
+    if not nombre and curp_block:
+        parts = [
+            curp_block.get("nombres"),
+            curp_block.get("primerApellido"),
+            curp_block.get("segundoApellido"),
+        ]
+        nombre = " ".join(
+            str(p).strip() for p in parts if p is not None and str(p).strip() != ""
+        )
 
+    rfc_val = str(rfc_block["rfc"]).strip() if rfc_block and rfc_block.get("rfc") is not None else ""
 
-def _format_regimenes_fiscales(val: Any) -> str:
-    if val is None or val == "":
-        return ""
-    if isinstance(val, (str, int, float, bool)):
-        return str(val).strip()
-    if isinstance(val, list):
-        parts: list[str] = []
-        for item in val:
-            if item is None:
-                continue
-            if isinstance(item, (str, int, float)):
-                parts.append(str(item).strip())
-                continue
-            if not isinstance(item, dict):
-                continue
-            desc = _scalar_str(item, "descripcion", "Descripcion", "nombre", "Nombre")
-            cod = _scalar_str(item, "codigo", "Codigo", "clave", "Clave")
-            if desc and cod:
-                parts.append(f"{desc} ({cod})")
-            elif desc or cod:
-                parts.append(desc or cod)
-        return "; ".join(parts) if parts else ""
-    if isinstance(val, dict):
-        return _format_regimenes_fiscales([val])
-    return ""
-
-
-def _bloque_estado69(d: dict[str, Any]) -> dict[str, Any] | None:
-    b = d.get("estado69o69B") or d.get("estado69O69B")
-    return b if isinstance(b, dict) else None
-
-
-def extract_checkid_display_fields(payload: Any) -> dict[str, str]:
-    """Mapea el cuerpo `data` de una respuesta CheckID exitosa a strings legibles."""
-    d = payload if isinstance(payload, dict) else {}
-    rfc_block = d.get("rfc") if isinstance(d.get("rfc"), dict) else None
-    curp_block = d.get("curp") if isinstance(d.get("curp"), dict) else None
-
-    nombre = _scalar_str(rfc_block, "razonSocial", "RazonSocial") if rfc_block else ""
-    if not nombre:
-        nb = _nombre_desde_curp(curp_block)
-        if nb:
-            nombre = nb
-    if not nombre:
-        e69 = _bloque_estado69(d)
-        det = e69.get("detalles") if e69 and isinstance(e69.get("detalles"), dict) else None
-        if det:
-            nombre = _scalar_str(det, "nombre", "Nombre")
-
-    rfc_val = ""
     curp_val = ""
-    if rfc_block:
-        rfc_val = _scalar_str(rfc_block, "rfc", "RFC")
-    if curp_block:
-        curp_val = _scalar_str(curp_block, "curp", "CURP")
-    if not curp_val and rfc_block:
-        curp_val = _scalar_str(rfc_block, "curp", "CURP")
+    if curp_block and curp_block.get("curp") is not None:
+        curp_val = str(curp_block["curp"]).strip()
+    if not curp_val and rfc_block and rfc_block.get("curp") is not None:
+        curp_val = str(rfc_block["curp"]).strip()
 
-    nss_block = d.get("nss") if isinstance(d.get("nss"), dict) else None
-    nss_val = _scalar_str(nss_block, "nss", "NSS") if nss_block else ""
+    nss_block = r.get("nss") if isinstance(r.get("nss"), dict) else None
+    nss_val = str(nss_block["nss"]).strip() if nss_block and nss_block.get("nss") is not None else ""
 
-    reg_block = d.get("regimenFiscal") if isinstance(d.get("regimenFiscal"), dict) else None
+    reg_block = r.get("regimenFiscal") if isinstance(r.get("regimenFiscal"), dict) else None
     regimen_val = ""
-    if reg_block:
-        rf = reg_block.get("regimenesFiscales")
-        if rf is None:
-            rf = reg_block.get("RegimenesFiscales")
-        regimen_val = _format_regimenes_fiscales(rf)
+    if reg_block and reg_block.get("regimenesFiscales") is not None:
+        rf = reg_block["regimenesFiscales"]
+        if isinstance(rf, (str, int, float, bool)):
+            regimen_val = str(rf).strip()
 
-    cp_block = d.get("codigoPostal") if isinstance(d.get("codigoPostal"), dict) else None
-    cp_val = _scalar_str(cp_block, "codigoPostal", "CodigoPostal", "CP") if cp_block else ""
+    cp_block = r.get("codigoPostal") if isinstance(r.get("codigoPostal"), dict) else None
+    cp_val = (
+        str(cp_block["codigoPostal"]).strip()
+        if cp_block and cp_block.get("codigoPostal") is not None
+        else ""
+    )
 
-    e69 = _bloque_estado69(d)
+    e69 = r.get("estado69o69B") if isinstance(r.get("estado69o69B"), dict) else None
     estado69 = "Sin información"
     if e69 is not None and "conProblema" in e69:
         cpv = e69.get("conProblema")
@@ -140,6 +91,7 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
     err_msg = (response_body.get("message") or "")[:2000]
     err_code = (response_body.get("error_code") or "")[:64]
     data = response_body.get("data")
+    # data = { codigoError, exitoso, resultado: { rfc, curp, nss, ... } }
     extracted = extract_checkid_display_fields(data) if ok and isinstance(data, dict) else {}
 
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

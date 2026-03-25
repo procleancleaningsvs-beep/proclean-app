@@ -123,6 +123,7 @@ a { color: var(--primary-dark); text-decoration: none; }
 
 .main {
   flex: 1;
+  min-width: 0;
   padding: 34px;
 }
 
@@ -258,7 +259,11 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
 .flash-error { background: var(--error); color: var(--error-text); }
 .flash-warning { background: var(--warning); color: #9a3412; }
 
-.table-wrap { overflow-x: auto; }
+.table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  max-width: 100%;
+}
 table {
   width: 100%;
   border-collapse: collapse;
@@ -330,6 +335,133 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   .app-shell { flex-direction: column; }
   .sidebar { width: 100%; }
   .page-head, .movement-actions { flex-direction: column; align-items: stretch; }
+  .panel-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .page-head > .btn {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+@media (max-width: 768px) {
+  .main {
+    padding: 18px 14px;
+  }
+  .main-auth {
+    padding: 24px 14px;
+  }
+  .sidebar {
+    padding: 20px 16px;
+    gap: 20px;
+  }
+  .hero-copy,
+  .form-card,
+  .panel,
+  .stat-card {
+    padding: 18px;
+  }
+  .hero-copy h2 {
+    font-size: 1.5rem;
+  }
+  .page-head h2 {
+    font-size: 1.55rem;
+  }
+  .stat-card strong {
+    font-size: 1.65rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .movement-actions .btn,
+  .form-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .compact-form .btn-primary {
+    width: 100%;
+  }
+  .checkid-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .checkid-actions .btn-primary {
+    width: 100%;
+  }
+  .checkid-dl {
+    grid-template-columns: 1fr;
+    gap: 4px 0;
+  }
+  .checkid-dl dt {
+    padding-top: 10px;
+  }
+  .checkid-dl > dt:first-of-type {
+    padding-top: 0;
+  }
+  .checkid-dd-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .checkid-copy-btn {
+    align-self: flex-start;
+  }
+  .history-search-input {
+    max-width: none;
+  }
+  .actions-cell {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .actions-cell > .inline-form {
+    display: block;
+    width: 100%;
+  }
+  .history-download-form {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+  .history-download-form .history-download-select {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+  .history-download-form .btn {
+    width: 100%;
+  }
+  .actions-cell > .inline-form .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .checkbox-line.history-download-check {
+    white-space: normal;
+  }
+  .history-table td {
+    word-break: break-word;
+  }
+  .row-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 480px) {
+  .page-head h2 {
+    font-size: 1.35rem;
+  }
+  .brand h1 {
+    font-size: 1.15rem;
+  }
+  th,
+  td {
+    padding: 10px 8px;
+    font-size: 0.88rem;
+  }
 }
 
 
