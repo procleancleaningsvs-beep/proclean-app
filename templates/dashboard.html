@@ -40,21 +40,21 @@
     <table>
       <thead>
         <tr>
-          <th>Fecha</th>
+          <th>Fecha(s) movimiento</th>
+          <th>Sueldo(s)</th>
           <th>Archivo</th>
           <th>Usuario</th>
           <th>Movs.</th>
-          <th>Folio</th>
         </tr>
       </thead>
       <tbody>
         {% for item in recent_history %}
         <tr>
-          <td>{{ item.created_at }}</td>
+          <td class="history-cell-wrap">{{ item.movement_dates_line }}</td>
+          <td class="history-cell-wrap">{{ item.salarios_line }}</td>
           <td>{{ item.filename }}</td>
           <td>{{ item.username }}</td>
           <td>{{ item.movement_count }}</td>
-          <td>{{ item.folio }}</td>
         </tr>
         {% endfor %}
       </tbody>

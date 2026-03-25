@@ -8,10 +8,23 @@ import sqlite3
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
+
+
+def _app_timezone() -> ZoneInfo:
+    name = (os.environ.get("APP_TIMEZONE") or "America/Mexico_City").strip() or "America/Mexico_City"
+    try:
+        return ZoneInfo(name)
+    except Exception:
+        return ZoneInfo("America/Mexico_City")
+
+
+def now_in_app_tz() -> datetime:
+    return datetime.now(_app_timezone())
 
 from flask import (
     Flask,
@@ -266,7 +279,7 @@ def create_app() -> Flask:
     @role_required("admin")
     def dashboard():
         stats = get_dashboard_stats()
-        recent_history = list_history(limit=5)
+        recent_history = [_history_row_to_template_dict(r) for r in list_history(limit=5)]
         return render_template("dashboard.html", stats=stats, recent_history=recent_history)
 
     @app.route("/admin/diagnostico/persistencia", methods=["GET"])
@@ -340,7 +353,12 @@ def create_app() -> Flask:
             except Exception as exc:
                 flash(str(exc), "error")
 
-        return render_template("new_format.html", current_time=datetime.now().strftime("%H:%M"), current_date=datetime.now().strftime("%Y-%m-%d"))
+        dt = now_in_app_tz()
+        return render_template(
+            "new_format.html",
+            current_time=dt.strftime("%H:%M"),
+            current_date=dt.strftime("%Y-%m-%d"),
+        )
 
     @app.route("/checkid")
     @login_required
@@ -885,6 +903,36 @@ def insert_history(user_id: int, filename: str, pdf_path: str, folio: str, lote:
         conn.close()
 
 
+def _history_movement_display_fields(payload_json: str | None) -> dict[str, str]:
+    """Textos para historial: fechas y sueldos desde payload_json (lista de movimientos)."""
+    movement_dates_line = "—"
+    salarios_line = "—"
+    if not payload_json:
+        return {"movement_dates_line": movement_dates_line, "salarios_line": salarios_line}
+    try:
+        movs = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return {"movement_dates_line": movement_dates_line, "salarios_line": salarios_line}
+    if not isinstance(movs, list):
+        return {"movement_dates_line": movement_dates_line, "salarios_line": salarios_line}
+    fechas: list[str] = []
+    sueldos: list[str] = []
+    for m in movs:
+        if not isinstance(m, dict):
+            continue
+        f = m.get("fecha")
+        if f is not None and str(f).strip():
+            fechas.append(str(f).strip())
+        s = m.get("salario")
+        if s is not None and str(s).strip():
+            sueldos.append(str(s).strip())
+    if fechas:
+        movement_dates_line = "; ".join(fechas)
+    if sueldos:
+        salarios_line = "; ".join(sueldos)
+    return {"movement_dates_line": movement_dates_line, "salarios_line": salarios_line}
+
+
 def _history_search_blob_from_row(row: sqlite3.Row) -> str:
     """Texto en minúsculas para filtrado en cliente (columnas visibles + movimientos en JSON)."""
     parts: list[str] = [
@@ -908,6 +956,7 @@ def _history_search_blob_from_row(row: sqlite3.Row) -> str:
                                 str(m.get("nss") or ""),
                                 str(m.get("nombre") or ""),
                                 str(m.get("fecha") or ""),
+                                str(m.get("salario") or ""),
                             ]
                         )
         except (json.JSONDecodeError, TypeError, ValueError):
@@ -918,6 +967,7 @@ def _history_search_blob_from_row(row: sqlite3.Row) -> str:
 def _history_row_to_template_dict(row: sqlite3.Row) -> dict:
     d = {k: row[k] for k in row.keys()}
     d["search_blob"] = _history_search_blob_from_row(row)
+    d.update(_history_movement_display_fields(d.get("payload_json")))
     return d
 
 
@@ -1027,7 +1077,7 @@ def make_random_password() -> str:
 
 
 def now_iso() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return now_in_app_tz().strftime("%Y-%m-%d %H:%M:%S")
 
 
 app = create_app()

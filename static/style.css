@@ -542,6 +542,10 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 .history-filter-empty {
   margin: 0 0 12px;
 }
+.history-cell-wrap {
+  max-width: 200px;
+  word-break: break-word;
+}
 
 /* Ajustes puntuales para opciones de descarga en historial */
 .history-download-form {
