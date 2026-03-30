@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Finiquitos</span>
+    <h2>Liquidación comparativa</h2>
+    <p>Solo vista previa e historial. No exporta PDF ni formato.</p>
+  </div>
+</section>
+
+<div class="form-card" id="liq-root">
+  <p class="helper">Usa los mismos datos que el finiquito. Incluye 3 meses de salario + 20 días por año (referencia art. 50 LFT).</p>
+
+  <div class="grid-3">
+    <label>Fecha de ingreso *
+      <input type="date" id="fecha_ingreso" required>
+    </label>
+    <label>Fecha de baja *
+      <input type="date" id="fecha_baja" required>
+    </label>
+    <label>Fecha de emisión
+      <input type="date" id="fecha_emision">
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Nombre completo *
+      <input type="text" id="nombre_completo" required>
+    </label>
+    <label>Salario diario *
+      <input type="text" id="salario_diario" required>
+    </label>
+    <label>Zona
+      <select id="zona_salarial"><option value="general">General</option><option value="frontera">Frontera</option></select>
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Periodicidad ISR
+      <select id="periodicidad_isr"><option value="quincenal">Quincenal</option><option value="mensual">Mensual</option></select>
+    </label>
+    <label>Modo
+      <select id="modo_calculo"><option value="correcto_fiscal">Correcto fiscal</option><option value="aguinaldo_todo_gravable">Aguinaldo todo gravable</option></select>
+    </label>
+    <label>Prima vacacional %
+      <input type="text" id="prima_vacacional_pct" value="25">
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Días aguinaldo
+      <input type="text" id="dias_aguinaldo_politica" value="15">
+    </label>
+    <label>Días sueldo pendientes
+      <input type="text" id="dias_sueldo_pendientes" value="0">
+    </label>
+    <label>Séptimos pendientes
+      <input type="text" id="septimos_pendientes" value="0">
+    </label>
+  </div>
+  <label class="checkbox-line">
+    <input type="checkbox" id="incluir_prima_antiguedad">
+    <span>Incluir prima de antigüedad</span>
+  </label>
+  <label>Motivo
+    <select id="motivo_baja"><option value="despido">Despido</option><option value="retiro_voluntario">Retiro voluntario</option><option value="otro">Otro</option></select>
+  </label>
+
+  <div class="movement-actions">
+    <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
+    <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
+  </div>
+  <p class="helper" id="calc_msg"></p>
+  <pre id="preview" class="preview-block" hidden></pre>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  function payload() {
+    return {
+      nombre_completo: $('nombre_completo').value.trim(),
+      fecha_ingreso: $('fecha_ingreso').value,
+      fecha_baja: $('fecha_baja').value,
+      fecha_emision: $('fecha_emision').value,
+      lugar_emision: '',
+      estado_emision: '',
+      zona_salarial: $('zona_salarial').value,
+      periodicidad_isr: $('periodicidad_isr').value,
+      motivo_baja: $('motivo_baja').value,
+      modo_calculo: $('modo_calculo').value,
+      salario_diario: $('salario_diario').value,
+      dias_aguinaldo_politica: $('dias_aguinaldo_politica').value,
+      prima_vacacional_pct: $('prima_vacacional_pct').value,
+      vacaciones_ya_usadas: '0',
+      aguinaldo_ya_pagado: '0',
+      prima_vac_ya_pagada: '0',
+      dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
+      septimos_pendientes: $('septimos_pendientes').value,
+      incluir_prima_antiguedad: $('incluir_prima_antiguedad').checked,
+      observaciones_internas: '',
+    };
+  }
+  $('btn_calc').addEventListener('click', async () => {
+    $('calc_msg').textContent = 'Calculando…';
+    const r = await fetch('{{ url_for("finiquitos.api_liquidacion") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    const j = await r.json();
+    if (!j.ok) { $('calc_msg').textContent = j.error || 'Error'; $('calc_msg').style.color = '#b00020'; $('preview').hidden = true; return; }
+    $('calc_msg').textContent = 'Listo.';
+    $('calc_msg').style.color = '';
+    $('preview').hidden = false;
+    $('preview').textContent = JSON.stringify(j.resultado, null, 2);
+  });
+  $('btn_hist').addEventListener('click', async () => {
+    $('calc_msg').textContent = 'Guardando…';
+    const r = await fetch('{{ url_for("finiquitos.api_historial_liquidacion") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    const j = await r.json();
+    if (!j.ok) { $('calc_msg').textContent = j.error || 'Error'; $('calc_msg').style.color = '#b00020'; return; }
+    $('calc_msg').textContent = 'Guardado (id ' + j.id + ').';
+    $('calc_msg').style.color = '';
+  });
+  const today = new Date().toISOString().slice(0, 10);
+  $('fecha_emision').value = today;
+})();
+</script>
+{% endblock %}

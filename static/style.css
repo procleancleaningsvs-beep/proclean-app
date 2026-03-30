@@ -695,3 +695,19 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   background: var(--error);
   color: var(--error-text);
 }
+
+.sep {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 20px 0;
+}
+
+.preview-block {
+  background: var(--panel-soft);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 0.82rem;
+  overflow-x: auto;
+  max-height: 70vh;
+}

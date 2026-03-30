@@ -694,8 +694,10 @@ def create_app() -> Flask:
         return jsonify(body), status
 
     from modules.vitroflex_docs.blueprint import register_vitroflex
+    from modules.finiquitos.blueprint import register_finiquitos
 
     register_vitroflex(app)
+    register_finiquitos(app)
 
     return app
 
@@ -734,6 +736,10 @@ def ensure_default_templates() -> None:
         dst = DOCX_TEMPLATES_DIR / filename
         if src.exists() and not dst.exists():
             dst.write_bytes(src.read_bytes())
+    fin_src = BUNDLED_TEMPLATES_DIR / "finiquito_plantilla.docx"
+    fin_dst = DOCX_TEMPLATES_DIR / "finiquito_plantilla.docx"
+    if fin_src.exists() and not fin_dst.exists():
+        fin_dst.write_bytes(fin_src.read_bytes())
 
 
 def get_or_create_secret_key() -> str:

@@ -1,0 +1,217 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Finiquitos</span>
+    <h2>Finiquito</h2>
+    <p>Cálculo fiscal 2026, vista previa detallada y exportación PDF usando la plantilla DOCX oficial (solo placeholders).</p>
+  </div>
+</section>
+
+<div class="form-card" id="finiquito-root">
+  <div class="grid-2">
+    <label>URL Excel OneDrive (solo lectura fecha ingreso)
+      <input type="url" id="onedrive_url" placeholder="https://..." autocomplete="off">
+    </label>
+    <label>Nombre completo del trabajador *
+      <input type="text" id="nombre_completo" required placeholder="APELLIDO1 APELLIDO2 NOMBRE">
+    </label>
+  </div>
+  <button type="button" class="btn btn-secondary" id="btn_excel">Buscar fecha de ingreso en Excel</button>
+  <p class="helper" id="excel_msg"></p>
+
+  <hr class="sep">
+
+  <div class="grid-3">
+    <label>Fecha de ingreso *
+      <input type="date" id="fecha_ingreso" required>
+    </label>
+    <label>Fecha de baja *
+      <input type="date" id="fecha_baja" required>
+    </label>
+    <label>Fecha de emisión
+      <input type="date" id="fecha_emision">
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Lugar de emisión
+      <input type="text" id="lugar_emision" placeholder="Ciudad">
+    </label>
+    <label>Estado de emisión
+      <input type="text" id="estado_emision" placeholder="Estado">
+    </label>
+    <label>Zona salarial
+      <select id="zona_salarial">
+        <option value="general">General</option>
+        <option value="frontera">Frontera</option>
+      </select>
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Periodicidad ISR ordinario
+      <select id="periodicidad_isr">
+        <option value="quincenal" selected>Quincenal</option>
+        <option value="mensual">Mensual</option>
+      </select>
+    </label>
+    <label>Motivo de baja
+      <select id="motivo_baja">
+        <option value="despido">Despido / terminación</option>
+        <option value="retiro_voluntario">Retiro voluntario</option>
+        <option value="otro">Otro</option>
+      </select>
+    </label>
+    <label>Modo de cálculo
+      <select id="modo_calculo">
+        <option value="correcto_fiscal">Correcto fiscal</option>
+        <option value="aguinaldo_todo_gravable">Aguinaldo todo gravable (comparativo)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="grid-3">
+    <label>Salario diario *
+      <input type="text" id="salario_diario" inputmode="decimal" required placeholder="315.04">
+    </label>
+    <label>Salario mensual (opcional, Art. 174 / separación)
+      <input type="text" id="salario_mensual" inputmode="decimal" placeholder="vacío = diario × 30.4">
+    </label>
+    <label>Días aguinaldo política empresa
+      <input type="text" id="dias_aguinaldo_politica" value="15">
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Prima vacacional % 
+      <input type="text" id="prima_vacacional_pct" value="25">
+    </label>
+    <label>Vacaciones ya pagadas/disfrutadas (ciclo)
+      <input type="text" id="vacaciones_ya_usadas" value="0">
+    </label>
+    <label>Aguinaldo ya pagado en el año
+      <input type="text" id="aguinaldo_ya_pagado" value="0">
+    </label>
+  </div>
+  <div class="grid-3">
+    <label>Prima vacacional ya pagada en el año
+      <input type="text" id="prima_vac_ya_pagada" value="0">
+    </label>
+    <label>Días sueldo pendientes
+      <input type="text" id="dias_sueldo_pendientes" value="0">
+    </label>
+    <label>Séptimos días pendientes
+      <input type="text" id="septimos_pendientes" value="0">
+    </label>
+  </div>
+  <label class="checkbox-line">
+    <input type="checkbox" id="incluir_prima_antiguedad">
+    <span>Incluir prima de antigüedad (si procede)</span>
+  </label>
+  <label>Observaciones internas
+    <textarea id="observaciones_internas" rows="2" placeholder="Uso interno"></textarea>
+  </label>
+
+  <div class="movement-actions">
+    <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
+    <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
+    <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
+  </div>
+  <p class="helper" id="calc_msg"></p>
+
+  <pre id="preview" class="preview-block" hidden></pre>
+</div>
+
+<script>
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const msg = (el, text, err) => { el.textContent = text || ''; el.style.color = err ? '#b00020' : ''; };
+
+  function payload() {
+    return {
+      onedrive_url: $('onedrive_url').value.trim(),
+      nombre_completo: $('nombre_completo').value.trim(),
+      fecha_ingreso: $('fecha_ingreso').value,
+      fecha_baja: $('fecha_baja').value,
+      fecha_emision: $('fecha_emision').value,
+      lugar_emision: $('lugar_emision').value.trim(),
+      estado_emision: $('estado_emision').value.trim(),
+      zona_salarial: $('zona_salarial').value,
+      periodicidad_isr: $('periodicidad_isr').value,
+      motivo_baja: $('motivo_baja').value,
+      modo_calculo: $('modo_calculo').value,
+      salario_diario: $('salario_diario').value,
+      salario_mensual: $('salario_mensual').value.trim(),
+      dias_aguinaldo_politica: $('dias_aguinaldo_politica').value,
+      prima_vacacional_pct: $('prima_vacacional_pct').value,
+      vacaciones_ya_usadas: $('vacaciones_ya_usadas').value,
+      aguinaldo_ya_pagado: $('aguinaldo_ya_pagado').value,
+      prima_vac_ya_pagada: $('prima_vac_ya_pagada').value,
+      dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
+      septimos_pendientes: $('septimos_pendientes').value,
+      incluir_prima_antiguedad: $('incluir_prima_antiguedad').checked,
+      observaciones_internas: $('observaciones_internas').value,
+    };
+  }
+
+  $('btn_excel').addEventListener('click', async () => {
+    msg($('excel_msg'), 'Buscando…');
+    const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ onedrive_url: $('onedrive_url').value.trim(), nombre_completo: $('nombre_completo').value.trim() }),
+    });
+    const j = await r.json();
+    if (!j.ok) { msg($('excel_msg'), j.error || 'Error', true); return; }
+    $('fecha_ingreso').value = j.fecha_ingreso;
+    msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+  });
+
+  $('btn_calc').addEventListener('click', async () => {
+    msg($('calc_msg'), 'Calculando…');
+    const r = await fetch('{{ url_for("finiquitos.api_calcular") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    const j = await r.json();
+    if (!j.ok) { msg($('calc_msg'), j.error || 'Error', true); $('preview').hidden = true; return; }
+    msg($('calc_msg'), 'Listo.');
+    $('preview').hidden = false;
+    $('preview').textContent = JSON.stringify(j.resultado, null, 2);
+  });
+
+  $('btn_pdf').addEventListener('click', async () => {
+    msg($('calc_msg'), 'Generando PDF…');
+    const r = await fetch('{{ url_for("finiquitos.api_pdf") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload()),
+    });
+    if (!r.ok) { const j = await r.json().catch(()=>({})); msg($('calc_msg'), j.error || 'Error PDF', true); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'finiquito.pdf';
+    a.click();
+    URL.revokeObjectURL(url);
+    msg($('calc_msg'), 'PDF descargado.');
+  });
+
+  $('btn_hist').addEventListener('click', async () => {
+    msg($('calc_msg'), 'Guardando…');
+    const body = { ...payload(), incluir_pdf_guardado: false };
+    const r = await fetch('{{ url_for("finiquitos.api_historial_finiquito") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const j = await r.json();
+    if (!j.ok) { msg($('calc_msg'), j.error || 'Error', true); return; }
+    msg($('calc_msg'), 'Guardado en historial (id ' + j.id + ').');
+  });
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (!$('fecha_emision').value) $('fecha_emision').value = today;
+})();
+</script>
+{% endblock %}
