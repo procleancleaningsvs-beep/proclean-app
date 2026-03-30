@@ -30,6 +30,9 @@ def mes_nombre(m: int) -> str:
     return str(m)
 
 
+MUNICIPIO_GARCIA = "Garcia, N. L."
+
+
 def default_fecha_linea(*, tz: ZoneInfo | None = None) -> str:
     """Valor por defecto para {{FECHA}} en español."""
     tz = tz or ZoneInfo("America/Mexico_City")
@@ -37,7 +40,30 @@ def default_fecha_linea(*, tz: ZoneInfo | None = None) -> str:
     dia = now.day
     mes = mes_nombre(now.month)
     anio = now.year
-    return f"Garcia, N. L. a {dia} de {mes} de {anio}"
+    return f"{MUNICIPIO_GARCIA} a {dia} de {mes} de {anio}"
+
+
+def linea_fecha_documento(
+    *,
+    fecha_iso: str | None = None,
+    municipio_modo: str | None = None,
+    municipio_otro: str | None = None,
+    fecha_texto_legacy: str | None = None,
+) -> str:
+    """
+    Compone la línea de fecha para {{FECHA}}: «[municipio] a [día] de [mes] de [año]».
+    Si hay fecha_iso, manda la composición; si no, conserva texto legacy o el default.
+    """
+    legacy = (fecha_texto_legacy or "").strip()
+    d = parse_iso_date(fecha_iso) if fecha_iso else None
+    if d:
+        modo = (municipio_modo or "").strip().lower()
+        if modo == "otro":
+            muni = (municipio_otro or "").strip() or MUNICIPIO_GARCIA
+        else:
+            muni = MUNICIPIO_GARCIA
+        return f"{muni} a {d.day} de {mes_nombre(d.month)} de {d.year}"
+    return legacy or default_fecha_linea()
 
 
 def add_months(d: date, months: int) -> date:

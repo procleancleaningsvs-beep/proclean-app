@@ -17,7 +17,7 @@ if str(ROOT) not in sys.path:
 
 from openpyxl import Workbook
 
-from modules.vitroflex_docs.dates import permiso2_desde_permiso1, parse_iso_date
+from modules.vitroflex_docs.dates import linea_fecha_documento, permiso2_desde_permiso1, parse_iso_date
 from modules.vitroflex_docs.excel_import import parse_excel_bytes
 from modules.vitroflex_docs.naming import (
     cr_filename_opcion1,
@@ -60,6 +60,30 @@ def _xlsx_bytes_four_cols() -> bytes:
     bio = io.BytesIO()
     wb.save(bio)
     return bio.getvalue()
+
+
+def test_linea_fecha_documento():
+    s = linea_fecha_documento(
+        fecha_iso="2026-03-30",
+        municipio_modo="garcia",
+        municipio_otro="",
+        fecha_texto_legacy=None,
+    )
+    assert "Garcia, N. L." in s and "30" in s and "marzo" in s and "2026" in s
+    s2 = linea_fecha_documento(
+        fecha_iso="2026-03-30",
+        municipio_modo="otro",
+        municipio_otro="Monterrey, N. L.",
+        fecha_texto_legacy=None,
+    )
+    assert "Monterrey" in s2
+    leg = linea_fecha_documento(
+        fecha_iso=None,
+        municipio_modo="garcia",
+        municipio_otro="",
+        fecha_texto_legacy="  Legacy fecha  ",
+    )
+    assert leg == "Legacy fecha"
 
 
 def test_permiso2():
@@ -131,6 +155,7 @@ def test_user_paths_excel():
 
 
 def main():
+    test_linea_fecha_documento()
     test_permiso2()
     test_excel()
     test_filenames()

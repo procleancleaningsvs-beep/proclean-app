@@ -24,6 +24,20 @@ def _norm_cell(v: Any) -> str:
     return s
 
 
+def _norm_imss_cell(v: Any) -> str:
+    """Solo dígitos, máx. 11; sin conversión numérica que borre ceros si el valor ya es texto."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return re.sub(r"\D", "", v)[:11]
+    if isinstance(v, int):
+        return re.sub(r"\D", "", str(v))[:11]
+    if isinstance(v, float) and float(v).is_integer():
+        return re.sub(r"\D", "", str(int(v)))[:11]
+    s = str(v).strip()
+    return re.sub(r"\D", "", s)[:11]
+
+
 def _classify_header(cell: Any) -> str | None:
     h = _norm_cell(cell).lower()
     if not h:
@@ -106,7 +120,7 @@ def parse_excel_bytes(data: bytes) -> tuple[list[RowDict], bool, str | None]:
     for row in all_rows[header_idx + 1 :]:
         cells = list(row) + [None] * (max_idx + 1)
         nombre = _norm_cell(cells[mapping["nombre"]]) if "nombre" in mapping else ""
-        imss = _norm_cell(cells[mapping["imss"]]) if "imss" in mapping else ""
+        imss = _norm_imss_cell(cells[mapping["imss"]]) if "imss" in mapping else ""
         act = _norm_cell(cells[mapping["actividad"]]) if "actividad" in mapping else ""
         tel = _norm_cell(cells[mapping["tel"]]) if "tel" in mapping else ""
         if _fila_vacia(nombre, imss, act, tel):

@@ -79,7 +79,7 @@ def _set_cell_text(cell, text: str) -> None:
         cell.text = text or ""
 
 
-def _mk_w_border(side: str, sz: str = "16") -> OxmlElement:
+def _mk_w_border(side: str, sz: str = "6") -> OxmlElement:
     el = OxmlElement(f"w:{side}")
     el.set(qn("w:val"), "single")
     el.set(qn("w:sz"), sz)
@@ -107,7 +107,7 @@ def _tc_apply_black_borders_all_sides(tc_el) -> None:
         tc_pr.remove(old)
     borders = OxmlElement("w:tcBorders")
     for side in ("top", "left", "bottom", "right"):
-        borders.append(_mk_w_border(side, "16"))
+        borders.append(_mk_w_border(side, "6"))
     tc_w = tc_pr.find(qn("w:tcW"))
     if tc_w is not None:
         tc_w.addnext(borders)
@@ -137,7 +137,7 @@ def _force_worker_table_borders_for_pdf(table: Table) -> None:
         tbl_pr.remove(old_tb)
     tb = OxmlElement("w:tblBorders")
     for side in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        tb.append(_mk_w_border(side, "16"))
+        tb.append(_mk_w_border(side, "6"))
     tbl_pr.append(tb)
 
     for tr in tbl_el:

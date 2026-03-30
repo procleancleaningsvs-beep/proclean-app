@@ -322,20 +322,31 @@ def main() -> int:
             report.append(f"```json\n{json.dumps(st2.get_json(), ensure_ascii=False, indent=2)}\n```")
         payload = {
             "kind": "memo",
-            "fecha_texto": "API test",
+            "fecha_iso": "2026-03-10",
+            "municipio_modo": "garcia",
+            "municipio_otro": "",
             "permiso1": "2026-03-10",
             "permiso2": "2026-04-27",
             "workers": workers3,
-            "filename": "api_test.pdf",
+            "filename": "api_test",
             "disposition": "attachment",
+            "output_format": "pdf",
         }
         r = c.post("/vitroflex/api/generate-pdf", json=payload)
-        report.append(f"- POST generate-pdf: {r.status_code}, bytes={len(r.data)}")
+        report.append(f"- POST generate-pdf (PDF): {r.status_code}, bytes={len(r.data)}")
         if r.status_code == 200 and r.data[:4] == b"%PDF":
             (OUT / "api_smoke_generate.pdf").write_bytes(r.data)
             report.append("- PDF guardado en `real_run/api_smoke_generate.pdf`")
         else:
             report.append(f"- Error: {r.get_data(as_text=True)[:500]}")
+        payload_docx = {**payload, "output_format": "docx", "filename": "api_smoke"}
+        r3 = c.post("/vitroflex/api/generate-pdf", json=payload_docx)
+        report.append(f"- POST generate-pdf (DOCX): {r3.status_code}, bytes={len(r3.data)}")
+        if r3.status_code == 200 and r3.data[:2] == b"PK":
+            (OUT / "api_smoke_generate.docx").write_bytes(r3.data)
+            report.append("- DOCX guardado en `real_run/api_smoke_generate.docx`")
+        elif r3.status_code != 200:
+            report.append(f"- DOCX error: {r3.get_data(as_text=True)[:300]}")
     except Exception as exc:
         report.append(f"- **FAIL API** {exc}")
 

@@ -9,6 +9,9 @@ from copy import deepcopy
 from docx.document import Document as DocumentClass
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.text.paragraph import Paragraph
+
+from modules.vitroflex_docs.docx_table_workers import find_worker_table
 
 _NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
@@ -63,7 +66,7 @@ def _paragraph_label_top_rule(text: str, val_p_el) -> OxmlElement:
     p_bdr = OxmlElement("w:pBdr")
     top = OxmlElement("w:top")
     top.set(qn("w:val"), "single")
-    top.set(qn("w:sz"), "24")
+    top.set(qn("w:sz"), "8")
     top.set(qn("w:space"), "2")
     top.set(qn("w:color"), "000000")
     p_bdr.append(top)
@@ -111,9 +114,6 @@ def _build_two_cell_signature_table(left_p: OxmlElement, right_p: OxmlElement) -
     tbl.append(grid)
 
     tr = OxmlElement("w:tr")
-    tr_pr = OxmlElement("w:trPr")
-    tr_pr.append(OxmlElement("w:cantSplit"))
-    tr.append(tr_pr)
 
     for gc_w, child_p in ((4680, left_p), (4680, right_p)):
         tc = OxmlElement("w:tc")
@@ -166,3 +166,37 @@ def memo_wrap_signature_block_in_unsplit_table(doc: DocumentClass) -> None:
     body.remove(line_p_el)
     body.remove(val_p_el)
     body.insert(pos, new_tbl)
+
+
+def memo_link_worker_table_to_signature(doc: DocumentClass) -> None:
+    """
+    Encadena párrafos entre la tabla de trabajadores y el bloque de firmas para que,
+    si aún cabe espacio en la página 1, el cierre no salte solo a la página 2.
+    """
+    body = doc._element[0]
+    children = list(body)
+    sect_i = None
+    for i, el in enumerate(children):
+        if el.tag == qn("w:sectPr"):
+            sect_i = i
+            break
+    if sect_i is None:
+        return
+    tbl_idxs = [i for i, c in enumerate(children[:sect_i]) if c.tag == qn("w:tbl")]
+    if len(tbl_idxs) < 2:
+        return
+    sig_idx = tbl_idxs[-1]
+    worker_idx = tbl_idxs[-2]
+    for j in range(worker_idx + 1, sig_idx):
+        el = children[j]
+        if el.tag != qn("w:p"):
+            continue
+        Paragraph(el, doc._body).paragraph_format.keep_with_next = True
+
+    worker_table = find_worker_table(doc)
+    if worker_table is None or not worker_table.rows:
+        return
+    last_row = worker_table.rows[-1]
+    for cell in last_row.cells:
+        for p in cell.paragraphs:
+            p.paragraph_format.keep_with_next = True

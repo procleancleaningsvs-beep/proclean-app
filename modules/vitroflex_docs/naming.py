@@ -14,9 +14,10 @@ def sanitize_filename_base(name: str, max_len: int = 160) -> str:
     s = (name or "").strip()
     s = _INVALID_FS.sub("_", s)
     s = re.sub(r"\s+", " ", s).strip(" .")
+    s = (s or "documento").upper()
     if len(s) > max_len:
-        s = s[: max_len - 1].rstrip() + "…"
-    return s or "documento"
+        s = s[: max_len - 3].rstrip() + "..."
+    return s
 
 
 def resumir_nombres(nombres: list[str], *, max_nombres: int = 2) -> str:

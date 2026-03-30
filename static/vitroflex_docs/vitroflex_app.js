@@ -19,10 +19,19 @@
   const btnImport = document.getElementById("vf-import");
   const fileInput = document.getElementById("vf-file");
   const btnPreview = document.getElementById("vf-preview");
-  const btnPdf = document.getElementById("vf-pdf");
+  const btnExportPdf = document.getElementById("vf-export-pdf");
+  const btnExportDocx = document.getElementById("vf-export-docx");
   const selNombrePdf = document.getElementById("vf-pdf-name-mode");
+  const wrapFilenameOtro = document.getElementById("vf-filename-otro-wrap");
+  const inpFilenameOtro = document.getElementById("vf-filename-otro");
 
-  const fechaTexto = document.getElementById("vf-fecha");
+  const municipioMod = document.getElementById("vf-municipio-mod");
+  const municipioOtroWrap = document.getElementById("vf-municipio-otro-wrap");
+  const municipioOtro = document.getElementById("vf-municipio-otro");
+  const fechaIso = document.getElementById("vf-fecha-iso");
+  const fechaLinePreview = document.getElementById("vf-fecha-line-preview");
+
+  const btnClearWorkers = document.getElementById("vf-clear-workers");
   const plantaSel = document.getElementById("vf-planta");
   const permiso1 = document.getElementById("vf-permiso1");
   const permiso2 = document.getElementById("vf-permiso2");
@@ -83,11 +92,17 @@
     });
   }
 
+  function normalizeImssInput(el) {
+    if (!el) return;
+    const only = String(el.value || "").replace(/\D/g, "").slice(0, 11);
+    if (only !== el.value) el.value = only;
+  }
+
   function rowTemplate() {
     const tr = document.createElement("tr");
     tr.innerHTML =
       '<td><input type="text" class="vf-inp" data-f="nombre" autocomplete="off" /></td>' +
-      '<td><input type="text" class="vf-inp" data-f="imss" autocomplete="off" /></td>' +
+      '<td><input type="text" class="vf-inp" data-f="imss" inputmode="numeric" pattern="[0-9]*" maxlength="11" autocomplete="off" /></td>' +
       '<td><input type="text" class="vf-inp" data-f="actividad" autocomplete="off" /></td>' +
       '<td><input type="text" class="vf-inp" data-f="tel" autocomplete="off" /></td>' +
       '<td class="vf-row-actions"><button type="button" class="btn btn-small danger-btn vf-btn-small vf-remove">Quitar</button></td>';
@@ -107,7 +122,10 @@
     tbody.querySelectorAll("tr").forEach(function (tr) {
       const o = {};
       tr.querySelectorAll(".vf-inp").forEach(function (inp) {
-        o[inp.getAttribute("data-f")] = (inp.value || "").trim();
+        const f = inp.getAttribute("data-f");
+        let v = (inp.value || "").trim();
+        if (f === "imss") v = v.replace(/\D/g, "").slice(0, 11);
+        o[f] = v;
       });
       if (o.nombre || o.imss || o.actividad || o.tel) out.push(o);
     });
@@ -123,7 +141,7 @@
     rows.forEach(function (r) {
       const tr = rowTemplate();
       tr.querySelector('[data-f="nombre"]').value = r.nombre || "";
-      tr.querySelector('[data-f="imss"]').value = r.imss || "";
+      tr.querySelector('[data-f="imss"]').value = String(r.imss || "").replace(/\D/g, "").slice(0, 11);
       tr.querySelector('[data-f="actividad"]').value = r.actividad || "";
       tr.querySelector('[data-f="tel"]').value = r.tel || "";
       tbody.appendChild(tr);
@@ -132,11 +150,31 @@
 
   if (btnAdd) btnAdd.addEventListener("click", function () { addRow(); });
 
+  if (tbody) {
+    tbody.addEventListener("input", function (e) {
+      const t = e.target;
+      if (t && t.matches && t.matches('[data-f="imss"]')) normalizeImssInput(t);
+    });
+  }
+
+  if (btnClearWorkers) {
+    btnClearWorkers.addEventListener("click", function () {
+      if (
+        !confirm(
+          "¿Vaciar toda la tabla de trabajadores? No se borrarán municipio, fecha, permisos ni demás datos del formulario."
+        )
+      ) {
+        return;
+      }
+      applyRows([]);
+    });
+  }
+
   function mergeImport(rows, fillDefaults) {
     const merged = rows.map(function (r) {
       const x = {
         nombre: r.nombre || "",
-        imss: r.imss || "",
+        imss: String(r.imss || "").replace(/\D/g, "").slice(0, 11),
         actividad: r.actividad || "",
         tel: r.tel || "",
       };
@@ -203,10 +241,16 @@
 
   function buildPayload() {
     const workers = readRows();
+    const municipio_modo = municipioMod ? municipioMod.value || "garcia" : "garcia";
+    const baseFecha = {
+      fecha_iso: fechaIso ? fechaIso.value || null : null,
+      municipio_modo: municipio_modo,
+      municipio_otro: municipioOtro ? municipioOtro.value || "" : "",
+    };
     if (kind === "memo") {
       return {
         kind: "memo",
-        fecha_texto: fechaTexto ? fechaTexto.value : "",
+        ...baseFecha,
         permiso1: permiso1 ? permiso1.value || null : null,
         permiso2: permiso2 ? permiso2.value || null : null,
         workers: workers,
@@ -214,18 +258,20 @@
     }
     return {
       kind: "cr",
-      fecha_texto: fechaTexto ? fechaTexto.value : "",
+      ...baseFecha,
       planta: plantaSel ? plantaSel.value || "" : "",
       workers: workers,
     };
   }
 
   function sanitizeFilename(s) {
-    return String(s)
+    const u = String(s)
       .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 160) || "documento";
+      .slice(0, 160)
+      .toUpperCase();
+    return u || "DOCUMENTO";
   }
 
   function resumirNombres(nombres) {
@@ -242,35 +288,37 @@
   }
 
   function mesCRFilename() {
-    const d = parseYMD(permiso1 && permiso1.value);
+    const d = parseYMD(permiso1 && permiso1.value) || parseYMD(fechaIso && fechaIso.value);
     if (d) return MESES[d.getMonth()] + " " + d.getFullYear();
-    const t = fechaTexto ? fechaTexto.value : "";
-    const m = t.match(/de\s+([a-záéíóúñ]+)\s+de\s+(\d{4})/i);
-    if (m) return m[1] + " " + m[2];
     return MESES[new Date().getMonth()] + " " + new Date().getFullYear();
   }
 
-  function pdfFilename() {
+  /** Stem del archivo (sin extensión); el servidor también normaliza a MAYÚSCULAS. */
+  function exportStem() {
     const rows = readRows();
     const nombres = rows.map(function (r) { return r.nombre; });
     const mode = selNombrePdf ? selNombrePdf.value : "a";
     const planta = plantaSel ? (plantaSel.value || "").trim() || "Planta" : "Planta";
 
+    if (mode === "otro") {
+      return sanitizeFilename(inpFilenameOtro ? inpFilenameOtro.value : "");
+    }
     if (kind === "memo") {
       if (mode === "b") {
-        return sanitizeFilename("MEMO MENSUAL " + mesDePermiso1()) + ".pdf";
+        return sanitizeFilename("MEMO MENSUAL " + mesDePermiso1());
       }
-      return sanitizeFilename("MEMO " + resumirNombres(nombres)) + ".pdf";
+      return sanitizeFilename("MEMO " + resumirNombres(nombres));
     }
     if (mode === "b") {
-      return sanitizeFilename("CR " + planta + " " + mesCRFilename()) + ".pdf";
+      return sanitizeFilename("CR " + planta + " " + mesCRFilename());
     }
-    return sanitizeFilename("CR " + planta + " " + resumirNombres(nombres)) + ".pdf";
+    return sanitizeFilename("CR " + planta + " " + resumirNombres(nombres));
   }
 
-  function fetchPdf(disposition) {
+  function fetchExport(outputFormat, disposition) {
     const payload = buildPayload();
-    payload.filename = pdfFilename().replace(/\.pdf$/i, "");
+    payload.output_format = outputFormat;
+    payload.filename = exportStem();
     payload.disposition = disposition;
     return fetch(cfg.generatePdfUrl, {
       method: "POST",
@@ -280,14 +328,14 @@
     }).then(function (r) {
       if (r.ok) return r.blob();
       return r.json().then(function (j) {
-        throw new Error(j.error || r.statusText || "Error al generar PDF");
+        throw new Error(j.error || r.statusText || "Error al generar documento");
       });
     });
   }
 
   function openPreview() {
     if (!previewFrame) return;
-    fetchPdf("inline")
+    fetchExport("pdf", "inline")
       .then(function (blob) {
         if (lastPreviewUrl) {
           URL.revokeObjectURL(lastPreviewUrl);
@@ -301,12 +349,13 @@
       });
   }
 
-  function runDownload() {
-    fetchPdf("attachment")
+  function runDownload(outputFormat) {
+    const ext = outputFormat === "docx" ? ".docx" : ".pdf";
+    fetchExport(outputFormat, "attachment")
       .then(function (blob) {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = pdfFilename();
+        a.download = exportStem() + ext;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -317,8 +366,51 @@
       });
   }
 
+  function syncMunicipioOtro() {
+    if (!municipioOtroWrap || !municipioMod) return;
+    municipioOtroWrap.hidden = municipioMod.value !== "otro";
+  }
+
+  function syncFilenameOtro() {
+    if (!wrapFilenameOtro || !selNombrePdf) return;
+    wrapFilenameOtro.hidden = selNombrePdf.value !== "otro";
+  }
+
+  function updateFechaLinePreview() {
+    if (!fechaLinePreview) return;
+    const muni =
+      municipioMod && municipioMod.value === "otro"
+        ? (municipioOtro && municipioOtro.value.trim()) || "Garcia, N. L."
+        : "Garcia, N. L.";
+    const d = parseYMD(fechaIso && fechaIso.value);
+    if (!d) {
+      fechaLinePreview.textContent = "";
+      return;
+    }
+    fechaLinePreview.textContent =
+      "Así aparecerá en el documento: " +
+      muni +
+      " a " +
+      d.getDate() +
+      " de " +
+      MESES[d.getMonth()] +
+      " de " +
+      d.getFullYear();
+  }
+
+  if (municipioMod) municipioMod.addEventListener("change", syncMunicipioOtro);
+  if (municipioOtro) municipioOtro.addEventListener("input", updateFechaLinePreview);
+  if (fechaIso) fechaIso.addEventListener("change", updateFechaLinePreview);
+  if (fechaIso) fechaIso.addEventListener("input", updateFechaLinePreview);
+  if (selNombrePdf) selNombrePdf.addEventListener("change", syncFilenameOtro);
+
+  syncMunicipioOtro();
+  syncFilenameOtro();
+  updateFechaLinePreview();
+
   if (btnPreview) btnPreview.addEventListener("click", openPreview);
-  if (btnPdf) btnPdf.addEventListener("click", runDownload);
+  if (btnExportPdf) btnExportPdf.addEventListener("click", function () { runDownload("pdf"); });
+  if (btnExportDocx) btnExportDocx.addEventListener("click", function () { runDownload("docx"); });
   if (btnPreviewClose) {
     btnPreviewClose.addEventListener("click", function () {
       if (previewBackdrop) previewBackdrop.hidden = true;

@@ -118,18 +118,23 @@ def _uniform_data_row_font_size(table, sz_half_pts: str = _DATA_SZ_HALFPTS) -> N
                     r_el.insert(0, rpr_new)
 
 
-def _widen_imss_column_dxa(
+def _cr_redistribute_column_widths_dxa(
     table,
-    imss_col: int = 1,
     nombre_col: int = 0,
+    imss_col: int = 1,
     act_col: int = 2,
+    tel_col: int = 3,
 ) -> None:
+    """
+    Reparte el ancho total de la tabla: más espacio a NOMBRE, IMSS acotado a ~11 dígitos en una línea.
+    Conserva la suma dxa del tblGrid para no deformar el layout del documento.
+    """
     tbl = table._tbl
     grid = tbl.find(qn("w:tblGrid"))
     if grid is None:
         return
     gcs = grid.findall(qn("w:gridCol"))
-    if len(gcs) <= max(imss_col, nombre_col, act_col):
+    if len(gcs) <= max(nombre_col, imss_col, act_col, tel_col):
         return
 
     def _w(gc):
@@ -141,25 +146,48 @@ def _widen_imss_column_dxa(
             return None
         return int(w)
 
-    in0 = _w(gcs[nombre_col])
-    in1 = _w(gcs[imss_col])
-    in2 = _w(gcs[act_col])
-    if in0 is None or in1 is None or in2 is None:
+    widths_in = [_w(gcs[i]) for i in (nombre_col, imss_col, act_col, tel_col)]
+    if any(x is None for x in widths_in):
         return
-    take0 = min(1050, in0 - 360)
-    take2 = min(250, in2 - 220)
-    add = take0 + take2
-    if add <= 0:
+    total = int(sum(widths_in))  # type: ignore[arg-type]
+    if total <= 0:
         return
-    n0, n1, n2 = in0 - take0, in1 + add, in2 - take2
-    gcs[nombre_col].set(qn("w:w"), str(n0))
-    gcs[imss_col].set(qn("w:w"), str(n1))
-    gcs[act_col].set(qn("w:w"), str(n2))
+
+    # Referencia ~7615 dxa: priorizar NOMBRE; IMSS acotado para 11 dígitos en una línea.
+    ref = 7615
+    n0 = round(3920 * total / ref)
+    n1 = round(1400 * total / ref)
+    n2 = round(1440 * total / ref)
+    n3 = total - n0 - n1 - n2
+    n1 = max(1100, min(1560, n1))
+    n3 = max(650, min(980, n3))
+    n2 = max(1180, n2)
+    n0 = total - n1 - n2 - n3
+    if n0 < 2700:
+        shrink = 2700 - n0
+        n1 = max(1100, n1 - shrink // 2)
+        n3 = max(650, n3 - shrink // 4)
+        n0 = total - n1 - n2 - n3
+    delta = total - (n0 + n1 + n2 + n3)
+    n0 += delta
+
+    for idx, new_w in (
+        (nombre_col, n0),
+        (imss_col, n1),
+        (act_col, n2),
+        (tel_col, n3),
+    ):
+        gcs[idx].set(qn("w:w"), str(new_w))
 
     hi = worker_header_row_index(table)
     for row in table.rows[hi:]:
         cells = row.cells
-        for idx, new_w in ((nombre_col, n0), (imss_col, n1), (act_col, n2)):
+        for idx, new_w in (
+            (nombre_col, n0),
+            (imss_col, n1),
+            (act_col, n2),
+            (tel_col, n3),
+        ):
             if idx >= len(cells):
                 continue
             tc_pr = cells[idx]._tc.tcPr
@@ -207,7 +235,7 @@ def apply_cr_pdf_layout(doc: DocumentClass) -> None:
     table = find_worker_table(doc)
     if table is None:
         return
-    _widen_imss_column_dxa(table)
+    _cr_redistribute_column_widths_dxa(table)
     _cr_set_fixed_layout_and_total_width(table)
     _nowrap_imss_data_cells(table)
     _data_rows_uniform_cell_margins(table)

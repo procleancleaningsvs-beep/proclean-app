@@ -167,7 +167,9 @@ def main() -> int:
             "api_memo_manual_3",
             {
                 "kind": "memo",
-                "fecha_texto": "Garcia, N. L. a 15 de marzo de 2026",
+                "fecha_iso": "2026-03-15",
+                "municipio_modo": "garcia",
+                "municipio_otro": "",
                 "permiso1": "2026-03-10",
                 "permiso2": "2026-04-27",
                 "workers": workers3,
@@ -179,7 +181,9 @@ def main() -> int:
             "api_cr_vitroflex",
             {
                 "kind": "cr",
-                "fecha_texto": "Garcia, N. L. a 15 de marzo de 2026",
+                "fecha_iso": "2026-03-15",
+                "municipio_modo": "garcia",
+                "municipio_otro": "",
                 "planta": "Vitroflex",
                 "workers": workers3[:2],
                 "filename": "cr_vitroflex",
@@ -190,7 +194,9 @@ def main() -> int:
             "api_memo_multiples_filas",
             {
                 "kind": "memo",
-                "fecha_texto": "Prueba multipágina",
+                "fecha_iso": "2026-01-01",
+                "municipio_modo": "garcia",
+                "municipio_otro": "",
                 "permiso1": "2026-01-01",
                 "permiso2": "2026-02-18",
                 "workers": big,

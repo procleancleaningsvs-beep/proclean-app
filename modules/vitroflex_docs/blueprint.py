@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from functools import wraps
 import re
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from flask import (
     Blueprint,
@@ -20,7 +22,7 @@ from flask import (
 )
 
 from modules.vitroflex_docs.build_document import build_cr_docx_bytes, build_memo_docx_bytes
-from modules.vitroflex_docs.dates import default_fecha_linea
+from modules.vitroflex_docs.dates import default_fecha_linea, linea_fecha_documento
 from modules.vitroflex_docs.excel_import import parse_excel_bytes
 from modules.vitroflex_docs.libreoffice_pdf import docx_bytes_to_pdf_bytes, resolve_soffice_path
 from modules.vitroflex_docs.template_paths import CR_DOCX, MEMO_DOCX
@@ -53,20 +55,24 @@ def _vf_login_required(view):
 @vitroflex_bp.route("/memo", methods=["GET"])
 @_vf_login_required
 def memo_mensual():
+    tz = ZoneInfo("America/Mexico_City")
     return render_template(
         "memo.html",
         doc_kind="memo",
         default_fecha=default_fecha_linea(),
+        default_fecha_iso=datetime.now(tz).date().isoformat(),
     )
 
 
 @vitroflex_bp.route("/cr", methods=["GET"])
 @_vf_login_required
 def cr_mensual():
+    tz = ZoneInfo("America/Mexico_City")
     return render_template(
         "cr.html",
         doc_kind="cr",
         default_fecha=default_fecha_linea(),
+        default_fecha_iso=datetime.now(tz).date().isoformat(),
     )
 
 
@@ -106,12 +112,33 @@ def descargar_plantilla():
     )
 
 
-def _safe_download_filename(name: str | None, default: str) -> str:
-    base = (name or "").strip() or default
-    if not base.lower().endswith(".pdf"):
-        base = f"{base}.pdf"
-    base = re.sub(r'[<>:"/\\\\|?*\x00-\x1f]+', "_", base).strip()
-    return base[:180] if len(base) > 180 else base
+def _normalize_imss_digits(value) -> str:
+    return re.sub(r"\D", "", str(value or ""))[:11]
+
+
+def _safe_download_filename(
+    name: str | None,
+    *,
+    default_stem: str,
+    ext: str,
+    max_stem: int = 160,
+) -> str:
+    ext_l = ext.lower()
+    if not ext_l.startswith("."):
+        ext_l = f".{ext_l}"
+    raw = (name or "").strip() or default_stem
+    stem = raw
+    for e in (".pdf", ".docx"):
+        if stem.lower().endswith(e):
+            stem = stem[: -len(e)]
+            break
+    stem = re.sub(r'[<>:"/\\\\|?*\x00-\x1f]+', "_", stem).strip(" .")
+    stem = stem.upper()
+    if len(stem) > max_stem:
+        stem = stem[:max_stem]
+    if not stem:
+        stem = "DOCUMENTO"
+    return f"{stem}{ext_l}"
 
 
 @vitroflex_bp.route("/api/status", methods=["GET"])
@@ -141,7 +168,15 @@ def api_generate_pdf():
     """
     payload = request.get_json(silent=True) or {}
     kind = (payload.get("kind") or "").strip().lower()
-    fecha_texto = (payload.get("fecha_texto") or "").strip()
+    fecha_texto = linea_fecha_documento(
+        fecha_iso=payload.get("fecha_iso"),
+        municipio_modo=payload.get("municipio_modo"),
+        municipio_otro=payload.get("municipio_otro"),
+        fecha_texto_legacy=payload.get("fecha_texto"),
+    )
+    output = (payload.get("output_format") or payload.get("format") or "pdf").strip().lower()
+    if output not in ("pdf", "docx"):
+        output = "pdf"
     workers = payload.get("workers")
     if not isinstance(workers, list):
         workers = []
@@ -152,12 +187,16 @@ def api_generate_pdf():
         workers_norm.append(
             {
                 "nombre": str(w.get("nombre") or ""),
-                "imss": str(w.get("imss") or ""),
+                "imss": _normalize_imss_digits(w.get("imss")),
                 "actividad": str(w.get("actividad") or ""),
                 "tel": str(w.get("tel") or ""),
             }
         )
-    filename = _safe_download_filename(payload.get("filename"), "vitroflex.pdf")
+    filename = _safe_download_filename(
+        payload.get("filename"),
+        default_stem="VITROFLEX",
+        ext=".pdf" if output == "pdf" else ".docx",
+    )
     disp = (payload.get("disposition") or "inline").strip().lower()
     if disp not in {"inline", "attachment"}:
         disp = "inline"
@@ -201,7 +240,12 @@ def api_generate_pdf():
         else:
             return jsonify({"ok": False, "error": "kind debe ser memo o cr."}), 400
 
-        pdf_bytes = docx_bytes_to_pdf_bytes(docx_bytes, suffix=kind)
+        if output == "pdf":
+            out_bytes = docx_bytes_to_pdf_bytes(docx_bytes, suffix=kind)
+            mime = "application/pdf"
+        else:
+            out_bytes = docx_bytes
+            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
     except Exception as exc:
@@ -209,8 +253,8 @@ def api_generate_pdf():
 
     cd = f'{disp}; filename="{filename}"'
     return Response(
-        pdf_bytes,
-        mimetype="application/pdf",
+        out_bytes,
+        mimetype=mime,
         headers={"Content-Disposition": cd},
     )
 

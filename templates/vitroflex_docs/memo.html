@@ -17,9 +17,32 @@
 <section class="panel vf-panel">
   <h3 class="panel-title">Datos generales</h3>
   <div class="vf-grid vf-grid-2">
-    <label>Fecha (texto libre)
-      <textarea id="vf-fecha" name="fecha_texto" rows="2">{{ default_fecha }}</textarea>
-    </label>
+    <div class="vf-grid vf-fecha-block">
+      <label>Municipio
+        <select id="vf-municipio-mod">
+          <option value="garcia" selected>Garcia, N. L.</option>
+          <option value="otro">Otro</option>
+        </select>
+      </label>
+      <label id="vf-municipio-otro-wrap" hidden>Municipio u otro texto
+        <input type="text" id="vf-municipio-otro" list="vf-municipios-sugeridos" placeholder="Escribe o elige una sugerencia" autocomplete="off" />
+        <datalist id="vf-municipios-sugeridos">
+          <option value="Monterrey, N. L."></option>
+          <option value="San Nicolás de los Garza, N. L."></option>
+          <option value="Guadalupe, N. L."></option>
+          <option value="Apodaca, N. L."></option>
+          <option value="Escobedo, N. L."></option>
+          <option value="Santa Catarina, N. L."></option>
+          <option value="San Pedro Garza García, N. L."></option>
+          <option value="Juárez, N. L."></option>
+          <option value="Cadereyta, N. L."></option>
+        </datalist>
+      </label>
+      <label>Fecha del documento
+        <input type="date" id="vf-fecha-iso" value="{{ default_fecha_iso }}" />
+      </label>
+      <p class="helper vf-fecha-line-preview" id="vf-fecha-line-preview"></p>
+    </div>
     <div class="vf-grid">
       <label>Permiso 1
         <input type="date" id="vf-permiso1" />
@@ -31,9 +54,10 @@
   </div>
 
   <h3 class="panel-title">Trabajadores</h3>
-  <div class="vf-toolbar">
+  <div class="vf-toolbar" id="vf-workers-toolbar">
     <button type="button" class="btn btn-secondary" id="vf-add-row">Agregar fila</button>
     <button type="button" class="btn btn-secondary" id="vf-import">Importar Excel</button>
+    <button type="button" class="btn btn-secondary danger-btn" id="vf-clear-workers">Quitar todos</button>
     <input type="file" id="vf-file" accept=".xlsx,.xlsm" hidden />
     <a class="btn btn-secondary" href="{{ url_for('vitroflex.descargar_plantilla') }}">Descargar plantilla (.xlsx)</a>
     <button type="button" class="btn btn-primary" id="vf-preview">Vista previa (PDF)</button>
@@ -54,17 +78,22 @@
     </table>
   </div>
 
-  <h3 class="panel-title">Exportar PDF</h3>
-  <div class="vf-toolbar">
+  <h3 class="panel-title">Exportar documento</h3>
+  <div class="vf-toolbar vf-export-row">
     <label>Nombre del archivo
       <select id="vf-pdf-name-mode">
         <option value="a">MEMO + nombres (resumidos)</option>
         <option value="b">MEMO MENSUAL + mes (desde Permiso 1)</option>
+        <option value="otro">Otro (nombre libre)</option>
       </select>
     </label>
-    <button type="button" class="btn btn-primary" id="vf-pdf">Descargar PDF</button>
+    <label id="vf-filename-otro-wrap" hidden>Nombre del archivo (libre)
+      <input type="text" id="vf-filename-otro" maxlength="120" placeholder="Ej. MEMO MARZO 2026" autocomplete="off" />
+    </label>
+    <button type="button" class="btn btn-primary" id="vf-export-pdf">Descargar PDF</button>
+    <button type="button" class="btn btn-secondary" id="vf-export-docx">Descargar DOCX</button>
   </div>
-  <p class="helper">El PDF se genera en el servidor a partir del .docx oficial (LibreOffice). Requiere plantillas en <code>vitroflex_templates/</code>.</p>
+  <p class="helper">PDF y DOCX se generan en el servidor desde la plantilla Word oficial; el PDF usa LibreOffice. Requiere plantillas en <code>vitroflex_templates/</code>.</p>
 </section>
 
 <div id="vf-modal-defaults" class="vf-modal" hidden>
