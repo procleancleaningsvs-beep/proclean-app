@@ -14,6 +14,11 @@ from modules.vitroflex_docs.docx_table_workers import find_worker_table, worker_
 # 16 medios puntos = 8 pt (referencia que mantiene NSS de 11 dígitos en una línea)
 _DATA_SZ_HALFPTS = "16"
 
+# Anchos dxa del tblGrid de la tabla de trabajadores en MEMO MENSUAL FORMATO.docx (referencia visual).
+# El CR escala estas proporciones a su propio ancho total para equilibrar columnas como en el MEMO.
+_MEMO_WORKER_GRID_DXA = (3977, 1893, 2039, 2184)
+_MEMO_WORKER_GRID_SUM = sum(_MEMO_WORKER_GRID_DXA)
+
 
 def _tighten_data_row_paragraph_spacing(table) -> None:
     hi = worker_header_row_index(table)
@@ -126,8 +131,8 @@ def _cr_redistribute_column_widths_dxa(
     tel_col: int = 3,
 ) -> None:
     """
-    Reparte el ancho total de la tabla: más espacio a NOMBRE, IMSS acotado a ~11 dígitos en una línea.
-    Conserva la suma dxa del tblGrid para no deformar el layout del documento.
+    Reparte el ancho total del CR con las mismas proporciones que el tblGrid de la tabla de trabajadores del MEMO.
+    Conserva la suma dxa del tblGrid del CR.
     """
     tbl = table._tbl
     grid = tbl.find(qn("w:tblGrid"))
@@ -153,22 +158,12 @@ def _cr_redistribute_column_widths_dxa(
     if total <= 0:
         return
 
-    # Proporción equilibrada: nombre con mayor peso; IMSS ~11 dígitos; tel p. ej. «81 2183 9413»; actividad típica en una línea.
-    n1 = max(1180, min(1360, round(total * 0.178)))
-    n3 = max(1120, min(1340, round(total * 0.172)))
-    n2 = max(1520, min(1840, round(total * 0.238)))
-    n0 = total - n1 - n2 - n3
-    if n0 < 2920:
-        deficit = 2920 - n0
-        n2 = max(1500, n2 - int(deficit * 0.42))
-        n1 = max(1160, n1 - int(deficit * 0.28))
-        n3 = max(1080, n3 - int(deficit * 0.20))
-        n0 = total - n1 - n2 - n3
-    if n0 < 2880:
-        n2 = max(1480, n2 - (2880 - n0))
-        n0 = total - n1 - n2 - n3
-    delta = total - (n0 + n1 + n2 + n3)
-    n0 += delta
+    memo = _MEMO_WORKER_GRID_DXA
+    m = _MEMO_WORKER_GRID_SUM
+    ws = [round(total * memo[i] / m) for i in range(4)]
+    drift = total - sum(ws)
+    ws[0] += drift
+    n0, n1, n2, n3 = ws
 
     for idx, new_w in (
         (nombre_col, n0),

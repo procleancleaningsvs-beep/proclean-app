@@ -1,4 +1,4 @@
-# Evidencia real Vitroflex — 2026-03-30T13:13:49
+# Evidencia real Vitroflex — 2026-03-30T13:32:36
 
 ## Entorno
 - LibreOffice: `C:\Program Files\LibreOffice\program\soffice.exe`
@@ -57,7 +57,7 @@
 {
   "pdf": "C:\\Users\\Yahir\\Downloads\\proclean-app\\tests\\evidence_vitroflex\\real_run\\pdfs\\04_cr_vitroflex.pdf",
   "notes": [
-    "páginas=1, chars≈2269"
+    "páginas=1, chars≈2268"
   ],
   "pngs": [
     "C:\\Users\\Yahir\\Downloads\\proclean-app\\tests\\evidence_vitroflex\\real_run\\renders\\04_cr_vitroflex_p1.png"
@@ -70,7 +70,7 @@
 {
   "pdf": "C:\\Users\\Yahir\\Downloads\\proclean-app\\tests\\evidence_vitroflex\\real_run\\pdfs\\05_cr_mercado_moderno.pdf",
   "notes": [
-    "páginas=1, chars≈2283"
+    "páginas=1, chars≈2282"
   ],
   "pngs": [
     "C:\\Users\\Yahir\\Downloads\\proclean-app\\tests\\evidence_vitroflex\\real_run\\renders\\05_cr_mercado_moderno_p1.png"
@@ -125,9 +125,9 @@
   }
 }
 ```
-- POST generate-pdf (PDF): 200, bytes=96120
+- POST generate-pdf (PDF): 200, bytes=96324
 - PDF guardado en `real_run/api_smoke_generate.pdf`
-- POST generate-pdf (DOCX): 200, bytes=14796
+- POST generate-pdf (DOCX): 200, bytes=14798
 - DOCX guardado en `real_run/api_smoke_generate.docx`
 
 ## Temporales LibreOffice

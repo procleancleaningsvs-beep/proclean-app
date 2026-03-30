@@ -37,6 +37,9 @@ def build_memo_docx_bytes(
         "{{FECHA}}": fecha_texto or "",
         "{{PERMISO_1}}": _fecha_permiso_es(permiso1_iso),
         "{{PERMISO_2}}": _fecha_permiso_es(permiso2_iso),
+        # Etiquetas fijas de la plantilla Word → mismo estilo que el formulario web
+        "PERMISO A PARTIR DEL:": "Permiso a partir del:",
+        "Y HASTA EL DIA:": "Y hasta el día:",
     }
     replace_in_document(doc, mapping)
     fill_worker_table(doc, workers)

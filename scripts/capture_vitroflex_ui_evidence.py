@@ -107,8 +107,24 @@ def main() -> int:
         page.goto(f"{base}/vitroflex/cr", wait_until="networkidle")
         page.wait_for_selector("#vf-fecha-iso")
         page.locator(".vf-fecha-block").screenshot(path=str(OUT / "cr_fecha_municipio.png"))
+        page.locator(".vf-table-wrap").screenshot(path=str(OUT / "cr_tabla_captura_web.png"))
 
         browser.close()
+
+    cr_pdf = ROOT / "tests" / "evidence_vitroflex" / "real_run" / "pdfs" / "04_cr_vitroflex.pdf"
+    if cr_pdf.is_file():
+        try:
+            import fitz  # noqa: PLC0415
+
+            doc = fitz.open(str(cr_pdf))
+            page0 = doc[0]
+            r = page0.rect
+            clip = fitz.Rect(0, r.height * 0.32, r.width, r.height * 0.58)
+            pix = page0.get_pixmap(matrix=fitz.Matrix(2.25, 2.25), clip=clip, alpha=False)
+            pix.save(str(OUT / "cr_tabla_pdf_proporcional_memo.png"))
+            doc.close()
+        except Exception as exc:
+            print("[aviso] Sin recorte PDF CR:", exc)
 
     print("OK:", OUT)
     return 0
