@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ app_name }}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  {% block extra_head %}{% endblock %}
 </head>
 <body>
   <div class="app-shell">
@@ -26,6 +27,12 @@
           <span class="nav-group-label">Movimientos IMSS</span>
           <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo movimiento</a>
           <a href="{{ url_for('historial') }}" class="nav-link">Historial de movimientos</a>
+        </div>
+
+        <div class="nav-group">
+          <span class="nav-group-label">Vitroflex</span>
+          <a href="{{ url_for('vitroflex.memo_mensual') }}" class="nav-link">MEMO mensual</a>
+          <a href="{{ url_for('vitroflex.cr_mensual') }}" class="nav-link">CR mensual</a>
         </div>
 
         <div class="nav-group">

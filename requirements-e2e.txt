@@ -1,0 +1,2 @@
+# Pruebas E2E Vitroflex (opcional): pip install -r requirements-e2e.txt && playwright install chromium
+playwright>=1.49,<2.0

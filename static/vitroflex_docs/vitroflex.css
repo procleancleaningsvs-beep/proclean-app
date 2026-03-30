@@ -1,0 +1,173 @@
+/* Vitroflex — estilos acotados (prefijo vf-) */
+
+.vf-panel .vf-grid {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+@media (min-width: 720px) {
+  .vf-panel .vf-grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.vf-panel .panel-title {
+  margin: 20px 0 10px;
+  font-size: 1.05rem;
+}
+
+.vf-panel .panel-title:first-child {
+  margin-top: 0;
+}
+
+.vf-panel label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.vf-panel input[type="text"],
+.vf-panel input[type="date"],
+.vf-panel select,
+.vf-panel textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+  background: #fff;
+}
+
+.vf-panel textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.vf-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 12px 0 16px;
+}
+
+.vf-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.vf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.vf-table th,
+.vf-table td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.vf-table th {
+  background: var(--panel-soft);
+  text-align: left;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.vf-table input {
+  width: 100%;
+  min-width: 120px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  padding: 4px 0;
+}
+
+.vf-row-actions {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.vf-btn-small {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.vf-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 20px;
+}
+
+.vf-modal[hidden] {
+  display: none !important;
+}
+
+.vf-modal-card {
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 22px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: var(--shadow);
+}
+
+.vf-modal-card h3 {
+  margin: 0 0 10px;
+}
+
+.vf-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* Vista previa / impresión */
+.vf-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  background: rgba(15, 23, 42, 0.5);
+  overflow: auto;
+  padding: 24px;
+}
+
+.vf-preview-backdrop[hidden] {
+  display: none !important;
+}
+
+.vf-preview-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.vf-preview-pdf-wrap {
+  max-width: min(960px, 96vw);
+}
+
+.vf-preview-frame {
+  width: 100%;
+  min-height: 75vh;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+/* El PDF final proviene del DOCX oficial (LibreOffice), no de HTML de impresión. */

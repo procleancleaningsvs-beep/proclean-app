@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Vitroflex</span>
+    <h2>MEMO mensual</h2>
+    <p>La salida PDF replica la plantilla Word oficial (MEMO MENSUAL FORMATO.docx): solo se sustituyen placeholders y la tabla de trabajadores.</p>
+  </div>
+  <a href="{{ url_for('vitroflex.cr_mensual') }}" class="btn btn-secondary">Ir a CR mensual</a>
+</section>
+
+<div id="vf-status-banner" class="flash flash-error" hidden style="margin-bottom: 0;"></div>
+
+<section class="panel vf-panel">
+  <h3 class="panel-title">Datos generales</h3>
+  <div class="vf-grid vf-grid-2">
+    <label>Fecha (texto libre)
+      <textarea id="vf-fecha" name="fecha_texto" rows="2">{{ default_fecha }}</textarea>
+    </label>
+    <div class="vf-grid">
+      <label>Permiso 1
+        <input type="date" id="vf-permiso1" />
+      </label>
+      <label>Permiso 2
+        <input type="date" id="vf-permiso2" />
+      </label>
+    </div>
+  </div>
+
+  <h3 class="panel-title">Trabajadores</h3>
+  <div class="vf-toolbar">
+    <button type="button" class="btn btn-secondary" id="vf-add-row">Agregar fila</button>
+    <button type="button" class="btn btn-secondary" id="vf-import">Importar Excel</button>
+    <input type="file" id="vf-file" accept=".xlsx,.xlsm" hidden />
+    <a class="btn btn-secondary" href="{{ url_for('vitroflex.descargar_plantilla') }}">Descargar plantilla (.xlsx)</a>
+    <button type="button" class="btn btn-primary" id="vf-preview">Vista previa (PDF)</button>
+  </div>
+
+  <div class="vf-table-wrap">
+    <table class="vf-table" id="vf-workers">
+      <thead>
+        <tr>
+          <th>Nombre trabajador</th>
+          <th>No. IMSS</th>
+          <th>Actividad a realizar</th>
+          <th>Tel. emergencia</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="vf-tbody"></tbody>
+    </table>
+  </div>
+
+  <h3 class="panel-title">Exportar PDF</h3>
+  <div class="vf-toolbar">
+    <label>Nombre del archivo
+      <select id="vf-pdf-name-mode">
+        <option value="a">MEMO + nombres (resumidos)</option>
+        <option value="b">MEMO MENSUAL + mes (desde Permiso 1)</option>
+      </select>
+    </label>
+    <button type="button" class="btn btn-primary" id="vf-pdf">Descargar PDF</button>
+  </div>
+  <p class="helper">El PDF se genera en el servidor a partir del .docx oficial (LibreOffice). Requiere plantillas en <code>vitroflex_templates/</code>.</p>
+</section>
+
+<div id="vf-modal-defaults" class="vf-modal" hidden>
+  <div class="vf-modal-card">
+    <h3>Campos opcionales</h3>
+    <p>Este archivo solo incluye <strong>NOMBRE TRABAJADOR</strong> y <strong>NO. IMSS</strong>. ¿Llenar <strong>Actividad a realizar</strong> y <strong>Tel. emergencia</strong> con valores predeterminados en todas las filas importadas?</p>
+    <p class="helper">Predeterminados: Actividad = «Aux. de limpieza» · Tel. = «81 2183 9413»</p>
+    <div class="vf-modal-actions">
+      <button type="button" class="btn btn-secondary" id="vf-defaults-no">No, dejar vacíos</button>
+      <button type="button" class="btn btn-primary" id="vf-defaults-si">Sí, aplicar</button>
+    </div>
+  </div>
+</div>
+
+<div id="vf-preview-backdrop" class="vf-preview-backdrop" hidden>
+  <div class="vf-preview-inner vf-preview-pdf-wrap">
+    <div class="vf-toolbar" style="justify-content: space-between;">
+      <strong>Vista previa (mismo PDF que se descarga)</strong>
+      <button type="button" class="btn btn-small" id="vf-preview-close">Cerrar</button>
+    </div>
+    <iframe id="vf-preview-frame" class="vf-preview-frame" title="Vista previa PDF"></iframe>
+  </div>
+</div>
+
+<script>
+  window.VF_CONFIG = {
+    kind: "memo",
+    importUrl: "{{ url_for('vitroflex.api_import_excel') }}",
+    generatePdfUrl: "{{ url_for('vitroflex.api_generate_pdf') }}",
+    statusUrl: "{{ url_for('vitroflex.api_status') }}",
+  };
+</script>
+<script src="{{ url_for('vitroflex.static', filename='vitroflex_app.js') }}"></script>
+{% endblock %}

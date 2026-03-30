@@ -693,6 +693,10 @@ def create_app() -> Flask:
         body, status = checkid_http_response(result)
         return jsonify(body), status
 
+    from modules.vitroflex_docs.blueprint import register_vitroflex
+
+    register_vitroflex(app)
+
     return app
 
 
