@@ -5,9 +5,10 @@ from __future__ import annotations
 from copy import deepcopy
 
 from docx.document import Document as DocumentClass
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from docx.shared import Pt
 
 from modules.vitroflex_docs.docx_table_workers import find_worker_table, worker_header_row_index
 
@@ -19,16 +20,57 @@ _DATA_SZ_HALFPTS = "16"
 _MEMO_WORKER_GRID_DXA = (3977, 1893, 2039, 2184)
 _MEMO_WORKER_GRID_SUM = sum(_MEMO_WORKER_GRID_DXA)
 
+# Altura mínima de fila de datos en la plantilla MEMO (w:trHeight @val, twentieths of a point).
+_MEMO_DATA_ROW_TRHEIGHT_VAL = "245"
 
-def _tighten_data_row_paragraph_spacing(table) -> None:
+
+def _ppr_force_compact_vertical_spacing(p_pr) -> None:
+    """Fija interlineado sencillo y cero espacio antes/después en OOXML (evita heredar estilos con ‘aire’)."""
+    old = p_pr.find(qn("w:spacing"))
+    if old is not None:
+        p_pr.remove(old)
+    sp = OxmlElement("w:spacing")
+    sp.set(qn("w:before"), "0")
+    sp.set(qn("w:after"), "0")
+    sp.set(qn("w:line"), "240")
+    sp.set(qn("w:lineRule"), "auto")
+    p_pr.insert(0, sp)
+
+
+def _cr_compact_data_row_vertical(table) -> None:
+    """Reduce espacio vertical entre filas: párrafos en celdas sin ‘after’ heredado y línea sencilla."""
     hi = worker_header_row_index(table)
     for row in table.rows[hi + 1 :]:
         for cell in row.cells:
             for p in cell.paragraphs:
                 pf = p.paragraph_format
-                pf.space_after = None
-                if pf.space_before is not None and pf.space_before.pt > 0:
-                    pf.space_before = None
+                pf.space_before = Pt(0)
+                pf.space_after = Pt(0)
+                pf.line_spacing_rule = WD_LINE_SPACING.SINGLE
+                p_el = p._p
+                p_pr = p_el.pPr
+                if p_pr is None:
+                    p_pr = OxmlElement("w:pPr")
+                    p_el.insert(0, p_pr)
+                _ppr_force_compact_vertical_spacing(p_pr)
+
+
+def _cr_compact_data_row_heights(table) -> None:
+    """Alinea altura mínima de filas de datos al MEMO (compacta, sin filas ‘hinchadas’ por plantilla CR)."""
+    hi = worker_header_row_index(table)
+    for row in table.rows[hi + 1 :]:
+        tr = row._tr
+        tr_pr = tr.trPr
+        if tr_pr is None:
+            tr_pr = OxmlElement("w:trPr")
+            tr.insert(0, tr_pr)
+        old = tr_pr.find(qn("w:trHeight"))
+        if old is not None:
+            tr_pr.remove(old)
+        th = OxmlElement("w:trHeight")
+        th.set(qn("w:val"), _MEMO_DATA_ROW_TRHEIGHT_VAL)
+        th.set(qn("w:hRule"), "atLeast")
+        tr_pr.append(th)
 
 
 def _nowrap_cr_all_data_cells(table, data_cols: int = 4) -> None:
@@ -108,6 +150,7 @@ def _uniform_data_row_font_size(table, sz_half_pts: str = _DATA_SZ_HALFPTS) -> N
                     jc = OxmlElement("w:jc")
                     p_pr.append(jc)
                 jc.set(qn("w:val"), "center")
+                _ppr_force_compact_vertical_spacing(p_pr)
                 _ppr_set_default_run_font_size(p_pr, sz_half_pts)
                 base_rpr = p_pr.find(qn("w:rPr"))
                 if base_rpr is None:
@@ -234,4 +277,5 @@ def apply_cr_pdf_layout(doc: DocumentClass) -> None:
     _nowrap_cr_all_data_cells(table)
     _data_rows_uniform_cell_margins(table)
     _uniform_data_row_font_size(table)
-    _tighten_data_row_paragraph_spacing(table)
+    _cr_compact_data_row_vertical(table)
+    _cr_compact_data_row_heights(table)
