@@ -103,8 +103,8 @@
     tr.innerHTML =
       '<td><input type="text" class="vf-inp" data-f="nombre" autocomplete="off" /></td>' +
       '<td><input type="text" class="vf-inp" data-f="imss" inputmode="numeric" pattern="[0-9]*" maxlength="11" autocomplete="off" /></td>' +
-      '<td><input type="text" class="vf-inp" data-f="actividad" autocomplete="off" /></td>' +
-      '<td><input type="text" class="vf-inp" data-f="tel" autocomplete="off" /></td>' +
+      '<td><input type="text" class="vf-inp" data-f="actividad" autocomplete="off" placeholder="Aux. de limpieza" /></td>' +
+      '<td><input type="text" class="vf-inp" data-f="tel" autocomplete="off" placeholder="81 2183 9413" /></td>' +
       '<td class="vf-row-actions"><button type="button" class="btn btn-small danger-btn vf-btn-small vf-remove">Quitar</button></td>';
     tr.querySelector(".vf-remove").addEventListener("click", function () {
       tr.remove();

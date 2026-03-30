@@ -1,5 +1,9 @@
 /* Vitroflex — estilos acotados (prefijo vf-) */
 
+.vf-conditional-field[hidden] {
+  display: none !important;
+}
+
 .vf-panel .vf-grid {
   display: grid;
   gap: 16px;

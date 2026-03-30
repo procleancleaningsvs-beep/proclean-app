@@ -1,4 +1,4 @@
-"""CR: tabla de trabajadores con tipografía uniforme en filas de datos y columna IMSS en una línea."""
+"""CR: tabla de trabajadores con tipografía uniforme y datos de fila en una sola línea por columna."""
 
 from __future__ import annotations
 
@@ -26,18 +26,18 @@ def _tighten_data_row_paragraph_spacing(table) -> None:
                     pf.space_before = None
 
 
-def _nowrap_imss_data_cells(table, imss_col: int = 1) -> None:
+def _nowrap_cr_all_data_cells(table, data_cols: int = 4) -> None:
+    """Una sola línea por celda de datos en todas las columnas (nombre, IMSS, actividad, tel)."""
     hi = worker_header_row_index(table)
     for row in table.rows[hi + 1 :]:
-        if imss_col >= len(row.cells):
-            continue
-        tc = row.cells[imss_col]._tc
-        tc_pr = tc.tcPr
-        if tc_pr is None:
-            tc_pr = OxmlElement("w:tcPr")
-            tc.insert(0, tc_pr)
-        if tc_pr.find(qn("w:noWrap")) is None:
-            tc_pr.append(OxmlElement("w:noWrap"))
+        for col in range(min(data_cols, len(row.cells))):
+            tc = row.cells[col]._tc
+            tc_pr = tc.tcPr
+            if tc_pr is None:
+                tc_pr = OxmlElement("w:tcPr")
+                tc.insert(0, tc_pr)
+            if tc_pr.find(qn("w:noWrap")) is None:
+                tc_pr.append(OxmlElement("w:noWrap"))
 
 
 def _data_rows_uniform_cell_margins(table) -> None:
@@ -153,20 +153,19 @@ def _cr_redistribute_column_widths_dxa(
     if total <= 0:
         return
 
-    # Referencia ~7615 dxa: priorizar NOMBRE; IMSS acotado para 11 dígitos en una línea.
-    ref = 7615
-    n0 = round(3920 * total / ref)
-    n1 = round(1400 * total / ref)
-    n2 = round(1440 * total / ref)
-    n3 = total - n0 - n1 - n2
-    n1 = max(1100, min(1560, n1))
-    n3 = max(650, min(980, n3))
-    n2 = max(1180, n2)
+    # Proporción equilibrada: nombre con mayor peso; IMSS ~11 dígitos; tel p. ej. «81 2183 9413»; actividad típica en una línea.
+    n1 = max(1180, min(1360, round(total * 0.178)))
+    n3 = max(1120, min(1340, round(total * 0.172)))
+    n2 = max(1520, min(1840, round(total * 0.238)))
     n0 = total - n1 - n2 - n3
-    if n0 < 2700:
-        shrink = 2700 - n0
-        n1 = max(1100, n1 - shrink // 2)
-        n3 = max(650, n3 - shrink // 4)
+    if n0 < 2920:
+        deficit = 2920 - n0
+        n2 = max(1500, n2 - int(deficit * 0.42))
+        n1 = max(1160, n1 - int(deficit * 0.28))
+        n3 = max(1080, n3 - int(deficit * 0.20))
+        n0 = total - n1 - n2 - n3
+    if n0 < 2880:
+        n2 = max(1480, n2 - (2880 - n0))
         n0 = total - n1 - n2 - n3
     delta = total - (n0 + n1 + n2 + n3)
     n0 += delta
@@ -237,7 +236,7 @@ def apply_cr_pdf_layout(doc: DocumentClass) -> None:
         return
     _cr_redistribute_column_widths_dxa(table)
     _cr_set_fixed_layout_and_total_width(table)
-    _nowrap_imss_data_cells(table)
+    _nowrap_cr_all_data_cells(table)
     _data_rows_uniform_cell_margins(table)
     _uniform_data_row_font_size(table)
     _tighten_data_row_paragraph_spacing(table)

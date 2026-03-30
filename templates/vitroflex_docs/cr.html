@@ -21,23 +21,25 @@
       <label>Municipio
         <select id="vf-municipio-mod">
           <option value="garcia" selected>Garcia, N. L.</option>
-          <option value="otro">Otro</option>
+          <option value="otro">OTRO</option>
         </select>
       </label>
-      <label id="vf-municipio-otro-wrap" hidden>Municipio u otro texto
-        <input type="text" id="vf-municipio-otro" list="vf-municipios-sugeridos" placeholder="Escribe o elige una sugerencia" autocomplete="off" />
-        <datalist id="vf-municipios-sugeridos">
-          <option value="Monterrey, N. L."></option>
-          <option value="San Nicolás de los Garza, N. L."></option>
-          <option value="Guadalupe, N. L."></option>
-          <option value="Apodaca, N. L."></option>
-          <option value="Escobedo, N. L."></option>
-          <option value="Santa Catarina, N. L."></option>
-          <option value="San Pedro Garza García, N. L."></option>
-          <option value="Juárez, N. L."></option>
-          <option value="Cadereyta, N. L."></option>
-        </datalist>
-      </label>
+      <div id="vf-municipio-otro-wrap" class="vf-conditional-field" hidden>
+        <label>Municipio u otro texto
+          <input type="text" id="vf-municipio-otro" list="vf-municipios-sugeridos" placeholder="Escribe o elige una sugerencia" autocomplete="off" />
+          <datalist id="vf-municipios-sugeridos">
+            <option value="Monterrey, N. L."></option>
+            <option value="San Nicolás de los Garza, N. L."></option>
+            <option value="Guadalupe, N. L."></option>
+            <option value="Apodaca, N. L."></option>
+            <option value="Escobedo, N. L."></option>
+            <option value="Santa Catarina, N. L."></option>
+            <option value="San Pedro Garza García, N. L."></option>
+            <option value="Juárez, N. L."></option>
+            <option value="Cadereyta, N. L."></option>
+          </datalist>
+        </label>
+      </div>
       <label>Fecha del documento
         <input type="date" id="vf-fecha-iso" value="{{ default_fecha_iso }}" />
       </label>
@@ -86,12 +88,14 @@
       <select id="vf-pdf-name-mode">
         <option value="a">CR + planta + nombres (resumidos)</option>
         <option value="b">CR + planta + mes (desde fecha del documento)</option>
-        <option value="otro">Otro (nombre libre)</option>
+        <option value="otro">OTRO (nombre libre)</option>
       </select>
     </label>
-    <label id="vf-filename-otro-wrap" hidden>Nombre del archivo (libre)
-      <input type="text" id="vf-filename-otro" maxlength="120" placeholder="Ej. CR VITROFLEX MARZO" autocomplete="off" />
-    </label>
+    <div id="vf-filename-otro-wrap" class="vf-conditional-field" hidden>
+      <label>Nombre del archivo (libre)
+        <input type="text" id="vf-filename-otro" maxlength="120" placeholder="Ej. CR VITROFLEX MARZO" autocomplete="off" />
+      </label>
+    </div>
     <button type="button" class="btn btn-primary" id="vf-export-pdf">Descargar PDF</button>
     <button type="button" class="btn btn-secondary" id="vf-export-docx">Descargar DOCX</button>
   </div>
