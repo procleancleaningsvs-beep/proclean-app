@@ -14,10 +14,11 @@ from functools import wraps
 from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, url_for
 
 from modules.finiquitos import config as fincfg
-from modules.finiquitos.calc import calcular_finiquito
+from modules.finiquitos.calc import calcular_finiquito, prima_antiguedad_aplica_separacion_voluntaria
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_pdf
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.liquidacion import calcular_liquidacion_comparativa
+from modules.finiquitos.numero_letra import importe_mxn_a_letra
 from services.finiquitos_history import (
     ensure_finiquitos_tables,
     insert_finiquito_history,
@@ -28,6 +29,7 @@ from services.finiquitos_history import (
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "finiquitos"
+_ONEDRIVE_URL_ENV = "FINIQUITOS_ONEDRIVE_SHARED_URL"
 
 finiquitos_bp = Blueprint(
     "finiquitos",
@@ -85,17 +87,15 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
     zona = (data.get("zona_salarial") or "general").strip().lower()
     if zona not in ("general", "frontera"):
         zona = "general"
-    per = (data.get("periodicidad_isr") or "quincenal").strip().lower()
-    if per == "mensual":
-        periodicidad = "mensual"
-    else:
-        periodicidad = "quincenal"
+    periodicidad = "semanal_mensualizada"
     modo = (data.get("modo_calculo") or "correcto_fiscal").strip().lower()
     if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable"):
         modo = "correcto_fiscal"
-    sal_m = data.get("salario_mensual")
-    sal_m_dec = _parse_dec(sal_m) if sal_m not in (None, "", "null") else None
-    if sal_m_dec is not None and sal_m_dec <= 0:
+    sal_diario = _parse_dec(data.get("salario_diario"))
+    sal_m_dec = _parse_dec(data.get("salario_mensual")) if data.get("salario_mensual") not in (None, "", "null") else None
+    if sal_diario > 0:
+        sal_m_dec = (sal_diario * Decimal("30.4")).quantize(Decimal("0.01"))
+    elif sal_m_dec is not None and sal_m_dec <= 0:
         sal_m_dec = None
 
     return {
@@ -108,7 +108,7 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "zona": zona,
         "periodicidad": periodicidad,
         "modo": modo,
-        "salario_diario": _parse_dec(data.get("salario_diario")),
+        "salario_diario": sal_diario,
         "dias_aguinaldo": _parse_dec(data.get("dias_aguinaldo_politica"), "15"),
         "prima_vac_pct": _parse_dec(data.get("prima_vacacional_pct"), "25"),
         "vac_ya": _parse_dec(data.get("vacaciones_ya_usadas")),
@@ -117,7 +117,7 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "dias_sueldo": _parse_dec(data.get("dias_sueldo_pendientes")),
         "septimos": _parse_dec(data.get("septimos_pendientes")),
         "incluir_pa": str(data.get("incluir_prima_antiguedad") or "").lower() in ("1", "true", "on", "yes"),
-        "motivo": (data.get("motivo_baja") or "otro").strip(),
+        "motivo": "retiro_voluntario",
         "observaciones": (data.get("observaciones_internas") or "").strip(),
         "salario_mensual_capturado": sal_m_dec,
     }
@@ -135,6 +135,15 @@ def _validate_base(p: dict[str, Any]) -> str | None:
     if p["ingreso"] > p["baja"]:
         return "La fecha de ingreso no puede ser posterior a la fecha de baja."
     return None
+
+
+def _resolver_prima_antiguedad(p: dict[str, Any]) -> tuple[bool, bool]:
+    """Devuelve (aplica, incluir_en_calculo)."""
+    if not p.get("ingreso") or not p.get("baja"):
+        return False, False
+    aplica = prima_antiguedad_aplica_separacion_voluntaria(p["ingreso"], p["baja"])
+    incluir = aplica and bool(p.get("incluir_pa"))
+    return aplica, incluir
 
 
 @finiquitos_bp.route("/finiquito", methods=["GET"])
@@ -161,10 +170,14 @@ def api_excel_ingreso():
     if err:
         return err
     data = request.get_json(silent=True) or {}
-    url = (data.get("onedrive_url") or "").strip()
+    url = (current_app.config.get(_ONEDRIVE_URL_ENV) or "").strip()
+    if not url:
+        from os import environ
+
+        url = (environ.get(_ONEDRIVE_URL_ENV) or "").strip()
     nombre = (data.get("nombre_completo") or "").strip()
     if not url:
-        return jsonify({"ok": False, "error": "Falta la URL compartida de OneDrive."}), 400
+        return jsonify({"ok": False, "error": "No está configurada la URL interna de OneDrive para Finiquitos."}), 400
     fd, msg = buscar_fecha_ingreso_excel(url, nombre)
     if msg:
         return jsonify({"ok": False, "error": msg}), 400
@@ -182,6 +195,7 @@ def api_calcular():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -197,11 +211,22 @@ def api_calcular():
         vacaciones_ya_usadas=p["vac_ya"],
         aguinaldo_ya_pagado=p["aguinaldo_ya"],
         prima_vac_ya_pagada=p["prima_vac_ya"],
-        incluir_prima_antiguedad=p["incluir_pa"],
+        incluir_prima_antiguedad=incluir_pa,
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    return jsonify({"ok": True, "resultado": calc, "entrada": p})
+    return jsonify(
+        {
+            "ok": True,
+            "resultado": calc,
+            "entrada": p,
+            "prima_antiguedad_aplica": prima_aplica,
+            "prima_antiguedad_incluida": incluir_pa,
+            "periodicidad_operativa": "semanal",
+            "criterio_isr_ordinario": "mensualizado",
+            "neto_letra": importe_mxn_a_letra(Decimal(str(calc["totales"]["neto_final"]))),
+        }
+    )
 
 
 @finiquitos_bp.route("/api/liquidacion", methods=["POST"])
@@ -215,6 +240,7 @@ def api_liquidacion():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _, incluir_pa = _resolver_prima_antiguedad(p)
     res = calcular_liquidacion_comparativa(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -230,7 +256,7 @@ def api_liquidacion():
         vacaciones_ya_usadas=p["vac_ya"],
         aguinaldo_ya_pagado=p["aguinaldo_ya"],
         prima_vac_ya_pagada=p["prima_vac_ya"],
-        incluir_prima_antiguedad=p["incluir_pa"],
+        incluir_prima_antiguedad=incluir_pa,
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
@@ -248,6 +274,7 @@ def api_pdf():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -263,7 +290,7 @@ def api_pdf():
         vacaciones_ya_usadas=p["vac_ya"],
         aguinaldo_ya_pagado=p["aguinaldo_ya"],
         prima_vac_ya_pagada=p["prima_vac_ya"],
-        incluir_prima_antiguedad=p["incluir_pa"],
+        incluir_prima_antiguedad=incluir_pa,
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
@@ -276,7 +303,7 @@ def api_pdf():
         fecha_emision=p["emision"],
         empleado_nombre=p["nombre"],
         calc=calc,
-        incluir_prima_antig=p["incluir_pa"],
+        incluir_prima_antig=incluir_pa,
     )
     try:
         docx_b = render_finiquito_docx(tpl, mapping)
@@ -304,6 +331,7 @@ def api_historial_finiquito():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -319,7 +347,7 @@ def api_historial_finiquito():
         vacaciones_ya_usadas=p["vac_ya"],
         aguinaldo_ya_pagado=p["aguinaldo_ya"],
         prima_vac_ya_pagada=p["prima_vac_ya"],
-        incluir_prima_antiguedad=p["incluir_pa"],
+        incluir_prima_antiguedad=incluir_pa,
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
@@ -334,7 +362,7 @@ def api_historial_finiquito():
                 fecha_emision=p["emision"],
                 empleado_nombre=p["nombre"],
                 calc=calc,
-                incluir_prima_antig=p["incluir_pa"],
+                incluir_prima_antig=incluir_pa,
             )
             try:
                 docx_b = render_finiquito_docx(tpl, mapping)
@@ -355,6 +383,10 @@ def api_historial_finiquito():
         "calculo": calc,
         "constantes": {
             "zona": p["zona"],
+            "periodicidad_operativa": "semanal",
+            "criterio_isr_ordinario": "mensualizado_tipo_contpaq",
+            "prima_antiguedad_aplica": prima_aplica,
+            "prima_antiguedad_incluida": incluir_pa,
             "salario_minimo_zona": calc["fiscal"]["salario_minimo_zona"],
             "SMG_GENERAL_2026": str(fincfg.SMG_GENERAL_2026),
             "SMG_FRONTERA_2026": str(fincfg.SMG_FRONTERA_2026),
@@ -386,6 +418,7 @@ def api_historial_liquidacion():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _, incluir_pa = _resolver_prima_antiguedad(p)
     res = calcular_liquidacion_comparativa(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -401,7 +434,7 @@ def api_historial_liquidacion():
         vacaciones_ya_usadas=p["vac_ya"],
         aguinaldo_ya_pagado=p["aguinaldo_ya"],
         prima_vac_ya_pagada=p["prima_vac_ya"],
-        incluir_prima_antiguedad=p["incluir_pa"],
+        incluir_prima_antiguedad=incluir_pa,
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )

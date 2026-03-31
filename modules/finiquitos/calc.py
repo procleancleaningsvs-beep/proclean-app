@@ -141,6 +141,11 @@ def anios_exentos_separacion(anios_exactos: Decimal) -> int:
     return max(1, base)
 
 
+def prima_antiguedad_aplica_separacion_voluntaria(ingreso: date, baja: date) -> bool:
+    """Para este flujo: separación voluntaria solo aplica con 15 años o más."""
+    return anios_servicio_exactos(ingreso, baja) >= Decimal("15")
+
+
 def calcular_finiquito(
     *,
     ingreso: date,
@@ -148,7 +153,7 @@ def calcular_finiquito(
     fecha_emision: date,
     salario_diario: Decimal,
     zona: Literal["general", "frontera"],
-    periodicidad_isr: Literal["quincenal", "mensual", "15_dias"],
+    periodicidad_isr: Literal["quincenal", "mensual", "15_dias", "semanal_mensualizada"],
     modo: Literal["correcto_fiscal", "aguinaldo_todo_gravable"],
     dias_sueldo_pendientes: Decimal,
     septimos_pendientes: Decimal,
@@ -230,10 +235,23 @@ def calcular_finiquito(
     ingreso_mensual_equiv = salario_mensual_capturado if salario_mensual_capturado is not None else _q(salario_diario * Decimal("30.4"))
     ultimo_mensual = ingreso_mensual_equiv
 
-    isr_ord_antes = isr_art96(bucket_ord_grav, periodicidad_isr)
-    dias_periodo = Decimal("15") if periodicidad_isr in ("quincenal", "15_dias") else Decimal("30.4")
-    sub = subsidio_periodo(fecha_emision, dias_periodo, ingreso_mensual_equiv=ingreso_mensual_equiv)
-    sub_ap = _q(min(sub, isr_ord_antes))
+    # Política operativa tipo CONTPAQ (intencional):
+    # El trabajador cobra semanal, pero el ISR ordinario se determina
+    # mensualizando la base gravable semanal y aplicando la tabla mensual art. 96.
+    dias_periodo = Decimal("7")
+    base_ordinaria_mensualizada = _q(bucket_ord_grav / dias_periodo * Decimal("30.4")) if bucket_ord_grav > 0 else D0
+    isr_ordinario_mensualizado = isr_art96(base_ordinaria_mensualizada, "mensual")
+    sub_mensualizado = subsidio_periodo(
+        fecha_emision,
+        Decimal("30.4"),
+        ingreso_mensual_equiv=base_ordinaria_mensualizada,
+    )
+    sub_mensual_ap = _q(min(sub_mensualizado, isr_ordinario_mensualizado))
+
+    # Retención efectiva del periodo semanal, prorrateada del cálculo mensualizado.
+    isr_ord_antes = _q(isr_ordinario_mensualizado / Decimal("30.4") * dias_periodo)
+    sub_ap = _q(sub_mensual_ap / Decimal("30.4") * dias_periodo)
+    sub_ap = _q(min(sub_ap, isr_ord_antes))
     isr_ord_neto = _q(max(D0, isr_ord_antes - sub_ap))
 
     # Art 174: mensualización a 2 decimales para tasa efectiva (ejemplo oficial 91.66).
@@ -296,6 +314,10 @@ def calcular_finiquito(
         },
         "fiscal": {
             "ingreso_mensual_equiv": float(ingreso_mensual_equiv),
+            "criterio_isr_ordinario": "semanal_mensualizada_tipo_contpaq",
+            "base_ordinaria_mensualizada": float(base_ordinaria_mensualizada),
+            "isr_ordinario_mensualizado": float(isr_ordinario_mensualizado),
+            "subsidio_mensualizado_aplicado": float(sub_mensual_ap),
             "salario_minimo_zona": float(smg),
             "aguinaldo_exento": float(ag_ex),
             "aguinaldo_gravado": float(ag_gr),

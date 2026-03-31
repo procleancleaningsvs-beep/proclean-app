@@ -711,3 +711,46 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   overflow-x: auto;
   max-height: 70vh;
 }
+
+.fin-sec {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  margin: 14px 0;
+  background: #fff;
+}
+
+.fin-sec h3 {
+  margin: 0 0 12px;
+}
+
+.mode-toggle {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.mode-toggle.compact {
+  margin: 6px 0;
+}
+
+.actions-inline {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.helper-list {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--muted);
+}
+
+.pv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px 12px;
+  margin-bottom: 10px;
+}
