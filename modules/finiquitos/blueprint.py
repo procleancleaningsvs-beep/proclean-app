@@ -330,8 +330,9 @@ def api_pdf():
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
 
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", p["nombre"])[:80] or "EMPLEADO"
-    fname = f"FINIQUITO_{safe_name}_{p['baja'].isoformat()}.pdf"
+    pretty_name = (p["nombre"] or "Empleado").strip()
+    safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]+', "", pretty_name).strip() or "Empleado"
+    fname = f"Finiquito {safe_name}.pdf"
     return Response(
         pdf_b,
         mimetype="application/pdf",
@@ -390,8 +391,9 @@ def api_historial_finiquito():
                 pdf_b = render_finiquito_pdf(docx_b)
                 gen = Path(current_app.config["GENERATED_DIR"])
                 gen.mkdir(parents=True, exist_ok=True)
-                safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", p["nombre"])[:80] or "EMPLEADO"
-                pdf_fn = f"FINIQUITO_{safe_name}_{p['baja'].isoformat()}.pdf"
+                pretty_name = (p["nombre"] or "Empleado").strip()
+                safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]+', "", pretty_name).strip() or "Empleado"
+                pdf_fn = f"Finiquito {safe_name}.pdf"
                 pdf_path = str(gen / pdf_fn)
                 Path(pdf_path).write_bytes(pdf_b)
             except Exception:

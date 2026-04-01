@@ -35,10 +35,22 @@ def build_finiquito_placeholders(
     else:
         n7, c_pant, t7 = "", "", ""
 
+    if ajuste > 0:
+        np, cp, t11p = "99", "Ajuste al neto", format_importe(abs(ajuste))
+        nd, cd, t11d = "", "", ""
+    elif ajuste < 0:
+        np, cp, t11p = "", "", ""
+        nd, cd, t11d = "99", "Ajuste al neto", format_importe(abs(ajuste))
+    else:
+        np = cp = t11p = nd = cd = t11d = ""
+
+    fecha_larga = fecha_emision_larga(fecha_emision)
     return {
         "{lugar_emision}": lugar_emision or "",
         "{estado_emision}": estado_emision or "",
-        "{fecha_emision_larga}": fecha_emision_larga(fecha_emision),
+        "{fecha_emision_larga}": fecha_larga,
+        "{fecha_letra}": fecha_larga,
+        "{fecha_limite_pago}": fecha_larga,
         "{empleado_nombre_completo}": empleado_nombre or "",
         "{neto_p}": format_importe(neto),
         "{neto_pagar_letra}": importe_mxn_a_letra(neto),
@@ -60,6 +72,12 @@ def build_finiquito_placeholders(
         "{c_imes}": pdf["c_imes"],
         "{t10}": pdf["t10"],
         "{t11}": format_importe(ajuste),
+        "{np}": np,
+        "{cp}": cp,
+        "{t11p}": t11p,
+        "{nd}": nd,
+        "{cd}": cd,
+        "{t11d}": t11d,
         "{suma_p}": format_importe(Decimal(str(tot["total_percepciones"]))),
         "{suma_d}": pdf["suma_d"],
     }
