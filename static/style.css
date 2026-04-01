@@ -754,3 +754,33 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   gap: 8px 12px;
   margin-bottom: 10px;
 }
+
+.fin-layout {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr;
+  gap: 16px;
+}
+
+.fin-left, .fin-right {
+  min-width: 0;
+}
+
+.fin-result {
+  position: sticky;
+  top: 16px;
+}
+
+.calc-advanced {
+  margin-top: 12px;
+  border-top: 1px dashed var(--line);
+  padding-top: 10px;
+}
+
+@media (max-width: 1100px) {
+  .fin-layout {
+    grid-template-columns: 1fr;
+  }
+  .fin-result {
+    position: static;
+  }
+}

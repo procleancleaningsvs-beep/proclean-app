@@ -91,7 +91,13 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
     modo = (data.get("modo_calculo") or "correcto_fiscal").strip().lower()
     if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable"):
         modo = "correcto_fiscal"
-    sal_diario = _parse_dec(data.get("salario_diario"))
+    sueldo_semanal = _parse_dec(data.get("sueldo_semanal"))
+    sal_diario_in = _parse_dec(data.get("salario_diario"))
+    sal_diario = _parse_dec("0")
+    if sueldo_semanal > 0:
+        sal_diario = (sueldo_semanal / Decimal("7")).quantize(Decimal("0.01"))
+    elif sal_diario_in > 0:
+        sal_diario = sal_diario_in
     sal_m_dec = _parse_dec(data.get("salario_mensual")) if data.get("salario_mensual") not in (None, "", "null") else None
     if sal_diario > 0:
         sal_m_dec = (sal_diario * Decimal("30.4")).quantize(Decimal("0.01"))
@@ -109,13 +115,15 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "periodicidad": periodicidad,
         "modo": modo,
         "salario_diario": sal_diario,
+        "sueldo_semanal": sueldo_semanal,
         "dias_aguinaldo": _parse_dec(data.get("dias_aguinaldo_politica"), "15"),
         "prima_vac_pct": _parse_dec(data.get("prima_vacacional_pct"), "25"),
         "vac_ya": _parse_dec(data.get("vacaciones_ya_usadas")),
-        "aguinaldo_ya": _parse_dec(data.get("aguinaldo_ya_pagado")),
-        "prima_vac_ya": _parse_dec(data.get("prima_vac_ya_pagada")),
+        "aguinaldo_ya": Decimal("0"),
+        "prima_vac_ya": Decimal("0"),
         "dias_sueldo": _parse_dec(data.get("dias_sueldo_pendientes")),
-        "septimos": _parse_dec(data.get("septimos_pendientes")),
+        # Política operativa: séptimos automáticos, no capturados manualmente.
+        "septimos": _parse_dec(data.get("dias_sueldo_pendientes")) / Decimal("6"),
         "incluir_pa": str(data.get("incluir_prima_antiguedad") or "").lower() in ("1", "true", "on", "yes"),
         "motivo": "retiro_voluntario",
         "observaciones": (data.get("observaciones_internas") or "").strip(),

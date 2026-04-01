@@ -4,19 +4,19 @@
   <div>
     <span class="eyebrow">Finiquitos</span>
     <h2>Finiquito</h2>
-    <p>Captura operativa RH. ISR ordinario semanal mensualizado con criterio tipo CONTPAQ.</p>
+    <p>Captura compacta y cálculo transparente.</p>
   </div>
 </section>
 
-<div class="form-card" id="finiquito-root">
-  <section class="fin-sec">
-    <h3>Datos generales</h3>
-    <div class="mode-toggle">
-      <span>Modo de cálculo</span>
-      <label><input type="radio" name="modo_calculo" value="correcto_fiscal" checked> Correcto fiscal</label>
-      <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
-    </div>
-    <div class="grid-2">
+<div class="form-card fin-layout" id="finiquito-root">
+  <div class="fin-left">
+    <section class="fin-sec">
+      <h3>Datos generales</h3>
+      <div class="mode-toggle">
+        <span>Modo de cálculo</span>
+        <label><input type="radio" name="modo_calculo" value="correcto_fiscal" checked> Correcto fiscal</label>
+        <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
+      </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
       </label>
@@ -24,120 +24,89 @@
         <button type="button" class="btn btn-secondary" id="btn_excel">Buscar fecha de ingreso en Excel</button>
         <p class="helper" id="excel_msg"></p>
       </div>
-    </div>
-    <div class="grid-3">
-      <label>Fecha de ingreso *
-        <input type="date" id="fecha_ingreso" required>
-      </label>
-      <label>Fecha de baja *
-        <input type="date" id="fecha_baja" required>
-      </label>
-      <label>Fecha de emisión
-        <input type="date" id="fecha_emision">
-      </label>
-    </div>
-    <div class="grid-3">
-      <label>Lugar de emisión
-        <input type="text" id="lugar_emision" value="Monterrey">
-      </label>
-      <label>Estado de emisión
-        <select id="estado_emision">
-          <option>A. G. S.</option><option>B. C.</option><option>B. C. S.</option><option>Camp.</option><option>Chis.</option><option>Chih.</option>
-          <option>CDMX</option><option>Coah.</option><option>Col.</option><option>Dgo.</option><option>Gto.</option><option>Gro.</option>
-          <option>Hgo.</option><option>Jal.</option><option>Mex.</option><option>Mich.</option><option>Mor.</option><option>Nay.</option>
-          <option selected>N. L.</option><option>Oax.</option><option>Pue.</option><option>Qro.</option><option>Q. Roo</option><option>S. L. P.</option>
-          <option>Sin.</option><option>Son.</option><option>Tab.</option><option>Tamps.</option><option>Tlax.</option><option>Ver.</option>
-          <option>Yuc.</option><option>Zac.</option>
-        </select>
-      </label>
-      <label>Zona salarial
-        <select id="zona_salarial"><option value="general">General</option><option value="frontera">Frontera</option></select>
-      </label>
-    </div>
-  </section>
-
-  <section class="fin-sec">
-    <h3>Percepciones</h3>
-    <div class="grid-3">
-      <label>Salario diario *
-        <input type="text" id="salario_diario" inputmode="decimal" required placeholder="315.04">
-      </label>
-      <label>Salario mensual calculado (30.4)
-        <input type="text" id="salario_mensual" readonly>
-      </label>
-      <label>Días aguinaldo política empresa
-        <input type="text" id="dias_aguinaldo_politica" value="15">
-      </label>
-    </div>
-    <div class="grid-3">
-      <label>Días sueldo pendientes
-        <input type="text" id="dias_sueldo_pendientes" value="0">
-      </label>
-      <label>Séptimos días pendientes
-        <input type="text" id="septimos_pendientes" value="0">
-      </label>
-      <label>Vacaciones ya pagadas/disfrutadas (ciclo)
-        <input type="text" id="vacaciones_ya_usadas" value="0">
-      </label>
-    </div>
-    <div class="grid-3">
-      <label>Prima vacacional %
-        <input type="text" id="prima_vacacional_pct" value="25">
-      </label>
-      <div>
-        <span>¿Ya se pagó previamente aguinaldo?</span>
-        <div class="mode-toggle compact">
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="no" checked> No</label>
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="si"> Sí</label>
-        </div>
-        <label id="aguinaldo_pagado_wrap" hidden>Monto de aguinaldo ya pagado
-          <input type="text" id="aguinaldo_ya_pagado" value="0">
+      <div class="grid-3">
+        <label>Fecha de ingreso *<input type="date" id="fecha_ingreso" required></label>
+        <label>Fecha de baja *<input type="date" id="fecha_baja" required></label>
+        <label>Fecha de emisión<input type="date" id="fecha_emision"></label>
+      </div>
+      <div class="grid-3">
+        <label>Lugar de emisión<input type="text" id="lugar_emision" value="Monterrey"></label>
+        <label>Estado de emisión
+          <select id="estado_emision">
+            <option>A. G. S.</option><option>B. C.</option><option>B. C. S.</option><option>Camp.</option><option>Chis.</option><option>Chih.</option>
+            <option>CDMX</option><option>Coah.</option><option>Col.</option><option>Dgo.</option><option>Gto.</option><option>Gro.</option>
+            <option>Hgo.</option><option>Jal.</option><option>Mex.</option><option>Mich.</option><option>Mor.</option><option>Nay.</option>
+            <option selected>N. L.</option><option>Oax.</option><option>Pue.</option><option>Qro.</option><option>Q. Roo</option><option>S. L. P.</option>
+            <option>Sin.</option><option>Son.</option><option>Tab.</option><option>Tamps.</option><option>Tlax.</option><option>Ver.</option>
+            <option>Yuc.</option><option>Zac.</option>
+          </select>
         </label>
+        <label>Zona salarial<select id="zona_salarial"><option value="general">General</option><option value="frontera">Frontera</option></select></label>
       </div>
-      <div>
-        <span>¿Ya se pagó previamente prima vacacional?</span>
-        <div class="mode-toggle compact">
-          <label><input type="radio" name="prima_pagada_flag" value="no" checked> No</label>
-          <label><input type="radio" name="prima_pagada_flag" value="si"> Sí</label>
+    </section>
+
+    <section class="fin-sec">
+      <h3>Percepciones</h3>
+      <div class="grid-2">
+        <label>Sueldo semanal *<input type="text" id="sueldo_semanal" inputmode="decimal" required placeholder="2,205.28"></label>
+        <label>Días sueldo pendientes<input type="text" id="dias_sueldo_pendientes" value="0"></label>
+      </div>
+      <div class="grid-2">
+        <label>Vacaciones ya pagadas/disfrutadas (ciclo)<input type="text" id="vacaciones_ya_usadas" value="0"></label>
+        <label>Prima vacacional %<input type="text" id="prima_vacacional_pct" value="25"></label>
+      </div>
+      <div class="grid-2">
+        <label>Días aguinaldo aplicables<input type="text" id="dias_aguinaldo_politica" value="15"></label>
+        <div id="auto-kpis-left" class="helper"></div>
+      </div>
+
+      <div id="pagos_previos_block" hidden>
+        <div class="grid-2">
+          <div>
+            <span>¿Ya se pagó previamente aguinaldo?</span>
+            <div class="mode-toggle compact">
+              <label><input type="radio" name="aguinaldo_pagado_flag" value="no" checked> No</label>
+              <label><input type="radio" name="aguinaldo_pagado_flag" value="si"> Sí</label>
+            </div>
+          </div>
+          <div>
+            <span>¿Ya se pagó previamente prima vacacional?</span>
+            <div class="mode-toggle compact">
+              <label><input type="radio" name="prima_pagada_flag" value="no" checked> No</label>
+              <label><input type="radio" name="prima_pagada_flag" value="si"> Sí</label>
+            </div>
+          </div>
         </div>
-        <label id="prima_pagada_wrap" hidden>Monto de prima vacacional ya pagada
-          <input type="text" id="prima_vac_ya_pagada" value="0">
-        </label>
       </div>
-    </div>
-    <div id="pa_status" class="helper"></div>
-    <div id="pa_toggle" hidden>
-      <span>¿Deseas incluir prima de antigüedad en el recibo?</span>
-      <div class="mode-toggle compact">
-        <label><input type="radio" name="incluir_pa" value="no" checked> No</label>
-        <label><input type="radio" name="incluir_pa" value="si"> Sí</label>
+
+      <div id="pa_status" class="helper"></div>
+      <div id="pa_toggle" hidden>
+        <span>¿Deseas incluir prima de antigüedad en el recibo?</span>
+        <div class="mode-toggle compact">
+          <label><input type="radio" name="incluir_pa" value="no" checked> No</label>
+          <label><input type="radio" name="incluir_pa" value="si"> Sí</label>
+        </div>
       </div>
-    </div>
-    <label>Observaciones internas
-      <textarea id="observaciones_internas" rows="2"></textarea>
-    </label>
-  </section>
+      <label>Observaciones internas<textarea id="observaciones_internas" rows="2"></textarea></label>
+    </section>
+  </div>
 
-  <section class="fin-sec">
-    <h3>Deducciones / tratamiento fiscal</h3>
-    <ul class="helper-list">
-      <li>Periodicidad operativa: semanal.</li>
-      <li>Cálculo ISR ordinario: mensualizado (tabla mensual Art. 96, homologación operativa tipo CONTPAQ).</li>
-      <li>Subsidio: aplicado sobre cálculo mensualizado y prorrateado al periodo.</li>
-      <li>Aguinaldo gravable/exento según modo seleccionado.</li>
-    </ul>
-  </section>
-
-  <section class="fin-sec">
-    <h3>Resultado</h3>
-    <div class="movement-actions">
-      <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
-      <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
-      <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
-    </div>
-    <p class="helper" id="calc_msg"></p>
-    <div id="preview" class="preview-block" hidden></div>
-  </section>
+  <div class="fin-right">
+    <section class="fin-sec fin-result">
+      <h3>Cálculo / Resultado</h3>
+      <div class="movement-actions">
+        <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
+        <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
+        <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
+      </div>
+      <p class="helper" id="calc_msg"></p>
+      <div id="preview" class="preview-block" hidden></div>
+      <details class="calc-advanced" id="advanced" hidden>
+        <summary>Mostrar cálculos</summary>
+        <div id="advanced_body" class="pv-grid"></div>
+      </details>
+    </section>
+  </div>
 </div>
 
 <script>
@@ -147,36 +116,22 @@
   const msg = (el, text, err) => { el.textContent = text || ''; el.style.color = err ? '#b00020' : ''; };
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  function calcSalarioMensual() {
-    const d = Number(($('salario_diario').value || '0').replace(/,/g, ''));
-    $('salario_mensual').value = d > 0 ? fmt(d * 30.4) : '';
+  function sueldoDiarioEstimado() {
+    const s = Number(($('sueldo_semanal').value || '0').replace(/,/g, ''));
+    return s > 0 ? (s / 7) : 0;
   }
 
-  function updatePaidToggles() {
-    const agSi = valRadio('aguinaldo_pagado_flag') === 'si';
-    $('aguinaldo_pagado_wrap').hidden = !agSi;
-    if (!agSi) $('aguinaldo_ya_pagado').value = '0';
-    const pvSi = valRadio('prima_pagada_flag') === 'si';
-    $('prima_pagada_wrap').hidden = !pvSi;
-    if (!pvSi) $('prima_vac_ya_pagada').value = '0';
+  function updateConditionalQuestions() {
+    const fi = $('fecha_ingreso').value;
+    const y = new Date().getFullYear();
+    const mostrarPrevios = fi && Number(fi.slice(0,4)) < y;
+    $('pagos_previos_block').hidden = !mostrarPrevios;
   }
 
   function updatePrimaAntiguedadUI() {
-    const fi = $('fecha_ingreso').value;
-    const fb = $('fecha_baja').value;
-    if (!fi || !fb) {
-      $('pa_status').textContent = '';
-      $('pa_toggle').hidden = true;
-      return;
-    }
-    const d1 = new Date(fi + 'T00:00:00');
-    const d2 = new Date(fb + 'T00:00:00');
-    if (!(d1 instanceof Date) || !(d2 instanceof Date) || isNaN(d1) || isNaN(d2) || d2 < d1) {
-      $('pa_status').textContent = '';
-      $('pa_toggle').hidden = true;
-      return;
-    }
-    const years = (d2 - d1) / (1000 * 60 * 60 * 24 * 365.25);
+    const fi = $('fecha_ingreso').value, fb = $('fecha_baja').value;
+    if (!fi || !fb) { $('pa_status').textContent=''; $('pa_toggle').hidden=true; return; }
+    const years = (new Date(fb+'T00:00:00') - new Date(fi+'T00:00:00')) / (1000*60*60*24*365.25);
     const aplica = years >= 15;
     $('pa_status').textContent = aplica ? 'Prima de antigüedad: sí aplica' : 'Prima de antigüedad: no aplica';
     $('pa_toggle').hidden = !aplica;
@@ -193,131 +148,85 @@
       estado_emision: $('estado_emision').value,
       zona_salarial: $('zona_salarial').value,
       modo_calculo: valRadio('modo_calculo'),
-      salario_diario: $('salario_diario').value,
-      salario_mensual: $('salario_mensual').value.replace(/,/g, ''),
+      sueldo_semanal: $('sueldo_semanal').value,
       dias_aguinaldo_politica: $('dias_aguinaldo_politica').value,
       prima_vacacional_pct: $('prima_vacacional_pct').value,
       vacaciones_ya_usadas: $('vacaciones_ya_usadas').value,
-      aguinaldo_ya_pagado: valRadio('aguinaldo_pagado_flag') === 'si' ? $('aguinaldo_ya_pagado').value : '0',
-      prima_vac_ya_pagada: valRadio('prima_pagada_flag') === 'si' ? $('prima_vac_ya_pagada').value : '0',
       dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
-      septimos_pendientes: $('septimos_pendientes').value,
       incluir_prima_antiguedad: valRadio('incluir_pa') === 'si',
       observaciones_internas: $('observaciones_internas').value,
     };
   }
 
   function renderPreview(resp) {
-    const r = resp.resultado;
-    const e = resp.entrada;
-    const l = r.laboral;
-    const f = r.fiscal;
-    const t = r.totales;
+    const r = resp.resultado, e = resp.entrada, l = r.laboral, f = r.fiscal, t = r.totales;
+    $('auto-kpis-left').innerHTML = `Vacaciones ley: <strong>${l.dias_vacaciones_anuales_ley}</strong> · Días laborados: <strong>${l.dias_trabajados_anio}</strong>`;
     $('preview').innerHTML = `
       <div class="pv-grid">
-        <div><strong>Trabajador:</strong> ${e.nombre}</div>
-        <div><strong>Fecha ingreso:</strong> ${e.ingreso}</div>
-        <div><strong>Fecha baja:</strong> ${e.baja}</div>
-        <div><strong>Antigüedad (años):</strong> ${Number(l.anios_servicio_exactos).toFixed(2)}</div>
-        <div><strong>Salario diario:</strong> $${fmt(e.salario_diario)}</div>
-        <div><strong>Salario mensual calculado:</strong> $${fmt(f.ingreso_mensual_equiv)}</div>
+        <div><strong>Trabajador:</strong> ${e.nombre}</div><div><strong>Ingreso:</strong> ${e.ingreso}</div><div><strong>Baja:</strong> ${e.baja}</div>
+        <div><strong>Antigüedad:</strong> ${Number(l.anios_servicio_exactos).toFixed(2)} años</div>
+        <div><strong>Sueldo semanal:</strong> $${fmt(e.sueldo_semanal)}</div><div><strong>Salario diario (calculado):</strong> $${fmt(e.salario_diario)}</div>
+        <div><strong>Días laborados:</strong> ${l.dias_trabajados_anio}</div><div><strong>Días vacaciones:</strong> ${l.dias_vacaciones_anuales_ley}</div><div><strong>Días aguinaldo:</strong> ${fmt(l.dias_aguinaldo_aplicables)}</div>
       </div>
-      <h4>Percepciones</h4>
-      <div class="pv-grid">
-        <div>Sueldo: <strong>$${fmt(l.sueldo)}</strong></div>
-        <div>Séptimo día: <strong>$${fmt(l.septimo_dia)}</strong></div>
-        <div>Vacaciones: <strong>$${fmt(l.vacaciones_a_tiempo)}</strong></div>
-        <div>Prima vacacional: <strong>$${fmt(l.prima_vacacional)}</strong> (Exento $${fmt(f.prima_vac_exenta)} / Gravado $${fmt(f.prima_vac_gravada)})</div>
-        <div>Aguinaldo: <strong>$${fmt(l.aguinaldo)}</strong> (Exento $${fmt(f.aguinaldo_exento)} / Gravado $${fmt(f.aguinaldo_gravado)})</div>
-        <div>Prima antigüedad: <strong>$${fmt(l.prima_antiguedad_monto)}</strong> (Exento $${fmt(f.prima_antig_exenta)} / Gravado $${fmt(f.prima_antig_gravada)})</div>
+      <h4>Percepciones</h4><div class="pv-grid">
+        <div>Sueldo: <strong>$${fmt(l.sueldo)}</strong></div><div>Séptimo automático: <strong>$${fmt(l.septimo_dia)}</strong></div><div>Vacaciones: <strong>$${fmt(l.vacaciones_a_tiempo)}</strong></div>
+        <div>Prima vacacional: <strong>$${fmt(l.prima_vacacional)}</strong></div><div>Aguinaldo: <strong>$${fmt(l.aguinaldo)}</strong></div><div>Prima antigüedad: <strong>$${fmt(l.prima_antiguedad_monto)}</strong></div>
       </div>
-      <h4>Deducciones</h4>
-      <div class="pv-grid">
-        <div>ISR ordinario antes de subsidio: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong></div>
-        <div>Subsidio aplicado: <strong>$${fmt(f.subsidio_aplicado)}</strong></div>
-        <div>ISR ordinario final: <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
-        <div>ISR Art174: <strong>$${fmt(f.isr_art174)}</strong></div>
-        <div>ISR separación: <strong>$${fmt(f.isr_separacion)}</strong></div>
-        <div>Ajuste al neto: <strong>$${fmt(t.ajuste_neto)}</strong></div>
+      <h4>Deducciones</h4><div class="pv-grid">
+        <div>ISR ordinario: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong></div><div>Subsidio: <strong>$${fmt(f.subsidio_aplicado)}</strong></div><div>ISR ordinario final: <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
+        <div>ISR Art174: <strong>$${fmt(f.isr_art174)}</strong></div><div>ISR separación: <strong>$${fmt(f.isr_separacion)}</strong></div><div>Ajuste al neto: <strong>$${fmt(t.ajuste_neto)}</strong></div>
       </div>
-      <h4>Totales</h4>
-      <div class="pv-grid">
-        <div>Total percepciones: <strong>$${fmt(t.total_percepciones)}</strong></div>
-        <div>Total deducciones: <strong>$${fmt(t.total_deducciones_reales)}</strong></div>
-        <div>Neto final: <strong>$${fmt(t.neto_final)}</strong></div>
+      <h4>Totales</h4><div class="pv-grid">
+        <div>Total percepciones: <strong>$${fmt(t.total_percepciones)}</strong></div><div>Total deducciones: <strong>$${fmt(t.total_deducciones_reales)}</strong></div><div>Neto final: <strong>$${fmt(t.neto_final)}</strong></div>
         <div>Neto en letra: <strong>${resp.neto_letra || ''}</strong></div>
-      </div>
-    `;
+      </div>`;
     $('preview').hidden = false;
+    renderAdvanced(resp);
+  }
+
+  function renderAdvanced(resp){
+    const a = resp.resultado.auditoria || {}, pv = (a.prima_vacacional || {}), isr = (a.isr || {});
+    $('advanced').hidden = false;
+    $('advanced_body').innerHTML = `
+      <div><strong>Base sueldo</strong><br>Sueldo semanal: $${fmt(a.base_sueldo?.sueldo_semanal_estimado)}<br>Salario diario: $${fmt(a.base_sueldo?.salario_diario_calculado)}<br>${a.base_sueldo?.formula || ''}</div>
+      <div><strong>Vacaciones</strong><br>Días: ${a.vacaciones?.dias_vacaciones_corresponden}<br>Días laborados: ${a.vacaciones?.dias_laborados_ciclo}<br>Factor: ${a.vacaciones?.factor}<br>${a.vacaciones?.formula}<br>Monto: $${fmt(a.vacaciones?.monto)}</div>
+      <div><strong>Aguinaldo</strong><br>Días aguinaldo: ${a.aguinaldo?.dias_aguinaldo}<br>Días laborados: ${a.aguinaldo?.dias_laborados}<br>Factor: ${a.aguinaldo?.factor}<br>${a.aguinaldo?.formula}<br>Resultado: $${fmt(a.aguinaldo?.resultado)}</div>
+      <div><strong>Prima vacacional</strong><br>Base: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>
+      <div><strong>ISR</strong><br>Base periodo: $${fmt(isr.base_ordinaria_periodo)}<br>Base mensualizada: $${fmt(isr.base_ordinaria_mensualizada)}<br>${isr.mensualizacion_formula || ''}<br>ISR mensualizado: $${fmt(isr.isr_mensualizado)}<br>Subsidio: $${fmt(isr.subsidio_mensualizado)}<br>ISR final periodo: $${fmt(isr.isr_periodo_final)}<br>Art174: $${fmt(isr.isr_art174)}</div>
+      <div><strong>Ajuste al neto</strong><br>Neto previo: $${fmt(a.ajuste_neto?.neto_previo)}<br>Ajuste: $${fmt(a.ajuste_neto?.ajuste)}<br>Neto final: $${fmt(a.ajuste_neto?.neto_final)}</div>`;
   }
 
   $('btn_excel').addEventListener('click', async () => {
     msg($('excel_msg'), 'Buscando…');
-    const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() }),
-    });
+    const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() })});
     const j = await r.json();
-    if (!j.ok) { msg($('excel_msg'), j.error || 'Error', true); return; }
-    $('fecha_ingreso').value = j.fecha_ingreso;
-    updatePrimaAntiguedadUI();
-    msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+    if (!j.ok) return msg($('excel_msg'), j.error || 'Error', true);
+    $('fecha_ingreso').value = j.fecha_ingreso; updateConditionalQuestions(); updatePrimaAntiguedadUI(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
   });
-
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
-    const r = await fetch('{{ url_for("finiquitos.api_calcular") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload()),
-    });
+    const r = await fetch('{{ url_for("finiquitos.api_calcular") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload())});
     const j = await r.json();
-    if (!j.ok) { msg($('calc_msg'), j.error || 'Error', true); $('preview').hidden = true; return; }
-    msg($('calc_msg'), 'Cálculo listo.');
-    renderPreview(j);
+    if (!j.ok) { $('preview').hidden = true; return msg($('calc_msg'), j.error || 'Error', true); }
+    msg($('calc_msg'), 'Cálculo listo.'); renderPreview(j);
   });
-
   $('btn_pdf').addEventListener('click', async () => {
     msg($('calc_msg'), 'Generando PDF…');
-    const r = await fetch('{{ url_for("finiquitos.api_pdf") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload()),
-    });
-    if (!r.ok) { const j = await r.json().catch(()=>({})); msg($('calc_msg'), j.error || 'Error PDF', true); return; }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'finiquito.pdf';
-    a.click();
-    URL.revokeObjectURL(url);
-    msg($('calc_msg'), 'PDF descargado.');
+    const r = await fetch('{{ url_for("finiquitos.api_pdf") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload())});
+    if (!r.ok) { const j = await r.json().catch(()=>({})); return msg($('calc_msg'), j.error || 'Error PDF', true); }
+    const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = 'finiquito.pdf'; a.click(); URL.revokeObjectURL(url); msg($('calc_msg'), 'PDF descargado.');
   });
-
   $('btn_hist').addEventListener('click', async () => {
     msg($('calc_msg'), 'Guardando…');
-    const r = await fetch('{{ url_for("finiquitos.api_historial_finiquito") }}', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload(), incluir_pdf_guardado: false }),
-    });
+    const r = await fetch('{{ url_for("finiquitos.api_historial_finiquito") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...payload(), incluir_pdf_guardado: false })});
     const j = await r.json();
-    if (!j.ok) { msg($('calc_msg'), j.error || 'Error', true); return; }
+    if (!j.ok) return msg($('calc_msg'), j.error || 'Error', true);
     msg($('calc_msg'), `Guardado en historial (id ${j.id}).`);
   });
 
-  document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="prima_pagada_flag"]').forEach((e) => e.addEventListener('change', updatePaidToggles));
-  $('fecha_ingreso').addEventListener('change', updatePrimaAntiguedadUI);
-  $('fecha_baja').addEventListener('change', updatePrimaAntiguedadUI);
-  $('salario_diario').addEventListener('input', calcSalarioMensual);
-
-  const today = new Date().toISOString().slice(0, 10);
-  $('fecha_emision').value = today;
-  calcSalarioMensual();
-  updatePaidToggles();
-  updatePrimaAntiguedadUI();
+  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); }));
+  $('fecha_emision').value = new Date().toISOString().slice(0,10);
 })();
 </script>
 {% endblock %}
