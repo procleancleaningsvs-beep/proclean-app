@@ -88,9 +88,9 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
     if zona not in ("general", "frontera"):
         zona = "general"
     periodicidad = "semanal_mensualizada"
-    modo = (data.get("modo_calculo") or "correcto_fiscal").strip().lower()
-    if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable"):
-        modo = "correcto_fiscal"
+    modo = (data.get("modo_calculo") or "total_gravable").strip().lower()
+    if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
+        modo = "total_gravable"
     sueldo_semanal = _parse_dec(data.get("sueldo_semanal"))
     sal_diario_in = _parse_dec(data.get("salario_diario"))
     sal_diario = _parse_dec("0")
@@ -103,6 +103,8 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         sal_m_dec = (sal_diario * Decimal("30.4")).quantize(Decimal("0.01"))
     elif sal_m_dec is not None and sal_m_dec <= 0:
         sal_m_dec = None
+
+    prima_pagada_previamente = str(data.get("prima_pagada_previamente") or "").lower() in ("1", "true", "on", "yes", "si")
 
     return {
         "ingreso": ingreso,
@@ -122,7 +124,8 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "aguinaldo_pagado_previamente": str(data.get("aguinaldo_pagado_previamente") or "").lower() in ("1", "true", "on", "yes", "si"),
         "aguinaldo_ya": Decimal("0"),
         "prima_vac_ya": Decimal("0"),
-        "prima_dias_cubiertos": _parse_dec(data.get("prima_dias_cubiertos")),
+        "prima_pagada_previamente": prima_pagada_previamente,
+        "prima_dias_cubiertos": _parse_dec(data.get("prima_dias_cubiertos")) if prima_pagada_previamente else Decimal("0"),
         "dias_sueldo": _parse_dec(data.get("dias_sueldo_pendientes")),
         # Política operativa: séptimos automáticos, no capturados manualmente.
         "septimos": _parse_dec(data.get("dias_sueldo_pendientes")) / Decimal("6"),

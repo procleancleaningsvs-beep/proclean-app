@@ -14,8 +14,8 @@
       <h3>Datos generales</h3>
       <div class="mode-toggle">
         <span>Modo de cálculo</span>
-        <label><input type="radio" name="modo_calculo" value="correcto_fiscal" checked> Correcto fiscal</label>
-        <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
+        <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
+        <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
       </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
@@ -57,13 +57,22 @@
       </div>
       <div class="grid-2">
         <label>Días aguinaldo aplicables<input type="text" id="dias_aguinaldo_politica" value="15"></label>
-        <label>Días con prima vacacional ya cubierta<input type="text" id="prima_dias_cubiertos" value="0" inputmode="decimal"></label>
+        <div>
+          <span>¿Ya se pagó previamente prima vacacional?</span>
+          <div class="mode-toggle compact">
+            <label><input type="radio" name="prima_pagada_flag" value="si" checked> Sí</label>
+            <label><input type="radio" name="prima_pagada_flag" value="no"> No</label>
+          </div>
+          <label id="prima_dias_wrap">Días con prima vacacional ya cubierta
+            <input type="text" id="prima_dias_cubiertos" value="0" inputmode="decimal">
+          </label>
+        </div>
       </div>
       <div id="pagos_previos_block" hidden>
         <span>¿Ya se pagó previamente aguinaldo?</span>
         <div class="mode-toggle compact">
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="no" checked> No</label>
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="si"> Sí</label>
+          <label><input type="radio" name="aguinaldo_pagado_flag" value="si" checked> Sí</label>
+          <label><input type="radio" name="aguinaldo_pagado_flag" value="no"> No</label>
         </div>
       </div>
       <div id="auto-kpis-left" class="helper"></div>
@@ -104,11 +113,31 @@
   const msg = (el, text, err) => { el.textContent = text || ''; el.style.color = err ? '#b00020' : ''; };
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt4 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  let primaDiasEdited = false;
+
+  function fechaBonitaEs(v) {
+    if (!v) return '';
+    const d = new Date(v);
+    if (isNaN(d)) return String(v).slice(0, 10);
+    const ds = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+    const ms = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    return `${ds[d.getDay()]} ${d.getDate()} de ${ms[d.getMonth()]} de ${d.getFullYear()}`;
+  }
 
   function updateConditionalQuestions() {
     const fi = $('fecha_ingreso').value;
     const y = new Date().getFullYear();
     $('pagos_previos_block').hidden = !(fi && Number(fi.slice(0,4)) < y);
+  }
+
+  function syncPrimaDiasSuggest() {
+    const primaSi = valRadio('prima_pagada_flag') === 'si';
+    $('prima_dias_wrap').hidden = !primaSi;
+    if (!primaSi) {
+      $('prima_dias_cubiertos').value = '0';
+      return;
+    }
+    if (!primaDiasEdited) $('prima_dias_cubiertos').value = $('vacaciones_ya_usadas').value || '0';
   }
 
   function updatePrimaAntiguedadUI() {
@@ -135,6 +164,7 @@
       dias_aguinaldo_politica: $('dias_aguinaldo_politica').value,
       prima_vacacional_pct: $('prima_vacacional_pct').value,
       vacaciones_ya_usadas: $('vacaciones_ya_usadas').value,
+      prima_pagada_previamente: valRadio('prima_pagada_flag') === 'si',
       prima_dias_cubiertos: $('prima_dias_cubiertos').value,
       aguinaldo_pagado_previamente: valRadio('aguinaldo_pagado_flag') === 'si',
       dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
@@ -161,7 +191,7 @@
       : '';
     $('preview').innerHTML = `
       <div class="pv-grid">
-        <div><strong>Trabajador:</strong> ${e.nombre}</div><div><strong>Ingreso:</strong> ${e.ingreso}</div><div><strong>Baja:</strong> ${e.baja}</div>
+        <div><strong>Trabajador:</strong> ${e.nombre}</div><div><strong>Ingreso:</strong> ${fechaBonitaEs(e.ingreso)}</div><div><strong>Baja:</strong> ${fechaBonitaEs(e.baja)}</div>
         <div><strong>Antigüedad:</strong> ${Number(l.anios_servicio_exactos).toFixed(2)} años</div>
         <div><strong>Sueldo semanal:</strong> $${fmt(e.sueldo_semanal)}</div><div><strong>Salario diario (calculado):</strong> $${fmt(e.salario_diario)}</div>
       </div>
@@ -195,7 +225,7 @@
         <div>ISR ordinario: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong></div><div>Subsidio: <strong>$${fmt(f.subsidio_aplicado)}</strong></div><div>ISR ordinario final: <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
         <div>ISR Art174: <strong>$${fmt(f.isr_art174)}</strong></div><div>ISR separación: <strong>$${fmt(f.isr_separacion)}</strong></div><div>Ajuste al neto: <strong>$${fmt(t.ajuste_neto)}</strong></div>
       </div>
-      <h4>Totales</h4><div class="pv-grid">
+      <h4>Totales</h4><div class="pv-grid total-highlight">
         <div>Total percepciones: <strong>$${fmt(t.total_percepciones)}</strong></div><div>Total deducciones: <strong>$${fmt(t.total_deducciones_reales)}</strong></div><div>Neto final: <strong>$${fmt(t.neto_final)}</strong></div>
         <div>Neto en letra: <strong>${resp.neto_letra || ''}</strong></div>
       </div>
@@ -275,10 +305,14 @@
 
   ['fecha_ingreso','fecha_baja','dias_sueldo_pendientes','vacaciones_ya_usadas','sueldo_semanal','dias_aguinaldo_politica','prima_vacacional_pct','prima_dias_cubiertos']
     .forEach((id)=>{ const el=$(id); if(el){ el.addEventListener('change', scheduleAutoSummary); el.addEventListener('input', scheduleAutoSummary);} });
-  document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
+  document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"], input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
   ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
+  $('vacaciones_ya_usadas').addEventListener('input', ()=>{ if(!primaDiasEdited) syncPrimaDiasSuggest(); });
+  $('prima_dias_cubiertos').addEventListener('input', ()=>{ primaDiasEdited = true; });
+  document.querySelectorAll('input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', ()=>{ syncPrimaDiasSuggest(); scheduleAutoSummary(); }));
   $('fecha_emision').value = new Date().toISOString().slice(0,10);
   updateConditionalQuestions();
+  syncPrimaDiasSuggest();
 })();
 </script>
 {% endblock %}

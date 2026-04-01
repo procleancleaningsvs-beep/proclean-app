@@ -776,6 +776,17 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   padding-top: 10px;
 }
 
+.total-highlight {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.total-highlight strong {
+  font-size: 1.05rem;
+}
+
 @media (max-width: 1100px) {
   .fin-layout {
     grid-template-columns: 1fr;

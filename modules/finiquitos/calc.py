@@ -154,7 +154,7 @@ def calcular_finiquito(
     salario_diario: Decimal,
     zona: Literal["general", "frontera"],
     periodicidad_isr: Literal["quincenal", "mensual", "15_dias", "semanal_mensualizada"],
-    modo: Literal["correcto_fiscal", "aguinaldo_todo_gravable"],
+    modo: Literal["correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"],
     dias_sueldo_pendientes: Decimal,
     septimos_pendientes: Decimal,
     dias_aguinaldo_politica: Decimal,
@@ -243,23 +243,31 @@ def calcular_finiquito(
         prima_antig_monto = _q(salario_tope * Decimal("12") * anios_exact)
 
     # Exento / gravado
-    if modo == "aguinaldo_todo_gravable":
+    if modo in ("aguinaldo_todo_gravable", "total_gravable"):
         ag_ex = D0
         ag_gr = aguinaldo
     else:
         ag_ex = _q(min(aguinaldo, 30 * smg))
         ag_gr = _q(max(D0, aguinaldo - ag_ex))
 
-    pv_ex = _q(min(prima_vac_neta, 15 * smg))
-    pv_gr = _q(max(D0, prima_vac_neta - pv_ex))
+    if modo == "total_gravable":
+        pv_ex = D0
+        pv_gr = prima_vac_neta
+        pa_ex = D0
+        pa_gr = prima_antig_monto
+        # Modo total gravable: todas las percepciones aplicables entran al ordinario.
+        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto)
+        extra_art174 = D0
+    else:
+        pv_ex = _q(min(prima_vac_neta, 15 * smg))
+        pv_gr = _q(max(D0, prima_vac_neta - pv_ex))
 
-    anios_ex = anios_exentos_separacion(anios_exact)
-    lim_sep = 90 * smg * Decimal(anios_ex)
-    pa_ex = _q(min(prima_antig_monto, lim_sep))
-    pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
-
-    bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo)
-    extra_art174 = _q(ag_gr + pv_gr)
+        anios_ex = anios_exentos_separacion(anios_exact)
+        lim_sep = 90 * smg * Decimal(anios_ex)
+        pa_ex = _q(min(prima_antig_monto, lim_sep))
+        pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
+        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo)
+        extra_art174 = _q(ag_gr + pv_gr)
 
     ingreso_mensual_equiv = salario_mensual_capturado if salario_mensual_capturado is not None else _q(salario_diario * Decimal("30.4"))
     ultimo_mensual = ingreso_mensual_equiv
@@ -358,6 +366,7 @@ def calcular_finiquito(
         "fiscal": {
             "ingreso_mensual_equiv": float(ingreso_mensual_equiv),
             "criterio_isr_ordinario": "semanal_mensualizada_tipo_contpaq",
+            "modo_total_gravable_activo": modo == "total_gravable",
             "base_ordinaria_mensualizada": float(base_ordinaria_mensualizada),
             "isr_ordinario_mensualizado": float(isr_ordinario_mensualizado),
             "subsidio_mensualizado_aplicado": float(sub_mensual_ap),
