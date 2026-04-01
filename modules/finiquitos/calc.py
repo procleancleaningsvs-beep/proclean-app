@@ -162,38 +162,67 @@ def calcular_finiquito(
     vacaciones_ya_usadas: Decimal,
     aguinaldo_ya_pagado: Decimal,
     prima_vac_ya_pagada: Decimal,
+    aguinaldo_pagado_previamente: bool = False,
+    prima_dias_cubiertos: Decimal = D0,
     incluir_prima_antiguedad: bool,
     motivo_baja: str,
     salario_mensual_capturado: Decimal | None = None,
 ) -> dict[str, Any]:
     smg = SMG_GENERAL_2026 if zona == "general" else SMG_FRONTERA_2026
 
-    ult_ann = ultimo_aniversario(ingreso, baja)
+    # Vacaciones acumuladas: ciclos vencidos completos + proporcional del ciclo actual.
+    anios_completos = full_years_between(ingreso, baja)
+    dias_vac_completos = D0
+    for y in range(1, anios_completos + 1):
+        dias_vac_completos += Decimal(dias_vacaciones_ley_por_anio_servicio(y))
+
+    ult_ann = add_years_safe(ingreso, anios_completos) if anios_completos > 0 else ingreso
     aniversario_siguiente = add_years_safe(ult_ann, 1)
-    dias_anio_ciclo = (aniversario_siguiente - ult_ann).days
-    if dias_anio_ciclo <= 0:
-        dias_anio_ciclo = 365
-    # Días del ciclo vigente (incluye día de baja; alinea con ejemplo 163 días).
+    dias_anio_ciclo = max(1, (aniversario_siguiente - ult_ann).days)
     dias_transcurridos_ciclo = max(0, (baja - ult_ann).days + 1)
+    dias_vac_anuales_actual = Decimal(dias_vacaciones_ley_por_anio_servicio(anios_completos + 1))
+    factor_vac = Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)
+    dias_vac_prop_actual = dias_vac_anuales_actual * factor_vac
+    dias_vac_total_dev = dias_vac_completos + dias_vac_prop_actual
 
-    anios_completos_hasta_aniversario = full_years_between(ingreso, ult_ann)
-    anio_servicio_vac = anios_completos_hasta_aniversario + 1
-    dias_vac_anuales = dias_vacaciones_ley_por_anio_servicio(anio_servicio_vac)
-
-    vac_devengadas = Decimal(dias_vac_anuales) * Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)
-    vac_pend = vac_devengadas - vacaciones_ya_usadas
+    vac_pend = dias_vac_total_dev - vacaciones_ya_usadas
     if vac_pend < 0:
         vac_pend = D0
-
     vacaciones_a_tiempo = _q(salario_diario * vac_pend)
-    prima_vacacional = _q(vacaciones_a_tiempo * (prima_vacacional_pct / Decimal("100")))
 
-    # Aguinaldo proporcional (año calendario de baja)
+    # Prima vacacional desacoplada: usa días cuya prima aún no fue cubierta.
+    prima_base_dias = dias_vac_total_dev - prima_dias_cubiertos
+    if prima_base_dias < 0:
+        prima_base_dias = D0
+    prima_base_monto = _q(salario_diario * prima_base_dias)
+    prima_vacacional = _q(prima_base_monto * (prima_vacacional_pct / Decimal("100")))
+
+    # Aguinaldo acumulado: según pago previo (año actual) o desde ingreso.
     inicio_anio = date(baja.year, 1, 1)
     dias_trabajados_anio = (baja - inicio_anio).days + 1
     dias_anio_cal = 366 if baja.year % 4 == 0 and (baja.year % 100 != 0 or baja.year % 400 == 0) else 365
-    ag_prop = dias_aguinaldo_politica * Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)
-    aguinaldo_bruto = _q(salario_diario * ag_prop)
+    ag_prop_actual = dias_aguinaldo_politica * Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)
+    ag_completos_no_pag = D0
+    ag_prop_historico = D0
+    if aguinaldo_pagado_previamente:
+        ag_total_dias = ag_prop_actual
+    else:
+        for y in range(ingreso.year, baja.year):
+            y_ini = date(y, 1, 1)
+            y_fin = date(y, 12, 31)
+            ini = ingreso if ingreso > y_ini else y_ini
+            fin = y_fin
+            if fin < ini:
+                continue
+            worked = (fin - ini).days + 1
+            y_days = 366 if y % 4 == 0 and (y % 100 != 0 or y % 400 == 0) else 365
+            if worked >= y_days:
+                ag_completos_no_pag += dias_aguinaldo_politica
+            else:
+                ag_prop_historico += dias_aguinaldo_politica * Decimal(worked) / Decimal(y_days)
+        ag_total_dias = ag_completos_no_pag + ag_prop_historico + ag_prop_actual
+
+    aguinaldo_bruto = _q(salario_diario * ag_total_dias)
     aguinaldo = aguinaldo_bruto - aguinaldo_ya_pagado
     if aguinaldo < 0:
         aguinaldo = D0
@@ -302,18 +331,23 @@ def calcular_finiquito(
             "anios_servicio_exactos": float(anios_exact),
             "anios_servicio_completos": full_years_between(ingreso, baja),
             "ultimo_aniversario": ult_ann.isoformat(),
-            "dias_vacaciones_anuales_ley": dias_vac_anuales,
+            "dias_vacaciones_anuales_ley": float(dias_vac_anuales_actual),
             "dias_laborados_ciclo_vacaciones": dias_transcurridos_ciclo,
             "dias_anio_ciclo_vacaciones": dias_anio_ciclo,
             "dias_trabajados_anio": dias_trabajados_anio,
             "dias_anio_aguinaldo": dias_anio_cal,
             "dias_aguinaldo_aplicables": float(dias_aguinaldo_politica),
-            "factor_vacaciones_ciclo": float((Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP) if dias_anio_ciclo else D0),
+            "factor_vacaciones_ciclo": float(factor_vac.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             "factor_aguinaldo": float((Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
-            "vacaciones_devengadas": float(vac_devengadas),
-            "vacaciones_proporcionales_dias": float(vac_devengadas),
+            "vacaciones_devengadas": float(dias_vac_total_dev),
+            "vacaciones_completas_no_pagadas_dias": float(dias_vac_completos),
+            "vacaciones_proporcionales_dias": float(dias_vac_prop_actual),
             "vacaciones_pendientes": float(vac_pend),
-            "aguinaldo_proporcional_dias": float(ag_prop),
+            "aguinaldo_completos_no_pagados_dias": float(ag_completos_no_pag),
+            "aguinaldo_historico_proporcional_no_pagado_dias": float(ag_prop_historico),
+            "aguinaldo_proporcional_dias": float(ag_prop_actual),
+            "aguinaldo_total_dias": float(ag_total_dias),
+            "prima_vac_base_dias": float(prima_base_dias),
             "sueldo": float(sueldo),
             "septimo_dia": float(septimo),
             "vacaciones_a_tiempo": float(vacaciones_a_tiempo),
@@ -351,28 +385,34 @@ def calcular_finiquito(
             },
             "vacaciones": {
                 "antiguedad_anios": float(anios_exact),
-                "dias_vacaciones_corresponden": dias_vac_anuales,
+                "dias_vacaciones_corresponden": float(dias_vac_anuales_actual),
+                "dias_vacaciones_completos_no_pagados": float(dias_vac_completos),
                 "dias_laborados_ciclo": dias_transcurridos_ciclo,
                 "dias_anio_ciclo": dias_anio_ciclo,
-                "factor": float((Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP) if dias_anio_ciclo else D0),
+                "factor": float(factor_vac.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
                 "formula": "vacaciones_devengadas = dias_vacaciones_anuales * dias_laborados_ciclo / dias_anio_ciclo",
-                "resultado_dias_proporcionales": float(vac_devengadas),
+                "resultado_dias_proporcionales": float(dias_vac_prop_actual),
+                "resultado_dias_totales_acumulados": float(dias_vac_total_dev),
                 "resultado_dias_pendientes": float(vac_pend),
                 "monto": float(vacaciones_a_tiempo),
             },
             "aguinaldo": {
                 "dias_aguinaldo": float(dias_aguinaldo_politica),
+                "dias_completos_no_pagados": float(ag_completos_no_pag),
+                "dias_historico_proporcional_no_pagado": float(ag_prop_historico),
                 "dias_laborados": dias_trabajados_anio,
                 "dias_anio": dias_anio_cal,
                 "factor": float((Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
                 "formula": "aguinaldo = salario_diario * dias_aguinaldo * dias_laborados / dias_anio",
-                "resultado_dias_proporcionales": float(ag_prop),
+                "resultado_dias_proporcionales": float(ag_prop_actual),
+                "resultado_dias_totales": float(ag_total_dias),
                 "resultado": float(aguinaldo),
             },
             "prima_vacacional": {
-                "base": float(vacaciones_a_tiempo),
+                "base_dias": float(prima_base_dias),
+                "base": float(prima_base_monto),
                 "porcentaje": float(prima_vacacional_pct),
-                "formula": "prima_vacacional = vacaciones_a_tiempo * (pct/100)",
+                "formula": "prima_vacacional = base_prima_vacacional * (pct/100)",
                 "resultado": float(prima_vac_neta),
             },
             "isr": {

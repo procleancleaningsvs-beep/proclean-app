@@ -52,33 +52,21 @@
         <label>Días sueldo pendientes<input type="text" id="dias_sueldo_pendientes" value="0"></label>
       </div>
       <div class="grid-2">
-        <label>Vacaciones ya pagadas/disfrutadas (ciclo)<input type="text" id="vacaciones_ya_usadas" value="0"></label>
+        <label>Vacaciones ya pagadas/disfrutadas (días)<input type="text" id="vacaciones_ya_usadas" value="0"></label>
         <label>Prima vacacional %<input type="text" id="prima_vacacional_pct" value="25"></label>
       </div>
       <div class="grid-2">
         <label>Días aguinaldo aplicables<input type="text" id="dias_aguinaldo_politica" value="15"></label>
-        <div id="auto-kpis-left" class="helper"></div>
+        <label>Días con prima vacacional ya cubierta<input type="text" id="prima_dias_cubiertos" value="0" inputmode="decimal"></label>
       </div>
-
       <div id="pagos_previos_block" hidden>
-        <div class="grid-2">
-          <div>
-            <span>¿Ya se pagó previamente aguinaldo?</span>
-            <div class="mode-toggle compact">
-              <label><input type="radio" name="aguinaldo_pagado_flag" value="no" checked> No</label>
-              <label><input type="radio" name="aguinaldo_pagado_flag" value="si"> Sí</label>
-            </div>
-          </div>
-          <div>
-            <span>¿Ya se pagó previamente prima vacacional?</span>
-            <div class="mode-toggle compact">
-              <label><input type="radio" name="prima_pagada_flag" value="no" checked> No</label>
-              <label><input type="radio" name="prima_pagada_flag" value="si"> Sí</label>
-            </div>
-          </div>
+        <span>¿Ya se pagó previamente aguinaldo?</span>
+        <div class="mode-toggle compact">
+          <label><input type="radio" name="aguinaldo_pagado_flag" value="no" checked> No</label>
+          <label><input type="radio" name="aguinaldo_pagado_flag" value="si"> Sí</label>
         </div>
       </div>
-
+      <div id="auto-kpis-left" class="helper"></div>
       <div id="pa_status" class="helper"></div>
       <div id="pa_toggle" hidden>
         <span>¿Deseas incluir prima de antigüedad en el recibo?</span>
@@ -117,16 +105,10 @@
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt4 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
-  function sueldoDiarioEstimado() {
-    const s = Number(($('sueldo_semanal').value || '0').replace(/,/g, ''));
-    return s > 0 ? (s / 7) : 0;
-  }
-
   function updateConditionalQuestions() {
     const fi = $('fecha_ingreso').value;
     const y = new Date().getFullYear();
-    const mostrarPrevios = fi && Number(fi.slice(0,4)) < y;
-    $('pagos_previos_block').hidden = !mostrarPrevios;
+    $('pagos_previos_block').hidden = !(fi && Number(fi.slice(0,4)) < y);
   }
 
   function updatePrimaAntiguedadUI() {
@@ -153,27 +135,27 @@
       dias_aguinaldo_politica: $('dias_aguinaldo_politica').value,
       prima_vacacional_pct: $('prima_vacacional_pct').value,
       vacaciones_ya_usadas: $('vacaciones_ya_usadas').value,
+      prima_dias_cubiertos: $('prima_dias_cubiertos').value,
+      aguinaldo_pagado_previamente: valRadio('aguinaldo_pagado_flag') === 'si',
       dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
       incluir_prima_antiguedad: valRadio('incluir_pa') === 'si',
       observaciones_internas: $('observaciones_internas').value,
     };
   }
 
+  function renderAutoKpis(resp) {
+    const l = resp.resultado.laboral;
+    $('auto-kpis-left').innerHTML = `
+      <div>Días de vacaciones a pagar: <strong>${fmt4(l.vacaciones_pendientes)}</strong></div>
+      <div>Días de aguinaldo a pagar: <strong>${fmt4(l.aguinaldo_total_dias)}</strong></div>
+      <div>Días base para prima vacacional: <strong>${fmt4(l.prima_vac_base_dias)}</strong></div>
+      <div class="helper">Días laborados vacaciones: ${l.dias_laborados_ciclo_vacaciones} · aguinaldo: ${l.dias_trabajados_anio}</div>
+    `;
+  }
+
   function renderPreview(resp) {
     const r = resp.resultado, e = resp.entrada, l = r.laboral, f = r.fiscal, t = r.totales;
-    $('auto-kpis-left').innerHTML = `
-      <div><strong>VACACIONES</strong></div>
-      <div>Días de vacaciones anuales por derecho: <strong>${l.dias_vacaciones_anuales_ley}</strong></div>
-      <div>Factor de vacaciones: <strong>${fmt4(l.factor_vacaciones_ciclo)}</strong></div>
-      <div>Días de vacaciones proporcionales: <strong>${fmt4(l.vacaciones_proporcionales_dias)}</strong></div>
-      <div><strong>AGUINALDO</strong></div>
-      <div>Días de aguinaldo anuales: <strong>${fmt4(l.dias_aguinaldo_aplicables)}</strong></div>
-      <div>Factor de aguinaldo: <strong>${fmt4(l.factor_aguinaldo)}</strong></div>
-      <div>Días de aguinaldo proporcionales: <strong>${fmt4(l.aguinaldo_proporcional_dias)}</strong></div>
-      <div><strong>DÍAS LABORADOS</strong></div>
-      <div>Días laborados usados para vacaciones: <strong>${l.dias_laborados_ciclo_vacaciones}</strong></div>
-      <div>Días laborados usados para aguinaldo: <strong>${l.dias_trabajados_anio}</strong></div>
-    `;
+    renderAutoKpis(resp);
     const factorNota = Math.abs(Number(l.factor_vacaciones_ciclo) - Number(l.factor_aguinaldo)) < 0.000001
       ? '<div class="helper">Nota: en este caso el factor de vacaciones y el factor de aguinaldo coinciden numéricamente, pero se calculan por reglas distintas.</div>'
       : '';
@@ -182,27 +164,32 @@
         <div><strong>Trabajador:</strong> ${e.nombre}</div><div><strong>Ingreso:</strong> ${e.ingreso}</div><div><strong>Baja:</strong> ${e.baja}</div>
         <div><strong>Antigüedad:</strong> ${Number(l.anios_servicio_exactos).toFixed(2)} años</div>
         <div><strong>Sueldo semanal:</strong> $${fmt(e.sueldo_semanal)}</div><div><strong>Salario diario (calculado):</strong> $${fmt(e.salario_diario)}</div>
-        <div><strong>Días laborados (vacaciones):</strong> ${l.dias_laborados_ciclo_vacaciones}</div><div><strong>Días laborados (aguinaldo):</strong> ${l.dias_trabajados_anio}</div><div><strong>Días anuales aguinaldo:</strong> ${fmt(l.dias_aguinaldo_aplicables)}</div>
       </div>
       <h4>Vacaciones</h4><div class="pv-grid">
-        <div>Días anuales por derecho: <strong>${l.dias_vacaciones_anuales_ley}</strong></div>
+        <div>Días anuales por derecho: <strong>${fmt4(l.dias_vacaciones_anuales_ley)}</strong></div>
+        <div>Días completos acumulados no pagados: <strong>${fmt4(l.vacaciones_completas_no_pagadas_dias)}</strong></div>
         <div>Días laborados del ciclo: <strong>${l.dias_laborados_ciclo_vacaciones}</strong> / ${l.dias_anio_ciclo_vacaciones}</div>
         <div>Factor vacaciones: <strong>${fmt4(l.factor_vacaciones_ciclo)}</strong></div>
-        <div>Días proporcionales: <strong>${fmt4(l.vacaciones_proporcionales_dias)}</strong></div>
-        <div>Fórmula: <strong>${l.dias_vacaciones_anuales_ley} * ${fmt4(l.factor_vacaciones_ciclo)}</strong></div>
+        <div>Días proporcionales ciclo actual: <strong>${fmt4(l.vacaciones_proporcionales_dias)}</strong></div>
+        <div>Total días de vacaciones a pagar: <strong>${fmt4(l.vacaciones_pendientes)}</strong></div>
         <div>Monto vacaciones: <strong>$${fmt(l.vacaciones_a_tiempo)}</strong></div>
       </div>
       <h4>Aguinaldo</h4><div class="pv-grid">
         <div>Días anuales de aguinaldo: <strong>${fmt4(l.dias_aguinaldo_aplicables)}</strong></div>
+        <div>Días completos acumulados no pagados: <strong>${fmt4(l.aguinaldo_completos_no_pagados_dias)}</strong></div>
         <div>Días laborados del año: <strong>${l.dias_trabajados_anio}</strong> / ${l.dias_anio_aguinaldo}</div>
         <div>Factor aguinaldo: <strong>${fmt4(l.factor_aguinaldo)}</strong></div>
-        <div>Días proporcionales: <strong>${fmt4(l.aguinaldo_proporcional_dias)}</strong></div>
-        <div>Fórmula: <strong>${fmt4(l.dias_aguinaldo_aplicables)} * ${fmt4(l.factor_aguinaldo)}</strong></div>
+        <div>Días proporcionales año actual: <strong>${fmt4(l.aguinaldo_proporcional_dias)}</strong></div>
+        <div>Total días de aguinaldo a pagar: <strong>${fmt4(l.aguinaldo_total_dias)}</strong></div>
         <div>Monto aguinaldo: <strong>$${fmt(l.aguinaldo)}</strong></div>
       </div>
+      <h4>Prima vacacional</h4><div class="pv-grid">
+        <div>Días base para prima vacacional: <strong>${fmt4(l.prima_vac_base_dias)}</strong></div>
+        <div>Porcentaje aplicado: <strong>${fmt4(e.prima_vac_pct)}%</strong></div>
+        <div>Monto prima vacacional: <strong>$${fmt(l.prima_vacacional)}</strong></div>
+      </div>
       <h4>Percepciones</h4><div class="pv-grid">
-        <div>Sueldo: <strong>$${fmt(l.sueldo)}</strong></div><div>Séptimo automático: <strong>$${fmt(l.septimo_dia)}</strong></div><div>Vacaciones: <strong>$${fmt(l.vacaciones_a_tiempo)}</strong></div>
-        <div>Prima vacacional: <strong>$${fmt(l.prima_vacacional)}</strong></div><div>Aguinaldo: <strong>$${fmt(l.aguinaldo)}</strong></div><div>Prima antigüedad: <strong>$${fmt(l.prima_antiguedad_monto)}</strong></div>
+        <div>Sueldo: <strong>$${fmt(l.sueldo)}</strong></div><div>Séptimo automático: <strong>$${fmt(l.septimo_dia)}</strong></div><div>Prima antigüedad: <strong>$${fmt(l.prima_antiguedad_monto)}</strong></div>
       </div>
       <h4>Deducciones</h4><div class="pv-grid">
         <div>ISR ordinario: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong></div><div>Subsidio: <strong>$${fmt(f.subsidio_aplicado)}</strong></div><div>ISR ordinario final: <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
@@ -223,20 +210,24 @@
     $('advanced_body').innerHTML = `
       <div><strong>Base sueldo</strong><br>Sueldo semanal: $${fmt(a.base_sueldo?.sueldo_semanal_estimado)}<br>Salario diario: $${fmt(a.base_sueldo?.salario_diario_calculado)}<br>${a.base_sueldo?.formula || ''}</div>
       <div><strong>Vacaciones</strong><br>
-        Días anuales por derecho: ${a.vacaciones?.dias_vacaciones_corresponden}<br>
+        Días anuales por derecho: ${fmt4(a.vacaciones?.dias_vacaciones_corresponden)}<br>
+        Días completos acumulados no pagados: ${fmt4(a.vacaciones?.dias_vacaciones_completos_no_pagados)}<br>
         Días laborados del ciclo: ${a.vacaciones?.dias_laborados_ciclo}<br>
         Factor vacaciones: ${a.vacaciones?.dias_laborados_ciclo} / ${a.vacaciones?.dias_anio_ciclo} = ${fmt4(a.vacaciones?.factor)}<br>
-        Días proporcionales: ${a.vacaciones?.dias_vacaciones_corresponden} * ${fmt4(a.vacaciones?.factor)} = ${fmt4(a.vacaciones?.resultado_dias_proporcionales)}<br>
-        Monto: salario_diario * ${fmt4(a.vacaciones?.resultado_dias_proporcionales)} = $${fmt(a.vacaciones?.monto)}
+        Días proporcionales: ${fmt4(a.vacaciones?.dias_vacaciones_corresponden)} * ${fmt4(a.vacaciones?.factor)} = ${fmt4(a.vacaciones?.resultado_dias_proporcionales)}<br>
+        Total días vacaciones acumulados: ${fmt4(a.vacaciones?.resultado_dias_totales_acumulados)}<br>
+        Monto: salario_diario * ${fmt4(a.vacaciones?.resultado_dias_pendientes)} = $${fmt(a.vacaciones?.monto)}
       </div>
       <div><strong>Aguinaldo</strong><br>
         Días anuales de aguinaldo: ${fmt4(a.aguinaldo?.dias_aguinaldo)}<br>
+        Días completos acumulados no pagados: ${fmt4(a.aguinaldo?.dias_completos_no_pagados)}<br>
         Días laborados del año: ${a.aguinaldo?.dias_laborados}<br>
         Factor aguinaldo: ${a.aguinaldo?.dias_laborados} / ${a.aguinaldo?.dias_anio} = ${fmt4(a.aguinaldo?.factor)}<br>
         Días proporcionales: ${fmt4(a.aguinaldo?.dias_aguinaldo)} * ${fmt4(a.aguinaldo?.factor)} = ${fmt4(a.aguinaldo?.resultado_dias_proporcionales)}<br>
-        Monto: salario_diario * ${fmt4(a.aguinaldo?.resultado_dias_proporcionales)} = $${fmt(a.aguinaldo?.resultado)}
+        Total días aguinaldo acumulados: ${fmt4(a.aguinaldo?.resultado_dias_totales)}<br>
+        Monto: salario_diario * ${fmt4(a.aguinaldo?.resultado_dias_totales)} = $${fmt(a.aguinaldo?.resultado)}
       </div>
-      <div><strong>Prima vacacional</strong><br>Base: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>
+      <div><strong>Prima vacacional</strong><br>Días base: ${fmt4(pv.base_dias)}<br>Base monto: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>
       <div><strong>ISR</strong><br>Base periodo: $${fmt(isr.base_ordinaria_periodo)}<br>Base mensualizada: $${fmt(isr.base_ordinaria_mensualizada)}<br>${isr.mensualizacion_formula || ''}<br>ISR mensualizado: $${fmt(isr.isr_mensualizado)}<br>Subsidio: $${fmt(isr.subsidio_mensualizado)}<br>ISR final periodo: $${fmt(isr.isr_periodo_final)}<br>Art174: $${fmt(isr.isr_art174)}</div>
       <div><strong>Ajuste al neto</strong><br>Neto previo: $${fmt(a.ajuste_neto?.neto_previo)}<br>Ajuste: $${fmt(a.ajuste_neto?.ajuste)}<br>Neto final: $${fmt(a.ajuste_neto?.neto_final)}</div>`;
   }
@@ -246,7 +237,7 @@
     const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() })});
     const j = await r.json();
     if (!j.ok) return msg($('excel_msg'), j.error || 'Error', true);
-    $('fecha_ingreso').value = j.fecha_ingreso; updateConditionalQuestions(); updatePrimaAntiguedadUI(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+    $('fecha_ingreso').value = j.fecha_ingreso; updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
   });
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
@@ -270,8 +261,24 @@
     msg($('calc_msg'), `Guardado en historial (id ${j.id}).`);
   });
 
-  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); }));
+  let autoTimer = null;
+  async function refreshAutoSummary() {
+    if (!($('fecha_ingreso').value && $('fecha_baja').value && $('sueldo_semanal').value)) return;
+    const r = await fetch('{{ url_for("finiquitos.api_calcular") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload())});
+    const j = await r.json();
+    if (j.ok) renderAutoKpis(j);
+  }
+  function scheduleAutoSummary() {
+    clearTimeout(autoTimer);
+    autoTimer = setTimeout(refreshAutoSummary, 350);
+  }
+
+  ['fecha_ingreso','fecha_baja','dias_sueldo_pendientes','vacaciones_ya_usadas','sueldo_semanal','dias_aguinaldo_politica','prima_vacacional_pct','prima_dias_cubiertos']
+    .forEach((id)=>{ const el=$(id); if(el){ el.addEventListener('change', scheduleAutoSummary); el.addEventListener('input', scheduleAutoSummary);} });
+  document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
+  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
   $('fecha_emision').value = new Date().toISOString().slice(0,10);
+  updateConditionalQuestions();
 })();
 </script>
 {% endblock %}
