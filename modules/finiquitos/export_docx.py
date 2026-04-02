@@ -14,6 +14,14 @@ from modules.finiquitos.numero_letra import importe_mxn_a_letra
 from modules.vitroflex_docs.libreoffice_pdf import docx_bytes_to_pdf_bytes
 
 
+def _as_positive_amount_str(s: str) -> str:
+    """Convierte monto formateado a valor absoluto formateado (visual deducciones)."""
+    raw = (s or "").replace(",", "").strip()
+    if not raw:
+        return "0.00"
+    return format_importe(abs(Decimal(raw)))
+
+
 def build_finiquito_placeholders(
     *,
     lugar_emision: str,
@@ -64,13 +72,14 @@ def build_finiquito_placeholders(
         "{t7}": t7,
         "{n8}": pdf["n8"],
         "{c_isa}": pdf["c_isa"],
-        "{t8}": pdf["t8"],
+        # En formato final las deducciones se imprimen en positivo (valor absoluto).
+        "{t8}": _as_positive_amount_str(pdf["t8"]),
         "{n9}": pdf["n9"],
         "{c_i174}": pdf["c_i174"],
-        "{t9}": pdf["t9"],
+        "{t9}": _as_positive_amount_str(pdf["t9"]),
         "{n10}": pdf["n10"],
         "{c_imes}": pdf["c_imes"],
-        "{t10}": pdf["t10"],
+        "{t10}": _as_positive_amount_str(pdf["t10"]),
         "{t11}": format_importe(ajuste),
         "{np}": np,
         "{cp}": cp,

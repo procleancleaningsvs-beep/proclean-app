@@ -736,8 +736,8 @@ def ensure_default_templates() -> None:
         dst = DOCX_TEMPLATES_DIR / filename
         if src.exists() and not dst.exists():
             dst.write_bytes(src.read_bytes())
-    fin_src = BUNDLED_TEMPLATES_DIR / "finiquito_plantilla.docx"
-    fin_dst = DOCX_TEMPLATES_DIR / "finiquito_plantilla.docx"
+    fin_src = BUNDLED_TEMPLATES_DIR / "FINIQUITO FORMATO.docx"
+    fin_dst = DOCX_TEMPLATES_DIR / "FINIQUITO FORMATO.docx"
     if fin_src.exists() and not fin_dst.exists():
         fin_dst.write_bytes(fin_src.read_bytes())
 

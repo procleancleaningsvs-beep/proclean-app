@@ -73,7 +73,7 @@ def _parse_dec(s: Any, default: str = "0") -> Decimal:
 
 
 def template_finiquito_path() -> Path:
-    return Path(current_app.config["DOCX_TEMPLATES_DIR"]) / "finiquito_plantilla.docx"
+    return Path(current_app.config["DOCX_TEMPLATES_DIR"]) / "FINIQUITO FORMATO.docx"
 
 
 def _now_iso() -> str:
