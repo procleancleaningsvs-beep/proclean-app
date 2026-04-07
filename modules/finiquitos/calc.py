@@ -255,9 +255,9 @@ def calcular_finiquito(
         pv_gr = prima_vac_neta
         pa_ex = D0
         pa_gr = prima_antig_monto
-        # Modo total gravable: todas las percepciones aplicables entran al ordinario.
-        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto)
-        extra_art174 = D0
+        # Total gravable: ISR ordinario (mes) sobre base distinta a Art. 174; Art. 174 aparte sobre aguinaldo/prima vac.
+        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo)
+        extra_art174 = _q(aguinaldo + prima_vac_neta)
     else:
         pv_ex = _q(min(prima_vac_neta, 15 * smg))
         pv_gr = _q(max(D0, prima_vac_neta - pv_ex))
@@ -323,14 +323,11 @@ def calcular_finiquito(
 
     pdf_map = _mapear_pdf(
         isr_ord_antes=isr_ord_antes,
-        isr_ord_neto=isr_ord_neto,
         isr_174=isr_174,
         isr_sep=isr_sep,
         sub_ap=sub_ap,
-        tiene_sep=pa_gr > 0,
-        tiene_sub=sub_ap > 0,
-        total_percepciones=total_perc,
-        neto_final=neto_final,
+        ded_reales=ded_reales,
+        ajuste_neto=ajuste_neto,
     )
 
     return {
@@ -485,29 +482,44 @@ def _ajuste_neto_permitido(neto_prev: Decimal) -> tuple[Decimal, Decimal]:
 def _mapear_pdf(
     *,
     isr_ord_antes: Decimal,
-    isr_ord_neto: Decimal,
     isr_174: Decimal,
     isr_sep: Decimal,
     sub_ap: Decimal,
-    tiene_sep: bool,
-    tiene_sub: bool,
-    total_percepciones: Decimal,
-    neto_final: Decimal,
+    ded_reales: Decimal,
+    ajuste_neto: Decimal,
 ) -> dict[str, Any]:
-    """Filas fijas del DOCX según reglas 17.3."""
-    sub_neg = _q(-sub_ap)
-    n8, c8, t8 = "41", "I.S.R. antes de Subs al empleo", format_importe(isr_ord_antes)
-    n9, c9, t9 = "43", "I.S.R. Art174", format_importe(isr_174)
-    n10, c10, t10 = "45", "Subsidio al empleo aplicado", format_importe(sub_neg)
+    """
+    Filas del DOCX: ISR (mes) antes de subsidio; ISR Art. 174; subsidio visible (no sumable);
+    ISR prima de antigüedad en fila extra si aplica junto con subsidio.
+    suma_d = retenciones reales (sin subsidio) + ajuste negativo en deducciones si aplica.
+    """
+    lbl_isr_mes = "ISR (mes)"
+    lbl_174 = "ISR Art. 174"
+    lbl_sub = "Subsidio al empleo conforme a la Ley del Impuesto sobre la Renta"
+    lbl_sep = "ISR por prima de antigüedad"
 
-    if tiene_sep and not tiene_sub:
-        n10, c10, t10 = "45", "ISR pagos por separación", format_importe(isr_sep)
-    elif tiene_sep and tiene_sub:
-        n8, c8, t8 = "41", "ISR ordinario neto", format_importe(isr_ord_neto)
-        n9, c9, t9 = "43", "I.S.R. Art174", format_importe(isr_174)
-        n10, c10, t10 = "45", "ISR pagos por separación", format_importe(isr_sep)
+    if isr_ord_antes > 0:
+        n8, c8, t8 = "41", lbl_isr_mes, format_importe(isr_ord_antes)
+    else:
+        n8, c8, t8 = "", "", ""
 
-    suma_d_num = _q(total_percepciones - neto_final)
+    if isr_174 > 0:
+        n9, c9, t9 = "43", lbl_174, format_importe(isr_174)
+    else:
+        n9, c9, t9 = "", "", ""
+
+    n10, c10, t10 = "", "", ""
+    n_sep, c_sep, t_sep = "", "", ""
+
+    if sub_ap > 0:
+        n10, c10, t10 = "45", lbl_sub, format_importe(sub_ap)
+        if isr_sep > 0:
+            n_sep, c_sep, t_sep = "46", lbl_sep, format_importe(isr_sep)
+    elif isr_sep > 0:
+        n10, c10, t10 = "45", lbl_sep, format_importe(isr_sep)
+
+    extra_ajuste_ded = _q(abs(ajuste_neto)) if ajuste_neto < 0 else D0
+    suma_d_num = _q(ded_reales + extra_ajuste_ded)
 
     return {
         "n8": n8,
@@ -519,6 +531,9 @@ def _mapear_pdf(
         "n10": n10,
         "c_imes": c10,
         "t10": t10,
+        "n_sep": n_sep,
+        "c_sep": c_sep,
+        "t_sep": t_sep,
         "suma_d": format_importe(suma_d_num),
     }
 
