@@ -167,6 +167,8 @@ def calcular_finiquito(
     incluir_prima_antiguedad: bool,
     motivo_baja: str,
     salario_mensual_capturado: Decimal | None = None,
+    prima_dominical_monto: Decimal = D0,
+    ptu_monto: Decimal = D0,
 ) -> dict[str, Any]:
     smg = SMG_GENERAL_2026 if zona == "general" else SMG_FRONTERA_2026
 
@@ -233,6 +235,9 @@ def calcular_finiquito(
         prima_vac_neta = D0
     prima_vac_neta = _q(prima_vac_neta)
 
+    prima_dom = _q(max(D0, prima_dominical_monto))
+    ptu = _q(max(D0, ptu_monto))
+
     sueldo = _q(salario_diario * dias_sueldo_pendientes)
     septimo = _q(salario_diario * septimos_pendientes)
 
@@ -250,14 +255,17 @@ def calcular_finiquito(
         ag_ex = _q(min(aguinaldo, 30 * smg))
         ag_gr = _q(max(D0, aguinaldo - ag_ex))
 
+    # Parte gravada enviada al tratamiento Art. 174 vs remanente al bucket ISR (mes).
     if modo == "total_gravable":
         pv_ex = D0
         pv_gr = prima_vac_neta
         pa_ex = D0
         pa_gr = prima_antig_monto
-        # Total gravable: ISR ordinario (mes) sobre base distinta a Art. 174; Art. 174 aparte sobre aguinaldo/prima vac.
-        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo)
-        extra_art174 = _q(aguinaldo + prima_vac_neta)
+        grav_art174 = _q(aguinaldo + prima_vac_neta + prima_dom + ptu)
+        # En total gravable lo gravado de aguinaldo/prima vac./dom./PTU va a Art. 174; el remanente ordinario es 0.
+        rem_ord_ag_pv = _q(max(D0, aguinaldo + prima_vac_neta + prima_dom + ptu - grav_art174))
+        bucket_isr_mes_grav = _q(sueldo + septimo + vacaciones_a_tiempo + rem_ord_ag_pv)
+        extra_art174 = grav_art174
     else:
         pv_ex = _q(min(prima_vac_neta, 15 * smg))
         pv_gr = _q(max(D0, prima_vac_neta - pv_ex))
@@ -266,30 +274,32 @@ def calcular_finiquito(
         lim_sep = 90 * smg * Decimal(anios_ex)
         pa_ex = _q(min(prima_antig_monto, lim_sep))
         pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
-        bucket_ord_grav = _q(sueldo + septimo + vacaciones_a_tiempo)
-        extra_art174 = _q(ag_gr + pv_gr)
+        grav_art174 = _q(ag_gr + pv_gr + prima_dom + ptu)
+        rem_ord_ag_pv = _q(max(D0, (ag_gr + pv_gr + prima_dom + ptu) - grav_art174))
+        bucket_isr_mes_grav = _q(sueldo + septimo + vacaciones_a_tiempo + rem_ord_ag_pv)
+        extra_art174 = grav_art174
 
     ingreso_mensual_equiv = salario_mensual_capturado if salario_mensual_capturado is not None else _q(salario_diario * Decimal("30.4"))
     ultimo_mensual = ingreso_mensual_equiv
 
-    # Política operativa tipo CONTPAQ (intencional):
-    # El trabajador cobra semanal, pero el ISR ordinario se determina
-    # mensualizando la base gravable semanal y aplicando la tabla mensual art. 96.
+    # ISR (mes): base = bucket ISR (mes) gravado; mensualización semanal tipo CONTPAQ → tabla mensual art. 96.
     dias_periodo = Decimal("7")
-    base_ordinaria_mensualizada = _q(bucket_ord_grav / dias_periodo * Decimal("30.4")) if bucket_ord_grav > 0 else D0
-    isr_ordinario_mensualizado = isr_art96(base_ordinaria_mensualizada, "mensual")
+    base_isr_mes_mensualizada = (
+        _q(bucket_isr_mes_grav / dias_periodo * Decimal("30.4")) if bucket_isr_mes_grav > 0 else D0
+    )
+    isr_antes_subsidio_mensual = isr_art96(base_isr_mes_mensualizada, "mensual")
+    # Subsidio solo contra ISR antes de subsidio; elegibilidad por salario mensual equivalente del trabajador.
     sub_mensualizado = subsidio_periodo(
         fecha_emision,
         Decimal("30.4"),
-        ingreso_mensual_equiv=base_ordinaria_mensualizada,
+        ingreso_mensual_equiv=ingreso_mensual_equiv,
     )
-    sub_mensual_ap = _q(min(sub_mensualizado, isr_ordinario_mensualizado))
+    sub_mensual_ap = _q(min(sub_mensualizado, isr_antes_subsidio_mensual))
 
-    # Retención efectiva del periodo semanal, prorrateada del cálculo mensualizado.
-    isr_ord_antes = _q(isr_ordinario_mensualizado / Decimal("30.4") * dias_periodo)
+    isr_antes_subsidio = _q(isr_antes_subsidio_mensual / Decimal("30.4") * dias_periodo)
     sub_ap = _q(sub_mensual_ap / Decimal("30.4") * dias_periodo)
-    sub_ap = _q(min(sub_ap, isr_ord_antes))
-    isr_ord_neto = _q(max(D0, isr_ord_antes - sub_ap))
+    sub_ap = _q(min(sub_ap, isr_antes_subsidio))
+    isr_mes_neto = _q(max(D0, isr_antes_subsidio - sub_ap))
 
     # Art 174: mensualización a 2 decimales para tasa efectiva (ejemplo oficial 91.66).
     if extra_art174 > 0:
@@ -316,17 +326,18 @@ def calcular_finiquito(
     else:
         isr_sep = D0
 
-    total_perc = _q(sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto)
-    ded_reales = _q(isr_ord_neto + isr_174 + isr_sep)
+    total_perc = _q(
+        sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto + prima_dom + ptu
+    )
+    ded_reales = _q(isr_mes_neto + isr_174 + isr_sep)
     neto_prev = _q(total_perc - ded_reales)
     neto_final, ajuste_neto = _ajuste_neto_permitido(neto_prev)
 
     pdf_map = _mapear_pdf(
-        isr_ord_antes=isr_ord_antes,
+        isr_antes_subsidio=isr_antes_subsidio,
+        isr_mes_neto=isr_mes_neto,
         isr_174=isr_174,
         isr_sep=isr_sep,
-        sub_ap=sub_ap,
-        ded_reales=ded_reales,
         ajuste_neto=ajuste_neto,
     )
 
@@ -359,13 +370,15 @@ def calcular_finiquito(
             "prima_vacacional": float(prima_vac_neta),
             "aguinaldo": float(aguinaldo),
             "prima_antiguedad_monto": float(prima_antig_monto),
+            "prima_dominical": float(prima_dom),
+            "ptu": float(ptu),
         },
         "fiscal": {
             "ingreso_mensual_equiv": float(ingreso_mensual_equiv),
             "criterio_isr_ordinario": "semanal_mensualizada_tipo_contpaq",
             "modo_total_gravable_activo": modo == "total_gravable",
-            "base_ordinaria_mensualizada": float(base_ordinaria_mensualizada),
-            "isr_ordinario_mensualizado": float(isr_ordinario_mensualizado),
+            "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
+            "isr_antes_subsidio_mensual": float(isr_antes_subsidio_mensual),
             "subsidio_mensualizado_aplicado": float(sub_mensual_ap),
             "salario_minimo_zona": float(smg),
             "aguinaldo_exento": float(ag_ex),
@@ -374,12 +387,16 @@ def calcular_finiquito(
             "prima_vac_gravada": float(pv_gr),
             "prima_antig_exenta": float(pa_ex),
             "prima_antig_gravada": float(pa_gr),
-            "bucket_ordinario_gravado": float(bucket_ord_grav),
+            "bucket_isr_mes_gravado": float(bucket_isr_mes_grav),
+            "bucket_ordinario_gravado": float(bucket_isr_mes_grav),
             "bucket_art174_gravado": float(extra_art174),
             "bucket_separacion_gravado": float(pa_gr),
-            "isr_ordinario_antes_subsidio": float(isr_ord_antes),
+            "base_ordinaria_mensualizada": float(base_isr_mes_mensualizada),
+            "isr_antes_subsidio_periodo": float(isr_antes_subsidio),
+            "isr_ordinario_antes_subsidio": float(isr_antes_subsidio),
             "subsidio_aplicado": float(sub_ap),
-            "isr_ordinario_neto": float(isr_ord_neto),
+            "isr_mes_neto": float(isr_mes_neto),
+            "isr_ordinario_neto": float(isr_mes_neto),
             "isr_art174": float(isr_174),
             "isr_separacion": float(isr_sep),
         },
@@ -422,12 +439,17 @@ def calcular_finiquito(
                 "resultado": float(prima_vac_neta),
             },
             "isr": {
-                "base_ordinaria_periodo": float(bucket_ord_grav),
-                "base_ordinaria_mensualizada": float(base_ordinaria_mensualizada),
-                "mensualizacion_formula": "base_mensualizada = base_periodo / 7 * 30.4",
-                "isr_mensualizado": float(isr_ordinario_mensualizado),
+                "base_isr_mes_periodo": float(bucket_isr_mes_grav),
+                "base_ordinaria_periodo": float(bucket_isr_mes_grav),
+                "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
+                "base_ordinaria_mensualizada": float(base_isr_mes_mensualizada),
+                "mensualizacion_formula": "base_mensualizada = base_isr_mes_periodo / 7 * 30.4",
+                "isr_antes_subsidio_mensual": float(isr_antes_subsidio_mensual),
+                "isr_mensualizado": float(isr_antes_subsidio_mensual),
                 "subsidio_mensualizado": float(sub_mensual_ap),
-                "isr_periodo_final": float(isr_ord_neto),
+                "isr_antes_subsidio_periodo": float(isr_antes_subsidio),
+                "isr_periodo_final": float(isr_mes_neto),
+                "isr_mes_neto_periodo": float(isr_mes_neto),
                 "isr_art174": float(isr_174),
                 "isr_separacion": float(isr_sep),
             },
@@ -481,45 +503,39 @@ def _ajuste_neto_permitido(neto_prev: Decimal) -> tuple[Decimal, Decimal]:
 
 def _mapear_pdf(
     *,
-    isr_ord_antes: Decimal,
+    isr_antes_subsidio: Decimal,
+    isr_mes_neto: Decimal,
     isr_174: Decimal,
     isr_sep: Decimal,
-    sub_ap: Decimal,
-    ded_reales: Decimal,
     ajuste_neto: Decimal,
 ) -> dict[str, Any]:
     """
-    Filas del DOCX: ISR (mes) antes de subsidio; ISR Art. 174; subsidio visible (no sumable);
-    ISR prima de antigüedad en fila extra si aplica junto con subsidio.
-    suma_d = retenciones reales (sin subsidio) + ajuste negativo en deducciones si aplica.
+    Numeración fija: 41 antes de subsidio (no suma), 43 Art.174 (suma), 45 ISR (mes) neto (suma).
+    99 Ajuste al neto se arma en export_docx (suma solo si aplica como deducción).
+    suma_d = 45 + 43 + (99 si ajuste negativo) + ISR separación si aplica (para cuadrar neto).
     """
-    lbl_isr_mes = "ISR (mes)"
-    lbl_174 = "ISR Art. 174"
-    lbl_sub = "Subsidio al empleo conforme a la Ley del Impuesto sobre la Renta"
-    lbl_sep = "ISR por prima de antigüedad"
+    lbl_41 = "I.S.R. antes de Subs al empleo"
+    lbl_43 = "I.S.R. Art174"
+    lbl_45 = "I.S.R. (mes)"
 
-    if isr_ord_antes > 0:
-        n8, c8, t8 = "41", lbl_isr_mes, format_importe(isr_ord_antes)
+    if isr_antes_subsidio > 0:
+        n8, c8, t8 = "41", lbl_41, format_importe(isr_antes_subsidio)
     else:
         n8, c8, t8 = "", "", ""
 
     if isr_174 > 0:
-        n9, c9, t9 = "43", lbl_174, format_importe(isr_174)
+        n9, c9, t9 = "43", lbl_43, format_importe(isr_174)
     else:
         n9, c9, t9 = "", "", ""
 
-    n10, c10, t10 = "", "", ""
-    n_sep, c_sep, t_sep = "", "", ""
-
-    if sub_ap > 0:
-        n10, c10, t10 = "45", lbl_sub, format_importe(sub_ap)
-        if isr_sep > 0:
-            n_sep, c_sep, t_sep = "46", lbl_sep, format_importe(isr_sep)
-    elif isr_sep > 0:
-        n10, c10, t10 = "45", lbl_sep, format_importe(isr_sep)
+    if isr_mes_neto > 0:
+        n10, c10, t10 = "45", lbl_45, format_importe(isr_mes_neto)
+    else:
+        n10, c10, t10 = "", "", ""
 
     extra_ajuste_ded = _q(abs(ajuste_neto)) if ajuste_neto < 0 else D0
-    suma_d_num = _q(ded_reales + extra_ajuste_ded)
+    suma_43_45_99 = _q(isr_mes_neto + isr_174 + extra_ajuste_ded)
+    suma_d_num = _q(suma_43_45_99 + isr_sep)
 
     return {
         "n8": n8,
@@ -531,10 +547,11 @@ def _mapear_pdf(
         "n10": n10,
         "c_imes": c10,
         "t10": t10,
-        "n_sep": n_sep,
-        "c_sep": c_sep,
-        "t_sep": t_sep,
+        "n_sep": "",
+        "c_sep": "",
+        "t_sep": "",
         "suma_d": format_importe(suma_d_num),
+        "suma_d_43_45_99": format_importe(suma_43_45_99),
     }
 
 

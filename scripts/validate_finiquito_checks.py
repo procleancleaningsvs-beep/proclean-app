@@ -57,11 +57,13 @@ def main() -> None:
     print("4) Sab/dom a habil:", lim.weekday() < 5)
     ded = Decimal(str(calc["totales"]["total_deducciones_reales"]))
     suma_d = Decimal(calc["pdf_filas"]["suma_d"].replace(",", ""))
-    print("5) suma_d == ded (sin subsidio en suma):", ded == suma_d)
+    aj = Decimal(str(calc["totales"]["ajuste_neto"]))
+    extra99 = abs(aj) if aj < 0 else Decimal("0")
+    print("5) suma_d == ded + linea 99 (si ajuste neg):", suma_d == ded + extra99)
     pdf = calc["pdf_filas"]
     print("6) ISR mes label:", pdf["c_isa"])
     print("7) ISR 174 label:", pdf["c_i174"] or "(vacío)")
-    print("8) Fila 3 ded (subsidio o ISR sep):", pdf["c_imes"] or "(vacío)")
+    print("8) Fila 45 concepto:", pdf["c_imes"] or "(vacío)")
     print("9) Fila extra sep:", pdf.get("c_sep") or "(vacío)")
 
 
