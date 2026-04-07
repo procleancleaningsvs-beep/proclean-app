@@ -7,6 +7,7 @@ La extracción usa body.data.resultado (misma forma que la vista CheckID / extra
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,29 @@ def _s(v: Any) -> str:
     if v is None:
         return ""
     return str(v).strip()
+
+
+def normalize_date_only(value: Any) -> str:
+    """
+    Devuelve solo la parte fecha (YYYY-MM-DD) si el valor trae hora (ISO, datetime SQL, etc.).
+    """
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        return s[:10]
+    if "T" in s:
+        return s.split("T", 1)[0][:10]
+    if " " in s:
+        head = s.split()[0]
+        if len(head) >= 10 and head[4] == "-" and head[7] == "-":
+            return head[:10]
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})", s)
+    if m:
+        return m.group(1)
+    return s
 
 
 def extract_checkid_display_fields(data: Any) -> dict[str, str]:
@@ -140,9 +164,12 @@ def build_detail_bundle_from_resultado(r: dict[str, Any]) -> dict[str, Any]:
     if not curp_val:
         curp_val = rfc_get("curp")
 
+    raw_fecha_imss = cq("fechaNacimiento", "fecha_nacimiento", "fechaNac")
+    fecha_imss = normalize_date_only(raw_fecha_imss) or raw_fecha_imss
+
     imss_section = {
         "curp": curp_val,
-        "fecha_nacimiento": cq("fechaNacimiento", "fecha_nacimiento", "fechaNac"),
+        "fecha_nacimiento": fecha_imss,
         "nombre": cq("nombres", "nombre"),
         "apellido_paterno": cq("primerApellido", "apellidoPaterno"),
         "apellido_materno": cq("segundoApellido", "apellidoMaterno"),
@@ -171,7 +198,10 @@ def extract_checkid_persist_bundle(data: Any) -> dict[str, Any]:
         ap_pat = _s(curp_block.get("primerApellido"))
         ap_mat = _s(curp_block.get("segundoApellido"))
         nombres = _s(curp_block.get("nombres"))
-        fecha_nac = _s(curp_block.get("fechaNacimiento"))
+        raw_fn = curp_block.get("fechaNacimiento")
+        fecha_nac = normalize_date_only(raw_fn) if raw_fn is not None else ""
+        if not fecha_nac and raw_fn is not None:
+            fecha_nac = _s(raw_fn)
 
     detail_json: str | None = None
     if r:
@@ -266,8 +296,83 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
         conn.close()
 
 
+def _detail_bundle_from_row(d: dict[str, Any]) -> dict[str, Any] | None:
+    raw = d.get("detail_json")
+    if not raw or not isinstance(raw, str):
+        return None
+    try:
+        b = json.loads(raw)
+        return b if isinstance(b, dict) else None
+    except json.JSONDecodeError:
+        return None
+
+
+def enrich_checkid_history_row(d: dict[str, Any]) -> None:
+    """
+    Completa columnas vacías desde detail_json y calcula campos de presentación.
+    """
+    bundle = _detail_bundle_from_row(d)
+    rfc_sec: dict[str, Any] = {}
+    imss: dict[str, Any] = {}
+    if bundle:
+        rfc_sec = bundle.get("rfc_section") or {}
+        if not isinstance(rfc_sec, dict):
+            rfc_sec = {}
+        imss = bundle.get("imss_section") or {}
+        if not isinstance(imss, dict):
+            imss = {}
+
+        def fill(col: str, *keys: str) -> None:
+            if _s(d.get(col)):
+                return
+            for src in (imss, rfc_sec):
+                if not isinstance(src, dict):
+                    continue
+                for k in keys:
+                    if k in src and src.get(k) is not None:
+                        v = _s(src.get(k))
+                        if v:
+                            d[col] = v
+                            return
+
+        fill("curp", "curp")
+        fill("apellido_paterno", "apellido_paterno")
+        fill("apellido_materno", "apellido_materno")
+        fill("nombres", "nombre", "nombres")
+        if not _s(d.get("fecha_nacimiento")):
+            fn = imss.get("fecha_nacimiento") if isinstance(imss, dict) else None
+            if fn is not None:
+                d["fecha_nacimiento"] = normalize_date_only(fn) or _s(fn)
+        if not _s(d.get("codigo_postal")) and rfc_sec.get("codigo_postal") is not None:
+            d["codigo_postal"] = _s(rfc_sec.get("codigo_postal")) or d.get("codigo_postal")
+        if not _s(d.get("nss")) and imss.get("nss") is not None:
+            d["nss"] = _s(imss.get("nss")) or d.get("nss")
+
+    razon = _s(rfc_sec.get("razon_social")) if isinstance(rfc_sec, dict) else ""
+    n = _s(d.get("nombres"))
+    ap = _s(d.get("apellido_paterno"))
+    am = _s(d.get("apellido_materno"))
+    legacy_nombre = _s(d.get("nombre"))
+
+    if razon:
+        nombre_completo = razon
+    elif n or ap or am:
+        nombre_completo = " ".join(x for x in (n, ap, am) if x)
+    elif legacy_nombre:
+        nombre_completo = legacy_nombre
+    else:
+        nombre_completo = ""
+
+    d["nombre_completo"] = nombre_completo
+
+    fn = d.get("fecha_nacimiento")
+    if fn is not None and str(fn).strip() != "":
+        d["fecha_nacimiento"] = normalize_date_only(fn) or str(fn).strip()
+
+
 def _checkid_history_row_dict(r: sqlite3.Row) -> dict[str, Any]:
     d = {k: r[k] for k in r.keys()}
+    enrich_checkid_history_row(d)
     blob_parts = [
         str(d.get("created_at") or ""),
         str(d.get("username") or ""),
@@ -275,6 +380,7 @@ def _checkid_history_row_dict(r: sqlite3.Row) -> dict[str, Any]:
         str(d.get("rfc") or ""),
         str(d.get("curp") or ""),
         str(d.get("nombre") or ""),
+        str(d.get("nombre_completo") or ""),
         str(d.get("nss") or ""),
         str(d.get("regimen_fiscal") or ""),
         str(d.get("codigo_postal") or ""),
@@ -358,6 +464,54 @@ def list_checkid_queries_global(
                     out.append(extra)
                     out.sort(key=lambda x: int(x["id"]), reverse=True)
         return out
+    finally:
+        conn.close()
+
+
+def update_checkid_success_row_from_response(
+    db_path: str,
+    entry_id: int,
+    termino_busqueda: str,
+    response_body: dict[str, Any],
+) -> bool:
+    """
+    Sobrescribe columnas de un registro exitoso con una nueva respuesta CheckID (misma fila, sin INSERT).
+    """
+    if not response_body.get("ok"):
+        return False
+    data = response_body.get("data")
+    extracted = extract_checkid_persist_bundle(data) if isinstance(data, dict) else {}
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            """
+            UPDATE checkid_query_log SET
+                termino_busqueda = ?,
+                error_code = NULL,
+                error_message = NULL,
+                rfc = ?, curp = ?, nombre = ?, nss = ?, regimen_fiscal = ?, codigo_postal = ?, estado_69 = ?,
+                apellido_paterno = ?, apellido_materno = ?, nombres = ?, fecha_nacimiento = ?, detail_json = ?
+            WHERE id = ? AND ok = 1
+            """,
+            (
+                (termino_busqueda or "")[:512],
+                extracted.get("rfc") or None,
+                extracted.get("curp") or None,
+                extracted.get("nombre") or None,
+                extracted.get("nss") or None,
+                extracted.get("regimen") or None,
+                extracted.get("cp") or None,
+                extracted.get("estado69") or None,
+                extracted.get("apellido_paterno") or None,
+                extracted.get("apellido_materno") or None,
+                extracted.get("nombres") or None,
+                extracted.get("fecha_nacimiento") or None,
+                extracted.get("detail_json") or None,
+                int(entry_id),
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

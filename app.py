@@ -56,8 +56,10 @@ from services.checkid_history import (
     delete_checkid_query_by_id,
     find_checkid_history_match_by_rfc_curp,
     get_checkid_detail_bundle_for_row,
+    get_checkid_success_row_by_id,
     list_checkid_queries_global,
     persist_checkid_query,
+    update_checkid_success_row_from_response,
 )
 
 logger = logging.getLogger(__name__)
@@ -712,6 +714,57 @@ def create_app() -> Flask:
         if bundle is None:
             return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
         return jsonify({"ok": True, "detail": bundle}), 200
+
+    @app.post("/api/checkid/historial/<int:entry_id>/actualizar")
+    @login_required
+    @limiter.limit(CHECKID_BUSCAR_RATE_LIMIT)
+    def api_checkid_historial_actualizar(entry_id: int):
+        enriched_preview = get_checkid_success_row_by_id(str(DB_PATH), entry_id)
+        if not enriched_preview:
+            return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
+        curp_raw = (enriched_preview.get("curp") or "").strip()
+        curp_norm = normalize_termino_busqueda(curp_raw)
+        if not curp_norm or len(curp_norm) != 18 or not is_valid_checkid_term(curp_norm):
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "Este registro no tiene un CURP válido para actualizar.",
+                }
+            ), 400
+        try:
+            client = CheckIDClient()
+        except CheckIDConfigurationError as exc:
+            return jsonify(
+                {
+                    "ok": False,
+                    "internal": True,
+                    "error_code": "CONFIG_ERROR",
+                    "message": str(exc) or "Configure CHECKID_API_KEY.",
+                    "http_status": 503,
+                    "data": None,
+                }
+            ), 503
+        result = client.buscar(curp_norm)
+        if result.get("ok") is True:
+            set_cached_busqueda(curp_norm, result)
+        body, status = checkid_http_response(result)
+        if not body.get("ok"):
+            return jsonify(body), status if status else 200
+        if not update_checkid_success_row_from_response(
+            str(DB_PATH), int(entry_id), curp_norm, body
+        ):
+            return jsonify(
+                {"ok": False, "message": "No se pudo guardar la actualización en el historial."}
+            ), 500
+        updated = get_checkid_success_row_by_id(str(DB_PATH), int(entry_id))
+        return jsonify(
+            {
+                "ok": True,
+                "message": "Registro actualizado correctamente.",
+                "consulta": body,
+                "row": updated,
+            }
+        ), 200
 
     @app.delete("/api/checkid/historial/<int:entry_id>")
     @login_required

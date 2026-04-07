@@ -47,12 +47,13 @@
           <th>Fecha</th>
           <th>Usuario</th>
           <th>RFC</th>
+          <th>Nombre completo</th>
           <th>C.P.</th>
           <th>CURP</th>
           <th>NSS</th>
           <th>Apellido Paterno</th>
           <th>Apellido Materno</th>
-          <th>Nombres</th>
+          <th>Nombre(s)</th>
           <th>Fecha de nacimiento</th>
           <th class="checkid-h-actions">Acciones</th>
         </tr>
@@ -63,6 +64,7 @@
           <td class="checkid-h-cell-nowrap">{{ row.created_at }}</td>
           <td class="checkid-h-cell-nowrap">{% if row.username %}{{ row.username }}{% else %}id {{ row.user_id }}{% endif %}</td>
           <td class="checkid-h-cell-nowrap">{{ row.rfc or '—' }}</td>
+          <td class="checkid-h-cell-name">{{ row.nombre_completo or '—' }}</td>
           <td>{{ row.codigo_postal or '—' }}</td>
           <td class="checkid-h-cell-nowrap">{{ row.curp or '—' }}</td>
           <td>{{ row.nss or '—' }}</td>
@@ -73,6 +75,9 @@
           <td class="checkid-h-actions checkid-h-actions-cell">
             <button type="button" class="checkid-btn-icon checkid-history-view" data-id="{{ row.id }}" title="Ver todo" aria-label="Ver todo">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            <button type="button" class="checkid-btn-icon checkid-history-refresh" data-id="{{ row.id }}" title="Actualizar" aria-label="Actualizar registro desde Check ID" {% if not row.curp %}disabled{% endif %}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M21 21v-5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             </button>
             {% if checkid_admin %}
             <button type="button" class="checkid-btn-icon checkid-btn-icon--danger checkid-history-delete" data-id="{{ row.id }}" title="Eliminar" aria-label="Eliminar consulta del historial">
@@ -147,6 +152,10 @@
       elNotice.hidden = true;
       elNotice.textContent = '';
       return;
+    }
+    if (elError) {
+      elError.hidden = true;
+      elError.textContent = '';
     }
     elNotice.textContent = text;
     elNotice.hidden = false;
@@ -370,6 +379,43 @@
     }
   }
 
+  function dashCell(v) {
+    if (v == null || v === '') return '—';
+    return String(v);
+  }
+  function patchHistoryRowFromServer(tr, row) {
+    const cells = tr.querySelectorAll('td');
+    if (cells.length < 11) return;
+    cells[0].textContent = dashCell(row.created_at);
+    cells[1].textContent = row.username ? row.username : ('id ' + row.user_id);
+    cells[2].textContent = dashCell(row.rfc);
+    cells[3].textContent = dashCell(row.nombre_completo);
+    cells[4].textContent = dashCell(row.codigo_postal);
+    cells[5].textContent = dashCell(row.curp);
+    cells[6].textContent = dashCell(row.nss);
+    cells[7].textContent = dashCell(row.apellido_paterno);
+    cells[8].textContent = dashCell(row.apellido_materno);
+    cells[9].textContent = dashCell(row.nombres);
+    cells[10].textContent = dashCell(row.fecha_nacimiento);
+    const blobParts = [
+      row.created_at, row.username, row.user_id, row.rfc, row.curp, row.nombre, row.nombre_completo,
+      row.nss, row.codigo_postal, row.apellido_paterno, row.apellido_materno, row.nombres, row.fecha_nacimiento
+    ];
+    tr.setAttribute('data-search', blobParts.filter(function (x) { return x != null && x !== ''; }).join(' ').toLowerCase());
+    const rb = tr.querySelector('.checkid-history-refresh');
+    if (rb) {
+      const c = String(row.curp || '').replace(/\s/g, '');
+      rb.disabled = !c || c.length !== 18;
+    }
+  }
+  window.patchHistoryRowFromServer = patchHistoryRowFromServer;
+  window.renderConsultaResult = function (consulta) {
+    const payload = consulta && consulta.data && consulta.data.resultado ? consulta.data.resultado : {};
+    const mapped = extractCheckidFields(payload);
+    renderResults(mapped, consulta);
+  };
+  window.setCheckidNotice = setNotice;
+
   if (elSubmit) elSubmit.addEventListener('click', run);
 })();
 
@@ -409,6 +455,50 @@
           window.openDetailModalCheckid(id);
         }
       }
+      return;
+    }
+    const refreshBtn = ev.target.closest('.checkid-history-refresh');
+    if (refreshBtn) {
+      if (refreshBtn.disabled) return;
+      const rid = refreshBtn.getAttribute('data-id');
+      if (!rid) return;
+      refreshBtn.disabled = true;
+      (async function () {
+        let json = {};
+        try {
+          const res = await fetch('/api/checkid/historial/' + encodeURIComponent(rid) + '/actualizar', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+          });
+          try {
+            json = await res.json();
+          } catch (_e) {
+            json = {};
+          }
+          if (!res.ok || !json.ok) {
+            const msg = json.message || json.error_code || 'No se pudo actualizar el registro.';
+            window.alert(msg);
+            return;
+          }
+          if (typeof window.setCheckidNotice === 'function') {
+            window.setCheckidNotice(json.message || 'Registro actualizado correctamente.');
+          }
+          if (json.row && typeof window.patchHistoryRowFromServer === 'function') {
+            const tr = refreshBtn.closest('tr');
+            if (tr) window.patchHistoryRowFromServer(tr, json.row);
+          }
+          if (json.consulta && typeof window.renderConsultaResult === 'function') {
+            window.renderConsultaResult(json.consulta);
+          }
+          const searchInput = document.getElementById('checkid-history-search');
+          if (searchInput) searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        } catch (_err) {
+          window.alert('Error de red al actualizar.');
+        } finally {
+          refreshBtn.disabled = false;
+        }
+      })();
       return;
     }
     const btn = ev.target.closest('.checkid-history-delete');
