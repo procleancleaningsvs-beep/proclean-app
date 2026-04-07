@@ -9,21 +9,18 @@
 </section>
 
 <section class="form-card checkid-tool">
-  <div class="grid-2">
-    <label>RFC
-      <input type="text" id="checkid-rfc" maxlength="13" placeholder="12–13 caracteres" autocomplete="off" autocapitalize="characters">
+  <div class="checkid-search-row">
+    <label class="checkid-search-label" for="checkid-term">
+      <span class="checkid-search-icon" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </span>
+      <input type="text" id="checkid-term" class="checkid-search-input" maxlength="18" placeholder="Introduce RFC o CURP para hacer una consulta" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text">
     </label>
-    <label>CURP
-      <input type="text" id="checkid-curp" maxlength="18" placeholder="18 caracteres" autocomplete="off" autocapitalize="characters">
-    </label>
-  </div>
-  <p class="helper">Indica al menos uno de los dos. Si ambos tienen formato válido, se envía primero el RFC.</p>
-
-  <div class="checkid-actions">
-    <button type="button" class="btn btn-primary" id="checkid-submit">Consultar CheckID</button>
+    <button type="button" class="btn btn-primary checkid-search-submit" id="checkid-submit">Consultar</button>
     <span class="checkid-loader" id="checkid-loader" hidden aria-hidden="true">Consultando…</span>
   </div>
 
+  <div id="checkid-notice" class="checkid-inline-notice" hidden role="status"></div>
   <div id="checkid-error" class="checkid-inline-error" hidden role="alert"></div>
 
   <div id="checkid-results-wrap" class="checkid-results-wrap" hidden>
@@ -39,7 +36,7 @@
   {% if checkid_history %}
   <div class="history-toolbar checkid-recent-toolbar">
     <label class="history-search-label">Buscar en consultas
-      <input type="search" id="checkid-history-search" class="history-search-input" placeholder="Usuario, RFC, CURP, nombre…" autocomplete="off" aria-label="Filtrar consultas recientes">
+      <input type="search" id="checkid-history-search" class="history-search-input" placeholder="Usuario, RFC, CURP, apellidos…" autocomplete="off" aria-label="Filtrar consultas recientes">
     </label>
   </div>
   <p id="checkid-history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
@@ -50,14 +47,14 @@
           <th>Fecha</th>
           <th>Usuario</th>
           <th>RFC</th>
-          <th>CURP</th>
-          <th>Nombre</th>
-          <th>NSS</th>
-          <th>Régimen</th>
           <th>C.P.</th>
-          <th>69/69-B</th>
-          <th>Detalle</th>
-          {% if checkid_admin %}<th class="checkid-h-actions">Acciones</th>{% endif %}
+          <th>CURP</th>
+          <th>NSS</th>
+          <th>Apellido Paterno</th>
+          <th>Apellido Materno</th>
+          <th>Nombres</th>
+          <th>Fecha de nacimiento</th>
+          <th class="checkid-h-actions">Acciones</th>
         </tr>
       </thead>
       <tbody id="checkid-history-tbody">
@@ -65,49 +62,108 @@
         <tr data-search="{{ row.search_blob | e }}" data-history-id="{{ row.id }}">
           <td class="checkid-h-cell-nowrap">{{ row.created_at }}</td>
           <td class="checkid-h-cell-nowrap">{% if row.username %}{{ row.username }}{% else %}id {{ row.user_id }}{% endif %}</td>
-          <td>{{ row.rfc or '—' }}</td>
-          <td>{{ row.curp or '—' }}</td>
-          <td class="checkid-h-cell-name">{{ row.nombre or '—' }}</td>
-          <td>{{ row.nss or '—' }}</td>
-          <td class="checkid-h-cell-wrap">{{ row.regimen_fiscal or '—' }}</td>
+          <td class="checkid-h-cell-nowrap">{{ row.rfc or '—' }}</td>
           <td>{{ row.codigo_postal or '—' }}</td>
-          <td>{{ row.estado_69 or '—' }}</td>
-          <td class="checkid-h-cell-wrap checkid-h-detail">—</td>
-          {% if checkid_admin %}
-          <td class="checkid-h-actions">
-            <button type="button" class="btn btn-secondary checkid-history-delete" data-id="{{ row.id }}" aria-label="Eliminar consulta del historial">Eliminar</button>
+          <td class="checkid-h-cell-nowrap">{{ row.curp or '—' }}</td>
+          <td>{{ row.nss or '—' }}</td>
+          <td>{{ row.apellido_paterno or '—' }}</td>
+          <td>{{ row.apellido_materno or '—' }}</td>
+          <td class="checkid-h-cell-name">{{ row.nombres or '—' }}</td>
+          <td class="checkid-h-cell-nowrap">{{ row.fecha_nacimiento or '—' }}</td>
+          <td class="checkid-h-actions checkid-h-actions-cell">
+            <button type="button" class="checkid-btn-icon checkid-history-view" data-id="{{ row.id }}" title="Ver todo" aria-label="Ver todo">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            {% if checkid_admin %}
+            <button type="button" class="checkid-btn-icon checkid-btn-icon--danger checkid-history-delete" data-id="{{ row.id }}" title="Eliminar" aria-label="Eliminar consulta del historial">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 4v10h10V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 14v-4M14 14v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            </button>
+            {% endif %}
           </td>
-          {% endif %}
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty-state">Aún no hay consultas guardadas. Al usar «Consultar CheckID» aparecerán aquí.</p>
+  <p class="empty-state">Aún no hay consultas guardadas. Al usar «Consultar» aparecerán aquí.</p>
   {% endif %}
 </section>
 
+<div id="checkid-detail-modal" class="checkid-modal" hidden aria-hidden="true">
+  <div class="checkid-modal__backdrop" data-checkid-modal-close></div>
+  <div class="checkid-modal__panel" role="dialog" aria-modal="true" aria-labelledby="checkid-detail-title">
+    <header class="checkid-modal__header">
+      <h4 id="checkid-detail-title">Detalle del registro</h4>
+      <button type="button" class="checkid-modal__close" data-checkid-modal-close aria-label="Cerrar">&times;</button>
+    </header>
+    <div id="checkid-detail-body" class="checkid-modal__body"></div>
+  </div>
+</div>
+
 <script>
 (function () {
-  const RFC_MIN = 12;
-  const CURP_LEN = 18;
   const ND = 'No disponible';
   const SI = 'Sin información';
   const COPY_FEEDBACK_MS = 1800;
+  const HISTORY_HIGHLIGHT_MS = 4000;
 
-  const elRfc = document.getElementById('checkid-rfc');
-  const elCurp = document.getElementById('checkid-curp');
+  const elTerm = document.getElementById('checkid-term');
   const elSubmit = document.getElementById('checkid-submit');
   const elLoader = document.getElementById('checkid-loader');
   const elError = document.getElementById('checkid-error');
+  const elNotice = document.getElementById('checkid-notice');
   const elWrap = document.getElementById('checkid-results-wrap');
   const elDl = document.getElementById('checkid-dl');
   const elMeta = document.getElementById('checkid-meta');
 
-  /**
-   * payload = json.data.resultado (estructura real de /api/checkid/buscar).
-   */
+  function normalizeLocal(raw) {
+    return (raw || '').trim().toUpperCase().replace(/\s+/g, '');
+  }
+
+  function isValidClientTerm(norm) {
+    if (!norm) return false;
+    const n = norm.length;
+    if (n === 12 || n === 13) {
+      return /^[A-Z0-9Ñ&]+$/.test(norm);
+    }
+    if (n === 18) {
+      return /^[A-Z0-9Ñ]+$/.test(norm);
+    }
+    return false;
+  }
+
+  if (elTerm) {
+    elTerm.addEventListener('input', function () {
+      let v = elTerm.value.toUpperCase().replace(/[^A-Z0-9Ñ&]/g, '');
+      if (v.length > 18) v = v.slice(0, 18);
+      elTerm.value = v;
+    });
+  }
+
+  function setNotice(text) {
+    if (!elNotice) return;
+    if (!text) {
+      elNotice.hidden = true;
+      elNotice.textContent = '';
+      return;
+    }
+    elNotice.textContent = text;
+    elNotice.hidden = false;
+  }
+
+  function setError(text) {
+    if (!elError) return;
+    if (!text) {
+      elError.hidden = true;
+      elError.textContent = '';
+      return;
+    }
+    setNotice('');
+    elError.textContent = text;
+    elError.hidden = false;
+  }
+
   function extractCheckidFields(payload) {
     const p = payload && typeof payload === 'object' ? payload : {};
     const rfc = p.rfc && typeof p.rfc === 'object' ? p.rfc : null;
@@ -160,34 +216,11 @@
     };
   }
 
-  function bodyFromInputs() {
-    const rfc = (elRfc.value || '').trim();
-    const curp = (elCurp.value || '').trim();
-    const hasRfc = rfc.length >= RFC_MIN;
-    const hasCurp = curp.length >= CURP_LEN;
-    if (hasRfc && hasCurp) return { rfc };
-    if (hasRfc) return { rfc };
-    if (hasCurp) return { curp };
-    if (rfc) return { rfc };
-    if (curp) return { curp };
-    return null;
-  }
-
   function setLoading(on) {
     elLoader.hidden = !on;
     elLoader.setAttribute('aria-hidden', on ? 'false' : 'true');
     elSubmit.disabled = !!on;
     elSubmit.setAttribute('aria-busy', on ? 'true' : 'false');
-  }
-
-  function setError(text) {
-    if (!text) {
-      elError.hidden = true;
-      elError.textContent = '';
-      return;
-    }
-    elError.textContent = text;
-    elError.hidden = false;
   }
 
   function metaText(v) {
@@ -226,8 +259,6 @@
       }, COPY_FEEDBACK_MS);
     }
   }
-
-  const HISTORY_HIGHLIGHT_MS = 4000;
 
   function focusHistoryRow(rowId) {
     const tr = document.querySelector(
@@ -290,10 +321,11 @@
 
   async function run() {
     setError('');
+    setNotice('');
     elWrap.hidden = true;
-    const body = bodyFromInputs();
-    if (!body) {
-      setError('Ingresa un RFC (12–13 caracteres) o CURP (18 caracteres) para consultar.');
+    const norm = normalizeLocal(elTerm ? elTerm.value : '');
+    if (!isValidClientTerm(norm)) {
+      setError('Valor no válido');
       return;
     }
     setLoading(true);
@@ -302,7 +334,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify(body),
+        body: JSON.stringify({ termino: norm }),
       });
       const ct = (res.headers.get('content-type') || '').toLowerCase();
       if (!ct.includes('application/json')) {
@@ -310,9 +342,9 @@
         return;
       }
       const json = await res.json();
-      console.log('[CheckID] respuesta /api/checkid/buscar', json);
       if (json.history_focus_row_id) {
         const hid = json.history_focus_row_id;
+        setNotice('Valor ya en historial');
         const tr = document.querySelector(
           '#checkid-history-tbody tr[data-history-id="' + String(hid) + '"]'
         );
@@ -325,11 +357,10 @@
       }
       if (!json.ok) {
         const msg = json.message || json.error_code || 'No se pudo completar la consulta.';
-        setError(msg);
+        setError(msg === 'Valor no válido' ? 'Valor no válido' : msg);
         return;
       }
       const payload = json?.data?.resultado || {};
-      console.log('[CheckID] payload (json.data.resultado)', payload);
       const mapped = extractCheckidFields(payload);
       renderResults(mapped, json);
     } catch (e) {
@@ -339,7 +370,7 @@
     }
   }
 
-  elSubmit.addEventListener('click', run);
+  if (elSubmit) elSubmit.addEventListener('click', run);
 })();
 
 (function () {
@@ -369,6 +400,17 @@
   const tbody = document.getElementById('checkid-history-tbody');
   if (!tbody) return;
   tbody.addEventListener('click', async function (ev) {
+    const viewBtn = ev.target.closest('.checkid-history-view');
+    if (viewBtn) {
+      const id = viewBtn.getAttribute('data-id');
+      if (id) {
+        ev.preventDefault();
+        if (window.openDetailModalCheckid) {
+          window.openDetailModalCheckid(id);
+        }
+      }
+      return;
+    }
     const btn = ev.target.closest('.checkid-history-delete');
     if (!btn) return;
     const id = btn.getAttribute('data-id');
@@ -404,6 +446,132 @@
       btn.disabled = false;
     }
   });
+})();
+
+(function () {
+  const elModal = document.getElementById('checkid-detail-modal');
+  const elDetailBody = document.getElementById('checkid-detail-body');
+  if (!elModal || !elDetailBody) return;
+
+  async function openDetailModal(entryId) {
+    elDetailBody.innerHTML = '<p class="helper">Cargando…</p>';
+    elModal.hidden = false;
+    elModal.setAttribute('aria-hidden', 'false');
+    document.body.style.overflow = 'hidden';
+    try {
+      const res = await fetch('/api/checkid/historial/' + encodeURIComponent(entryId) + '/detalle', {
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        elDetailBody.innerHTML = '<p class="checkid-inline-error">' + (json.message || 'No se pudo cargar el detalle.') + '</p>';
+        return;
+      }
+      const detail = json.detail || {};
+      const RFC_DETAIL_FIELDS = [
+        ['RFC', 'rfc'],
+        ['Razón Social', 'razon_social'],
+        ['Código Postal', 'codigo_postal'],
+        ['Estado', 'estado'],
+        ['Situación', 'situacion'],
+        ['Fiel válida hasta el', 'fiel_valida_hasta'],
+        ['RFC del Representante Legal', 'rfc_representante'],
+        ['CURP del Representante Legal', 'curp_representante'],
+        ['Email de Contacto', 'email_contacto'],
+        ['Regimen Fiscal', 'regimen_fiscal'],
+      ];
+      const IMSS_DETAIL_FIELDS = [
+        ['CURP', 'curp'],
+        ['Fecha de nacimiento', 'fecha_nacimiento'],
+        ['Nombre', 'nombre'],
+        ['Apellido paterno', 'apellido_paterno'],
+        ['Apellido materno', 'apellido_materno'],
+        ['Sexo', 'sexo'],
+        ['Nacionalidad', 'nacionalidad'],
+        ['Entidad', 'entidad'],
+        ['NSS', 'nss'],
+      ];
+      function copyVal(text, btn) {
+        const labelDefault = 'Copiar';
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = 'Copiado';
+          btn.disabled = true;
+          setTimeout(function () {
+            btn.textContent = labelDefault;
+            btn.disabled = false;
+          }, 1800);
+        }).catch(function () {
+          btn.textContent = 'Error';
+        });
+      }
+      function row(label, value) {
+        const wrap = document.createElement('div');
+        wrap.className = 'checkid-detail-field';
+        const lab = document.createElement('span');
+        lab.className = 'checkid-detail-field__label';
+        lab.textContent = label;
+        const valRow = document.createElement('div');
+        valRow.className = 'checkid-detail-field__value';
+        const raw = value == null ? '' : String(value).trim();
+        const valSpan = document.createElement('span');
+        valSpan.textContent = raw || '—';
+        valRow.appendChild(valSpan);
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-secondary checkid-copy-btn checkid-detail-copy';
+        btn.textContent = 'Copiar';
+        btn.disabled = raw.length === 0;
+        if (raw.length > 0) {
+          btn.addEventListener('click', function () { copyVal(raw, btn); });
+        }
+        valRow.appendChild(btn);
+        wrap.appendChild(lab);
+        wrap.appendChild(valRow);
+        return wrap;
+      }
+      elDetailBody.innerHTML = '';
+      const h1 = document.createElement('h5');
+      h1.className = 'checkid-detail-section-title';
+      h1.textContent = 'RFC';
+      elDetailBody.appendChild(h1);
+      const g1 = document.createElement('div');
+      g1.className = 'checkid-detail-grid';
+      const rfcSec = detail.rfc_section || {};
+      RFC_DETAIL_FIELDS.forEach(function (pair) {
+        g1.appendChild(row(pair[0], rfcSec[pair[1]]));
+      });
+      elDetailBody.appendChild(g1);
+      const h2 = document.createElement('h5');
+      h2.className = 'checkid-detail-section-title';
+      h2.textContent = 'IMSS';
+      elDetailBody.appendChild(h2);
+      const g2 = document.createElement('div');
+      g2.className = 'checkid-detail-grid';
+      const imssSec = detail.imss_section || {};
+      IMSS_DETAIL_FIELDS.forEach(function (pair) {
+        g2.appendChild(row(pair[0], imssSec[pair[1]]));
+      });
+      elDetailBody.appendChild(g2);
+    } catch (_e) {
+      elDetailBody.innerHTML = '<p class="checkid-inline-error">Error de red al cargar el detalle.</p>';
+    }
+  }
+
+  function closeModal() {
+    elModal.hidden = true;
+    elModal.setAttribute('aria-hidden', 'true');
+    document.body.style.overflow = '';
+  }
+
+  elModal.querySelectorAll('[data-checkid-modal-close]').forEach(function (el) {
+    el.addEventListener('click', closeModal);
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !elModal.hidden) closeModal();
+  });
+
+  window.openDetailModalCheckid = openDetailModal;
 })();
 
 (function () {

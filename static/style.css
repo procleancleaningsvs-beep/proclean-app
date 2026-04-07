@@ -569,11 +569,57 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 
 /* Herramienta CheckID (/checkid) */
 .checkid-tool { display: grid; gap: 18px; }
+.checkid-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 12px 14px;
+}
+.checkid-search-label {
+  flex: 1 1 280px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 4px 14px 4px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  min-height: 48px;
+}
+.checkid-search-icon {
+  flex-shrink: 0;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+}
+.checkid-search-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+  outline: none;
+}
+.checkid-search-submit {
+  flex-shrink: 0;
+  align-self: center;
+}
 .checkid-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 14px;
+}
+.checkid-inline-notice {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #e0f2fe;
+  color: #0c4a6e;
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 .checkid-loader {
   font-size: 0.92rem;
@@ -687,11 +733,152 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 .checkid-h-actions {
   white-space: nowrap;
 }
+.checkid-h-actions-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.checkid-btn-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--primary-dark);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.checkid-btn-icon:hover {
+  background: var(--panel-soft);
+  border-color: var(--primary);
+}
+.checkid-btn-icon:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.checkid-btn-icon--danger {
+  color: var(--error-text);
+}
+.checkid-btn-icon--danger:hover {
+  border-color: var(--error-text);
+}
 .checkid-history-delete {
   padding: 6px 10px;
   font-size: 0.78rem;
   border-radius: 10px;
   font-weight: 700;
+}
+.checkid-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.checkid-modal[hidden] {
+  display: none;
+}
+.checkid-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+.checkid-modal__panel {
+  position: relative;
+  z-index: 1;
+  width: min(560px, 100%);
+  max-height: min(88vh, 720px);
+  overflow: auto;
+  background: var(--panel);
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.checkid-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+.checkid-modal__header h4 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.checkid-modal__close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.checkid-modal__close:hover {
+  background: var(--panel-soft);
+  color: var(--text);
+}
+.checkid-modal__body {
+  padding: 16px 18px 20px;
+}
+.checkid-detail-section-title {
+  margin: 18px 0 10px;
+  font-size: 0.92rem;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.checkid-detail-section-title:first-child {
+  margin-top: 0;
+}
+.checkid-detail-grid {
+  display: grid;
+  gap: 10px;
+}
+.checkid-detail-field {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 8px 12px;
+  align-items: start;
+  font-size: 0.9rem;
+}
+@media (max-width: 520px) {
+  .checkid-detail-field {
+    grid-template-columns: 1fr;
+  }
+}
+.checkid-detail-field__label {
+  color: var(--muted);
+  font-weight: 600;
+}
+.checkid-detail-field__value {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 8px;
+  text-align: right;
+  flex-wrap: wrap;
+}
+.checkid-detail-field__value span {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  word-break: break-word;
+}
+.checkid-detail-copy {
+  flex-shrink: 0;
 }
 .checkid-badge {
   display: inline-block;

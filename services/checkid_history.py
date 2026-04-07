@@ -6,11 +6,18 @@ La extracción usa body.data.resultado (misma forma que la vista CheckID / extra
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Any
 
 from services.checkid_client import normalize_termino_busqueda
+
+
+def _s(v: Any) -> str:
+    if v is None:
+        return ""
+    return str(v).strip()
 
 
 def extract_checkid_display_fields(data: Any) -> dict[str, str]:
@@ -84,6 +91,104 @@ def extract_checkid_display_fields(data: Any) -> dict[str, str]:
     }
 
 
+def build_detail_bundle_from_resultado(r: dict[str, Any]) -> dict[str, Any]:
+    """Estructura para modal «Ver todo»: secciones RFC e IMSS con claves estables."""
+    rfc_block = r.get("rfc") if isinstance(r.get("rfc"), dict) else {}
+    curp_block = r.get("curp") if isinstance(r.get("curp"), dict) else {}
+    nss_block = r.get("nss") if isinstance(r.get("nss"), dict) else {}
+    cp_block = r.get("codigoPostal") if isinstance(r.get("codigoPostal"), dict) else {}
+    reg_block = r.get("regimenFiscal") if isinstance(r.get("regimenFiscal"), dict) else {}
+
+    def rfc_get(*keys: str) -> str:
+        for k in keys:
+            if k in rfc_block and rfc_block.get(k) is not None:
+                return _s(rfc_block.get(k))
+        return ""
+
+    regimen_val = ""
+    if reg_block and reg_block.get("regimenesFiscales") is not None:
+        rf = reg_block["regimenesFiscales"]
+        if isinstance(rf, (str, int, float, bool)):
+            regimen_val = str(rf).strip()
+
+    cp_val = ""
+    if cp_block and cp_block.get("codigoPostal") is not None:
+        cp_val = _s(cp_block.get("codigoPostal"))
+    if not cp_val:
+        cp_val = rfc_get("codigoPostal", "cp", "codigo_postal")
+
+    rfc_section = {
+        "rfc": rfc_get("rfc"),
+        "razon_social": rfc_get("razonSocial", "razon_social"),
+        "codigo_postal": cp_val,
+        "estado": rfc_get("estado", "estadoEntidad", "entidadFederativa"),
+        "situacion": rfc_get("situacion", "situacionDelContribuyente"),
+        "fiel_valida_hasta": rfc_get("fielValidaHasta", "fielValidaHastaEl", "fechaVencimientoFiel"),
+        "rfc_representante": rfc_get("rfcRepresentanteLegal", "rfcRepresentante"),
+        "curp_representante": rfc_get("curpRepresentanteLegal", "curpRepresentante"),
+        "email_contacto": rfc_get("emailContacto", "email", "correo"),
+        "regimen_fiscal": regimen_val or rfc_get("regimenFiscal", "regimen"),
+    }
+
+    def cq(*keys: str) -> str:
+        for k in keys:
+            if k in curp_block and curp_block.get(k) is not None:
+                return _s(curp_block.get(k))
+        return ""
+
+    curp_val = cq("curp")
+    if not curp_val:
+        curp_val = rfc_get("curp")
+
+    imss_section = {
+        "curp": curp_val,
+        "fecha_nacimiento": cq("fechaNacimiento", "fecha_nacimiento", "fechaNac"),
+        "nombre": cq("nombres", "nombre"),
+        "apellido_paterno": cq("primerApellido", "apellidoPaterno"),
+        "apellido_materno": cq("segundoApellido", "apellidoMaterno"),
+        "sexo": cq("sexo", "genero"),
+        "nacionalidad": cq("nacionalidad"),
+        "entidad": cq("entidad", "entidadFederativa", "estadoNacimiento"),
+        "nss": _s(nss_block.get("nss")) if nss_block else "",
+    }
+
+    return {"rfc_section": rfc_section, "imss_section": imss_section}
+
+
+def extract_checkid_persist_bundle(data: Any) -> dict[str, Any]:
+    """Campos para INSERT + detail_json (modal «Ver todo»)."""
+    base = extract_checkid_display_fields(data)
+    wrapper = data if isinstance(data, dict) else {}
+    r = wrapper.get("resultado")
+    r = r if isinstance(r, dict) else {}
+    curp_block = r.get("curp") if isinstance(r.get("curp"), dict) else None
+
+    ap_pat = ""
+    ap_mat = ""
+    nombres = ""
+    fecha_nac = ""
+    if curp_block:
+        ap_pat = _s(curp_block.get("primerApellido"))
+        ap_mat = _s(curp_block.get("segundoApellido"))
+        nombres = _s(curp_block.get("nombres"))
+        fecha_nac = _s(curp_block.get("fechaNacimiento"))
+
+    detail_json: str | None = None
+    if r:
+        bundle = build_detail_bundle_from_resultado(r)
+        detail_json = json.dumps(bundle, ensure_ascii=False)
+
+    out = {
+        **base,
+        "apellido_paterno": ap_pat,
+        "apellido_materno": ap_mat,
+        "nombres": nombres,
+        "fecha_nacimiento": fecha_nac,
+        "detail_json": detail_json,
+    }
+    return out
+
+
 def find_checkid_history_match_by_rfc_curp(db_path: str, term: str) -> int | None:
     """
     Si `term` normalizado coincide exactamente con el RFC o CURP de un registro exitoso
@@ -122,8 +227,7 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
     err_msg = (response_body.get("message") or "")[:2000]
     err_code = (response_body.get("error_code") or "")[:64]
     data = response_body.get("data")
-    # data = { codigoError, exitoso, resultado: { rfc, curp, nss, ... } }
-    extracted = extract_checkid_display_fields(data) if ok and isinstance(data, dict) else {}
+    extracted = extract_checkid_persist_bundle(data) if ok and isinstance(data, dict) else {}
 
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(db_path)
@@ -132,8 +236,9 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
             """
             INSERT INTO checkid_query_log (
                 user_id, created_at, termino_busqueda, ok, error_code, error_message,
-                rfc, curp, nombre, nss, regimen_fiscal, codigo_postal, estado_69
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                rfc, curp, nombre, nss, regimen_fiscal, codigo_postal, estado_69,
+                apellido_paterno, apellido_materno, nombres, fecha_nacimiento, detail_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -149,6 +254,11 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
                 extracted.get("regimen") or None,
                 extracted.get("cp") or None,
                 extracted.get("estado69") or None,
+                extracted.get("apellido_paterno") or None,
+                extracted.get("apellido_materno") or None,
+                extracted.get("nombres") or None,
+                extracted.get("fecha_nacimiento") or None,
+                extracted.get("detail_json") or None,
             ),
         )
         conn.commit()
@@ -169,6 +279,10 @@ def _checkid_history_row_dict(r: sqlite3.Row) -> dict[str, Any]:
         str(d.get("regimen_fiscal") or ""),
         str(d.get("codigo_postal") or ""),
         str(d.get("estado_69") or ""),
+        str(d.get("apellido_paterno") or ""),
+        str(d.get("apellido_materno") or ""),
+        str(d.get("nombres") or ""),
+        str(d.get("fecha_nacimiento") or ""),
     ]
     d["search_blob"] = " ".join(blob_parts).casefold()
     return d
@@ -177,6 +291,7 @@ def _checkid_history_row_dict(r: sqlite3.Row) -> dict[str, Any]:
 _CHECKID_HISTORY_LIST_SQL = """
             SELECT h.id, h.user_id, h.created_at, h.termino_busqueda, h.ok, h.error_code, h.error_message,
                    h.rfc, h.curp, h.nombre, h.nss, h.regimen_fiscal, h.codigo_postal, h.estado_69,
+                   h.apellido_paterno, h.apellido_materno, h.nombres, h.fecha_nacimiento, h.detail_json,
                    u.username AS username
             FROM checkid_query_log h
             LEFT JOIN users u ON u.id = h.user_id
@@ -193,6 +308,28 @@ def get_checkid_success_row_by_id(db_path: str, row_id: int) -> dict[str, Any] |
             (int(row_id),),
         ).fetchone()
         return _checkid_history_row_dict(r) if r else None
+    finally:
+        conn.close()
+
+
+def get_checkid_detail_bundle_for_row(db_path: str, row_id: int) -> dict[str, Any] | None:
+    """Devuelve el JSON de detalle para modal «Ver todo» o None si no hay fila exitosa."""
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT detail_json FROM checkid_query_log WHERE id = ? AND ok = 1",
+            (int(row_id),),
+        ).fetchone()
+        if not row:
+            return None
+        raw = row[0]
+        if raw:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return data
+        return {"rfc_section": {}, "imss_section": {}}
+    except json.JSONDecodeError:
+        return {"rfc_section": {}, "imss_section": {}}
     finally:
         conn.close()
 

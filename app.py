@@ -46,10 +46,16 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
-from services.checkid_client import CheckIDClient, CheckIDConfigurationError, normalize_termino_busqueda
+from services.checkid_client import (
+    CheckIDClient,
+    CheckIDConfigurationError,
+    is_valid_checkid_term,
+    normalize_termino_busqueda,
+)
 from services.checkid_history import (
     delete_checkid_query_by_id,
     find_checkid_history_match_by_rfc_curp,
+    get_checkid_detail_bundle_for_row,
     list_checkid_queries_global,
     persist_checkid_query,
 )
@@ -124,6 +130,8 @@ APP_NAME = "ProClean App"
 
 def _checkid_payload_source(payload: dict) -> str:
     """Indica qué campo aportó el término (sin registrar el valor)."""
+    if payload.get("termino"):
+        return "termino"
     if payload.get("rfc"):
         return "rfc"
     if payload.get("curp"):
@@ -580,11 +588,23 @@ def create_app() -> Flask:
             _safe_persist_checkid_history("", _bad_json)
             return jsonify(_bad_json), 400
         termino = (
-            (payload.get("rfc") or payload.get("curp") or payload.get("termino_busqueda") or "")
+            (payload.get("termino") or payload.get("rfc") or payload.get("curp") or payload.get("termino_busqueda") or "")
             .strip()
         )
-        termino_log = normalize_termino_busqueda(termino) or (termino.strip()[:512] if termino else "")
-        cache_key = normalize_termino_busqueda(termino)
+        termino_norm = normalize_termino_busqueda(termino)
+        if not is_valid_checkid_term(termino_norm):
+            return jsonify(
+                {
+                    "ok": False,
+                    "internal": True,
+                    "error_code": "VALIDATION_ERROR",
+                    "message": "Valor no válido",
+                    "http_status": 400,
+                    "data": None,
+                }
+            ), 400
+        termino_log = termino_norm[:512] if termino_norm else ""
+        cache_key = termino_norm
         logger.debug(
             "checkid_buscar request meta: json_keys=%s termino_field=%s termino_len=%s",
             sorted(payload.keys()) if isinstance(payload, dict) else None,
@@ -620,7 +640,7 @@ def create_app() -> Flask:
                         "internal": False,
                         "history_focus_row_id": hist_row_id,
                         "data": None,
-                        "message": None,
+                        "message": "Valor ya en historial",
                         "error_code": None,
                         "http_status": 200,
                     }
@@ -639,7 +659,7 @@ def create_app() -> Flask:
                 _safe_persist_checkid_history(termino_log, body)
                 return jsonify(body), status
 
-            result = client.buscar(termino)
+            result = client.buscar(termino_norm)
             if result.get("ok") is True:
                 set_cached_busqueda(cache_key, result)
 
@@ -684,6 +704,14 @@ def create_app() -> Flask:
             }
             _safe_persist_checkid_history(termino_log, _err_body)
             return jsonify(_err_body), 500
+
+    @app.get("/api/checkid/historial/<int:entry_id>/detalle")
+    @login_required
+    def api_checkid_historial_detalle(entry_id: int):
+        bundle = get_checkid_detail_bundle_for_row(str(DB_PATH), entry_id)
+        if bundle is None:
+            return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
+        return jsonify({"ok": True, "detail": bundle}), 200
 
     @app.delete("/api/checkid/historial/<int:entry_id>")
     @login_required
@@ -781,6 +809,21 @@ def get_db() -> sqlite3.Connection:
     return g.db
 
 
+def _migrate_checkid_query_log_schema(conn: sqlite3.Connection) -> None:
+    """Añade columnas nuevas a checkid_query_log en bases ya existentes."""
+    cur = conn.execute("PRAGMA table_info(checkid_query_log)")
+    cols = {row[1] for row in cur.fetchall()}
+    for name, typ in (
+        ("apellido_paterno", "TEXT"),
+        ("apellido_materno", "TEXT"),
+        ("nombres", "TEXT"),
+        ("fecha_nacimiento", "TEXT"),
+        ("detail_json", "TEXT"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE checkid_query_log ADD COLUMN {name} {typ}")
+
+
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -828,10 +871,16 @@ def init_db() -> None:
                 regimen_fiscal TEXT,
                 codigo_postal TEXT,
                 estado_69 TEXT,
+                apellido_paterno TEXT,
+                apellido_materno TEXT,
+                nombres TEXT,
+                fecha_nacimiento TEXT,
+                detail_json TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             )
             """
         )
+        _migrate_checkid_query_log_schema(conn)
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]

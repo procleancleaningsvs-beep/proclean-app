@@ -91,6 +91,21 @@ def normalize_termino_busqueda(value: str) -> str:
     return "".join(s.split()).upper()
 
 
+def is_valid_checkid_term(norm: str) -> bool:
+    """
+    RFC: 12 o 13 caracteres (letras, números y & en RFC moral).
+    CURP: 18 caracteres alfanuméricos (incl. Ñ).
+    """
+    if not norm:
+        return False
+    n = len(norm)
+    if n in (12, 13):
+        return all(ch.isalnum() or ch == "&" for ch in norm)
+    if n == 18:
+        return norm.isalnum()
+    return False
+
+
 def normalize_base_url(url: str) -> str:
     """
     Normaliza `CHECKID_BASE_URL` para construir URLs con `urljoin` sin `//` duplicados.
