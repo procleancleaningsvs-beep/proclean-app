@@ -652,6 +652,9 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 }
 .checkid-history-table {
   font-size: 0.88rem;
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
 }
 .checkid-history-table th,
 .checkid-history-table td {
@@ -660,9 +663,19 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
 .checkid-h-cell-nowrap {
   white-space: nowrap;
 }
+.checkid-h-cell-name {
+  white-space: nowrap;
+  max-width: none;
+  min-width: 12rem;
+}
 .checkid-h-cell-wrap {
   max-width: 160px;
   word-break: break-word;
+}
+.checkid-history-table tbody tr.checkid-history-row--highlight {
+  background-color: var(--panel-soft);
+  box-shadow: inset 3px 0 0 0 var(--primary);
+  transition: background-color 0.35s ease, box-shadow 0.35s ease;
 }
 .checkid-h-detail {
   max-width: 220px;

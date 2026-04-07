@@ -10,6 +10,8 @@ import sqlite3
 from datetime import datetime
 from typing import Any
 
+from services.checkid_client import normalize_termino_busqueda
+
 
 def extract_checkid_display_fields(data: Any) -> dict[str, str]:
     """
@@ -82,6 +84,35 @@ def extract_checkid_display_fields(data: Any) -> dict[str, str]:
     }
 
 
+def find_checkid_history_match_by_rfc_curp(db_path: str, term: str) -> int | None:
+    """
+    Si `term` normalizado coincide exactamente con el RFC o CURP de un registro exitoso
+    (comparación con normalize_termino_busqueda en ambos lados), devuelve el id más reciente.
+    """
+    norm = normalize_termino_busqueda(term)
+    if not norm:
+        return None
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, rfc, curp FROM checkid_query_log
+            WHERE ok = 1
+            ORDER BY id DESC
+            """,
+        ).fetchall()
+        for r in rows:
+            rid = int(r["id"])
+            rf = r["rfc"] or ""
+            cr = r["curp"] or ""
+            if normalize_termino_busqueda(rf) == norm or normalize_termino_busqueda(cr) == norm:
+                return rid
+        return None
+    finally:
+        conn.close()
+
+
 def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, response_body: dict[str, Any]) -> None:
     """
     Guarda una fila de historial a partir del cuerpo JSON devuelto al cliente
@@ -125,44 +156,70 @@ def persist_checkid_query(db_path: str, user_id: int, termino_busqueda: str, res
         conn.close()
 
 
-def list_checkid_queries_global(db_path: str, limit: int = 200) -> list[dict[str, Any]]:
-    """Últimas consultas CheckID de todos los usuarios (compartido), con username para auditoría."""
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            """
+def _checkid_history_row_dict(r: sqlite3.Row) -> dict[str, Any]:
+    d = {k: r[k] for k in r.keys()}
+    blob_parts = [
+        str(d.get("created_at") or ""),
+        str(d.get("username") or ""),
+        str(d.get("user_id") or ""),
+        str(d.get("rfc") or ""),
+        str(d.get("curp") or ""),
+        str(d.get("nombre") or ""),
+        str(d.get("nss") or ""),
+        str(d.get("regimen_fiscal") or ""),
+        str(d.get("codigo_postal") or ""),
+        str(d.get("estado_69") or ""),
+    ]
+    d["search_blob"] = " ".join(blob_parts).casefold()
+    return d
+
+
+_CHECKID_HISTORY_LIST_SQL = """
             SELECT h.id, h.user_id, h.created_at, h.termino_busqueda, h.ok, h.error_code, h.error_message,
                    h.rfc, h.curp, h.nombre, h.nss, h.regimen_fiscal, h.codigo_postal, h.estado_69,
                    u.username AS username
             FROM checkid_query_log h
             LEFT JOIN users u ON u.id = h.user_id
+"""
+
+
+def get_checkid_success_row_by_id(db_path: str, row_id: int) -> dict[str, Any] | None:
+    """Una fila exitosa por id (misma forma que list_checkid_queries_global)."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = conn.execute(
+            _CHECKID_HISTORY_LIST_SQL + " WHERE h.id = ? AND h.ok = 1 ",
+            (int(row_id),),
+        ).fetchone()
+        return _checkid_history_row_dict(r) if r else None
+    finally:
+        conn.close()
+
+
+def list_checkid_queries_global(
+    db_path: str, limit: int = 200, ensure_row_id: int | None = None
+) -> list[dict[str, Any]]:
+    """Últimas consultas CheckID exitosas de todos los usuarios (compartido), con username para auditoría."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            _CHECKID_HISTORY_LIST_SQL + """
+            WHERE h.ok = 1
             ORDER BY h.id DESC
             LIMIT ?
             """,
             (int(limit),),
         ).fetchall()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            d = {k: r[k] for k in r.keys()}
-            blob_parts = [
-                str(d.get("created_at") or ""),
-                str(d.get("termino_busqueda") or ""),
-                str(d.get("username") or ""),
-                str(d.get("user_id") or ""),
-                str(d.get("rfc") or ""),
-                str(d.get("curp") or ""),
-                str(d.get("nombre") or ""),
-                str(d.get("nss") or ""),
-                str(d.get("regimen_fiscal") or ""),
-                str(d.get("codigo_postal") or ""),
-                str(d.get("estado_69") or ""),
-                str(d.get("error_message") or ""),
-                str(d.get("error_code") or ""),
-                "éxito" if d.get("ok") else "error",
-            ]
-            d["search_blob"] = " ".join(blob_parts).casefold()
-            out.append(d)
+        out: list[dict[str, Any]] = [_checkid_history_row_dict(r) for r in rows]
+        if ensure_row_id is not None:
+            have = {int(d["id"]) for d in out}
+            if int(ensure_row_id) not in have:
+                extra = get_checkid_success_row_by_id(db_path, int(ensure_row_id))
+                if extra:
+                    out.append(extra)
+                    out.sort(key=lambda x: int(x["id"]), reverse=True)
         return out
     finally:
         conn.close()

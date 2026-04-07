@@ -49,6 +49,7 @@ from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
 from services.checkid_client import CheckIDClient, CheckIDConfigurationError, normalize_termino_busqueda
 from services.checkid_history import (
     delete_checkid_query_by_id,
+    find_checkid_history_match_by_rfc_curp,
     list_checkid_queries_global,
     persist_checkid_query,
 )
@@ -363,7 +364,16 @@ def create_app() -> Flask:
     @app.route("/checkid")
     @login_required
     def checkid_consulta():
-        checkid_history = list_checkid_queries_global(str(DB_PATH), limit=200)
+        ensure_row_id = None
+        raw_focus = request.args.get("focus")
+        if raw_focus is not None and str(raw_focus).strip() != "":
+            try:
+                ensure_row_id = int(str(raw_focus).strip())
+            except ValueError:
+                ensure_row_id = None
+        checkid_history = list_checkid_queries_global(
+            str(DB_PATH), limit=200, ensure_row_id=ensure_row_id
+        )
         return render_template(
             "checkid.html",
             checkid_history=checkid_history,
@@ -601,6 +611,20 @@ def create_app() -> Flask:
                 }
                 _safe_persist_checkid_history(termino_log, _cfg_body)
                 return jsonify(_cfg_body), 503
+
+            hist_row_id = find_checkid_history_match_by_rfc_curp(str(DB_PATH), termino)
+            if hist_row_id is not None:
+                return jsonify(
+                    {
+                        "ok": True,
+                        "internal": False,
+                        "history_focus_row_id": hist_row_id,
+                        "data": None,
+                        "message": None,
+                        "error_code": None,
+                        "http_status": 200,
+                    }
+                ), 200
 
             cached = get_cached_busqueda(cache_key) if cache_key else None
             if cached is not None:
