@@ -23,6 +23,7 @@ from modules.finiquitos.config import (
     UMA_MENSUAL_2025,
     UMA_MENSUAL_2026,
 )
+from modules.finiquitos.isr_partition import ParticionISR, particionar_bases_correcto_fiscal, particionar_bases_total_gravable
 
 D2 = Decimal("0.01")
 D0 = Decimal("0")
@@ -30,6 +31,77 @@ D0 = Decimal("0")
 
 def _q(x: Decimal) -> Decimal:
     return x.quantize(D2, rounding=ROUND_HALF_UP)
+
+
+def calc_isr_art174(extra_art174: Decimal, ultimo_mensual: Decimal) -> Decimal:
+    """ISR Art. 174: tasa efectiva por diferencia de tablas sobre mensualización del monto gravado."""
+    if extra_art174 <= 0:
+        return D0
+    rem_m = _q(extra_art174 / Decimal("365") * Decimal("30.4"))
+    iso = isr_art96(ultimo_mensual, "mensual")
+    icon = isr_art96(ultimo_mensual + rem_m, "mensual")
+    diff = max(D0, icon - iso)
+    if rem_m == 0:
+        tasa_174 = D0
+    else:
+        tasa_174 = (diff / rem_m).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
+    return _q(extra_art174 * tasa_174)
+
+
+def calc_isr_mes_semanal_mensualizado(
+    bucket_isr_mes_grav: Decimal,
+    fecha_emision: date,
+    ingreso_mensual_equiv: Decimal,
+) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]:
+    """
+    ISR (mes) tipo semanal mensualizado (7 días → tabla mensual art. 96).
+    Retorna: base_mensualizada, isr_antes_subsidio_mensual, subsidio_mensual_aplicado,
+             isr_antes_subsidio_periodo, subsidio_periodo_aplicado, isr_mes_neto.
+    """
+    dias_periodo = Decimal("7")
+    base_isr_mes_mensualizada = (
+        _q(bucket_isr_mes_grav / dias_periodo * Decimal("30.4")) if bucket_isr_mes_grav > 0 else D0
+    )
+    isr_antes_subsidio_mensual = isr_art96(base_isr_mes_mensualizada, "mensual")
+    sub_mensualizado = subsidio_periodo(
+        fecha_emision,
+        Decimal("30.4"),
+        ingreso_mensual_equiv=ingreso_mensual_equiv,
+    )
+    sub_mensual_ap = _q(min(sub_mensualizado, isr_antes_subsidio_mensual))
+    isr_antes_subsidio = _q(isr_antes_subsidio_mensual / Decimal("30.4") * dias_periodo)
+    sub_ap = _q(sub_mensual_ap / Decimal("30.4") * dias_periodo)
+    sub_ap = _q(min(sub_ap, isr_antes_subsidio))
+    isr_mes_neto = _q(max(D0, isr_antes_subsidio - sub_ap))
+    return (
+        base_isr_mes_mensualizada,
+        isr_antes_subsidio_mensual,
+        sub_mensual_ap,
+        isr_antes_subsidio,
+        sub_ap,
+        isr_mes_neto,
+    )
+
+
+def _auditoria_particion(part: ParticionISR, total_percepciones_finiquito: Decimal) -> dict[str, Any]:
+    """total_percepciones_finiquito incluye todas las líneas del recibo (p. ej. prima de antigüedad)."""
+    return {
+        "modo": part.modo,
+        "uma_diaria": float(part.uma_diaria),
+        "total_percepciones": float(total_percepciones_finiquito),
+        "limite_exento_aguinaldo": float(part.limite_exento_aguinaldo),
+        "limite_exento_prima_vacacional": float(part.limite_exento_prima_vacacional),
+        "aguinaldo_monto": float(part.aguinaldo),
+        "aguinaldo_exento_aplicado": float(part.aguinaldo_exento_aplicado),
+        "excedente_aguinaldo": float(part.excedente_aguinaldo),
+        "prima_vacacional_monto": float(part.prima_vacacional),
+        "prima_vac_exenta_aplicada": float(part.prima_vac_exenta_aplicada),
+        "excedente_prima_vacacional": float(part.excedente_prima_vacacional),
+        "excedente_prima_dominical": float(part.excedente_prima_dominical),
+        "excedente_ptu": float(part.excedente_ptu),
+        "base_art174": float(part.base_art174),
+        "base_isr_mes": float(part.base_isr_mes),
+    }
 
 
 def add_years_safe(d: date, years: int) -> date:
@@ -247,73 +319,69 @@ def calcular_finiquito(
     if incluir_prima_antiguedad and _prima_antiguedad_procede(motivo_baja, anios_exact):
         prima_antig_monto = _q(salario_tope * Decimal("12") * anios_exact)
 
-    # Exento / gravado
-    if modo in ("aguinaldo_todo_gravable", "total_gravable"):
-        ag_ex = D0
-        ag_gr = aguinaldo
-    else:
-        ag_ex = _q(min(aguinaldo, 30 * smg))
-        ag_gr = _q(max(D0, aguinaldo - ag_ex))
+    total_perc = _q(
+        sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto + prima_dom + ptu
+    )
 
-    # Parte gravada enviada al tratamiento Art. 174 vs remanente al bucket ISR (mes).
-    if modo == "total_gravable":
-        pv_ex = D0
-        pv_gr = prima_vac_neta
-        pa_ex = D0
-        pa_gr = prima_antig_monto
-        grav_art174 = _q(aguinaldo + prima_vac_neta + prima_dom + ptu)
-        # En total gravable lo gravado de aguinaldo/prima vac./dom./PTU va a Art. 174; el remanente ordinario es 0.
-        rem_ord_ag_pv = _q(max(D0, aguinaldo + prima_vac_neta + prima_dom + ptu - grav_art174))
-        bucket_isr_mes_grav = _q(sueldo + septimo + vacaciones_a_tiempo + rem_ord_ag_pv)
-        extra_art174 = grav_art174
+    if modo in ("total_gravable", "aguinaldo_todo_gravable"):
+        part = particionar_bases_total_gravable(
+            total_percepciones=total_perc,
+            aguinaldo=aguinaldo,
+            prima_vacacional=prima_vac_neta,
+            prima_dominical=prima_dom,
+            ptu=ptu,
+            fecha_referencia=fecha_emision,
+            modo=modo,
+        )
+        bucket_isr_mes_grav = part.base_isr_mes
+        extra_art174 = part.base_art174
+        ag_ex = part.aguinaldo_exento_aplicado
+        ag_gr = part.excedente_aguinaldo
+        pv_ex = part.prima_vac_exenta_aplicada
+        pv_gr = part.excedente_prima_vacacional
+        if modo == "total_gravable":
+            pa_ex = D0
+            pa_gr = _q(prima_antig_monto)
+        else:
+            anios_ex = anios_exentos_separacion(anios_exact)
+            lim_sep = 90 * smg * Decimal(anios_ex)
+            pa_ex = _q(min(prima_antig_monto, lim_sep))
+            pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
     else:
-        pv_ex = _q(min(prima_vac_neta, 15 * smg))
-        pv_gr = _q(max(D0, prima_vac_neta - pv_ex))
-
+        part = particionar_bases_correcto_fiscal(
+            sueldo=sueldo,
+            septimo=septimo,
+            vacaciones=vacaciones_a_tiempo,
+            aguinaldo=aguinaldo,
+            prima_vacacional=prima_vac_neta,
+            prima_dominical=prima_dom,
+            ptu=ptu,
+            fecha_referencia=fecha_emision,
+        )
+        bucket_isr_mes_grav = part.base_isr_mes
+        extra_art174 = part.base_art174
+        ag_ex = part.aguinaldo_exento_aplicado
+        ag_gr = part.excedente_aguinaldo
+        pv_ex = part.prima_vac_exenta_aplicada
+        pv_gr = part.excedente_prima_vacacional
         anios_ex = anios_exentos_separacion(anios_exact)
         lim_sep = 90 * smg * Decimal(anios_ex)
         pa_ex = _q(min(prima_antig_monto, lim_sep))
         pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
-        grav_art174 = _q(ag_gr + pv_gr + prima_dom + ptu)
-        rem_ord_ag_pv = _q(max(D0, (ag_gr + pv_gr + prima_dom + ptu) - grav_art174))
-        bucket_isr_mes_grav = _q(sueldo + septimo + vacaciones_a_tiempo + rem_ord_ag_pv)
-        extra_art174 = grav_art174
 
     ingreso_mensual_equiv = salario_mensual_capturado if salario_mensual_capturado is not None else _q(salario_diario * Decimal("30.4"))
     ultimo_mensual = ingreso_mensual_equiv
 
-    # ISR (mes): base = bucket ISR (mes) gravado; mensualización semanal tipo CONTPAQ → tabla mensual art. 96.
-    dias_periodo = Decimal("7")
-    base_isr_mes_mensualizada = (
-        _q(bucket_isr_mes_grav / dias_periodo * Decimal("30.4")) if bucket_isr_mes_grav > 0 else D0
-    )
-    isr_antes_subsidio_mensual = isr_art96(base_isr_mes_mensualizada, "mensual")
-    # Subsidio solo contra ISR antes de subsidio; elegibilidad por salario mensual equivalente del trabajador.
-    sub_mensualizado = subsidio_periodo(
-        fecha_emision,
-        Decimal("30.4"),
-        ingreso_mensual_equiv=ingreso_mensual_equiv,
-    )
-    sub_mensual_ap = _q(min(sub_mensualizado, isr_antes_subsidio_mensual))
+    (
+        base_isr_mes_mensualizada,
+        isr_antes_subsidio_mensual,
+        sub_mensual_ap,
+        isr_antes_subsidio,
+        sub_ap,
+        isr_mes_neto,
+    ) = calc_isr_mes_semanal_mensualizado(bucket_isr_mes_grav, fecha_emision, ingreso_mensual_equiv)
 
-    isr_antes_subsidio = _q(isr_antes_subsidio_mensual / Decimal("30.4") * dias_periodo)
-    sub_ap = _q(sub_mensual_ap / Decimal("30.4") * dias_periodo)
-    sub_ap = _q(min(sub_ap, isr_antes_subsidio))
-    isr_mes_neto = _q(max(D0, isr_antes_subsidio - sub_ap))
-
-    # Art 174: mensualización a 2 decimales para tasa efectiva (ejemplo oficial 91.66).
-    if extra_art174 > 0:
-        rem_m = _q(extra_art174 / Decimal("365") * Decimal("30.4"))
-        iso = isr_art96(ultimo_mensual, "mensual")
-        icon = isr_art96(ultimo_mensual + rem_m, "mensual")
-        diff = max(D0, icon - iso)
-        if rem_m == 0:
-            tasa_174 = D0
-        else:
-            tasa_174 = (diff / rem_m).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-        isr_174 = _q(extra_art174 * tasa_174)
-    else:
-        isr_174 = D0
+    isr_174 = calc_isr_art174(extra_art174, ultimo_mensual)
 
     # Separación art 95/96
     if pa_gr > 0:
@@ -326,12 +394,11 @@ def calcular_finiquito(
     else:
         isr_sep = D0
 
-    total_perc = _q(
-        sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto + prima_dom + ptu
-    )
     ded_reales = _q(isr_mes_neto + isr_174 + isr_sep)
     neto_prev = _q(total_perc - ded_reales)
     neto_final, ajuste_neto = _ajuste_neto_permitido(neto_prev)
+    extra_99_deduccion = _q(abs(ajuste_neto)) if ajuste_neto < 0 else D0
+    suma_43_45_99 = _q(isr_mes_neto + isr_174 + extra_99_deduccion)
 
     pdf_map = _mapear_pdf(
         isr_antes_subsidio=isr_antes_subsidio,
@@ -401,6 +468,31 @@ def calcular_finiquito(
             "isr_separacion": float(isr_sep),
         },
         "auditoria": {
+            "particion_isr": _auditoria_particion(part, total_perc),
+            "percepciones_finiquito": [
+                {"concepto": "Sueldo", "monto": float(sueldo)},
+                {"concepto": "Séptimo día", "monto": float(septimo)},
+                {"concepto": "Vacaciones", "monto": float(vacaciones_a_tiempo)},
+                {"concepto": "Prima vacacional", "monto": float(prima_vac_neta)},
+                {"concepto": "Aguinaldo", "monto": float(aguinaldo)},
+                {"concepto": "Prima de antigüedad", "monto": float(prima_antig_monto)},
+                {"concepto": "Prima dominical", "monto": float(prima_dom)},
+                {"concepto": "PTU", "monto": float(ptu)},
+            ],
+            "isr_mes_detalle": {
+                "total_percepciones": float(total_perc),
+                "base_art174": float(extra_art174),
+                "base_isr_mes": float(bucket_isr_mes_grav),
+                "usa_total_menos_art174": modo in ("total_gravable", "aguinaldo_todo_gravable"),
+                "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
+                "isr_antes_subsidio": float(isr_antes_subsidio),
+                "subsidio_aplicable": float(sub_ap),
+                "isr_mes_final": float(isr_mes_neto),
+            },
+            "isr_art174_detalle": {
+                "base_art174": float(extra_art174),
+                "isr_art174": float(isr_174),
+            },
             "base_sueldo": {
                 "sueldo_semanal_estimado": float(_q(salario_diario * Decimal("7"))),
                 "salario_diario_calculado": float(salario_diario),
@@ -462,6 +554,7 @@ def calcular_finiquito(
         "totales": {
             "total_percepciones": float(total_perc),
             "total_deducciones_reales": float(ded_reales),
+            "suma_deducciones_43_45_99": float(suma_43_45_99),
             "ajuste_neto": float(ajuste_neto),
             "neto_final": float(neto_final),
         },

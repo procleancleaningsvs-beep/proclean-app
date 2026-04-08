@@ -222,8 +222,11 @@
         <div>Sueldo: <strong>$${fmt(l.sueldo)}</strong></div><div>Séptimo automático: <strong>$${fmt(l.septimo_dia)}</strong></div><div>Prima antigüedad: <strong>$${fmt(l.prima_antiguedad_monto)}</strong></div>
       </div>
       <h4>Deducciones</h4><div class="pv-grid">
-        <div>ISR ordinario: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong></div><div>Subsidio: <strong>$${fmt(f.subsidio_aplicado)}</strong></div><div>ISR ordinario final: <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
-        <div>ISR Art174: <strong>$${fmt(f.isr_art174)}</strong></div><div>ISR separación: <strong>$${fmt(f.isr_separacion)}</strong></div><div>Ajuste al neto: <strong>$${fmt(t.ajuste_neto)}</strong></div>
+        <div>41 I.S.R. antes de Subs al empleo: <strong>$${fmt(f.isr_ordinario_antes_subsidio)}</strong> <span class="helper">(no suma en total deducciones 43+45+99)</span></div>
+        <div>43 I.S.R. Art174: <strong>$${fmt(f.isr_art174)}</strong></div>
+        <div>45 I.S.R. (mes): <strong>$${fmt(f.isr_ordinario_neto)}</strong></div>
+        <div>ISR separación (prima antigüedad): <strong>$${fmt(f.isr_separacion)}</strong></div>
+        <div>99 Ajuste al neto: <strong>$${fmt(t.ajuste_neto)}</strong></div>
       </div>
       <h4>Totales</h4><div class="pv-grid total-highlight">
         <div>Total percepciones: <strong>$${fmt(t.total_percepciones)}</strong></div><div>Total deducciones: <strong>$${fmt(t.total_deducciones_reales)}</strong></div><div>Neto final: <strong>$${fmt(t.neto_final)}</strong></div>
@@ -235,8 +238,48 @@
   }
 
   function renderAdvanced(resp){
-    const a = resp.resultado.auditoria || {}, pv = (a.prima_vacacional || {}), isr = (a.isr || {});
+    const a = resp.resultado.auditoria || {}, pv = (a.prima_vacacional || {});
+    const pi = a.particion_isr || {}, im = a.isr_mes_detalle || {}, ia = a.isr_art174_detalle || {};
+    const perc = a.percepciones_finiquito || [];
     $('advanced').hidden = false;
+    const percepcionesRows = perc.length
+      ? perc.map((p) => `<div>${p.concepto}: <strong>$${fmt(p.monto)}</strong></div>`).join('')
+      : '';
+    const bloque1 = `<div class="adv-hdr"><strong>1) Base total de percepciones</strong></div>
+      ${percepcionesRows}
+      <div>UMA diaria (referencia): <strong>$${fmt(pi.uma_diaria)}</strong></div>
+      <div><strong>Total percepciones:</strong> $${fmt(pi.total_percepciones)}</div>`;
+    const bloque2 = `<div class="adv-hdr"><strong>2) Determinación Art. 174</strong> (excedentes sobre exentos UMA)</div>
+      <div>Aguinaldo (monto): $${fmt(pi.aguinaldo_monto)}</div>
+      <div>Exento máximo aguinaldo (30 UMA): $${fmt(pi.limite_exento_aguinaldo)}</div>
+      <div>Excedente aguinaldo: $${fmt(pi.excedente_aguinaldo)}</div>
+      <div>Prima vacacional (monto): $${fmt(pi.prima_vacacional_monto)}</div>
+      <div>Exento máximo prima vacacional (15 UMA): $${fmt(pi.limite_exento_prima_vacacional)}</div>
+      <div>Excedente prima vacacional: $${fmt(pi.excedente_prima_vacacional)}</div>
+      <div>Excedente prima dominical: $${fmt(pi.excedente_prima_dominical)}</div>
+      <div>Excedente PTU: $${fmt(pi.excedente_ptu)}</div>
+      <div><strong>Base Art. 174:</strong> $${fmt(pi.base_art174)}</div>`;
+    const bloque3 = im.usa_total_menos_art174
+      ? `<div class="adv-hdr"><strong>3) Determinación ISR (mes)</strong></div>
+        <div>Total percepciones: $${fmt(im.total_percepciones)}</div>
+        <div>Menos base Art. 174: $${fmt(im.base_art174)}</div>
+        <div><strong>Base ISR (mes):</strong> $${fmt(im.base_isr_mes)}</div>`
+      : `<div class="adv-hdr"><strong>3) Determinación ISR (mes)</strong></div>
+        <div><strong>Base ISR (mes)</strong> (sueldo + séptimo + vacaciones, sin Art. 174): $${fmt(im.base_isr_mes)}</div>
+        <div class="helper">En modo fiscal la base del mes no se obtiene como total de percepciones menos Art. 174.</div>`;
+    const bloque4 = `<div class="adv-hdr"><strong>4) ISR del mes</strong> (sobre base ISR mes)</div>
+      <div>Base ISR (mes) periodo (7 días equiv.): $${fmt(im.base_isr_mes)}</div>
+      <div>Base mensualizada (÷7×30.4): $${fmt(im.base_isr_mes_mensualizada)}</div>
+      <div>41 I.S.R. antes de Subs al empleo (periodo): $${fmt(im.isr_antes_subsidio)}</div>
+      <div>Subsidio aplicable (periodo): $${fmt(im.subsidio_aplicable)}</div>
+      <div>45 I.S.R. (mes) final: $${fmt(im.isr_mes_final)}</div>`;
+    const bloque5 = `<div class="adv-hdr"><strong>5) ISR Art. 174</strong></div>
+      <div>Base Art. 174: $${fmt(ia.base_art174)}</div>
+      <div>43 I.S.R. Art174: $${fmt(ia.isr_art174)}</div>`;
+    const bloque6 = `<div class="adv-hdr"><strong>6) Ajuste al neto</strong></div>
+      <div>Neto previo: $${fmt(a.ajuste_neto?.neto_previo)}</div>
+      <div>99 Ajuste al neto: $${fmt(a.ajuste_neto?.ajuste)}</div>
+      <div>Neto final: $${fmt(a.ajuste_neto?.neto_final)}</div>`;
     $('advanced_body').innerHTML = `
       <div><strong>Base sueldo</strong><br>Sueldo semanal: $${fmt(a.base_sueldo?.sueldo_semanal_estimado)}<br>Salario diario: $${fmt(a.base_sueldo?.salario_diario_calculado)}<br>${a.base_sueldo?.formula || ''}</div>
       <div><strong>Vacaciones</strong><br>
@@ -258,8 +301,12 @@
         Monto: salario_diario * ${fmt4(a.aguinaldo?.resultado_dias_totales)} = $${fmt(a.aguinaldo?.resultado)}
       </div>
       <div><strong>Prima vacacional</strong><br>Días base: ${fmt4(pv.base_dias)}<br>Base monto: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>
-      <div><strong>ISR</strong><br>Base periodo: $${fmt(isr.base_ordinaria_periodo)}<br>Base mensualizada: $${fmt(isr.base_ordinaria_mensualizada)}<br>${isr.mensualizacion_formula || ''}<br>ISR mensualizado: $${fmt(isr.isr_mensualizado)}<br>Subsidio: $${fmt(isr.subsidio_mensualizado)}<br>ISR final periodo: $${fmt(isr.isr_periodo_final)}<br>Art174: $${fmt(isr.isr_art174)}</div>
-      <div><strong>Ajuste al neto</strong><br>Neto previo: $${fmt(a.ajuste_neto?.neto_previo)}<br>Ajuste: $${fmt(a.ajuste_neto?.ajuste)}<br>Neto final: $${fmt(a.ajuste_neto?.neto_final)}</div>`;
+      ${bloque1}
+      ${bloque2}
+      ${bloque3}
+      ${bloque4}
+      ${bloque5}
+      ${bloque6}`;
   }
 
   $('btn_excel').addEventListener('click', async () => {
