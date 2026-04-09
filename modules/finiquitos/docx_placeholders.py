@@ -1,11 +1,10 @@
 """
 Reemplazo de placeholders en DOCX sin recrear documento.
 
-El template manda: solo sustitución de texto. No se reconstruyen tablas ni párrafos.
+Sustituye solo el tramo de texto de cada placeholder en los w:t que lo intersectan,
+conservando runs, w:tab (en sus propios w:r) y formato fuera del placeholder.
 
-Importante: repartir el texto nuevo usando las longitudes de los runs originales rompe
-espacios y palabras cuando el reemplazo cambia la longitud (p. ej. "cubierta amás",
-",teniéndose"). Si un párrafo cambia, se consolida en el primer w:t del flujo del párrafo.
+Evita repartir el párrafo entero en un solo w:t (eso destruía negritas/tabs en el template).
 """
 
 from __future__ import annotations
@@ -50,14 +49,6 @@ def _paragraph_inside_txbx_content(p: ET.Element, parent: dict[ET.Element, ET.El
 
 
 def _collect_w_t_ordered_for_paragraph(p: ET.Element, parent: dict[ET.Element, ET.Element]) -> list[ET.Element]:
-    """
-    Nodos w:t del párrafo en orden de lectura.
-
-    - En párrafos del cuerpo: no se entra a w:drawing ni w:tbl (el nombre en footer en textbox
-      vive en otro w:p dentro del drawing, se procesa aparte).
-    - En párrafos dentro de w:txbxContent: se toma todo el texto del párrafo (sin cruzar otro
-      w:p anidado).
-    """
     out: list[ET.Element] = []
 
     def walk(el: ET.Element, skip_drawing: bool) -> None:
@@ -76,20 +67,71 @@ def _collect_w_t_ordered_for_paragraph(p: ET.Element, parent: dict[ET.Element, E
     return out
 
 
-def _consolidate_runs_text(texts: list[ET.Element], new_text: str) -> None:
-    """Un solo w:t con el texto completo; el resto vacío. Evita cortes y espacios perdidos."""
-    if not texts:
+def _maybe_preserve_space(t: ET.Element) -> None:
+    tx = t.text or ""
+    if tx and (tx[0].isspace() or tx[-1].isspace()):
+        t.set(f"{{{XML_NS}}}space", "preserve")
+
+
+def _apply_placeholder_span(
+    texts: list[ET.Element],
+    start: int,
+    end: int,
+    value: str,
+) -> None:
+    """Sustituye full[start:end] por value; solo modifica w:t que intersectan [start,end)."""
+    if start >= end:
         return
-    texts[0].set(f"{{{XML_NS}}}space", "preserve")
-    texts[0].text = new_text
-    for t in texts[1:]:
-        t.text = ""
+    cum = 0
+    overlaps: list[tuple[int, str, int, int]] = []
+    for idx, t in enumerate(texts):
+        s = t.text or ""
+        L = len(s)
+        rs, re = cum, cum + L
+        if re > start and rs < end:
+            o_start = max(0, start - rs)
+            o_end_excl = min(L, end - rs)
+            overlaps.append((idx, s, o_start, o_end_excl))
+        cum += L
+    if not overlaps:
+        return
+    i, s_i, oi0, _ = overlaps[0]
+    j, s_j, _, oj_excl = overlaps[-1]
+    if i == j:
+        texts[i].text = s_i[:oi0] + value + s_j[oj_excl:]
+        _maybe_preserve_space(texts[i])
+        return
+    texts[i].text = s_i[:oi0] + value
+    for k in range(i + 1, j):
+        texts[k].text = ""
+    texts[j].text = s_j[oj_excl:]
+    _maybe_preserve_space(texts[i])
+    _maybe_preserve_space(texts[j])
+
+
+def _replace_placeholders_in_text_nodes(texts: list[ET.Element], mapping: dict[str, str]) -> None:
+    """Aplica todas las sustituciones; en cada paso, la coincidencia más a la izquierda y la clave más larga."""
+    keys = [k for k in mapping if k]
+    max_rounds = 3000
+    for _ in range(max_rounds):
+        full = "".join(t.text or "" for t in texts)
+        best: tuple[int, int, str] | None = None
+        for k in keys:
+            pos = full.find(k)
+            if pos < 0:
+                continue
+            cand = (pos, -len(k), k)
+            if best is None or cand < best:
+                best = cand
+        if best is None:
+            break
+        pos, _, k = best
+        _apply_placeholder_span(texts, pos, pos + len(k), mapping[k])
 
 
 def replace_placeholders_in_docx_bytes(docx_bytes: bytes, mapping: dict[str, str]) -> bytes:
     """
     mapping: claves con llaves, p. ej. '{t1}' -> '1,890.24'
-    Valores vacíos dejan el párrafo sin ese fragmento (sustitución literal).
     """
     buf = BytesIO()
     with ZipFile(BytesIO(docx_bytes), "r") as zin:
@@ -118,9 +160,6 @@ def _replace_in_xml_tree(root: ET.Element, mapping: dict[str, str]) -> None:
         full = "".join(t.text or "" for t in texts)
         if not full.strip():
             continue
-        new = full
-        for k, v in mapping.items():
-            if k in new:
-                new = new.replace(k, v)
-        if new != full:
-            _consolidate_runs_text(texts, new)
+        needs = any(k in full for k in mapping)
+        if needs:
+            _replace_placeholders_in_text_nodes(texts, mapping)

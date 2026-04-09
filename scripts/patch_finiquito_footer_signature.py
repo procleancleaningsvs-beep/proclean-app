@@ -1,4 +1,4 @@
-"""Ajuste del footer del template: sin duplicar nombre (Fallback VML), un solo ancla y más aire.
+"""Ajustes visuales del template FINIQUITO: footer, firma y párrafo ATENTAMENTE.
 
 Ejecutar desde la raíz del repo:
   python scripts/patch_finiquito_footer_signature.py
@@ -42,11 +42,31 @@ def _remove_second_footer_run(s: str) -> str:
 def _boost_spacing_and_extent(s: str) -> str:
     s = s.replace(
         '<w:pStyle w:val="Textoindependiente"/><w:spacing w:before="12"/>',
-        '<w:pStyle w:val="Textoindependiente"/><w:spacing w:before="360" w:after="240"/>',
+        '<w:pStyle w:val="Textoindependiente"/><w:spacing w:before="360" w:after="360"/>',
         1,
     )
-    s = s.replace('cy="152400"', 'cy="360000"', 1)
+    # Solo el cy pequeño de la caja del nombre; el primer cy mayor suele ser el contenedor.
+    s = s.replace('cy="152400"', 'cy="540000"', 1)
     return s
+
+
+def _patch_atentamente_spacing(s: str) -> str:
+    """Espacio real entre ATENTAMENTE y el pie (nombre). Inserta w:spacing en el w:pPr de ese párrafo."""
+    key = "<w:t>ATENTAMENTE</w:t>"
+    idx = s.find(key)
+    if idx < 0:
+        return s
+    ppr_close = s.rfind("</w:pPr>", 0, idx)
+    if ppr_close < 0:
+        return s
+    ppr_open = s.rfind("<w:pPr>", 0, ppr_close)
+    if ppr_open < 0:
+        return s
+    block = s[ppr_open:ppr_close]
+    if 'w:after="2160"' in block and "w:spacing" in block:
+        return s
+    insert = '<w:spacing w:before="360" w:after="2160"/>'
+    return s[:ppr_close] + insert + s[ppr_close:]
 
 
 def _dedupe_adjacent_placeholder(s: str) -> str:
@@ -70,6 +90,10 @@ def main() -> None:
                     s = _remove_second_footer_run(s)
                     s = _dedupe_adjacent_placeholder(s)
                     s = _boost_spacing_and_extent(s)
+                    data = s.encode("utf-8")
+                elif info.filename == "word/document.xml":
+                    s = data.decode("utf-8")
+                    s = _patch_atentamente_spacing(s)
                     data = s.encode("utf-8")
                 zout.writestr(info, data)
     DOCX.write_bytes(buf.getvalue())
