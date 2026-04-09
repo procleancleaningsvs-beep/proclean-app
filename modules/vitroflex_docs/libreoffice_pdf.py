@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -71,12 +72,29 @@ def docx_to_pdf(docx_path: Path, pdf_path: Path, *, timeout_sec: int = 180) -> N
         expected.rename(pdf_path)
 
 
-def docx_bytes_to_pdf_bytes(docx_bytes: bytes, *, suffix: str = "vitroflex") -> bytes:
+def _safe_temp_docx_stem(stem: str, *, fallback: str = "vitroflex", max_len: int = 120) -> str:
+    """Nombre base seguro para archivos temporales DOCX/PDF (LibreOffice usa el mismo stem)."""
+    s = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", (stem or "").strip())
+    s = s.strip(" ._") or fallback
+    return s[:max_len]
+
+
+def docx_bytes_to_pdf_bytes(
+    docx_bytes: bytes,
+    *,
+    suffix: str = "vitroflex",
+    pdf_stem: str | None = None,
+) -> bytes:
     """Escribe temporal DOCX, convierte, lee PDF."""
-    with tempfile.TemporaryDirectory(prefix=f"proclean_{suffix}_") as tmp:
+    stem = (
+        _safe_temp_docx_stem(pdf_stem, fallback="finiquito")
+        if pdf_stem
+        else _safe_temp_docx_stem(suffix, fallback=suffix)
+    )
+    with tempfile.TemporaryDirectory(prefix="proclean_pdf_") as tmp:
         tdir = Path(tmp)
-        docx = tdir / f"{suffix}.docx"
-        pdf = tdir / f"{suffix}.pdf"
+        docx = tdir / f"{stem}.docx"
+        pdf = tdir / f"{stem}.pdf"
         docx.write_bytes(docx_bytes)
         docx_to_pdf(docx, pdf)
         return pdf.read_bytes()

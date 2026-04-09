@@ -413,12 +413,27 @@
     if (!j.ok) { $('preview').hidden = true; return msg($('calc_msg'), j.error || 'Error', true); }
     msg($('calc_msg'), 'Cálculo listo.'); renderPreview(j);
   });
+  function filenameFromContentDisposition(cd) {
+    if (!cd) return null;
+    const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd);
+    if (!m) return null;
+    const raw = (m[1] || m[2] || '').trim();
+    try {
+      return decodeURIComponent(raw.replace(/^"+|"+$/g, ''));
+    } catch (e) {
+      return raw.replace(/^"+|"+$/g, '');
+    }
+  }
   $('btn_pdf').addEventListener('click', async () => {
     msg($('calc_msg'), 'Generando PDF…');
     const r = await fetch('{{ url_for("finiquitos.api_pdf") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload())});
     if (!r.ok) { const j = await r.json().catch(()=>({})); return msg($('calc_msg'), j.error || 'Error PDF', true); }
     const blob = await r.blob(), url = URL.createObjectURL(blob), a = document.createElement('a');
-    a.href = url; a.download = 'finiquito.pdf'; a.click(); URL.revokeObjectURL(url); msg($('calc_msg'), 'PDF descargado.');
+    const cd = r.headers.get('Content-Disposition');
+    const fname = filenameFromContentDisposition(cd) || 'Finiquito.pdf';
+    const hid = r.headers.get('X-Finiquito-Historial-Id');
+    a.href = url; a.download = fname; a.click(); URL.revokeObjectURL(url);
+    msg($('calc_msg'), hid ? ('PDF descargado. Registrado en historial #' + hid + '.') : 'PDF descargado.');
   });
   $('btn_hist').addEventListener('click', async () => {
     msg($('calc_msg'), 'Guardando…');

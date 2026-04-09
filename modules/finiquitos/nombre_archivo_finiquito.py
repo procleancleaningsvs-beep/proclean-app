@@ -1,8 +1,16 @@
-"""Nombre de archivo PDF del finiquito (formato propio / title case)."""
+"""Nombre de archivo PDF del finiquito (formato propio) y texto del documento."""
 
 from __future__ import annotations
 
 import re
+
+
+def normalizar_nombre_empleado_documento(s: str) -> str:
+    """
+    Valor para {empleado_nombre_completo} en el DOCX: trim, espacios colapsados, TODO en mayúsculas.
+    Sin truncar ni alterar el orden ni los caracteres del nombre (salvo colapso de espacios).
+    """
+    return " ".join((s or "").split()).upper()
 
 
 def nombre_propio_para_archivo(s: str) -> str:

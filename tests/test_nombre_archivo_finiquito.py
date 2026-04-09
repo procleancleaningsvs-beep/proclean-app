@@ -7,7 +7,22 @@ import unittest
 from modules.finiquitos.nombre_archivo_finiquito import (
     build_finiquito_pdf_filename,
     nombre_propio_para_archivo,
+    normalizar_nombre_empleado_documento,
 )
+
+
+class TestNombreEmpleadoDocumento(unittest.TestCase):
+    def test_mayusculas_espacios(self):
+        self.assertEqual(
+            normalizar_nombre_empleado_documento("Yahir Ramon Ramirez Mata"),
+            "YAHIR RAMON RAMIREZ MATA",
+        )
+
+    def test_colapsa_espacios(self):
+        self.assertEqual(
+            normalizar_nombre_empleado_documento("  Yahir   Ramon  "),
+            "YAHIR RAMON",
+        )
 
 
 class TestNombrePropioArchivo(unittest.TestCase):

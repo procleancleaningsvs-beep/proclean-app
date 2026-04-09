@@ -4,33 +4,25 @@
   <div>
     <span class="eyebrow">Finiquitos</span>
     <h2>Historial</h2>
-    <p>Registros de finiquitos y liquidaciones comparativas (snapshots JSON).</p>
+    <p>Registros de finiquitos generados (snapshots JSON y PDF cuando aplica).</p>
   </div>
 </section>
 
 <div class="form-card">
   <p>
-    <a href="{{ url_for('finiquitos.pagina_finiquito') }}">Finiquito</a> ·
-    <a href="{{ url_for('finiquitos.pagina_liquidacion') }}">Liquidación comparativa</a>
+    <a href="{{ url_for('finiquitos.pagina_finiquito') }}">Finiquito</a>
   </p>
   <div id="lista"></div>
 </div>
 
 <script>
 (function(){
-  fetch('{{ url_for("finiquitos.api_historial_lista") }}?tipo=finiquito')
+  fetch('{{ url_for("finiquitos.api_historial_lista") }}')
     .then(r => r.json())
     .then(j => {
       const el = document.getElementById('lista');
       if (!j.ok) { el.textContent = 'error'; return; }
-      el.innerHTML = '<h3>Finiquitos</h3><ul>' + j.items.map(i => '<li>#' + i.id + ' — ' + i.created_at + ' — ' + (i.username||'') + ' — ' + (i.modo_calculo||'') + '</li>').join('') + '</ul>';
-    });
-  fetch('{{ url_for("finiquitos.api_historial_lista") }}?tipo=liquidacion')
-    .then(r => r.json())
-    .then(j => {
-      const el = document.getElementById('lista');
-      if (!j.ok) return;
-      el.innerHTML += '<h3>Liquidaciones</h3><ul>' + j.items.map(i => '<li>#' + i.id + ' — ' + i.created_at + '</li>').join('') + '</ul>';
+      el.innerHTML = '<h3>Finiquitos</h3><ul>' + j.items.map(i => '<li>#' + i.id + ' — ' + i.created_at + ' — ' + (i.username||'') + ' — ' + (i.modo_calculo||'') + (i.pdf_filename ? ' — ' + i.pdf_filename : '') + '</li>').join('') + '</ul>';
     });
 })();
 </script>

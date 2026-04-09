@@ -1,4 +1,4 @@
-"""Historial persistente de finiquitos y liquidaciones comparativas (snapshots JSON)."""
+"""Historial persistente de finiquitos (snapshots JSON y PDF generado)."""
 
 from __future__ import annotations
 
@@ -73,28 +73,6 @@ def insert_finiquito_history(
         conn.close()
 
 
-def insert_liquidacion_history(
-    db_path: str,
-    *,
-    user_id: int,
-    created_at: str,
-    payload: dict[str, Any],
-) -> int:
-    conn = sqlite3.connect(db_path)
-    try:
-        cur = conn.execute(
-            """
-            INSERT INTO historial_liquidaciones (user_id, created_at, payload_json)
-            VALUES (?, ?, ?)
-            """,
-            (user_id, created_at, json.dumps(payload, ensure_ascii=False, default=str)),
-        )
-        conn.commit()
-        return int(cur.lastrowid)
-    finally:
-        conn.close()
-
-
 def list_finiquito_history(db_path: str, limit: int = 200) -> list[sqlite3.Row]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -112,20 +90,3 @@ def list_finiquito_history(db_path: str, limit: int = 200) -> list[sqlite3.Row]:
     finally:
         conn.close()
 
-
-def list_liquidacion_history(db_path: str, limit: int = 200) -> list[sqlite3.Row]:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        return conn.execute(
-            """
-            SELECT h.*, u.username
-            FROM historial_liquidaciones h
-            JOIN users u ON u.id = h.user_id
-            ORDER BY h.created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
-    finally:
-        conn.close()

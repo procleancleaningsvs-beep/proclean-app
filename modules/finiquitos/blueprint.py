@@ -1,4 +1,4 @@
-"""Rutas Flask: Finiquitos y liquidación comparativa."""
+"""Rutas Flask: Finiquitos."""
 
 from __future__ import annotations
 
@@ -21,14 +21,11 @@ from modules.finiquitos.calc import (
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_pdf
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
-from modules.finiquitos.liquidacion import calcular_liquidacion_comparativa
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
 from services.finiquitos_history import (
     ensure_finiquitos_tables,
     insert_finiquito_history,
-    insert_liquidacion_history,
     list_finiquito_history,
-    list_liquidacion_history,
 )
 
 _BASE = Path(__file__).resolve().parent.parent.parent
@@ -176,16 +173,37 @@ def _resolver_prima_antiguedad(p: dict[str, Any]) -> tuple[bool, bool]:
     return aplica, incluir
 
 
+def _build_finiquito_snapshot_payload(
+    p: dict[str, Any],
+    calc: dict[str, Any],
+    prima_aplica: bool,
+    incluir_pa: bool,
+) -> dict[str, Any]:
+    return {
+        "entrada": {k: str(v) if isinstance(v, date) else v for k, v in p.items()},
+        "fecha_ingreso_excel": p["ingreso"].isoformat() if p["ingreso"] else None,
+        "calculo": calc,
+        "tipo_documento": "finiquito",
+        "constantes": {
+            "zona": p["zona"],
+            "periodicidad_operativa": "semanal",
+            "criterio_isr_ordinario": "mensualizado_tipo_contpaq",
+            "prima_antiguedad_aplica": prima_aplica,
+            "prima_antiguedad_incluida": incluir_pa,
+            "salario_minimo_zona": calc["fiscal"]["salario_minimo_zona"],
+            "SMG_GENERAL_2026": str(fincfg.SMG_GENERAL_2026),
+            "SMG_FRONTERA_2026": str(fincfg.SMG_FRONTERA_2026),
+            "UMA_DIARIA_2026": str(fincfg.UMA_DIARIA_2026),
+            "UMA_MENSUAL_2026": str(fincfg.UMA_MENSUAL_2026),
+            "tablas_isr": "ISR_TABLA_QUINCENAL_2026 / ISR_TABLA_MENSUAL_2026",
+        },
+    }
+
+
 @finiquitos_bp.route("/finiquito", methods=["GET"])
 @_login_required_page
 def pagina_finiquito():
     return render_template("finiquito.html")
-
-
-@finiquitos_bp.route("/liquidacion", methods=["GET"])
-@_login_required_page
-def pagina_liquidacion():
-    return render_template("liquidacion.html")
 
 
 @finiquitos_bp.route("/historial", methods=["GET"])
@@ -262,43 +280,6 @@ def api_calcular():
     )
 
 
-@finiquitos_bp.route("/api/liquidacion", methods=["POST"])
-def api_liquidacion():
-    err = _login_required_json()
-    if err:
-        return err
-    data = request.get_json(silent=True) or {}
-    p = _payload_from_request(data)
-    v = _validate_base(p)
-    if v:
-        return jsonify({"ok": False, "error": v}), 400
-    assert p["ingreso"] and p["baja"]
-    _aplicar_tope_vacaciones_ya_usadas(p)
-    _, incluir_pa = _resolver_prima_antiguedad(p)
-    res = calcular_liquidacion_comparativa(
-        ingreso=p["ingreso"],
-        baja=p["baja"],
-        fecha_emision=p["emision"],
-        salario_diario=p["salario_diario"],
-        zona=p["zona"],
-        periodicidad_isr=p["periodicidad"],
-        modo=p["modo"],
-        dias_sueldo_pendientes=p["dias_sueldo"],
-        septimos_pendientes=p["septimos"],
-        dias_aguinaldo_politica=p["dias_aguinaldo"],
-        prima_vacacional_pct=p["prima_vac_pct"],
-        vacaciones_ya_usadas=p["vac_ya"],
-        aguinaldo_ya_pagado=p["aguinaldo_ya"],
-        prima_vac_ya_pagada=p["prima_vac_ya"],
-        aguinaldo_pagado_previamente=p["aguinaldo_pagado_previamente"],
-        prima_dias_cubiertos=p["prima_dias_cubiertos"],
-        incluir_prima_antiguedad=incluir_pa,
-        motivo_baja=p["motivo"],
-        salario_mensual_capturado=p["salario_mensual_capturado"],
-    )
-    return jsonify({"ok": True, "resultado": res, "entrada": p})
-
-
 @finiquitos_bp.route("/api/pdf", methods=["POST"])
 def api_pdf():
     err = _login_required_json()
@@ -311,7 +292,7 @@ def api_pdf():
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
     _aplicar_tope_vacaciones_ya_usadas(p)
-    _, incluir_pa = _resolver_prima_antiguedad(p)
+    prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
         baja=p["baja"],
@@ -345,18 +326,37 @@ def api_pdf():
         calc=calc,
         incluir_prima_antig=incluir_pa,
     )
+    fname = build_finiquito_pdf_filename(p["nombre"] or "")
+    pdf_stem = Path(fname).stem
     try:
         docx_b = render_finiquito_docx(tpl, mapping)
-        pdf_b = render_finiquito_pdf(docx_b)
+        pdf_b = render_finiquito_pdf(docx_b, pdf_stem=pdf_stem)
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
 
-    fname = build_finiquito_pdf_filename(p["nombre"] or "")
-    return Response(
+    gen = Path(current_app.config["GENERATED_DIR"])
+    gen.mkdir(parents=True, exist_ok=True)
+    pdf_path = str(gen / fname)
+    Path(pdf_path).write_bytes(pdf_b)
+    payload = _build_finiquito_snapshot_payload(p, calc, prima_aplica, incluir_pa)
+    rid = insert_finiquito_history(
+        str(current_app.config["DATABASE"]),
+        user_id=g.user["id"],
+        created_at=_now_iso(),
+        modo_calculo=p["modo"],
+        payload=payload,
+        pdf_path=pdf_path,
+        pdf_filename=fname,
+    )
+    resp = Response(
         pdf_b,
         mimetype="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{fname}"',
+            "X-Finiquito-Historial-Id": str(rid),
+        },
     )
+    return resp
 
 
 @finiquitos_bp.route("/api/historial/finiquito", methods=["POST"])
@@ -409,34 +409,18 @@ def api_historial_finiquito():
             )
             try:
                 docx_b = render_finiquito_docx(tpl, mapping)
-                pdf_b = render_finiquito_pdf(docx_b)
+                pdf_fn = build_finiquito_pdf_filename(p["nombre"] or "")
+                pdf_stem = Path(pdf_fn).stem
+                pdf_b = render_finiquito_pdf(docx_b, pdf_stem=pdf_stem)
                 gen = Path(current_app.config["GENERATED_DIR"])
                 gen.mkdir(parents=True, exist_ok=True)
-                pdf_fn = build_finiquito_pdf_filename(p["nombre"] or "")
                 pdf_path = str(gen / pdf_fn)
                 Path(pdf_path).write_bytes(pdf_b)
             except Exception:
                 pdf_path = None
                 pdf_fn = None
 
-    payload = {
-        "entrada": {k: str(v) if isinstance(v, date) else v for k, v in p.items()},
-        "fecha_ingreso_excel": p["ingreso"].isoformat() if p["ingreso"] else None,
-        "calculo": calc,
-        "constantes": {
-            "zona": p["zona"],
-            "periodicidad_operativa": "semanal",
-            "criterio_isr_ordinario": "mensualizado_tipo_contpaq",
-            "prima_antiguedad_aplica": prima_aplica,
-            "prima_antiguedad_incluida": incluir_pa,
-            "salario_minimo_zona": calc["fiscal"]["salario_minimo_zona"],
-            "SMG_GENERAL_2026": str(fincfg.SMG_GENERAL_2026),
-            "SMG_FRONTERA_2026": str(fincfg.SMG_FRONTERA_2026),
-            "UMA_DIARIA_2026": str(fincfg.UMA_DIARIA_2026),
-            "UMA_MENSUAL_2026": str(fincfg.UMA_MENSUAL_2026),
-            "tablas_isr": "ISR_TABLA_QUINCENAL_2026 / ISR_TABLA_MENSUAL_2026",
-        },
-    }
+    payload = _build_finiquito_snapshot_payload(p, calc, prima_aplica, incluir_pa)
     rid = insert_finiquito_history(
         str(current_app.config["DATABASE"]),
         user_id=g.user["id"],
@@ -449,85 +433,24 @@ def api_historial_finiquito():
     return jsonify({"ok": True, "id": rid})
 
 
-@finiquitos_bp.route("/api/historial/liquidacion", methods=["POST"])
-def api_historial_liquidacion():
-    err = _login_required_json()
-    if err:
-        return err
-    data = request.get_json(silent=True) or {}
-    p = _payload_from_request(data)
-    v = _validate_base(p)
-    if v:
-        return jsonify({"ok": False, "error": v}), 400
-    assert p["ingreso"] and p["baja"]
-    _aplicar_tope_vacaciones_ya_usadas(p)
-    _, incluir_pa = _resolver_prima_antiguedad(p)
-    res = calcular_liquidacion_comparativa(
-        ingreso=p["ingreso"],
-        baja=p["baja"],
-        fecha_emision=p["emision"],
-        salario_diario=p["salario_diario"],
-        zona=p["zona"],
-        periodicidad_isr=p["periodicidad"],
-        modo=p["modo"],
-        dias_sueldo_pendientes=p["dias_sueldo"],
-        septimos_pendientes=p["septimos"],
-        dias_aguinaldo_politica=p["dias_aguinaldo"],
-        prima_vacacional_pct=p["prima_vac_pct"],
-        vacaciones_ya_usadas=p["vac_ya"],
-        aguinaldo_ya_pagado=p["aguinaldo_ya"],
-        prima_vac_ya_pagada=p["prima_vac_ya"],
-        aguinaldo_pagado_previamente=p["aguinaldo_pagado_previamente"],
-        prima_dias_cubiertos=p["prima_dias_cubiertos"],
-        incluir_prima_antiguedad=incluir_pa,
-        motivo_baja=p["motivo"],
-        salario_mensual_capturado=p["salario_mensual_capturado"],
-    )
-    payload = {
-        "entrada": {k: str(v) if isinstance(v, date) else v for k, v in p.items()},
-        "resultado": res,
-    }
-    rid = insert_liquidacion_history(
-        str(current_app.config["DATABASE"]),
-        user_id=g.user["id"],
-        created_at=_now_iso(),
-        payload=payload,
-    )
-    return jsonify({"ok": True, "id": rid})
-
-
 @finiquitos_bp.route("/api/historial/lista", methods=["GET"])
 def api_historial_lista():
     err = _login_required_json()
     if err:
         return err
-    kind = (request.args.get("tipo") or "finiquito").strip().lower()
-    if kind == "liquidacion":
-        rows = list_liquidacion_history(str(current_app.config["DATABASE"]))
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "id": r["id"],
-                    "created_at": r["created_at"],
-                    "username": r["username"],
-                    "tipo": "liquidacion",
-                }
-            )
-    else:
-        rows = list_finiquito_history(str(current_app.config["DATABASE"]))
-        out = []
-        for r in rows:
-            out.append(
-                {
-                    "id": r["id"],
-                    "created_at": r["created_at"],
-                    "username": r["username"],
-                    "modo_calculo": r["modo_calculo"],
-                    "pdf_filename": r["pdf_filename"],
-                    "tipo": "finiquito",
-                }
-            )
+    rows = list_finiquito_history(str(current_app.config["DATABASE"]))
+    out = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "created_at": r["created_at"],
+                "username": r["username"],
+                "modo_calculo": r["modo_calculo"],
+                "pdf_filename": r["pdf_filename"],
+                "tipo": "finiquito",
+            }
+        )
     return jsonify({"ok": True, "items": out})
 
 
