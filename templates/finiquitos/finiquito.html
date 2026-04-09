@@ -52,7 +52,9 @@
         <label>Días sueldo pendientes<input type="text" id="dias_sueldo_pendientes" value="0"></label>
       </div>
       <div class="grid-2">
-        <label>Vacaciones ya pagadas/disfrutadas (días)<input type="text" id="vacaciones_ya_usadas" value="0"></label>
+        <label>Vacaciones ya pagadas/disfrutadas (días)<input type="text" id="vacaciones_ya_usadas" value="0" inputmode="decimal" autocomplete="off">
+          <span id="vac_tope_hint" class="helper"></span>
+        </label>
         <label>Prima vacacional %<input type="text" id="prima_vacacional_pct" value="25"></label>
       </div>
       <div class="grid-2">
@@ -173,10 +175,45 @@
     };
   }
 
+  function parseNumLoose(s) {
+    const t = String(s || '').replace(/,/g, '.').replace(/[^\d.-]/g, '');
+    const n = parseFloat(t);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function applyVacacionesYaUsadasTope(resp) {
+    const l = resp.resultado?.laboral;
+    const el = $('vacaciones_ya_usadas');
+    const hint = $('vac_tope_hint');
+    if (!l || !l.vacaciones_ya_usadas_tope_por_ingreso_año_actual) {
+      el.removeAttribute('data-max-vac-ya');
+      if (hint) hint.textContent = '';
+      return;
+    }
+    const maxD = Number(l.vacaciones_ya_usadas_max_permitido);
+    el.setAttribute('data-max-vac-ya', String(maxD));
+    if (hint) {
+      hint.textContent = `Ingreso en año actual: máximo ${fmt4(maxD)} días (devengados al corte).`;
+    }
+    const raw = parseNumLoose(el.value);
+    if (raw > maxD) el.value = String(maxD);
+  }
+
+  function clampVacacionesYaUsadasIfNeeded() {
+    const el = $('vacaciones_ya_usadas');
+    const maxS = el.getAttribute('data-max-vac-ya');
+    if (!maxS) return;
+    const maxD = parseFloat(maxS);
+    const raw = parseNumLoose(el.value);
+    if (raw > maxD) el.value = String(maxD);
+  }
+
   function renderAutoKpis(resp) {
     const l = resp.resultado.laboral;
+    applyVacacionesYaUsadasTope(resp);
     $('auto-kpis-left').innerHTML = `
       <div>Días de vacaciones a pagar: <strong>${fmt4(l.vacaciones_pendientes)}</strong></div>
+      <div>Días devengados acumulados (corte): <strong>${fmt4(l.vacaciones_devengadas)}</strong></div>
       <div>Días de aguinaldo a pagar: <strong>${fmt4(l.aguinaldo_total_dias)}</strong></div>
       <div>Días base para prima vacacional: <strong>${fmt4(l.prima_vac_base_dias)}</strong></div>
       <div class="helper">Días laborados vacaciones: ${l.dias_laborados_ciclo_vacaciones} · aguinaldo: ${l.dias_trabajados_anio}</div>
@@ -258,23 +295,6 @@
       <div class="helper" style="white-space:pre-wrap;">${String(row.formula_pasos || '')}</div>`;
   }
 
-  function renderSubsidioBloque(s) {
-    if (!s) return '';
-    return `<div>Ingreso mensual equivalente (elegibilidad): $${fmt(s.ingreso_mensual_base)}</div>
-      <div>Límite legal de ingresos para subsidio (config): $${fmt(s.limite_ingresos_subsidio)}</div>
-      <div>¿Elegible?: <strong>${s.es_elegible ? 'Sí' : 'No'}</strong> — ${s.motivo_elegibilidad || ''}</div>
-      <div>UMA mensual de referencia: $${fmt(s.uma_mensual_utilizada)}</div>
-      <div>UMA diaria usada en fórmula de subsidio: $${fmt(s.uma_diaria_para_subsidio)}</div>
-      <div>Porcentaje legal (sobre UMA): ${fmt(s.porcentaje_sobre_uma_pct)}% <span class="helper">(fracción ${s.porcentaje_sobre_uma_fraccion})</span></div>
-      <div>Factor mes (días): ${fmt(s.dias_factor_mes)}</div>
-      <div>Subsidio mensual máximo (UMA mensual × %): $${fmt(s.subsidio_mensual_maximo)}</div>
-      <div>Días del periodo de pago: ${fmt(s.dias_periodo)}</div>
-      <div>Subsidio topeado por ISR mensual: $${fmt(s.subsidio_topeado_por_isr_mensual)}</div>
-      <div>Subsidio máximo del periodo (prorrateo): $${fmt(s.subsidio_periodo_maximo)}</div>
-      <div class="helper" style="white-space:pre-wrap;">${String(s.formula_prorrateo || '')}</div>
-      <div><strong>Subsidio aplicado al ISR del periodo</strong> (solo contra 41, no contra Art. 174): $${fmt(s.subsidio_aplicado)}</div>`;
-  }
-
   function renderAdvanced(resp){
     const a = resp.resultado.auditoria || {}, pv = (a.prima_vacacional || {});
     const sf = a.seccion_fiscal || {};
@@ -285,12 +305,11 @@
     const E = sf.E_isr_art174 || {};
     const F = sf.F_ajuste_neto || a.ajuste_neto || {};
     const tarM = D.tarifa_mensual_art96 || {};
-    const sub = D.subsidio_empleo || {};
 
     $('advanced').hidden = false;
 
     const fiscalHtml = sf && Object.keys(sf).length ? `
-      <div style="grid-column:1/-1;"><h3 class="adv-hdr-major">Sección fiscal — ISR y subsidio al empleo</h3></div>
+      <div style="grid-column:1/-1;"><h3 class="adv-hdr-major">Sección fiscal — ISR (mes) y Art. 174</h3></div>
       <div style="grid-column:1/-1;" class="fin-fiscal-block">
         <div class="adv-hdr"><strong>${A.titulo || 'A) Resumen de percepciones'}</strong></div>
         <div>Sueldo: $${fmt(A.sueldo)}</div>
@@ -330,12 +349,12 @@
         <div><strong>Base mensualizada</strong> (para tabla mensual): $${fmt(D.base_isr_mes_mensualizada)}</div>
         <div class="adv-hdr" style="margin-top:0.5rem;"><strong>Tarifa art. 96 (tabla mensual)</strong></div>
         ${renderTarifaArt96Bloque(tarM)}
-        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>ISR antes de subsidio — periodo (clave 41)</strong></div>
-        <div>ISR mensual (tabla): $${fmt(D.isr_antes_subsidio_mensual)} → prorrateado a ${fmt(D.dias_periodo)} días: <strong>$${fmt(D.isr_antes_subsidio_periodo)}</strong></div>
-        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>Subsidio al empleo (solo contra ISR del mes)</strong></div>
-        ${renderSubsidioBloque(sub)}
-        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>45 I.S.R. (mes) final</strong></div>
-        <div>$${fmt(D.isr_mes_neto)}</div>
+        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>ISR del periodo (sin subsidio al empleo en este módulo)</strong></div>
+        <div>ISR según tabla mensual (art. 96): $${fmt(D.isr_mensual_tabla_art96)}</div>
+        <div>Prorrateo a ${fmt(D.dias_periodo)} días: $${fmt(D.isr_periodo_prorrateado)}</div>
+        <div class="helper" style="white-space:pre-wrap;">${String(D.nota_41_45 || '')}</div>
+        <div><strong>41 I.S.R. antes de Subs al empleo</strong> (referencia, no suma): $${fmt(D.isr_mes_neto)}</div>
+        <div><strong>45 I.S.R. (mes)</strong> (deducible): $${fmt(D.isr_mes_neto)}</div>
       </div>
       <div style="grid-column:1/-1;" class="fin-fiscal-block">
         <div class="adv-hdr"><strong>${E.titulo || '5) ISR Art. 174'}</strong></div>
@@ -364,7 +383,8 @@
         Días laborados del ciclo: ${a.vacaciones?.dias_laborados_ciclo}<br>
         Factor vacaciones: ${a.vacaciones?.dias_laborados_ciclo} / ${a.vacaciones?.dias_anio_ciclo} = ${fmt4(a.vacaciones?.factor)}<br>
         Días proporcionales: ${fmt4(a.vacaciones?.dias_vacaciones_corresponden)} * ${fmt4(a.vacaciones?.factor)} = ${fmt4(a.vacaciones?.resultado_dias_proporcionales)}<br>
-        Total días vacaciones acumulados: ${fmt4(a.vacaciones?.resultado_dias_totales_acumulados)}<br>
+        Total días vacaciones acumulados (devengados a la fecha de baja): ${fmt4(a.vacaciones?.resultado_dias_totales_acumulados)}<br>
+        ${a.vacaciones?.tope_vacaciones_ya_usadas_activo ? `<strong>Tope «Vacaciones ya pagadas/disfrutadas»</strong> (ingreso en año actual): máximo <strong>${fmt4(a.vacaciones?.tope_max_vacaciones_ya_usadas_dias)}</strong> días (igual a devengados).<br>` : ''}
         Monto: salario_diario * ${fmt4(a.vacaciones?.resultado_dias_pendientes)} = $${fmt(a.vacaciones?.monto)}
       </div>
       <div><strong>Aguinaldo</strong><br>
@@ -420,8 +440,10 @@
     autoTimer = setTimeout(refreshAutoSummary, 350);
   }
 
-  ['fecha_ingreso','fecha_baja','dias_sueldo_pendientes','vacaciones_ya_usadas','sueldo_semanal','dias_aguinaldo_politica','prima_vacacional_pct','prima_dias_cubiertos']
+  ['fecha_ingreso','fecha_baja','dias_sueldo_pendientes','sueldo_semanal','dias_aguinaldo_politica','prima_vacacional_pct','prima_dias_cubiertos']
     .forEach((id)=>{ const el=$(id); if(el){ el.addEventListener('change', scheduleAutoSummary); el.addEventListener('input', scheduleAutoSummary);} });
+  $('vacaciones_ya_usadas').addEventListener('change', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
+  $('vacaciones_ya_usadas').addEventListener('input', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
   document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"], input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
   ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
   $('vacaciones_ya_usadas').addEventListener('input', ()=>{ if(!primaDiasEdited) syncPrimaDiasSuggest(); });

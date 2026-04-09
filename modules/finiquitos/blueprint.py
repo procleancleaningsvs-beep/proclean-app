@@ -14,7 +14,11 @@ from functools import wraps
 from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, url_for
 
 from modules.finiquitos import config as fincfg
-from modules.finiquitos.calc import calcular_finiquito, prima_antiguedad_aplica_separacion_voluntaria
+from modules.finiquitos.calc import (
+    calcular_dias_vacaciones_devengados,
+    calcular_finiquito,
+    prima_antiguedad_aplica_separacion_voluntaria,
+)
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_pdf
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.liquidacion import calcular_liquidacion_comparativa
@@ -150,6 +154,19 @@ def _validate_base(p: dict[str, Any]) -> str | None:
     return None
 
 
+def _aplicar_tope_vacaciones_ya_usadas(p: dict[str, Any]) -> None:
+    """Si ingreso es del año calendario actual, no permitir vac_ya > días devengados (misma lógica que el cálculo)."""
+    ing = p.get("ingreso")
+    baja = p.get("baja")
+    if ing is None or baja is None:
+        return
+    if ing.year != date.today().year:
+        return
+    cap = calcular_dias_vacaciones_devengados(ing, baja)["dias_vac_total_dev"]
+    if p["vac_ya"] > cap:
+        p["vac_ya"] = cap
+
+
 def _resolver_prima_antiguedad(p: dict[str, Any]) -> tuple[bool, bool]:
     """Devuelve (aplica, incluir_en_calculo)."""
     if not p.get("ingreso") or not p.get("baja"):
@@ -208,6 +225,7 @@ def api_calcular():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _aplicar_tope_vacaciones_ya_usadas(p)
     prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
@@ -255,6 +273,7 @@ def api_liquidacion():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _aplicar_tope_vacaciones_ya_usadas(p)
     _, incluir_pa = _resolver_prima_antiguedad(p)
     res = calcular_liquidacion_comparativa(
         ingreso=p["ingreso"],
@@ -291,6 +310,7 @@ def api_pdf():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _aplicar_tope_vacaciones_ya_usadas(p)
     _, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
@@ -352,6 +372,7 @@ def api_historial_finiquito():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _aplicar_tope_vacaciones_ya_usadas(p)
     prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
     calc = calcular_finiquito(
         ingreso=p["ingreso"],
@@ -443,6 +464,7 @@ def api_historial_liquidacion():
     if v:
         return jsonify({"ok": False, "error": v}), 400
     assert p["ingreso"] and p["baja"]
+    _aplicar_tope_vacaciones_ya_usadas(p)
     _, incluir_pa = _resolver_prima_antiguedad(p)
     res = calcular_liquidacion_comparativa(
         ingreso=p["ingreso"],

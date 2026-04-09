@@ -27,8 +27,8 @@ class TestParticionTodoGravable(unittest.TestCase):
         self.assertEqual(p.excedente_aguinaldo, Decimal("0.00"))
         self.assertEqual(p.excedente_prima_vacacional, Decimal("0.00"))
 
-    def test_caso_referencia_2673_tarifa_y_subsidio(self):
-        """Percepciones 2,673.57 sin excedentes UMA: ISR mes fila 3; subsidio periodo 7 días."""
+    def test_caso_referencia_2673_tarifa_isr_mes(self):
+        """Percepciones 2,673.57 sin excedentes UMA: ISR mes fila 3; ISR periodo sin subsidio."""
         p = particionar_bases_total_gravable(
             total_percepciones=Decimal("2673.57"),
             aguinaldo=Decimal("1336.78"),
@@ -49,10 +49,7 @@ class TestParticionTodoGravable(unittest.TestCase):
         self.assertEqual(Decimal(str(t["limite_inferior"])), Decimal("7168.52"))
         self.assertEqual(Decimal(str(t["cuota_fija"])), Decimal("420.95"))
         self.assertEqual(Decimal(str(t["porcentaje_marginal"])), Decimal("10.88"))
-        sub = pkg["subsidio_empleo"]
-        self.assertTrue(sub["es_elegible"])
-        self.assertEqual(Decimal(str(sub["subsidio_mensual_maximo"])), Decimal("535.65"))
-        self.assertEqual(Decimal(str(sub["subsidio_aplicado"])), Decimal("123.34"))
+        self.assertEqual(Decimal(str(pkg["isr_mes_neto"])), Decimal("208.22"))
 
 
 if __name__ == "__main__":

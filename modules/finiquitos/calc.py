@@ -14,7 +14,6 @@ from typing import Any, Literal
 from modules.finiquitos.config import SMG_FRONTERA_2026, SMG_GENERAL_2026
 from modules.finiquitos.isr_partition import ParticionISR, particionar_bases_correcto_fiscal, particionar_bases_total_gravable
 from modules.finiquitos.isr_tarifa_art96 import isr_art96_con_detalle, isr_art96_importe
-from modules.finiquitos.subsidio_empleo import calcular_subsidio_empleo_periodo
 
 D2 = Decimal("0.01")
 D0 = Decimal("0")
@@ -74,24 +73,17 @@ def calc_isr_mes_semanal_mensualizado(
     ingreso_mensual_equiv: Decimal,
 ) -> dict[str, Any]:
     """
-    ISR (mes): periodo 7 días, mensualización ÷7×30.4, tarifa mensual art. 96, subsidio solo al ISR del mes.
+    ISR (mes): periodo 7 días, mensualización ÷7×30.4, tarifa mensual art. 96.
+    En este módulo no se aplica subsidio al empleo; el ISR del periodo es el que alimenta 41 y 45 (mismo importe).
     """
+    del fecha_emision, ingreso_mensual_equiv  # API estable; sin subsidio no intervienen.
     dias_periodo = Decimal("7")
     factor_mes = Decimal("30.4")
     base_periodo = _q(bucket_isr_mes_grav)
     base_mensualizada = _q(base_periodo / dias_periodo * factor_mes) if base_periodo > 0 else D0
     tarifa_m = isr_art96_con_detalle(base_mensualizada, "mensual")
-    isr_antes_men = tarifa_m.isr
-    sub_det = calcular_subsidio_empleo_periodo(
-        fecha_emision,
-        dias_periodo,
-        ingreso_mensual_equiv=ingreso_mensual_equiv,
-        isr_antes_subsidio_mensual=isr_antes_men,
-        factor_mensual_dias=factor_mes,
-    )
-    isr_antes_periodo = sub_det.isr_antes_subsidio_periodo
-    sub_ap = sub_det.subsidio_aplicado
-    isr_mes_neto = _q(max(D0, isr_antes_periodo - sub_ap))
+    isr_men = tarifa_m.isr
+    isr_periodo = _q(isr_men / factor_mes * dias_periodo)
     return {
         "base_isr_mes_periodo": base_periodo,
         "dias_periodo": dias_periodo,
@@ -100,12 +92,9 @@ def calc_isr_mes_semanal_mensualizado(
         "formula_mensualizacion": f"base mensualizada = (base periodo {base_periodo} ÷ {dias_periodo}) × {factor_mes} = {base_mensualizada}",
         "base_isr_mes_mensualizada": base_mensualizada,
         "tarifa_mensual_art96": tarifa_m.to_auditoria(),
-        "subsidio_empleo": sub_det.to_auditoria(),
-        "isr_antes_subsidio_mensual": isr_antes_men,
-        "subsidio_mensual_topeado": sub_det.subsidio_topeado_mensual,
-        "isr_antes_subsidio_periodo": isr_antes_periodo,
-        "subsidio_periodo_aplicado": sub_ap,
-        "isr_mes_neto": isr_mes_neto,
+        "isr_mensual_tabla_art96": isr_men,
+        "isr_periodo_prorrateado": isr_periodo,
+        "isr_mes_neto": isr_periodo,
     }
 
 
@@ -141,6 +130,7 @@ def _auditoria_particion(
 
 def _mes_pkg_para_auditoria(m: dict[str, Any]) -> dict[str, Any]:
     """Serializa el paquete de ISR (mes) para JSON / UI."""
+    isr_p = float(m["isr_mes_neto"])
     return {
         "titulo": "4) ISR del mes (base legal: art. 96 LISR / tarifa oficial vigente)",
         "base_isr_mes_periodo": float(m["base_isr_mes_periodo"]),
@@ -150,12 +140,13 @@ def _mes_pkg_para_auditoria(m: dict[str, Any]) -> dict[str, Any]:
         "formula_mensualizacion": m["formula_mensualizacion"],
         "base_isr_mes_mensualizada": float(m["base_isr_mes_mensualizada"]),
         "tarifa_mensual_art96": m["tarifa_mensual_art96"],
-        "subsidio_empleo": m["subsidio_empleo"],
-        "isr_antes_subsidio_mensual": float(m["isr_antes_subsidio_mensual"]),
-        "isr_antes_subsidio_periodo": float(m["isr_antes_subsidio_periodo"]),
-        "subsidio_mensual_topeado": float(m["subsidio_mensual_topeado"]),
-        "subsidio_periodo_aplicado": float(m["subsidio_periodo_aplicado"]),
-        "isr_mes_neto": float(m["isr_mes_neto"]),
+        "isr_mensual_tabla_art96": float(m["isr_mensual_tabla_art96"]),
+        "isr_periodo_prorrateado": float(m["isr_periodo_prorrateado"]),
+        "isr_mes_neto": isr_p,
+        "nota_41_45": (
+            "41 I.S.R. antes de Subs al empleo y 45 I.S.R. (mes) muestran el mismo importe (ISR del periodo). "
+            "Solo 45 suma en deducciones; 41 es referencia visual. No se calcula subsidio al empleo en este módulo."
+        ),
     }
 
 
@@ -234,6 +225,38 @@ def prima_antiguedad_aplica_separacion_voluntaria(ingreso: date, baja: date) -> 
     return anios_servicio_exactos(ingreso, baja) >= Decimal("15")
 
 
+def calcular_dias_vacaciones_devengados(ingreso: date, baja: date) -> dict[str, Any]:
+    """
+    Misma lógica que el finiquito: días de vacaciones devengados hasta la fecha de baja
+    (ciclos completos + proporcional del ciclo en curso).
+    """
+    anios_completos = full_years_between(ingreso, baja)
+    dias_vac_completos = D0
+    for y in range(1, anios_completos + 1):
+        dias_vac_completos += Decimal(dias_vacaciones_ley_por_anio_servicio(y))
+
+    ult_ann = add_years_safe(ingreso, anios_completos) if anios_completos > 0 else ingreso
+    aniversario_siguiente = add_years_safe(ult_ann, 1)
+    dias_anio_ciclo = max(1, (aniversario_siguiente - ult_ann).days)
+    dias_transcurridos_ciclo = max(0, (baja - ult_ann).days + 1)
+    dias_vac_anuales_actual = Decimal(dias_vacaciones_ley_por_anio_servicio(anios_completos + 1))
+    factor_vac = Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)
+    dias_vac_prop_actual = dias_vac_anuales_actual * factor_vac
+    dias_vac_total_dev = dias_vac_completos + dias_vac_prop_actual
+    return {
+        "anios_completos": anios_completos,
+        "dias_vac_completos": dias_vac_completos,
+        "ult_ann": ult_ann,
+        "aniversario_siguiente": aniversario_siguiente,
+        "dias_anio_ciclo": dias_anio_ciclo,
+        "dias_transcurridos_ciclo": dias_transcurridos_ciclo,
+        "dias_vac_anuales_actual": dias_vac_anuales_actual,
+        "factor_vac": factor_vac,
+        "dias_vac_prop_actual": dias_vac_prop_actual,
+        "dias_vac_total_dev": dias_vac_total_dev,
+    }
+
+
 def calcular_finiquito(
     *,
     ingreso: date,
@@ -257,25 +280,32 @@ def calcular_finiquito(
     salario_mensual_capturado: Decimal | None = None,
     prima_dominical_monto: Decimal = D0,
     ptu_monto: Decimal = D0,
+    año_calendario_actual: int | None = None,
 ) -> dict[str, Any]:
     smg = SMG_GENERAL_2026 if zona == "general" else SMG_FRONTERA_2026
+    año_ref = año_calendario_actual if año_calendario_actual is not None else date.today().year
 
-    # Vacaciones acumuladas: ciclos vencidos completos + proporcional del ciclo actual.
-    anios_completos = full_years_between(ingreso, baja)
-    dias_vac_completos = D0
-    for y in range(1, anios_completos + 1):
-        dias_vac_completos += Decimal(dias_vacaciones_ley_por_anio_servicio(y))
+    vac_ctx = calcular_dias_vacaciones_devengados(ingreso, baja)
+    anios_completos = vac_ctx["anios_completos"]
+    dias_vac_completos = vac_ctx["dias_vac_completos"]
+    ult_ann = vac_ctx["ult_ann"]
+    aniversario_siguiente = vac_ctx["aniversario_siguiente"]
+    dias_anio_ciclo = vac_ctx["dias_anio_ciclo"]
+    dias_transcurridos_ciclo = vac_ctx["dias_transcurridos_ciclo"]
+    dias_vac_anuales_actual = vac_ctx["dias_vac_anuales_actual"]
+    factor_vac = vac_ctx["factor_vac"]
+    dias_vac_prop_actual = vac_ctx["dias_vac_prop_actual"]
+    dias_vac_total_dev = vac_ctx["dias_vac_total_dev"]
 
-    ult_ann = add_years_safe(ingreso, anios_completos) if anios_completos > 0 else ingreso
-    aniversario_siguiente = add_years_safe(ult_ann, 1)
-    dias_anio_ciclo = max(1, (aniversario_siguiente - ult_ann).days)
-    dias_transcurridos_ciclo = max(0, (baja - ult_ann).days + 1)
-    dias_vac_anuales_actual = Decimal(dias_vacaciones_ley_por_anio_servicio(anios_completos + 1))
-    factor_vac = Decimal(dias_transcurridos_ciclo) / Decimal(dias_anio_ciclo)
-    dias_vac_prop_actual = dias_vac_anuales_actual * factor_vac
-    dias_vac_total_dev = dias_vac_completos + dias_vac_prop_actual
+    vac_ya_in = vacaciones_ya_usadas if vacaciones_ya_usadas > D0 else D0
+    tope_vac_ya_activo = ingreso.year == año_ref
+    vac_ya_eff = vac_ya_in
+    vac_ya_recortado = False
+    if tope_vac_ya_activo and vac_ya_eff > dias_vac_total_dev:
+        vac_ya_eff = dias_vac_total_dev
+        vac_ya_recortado = True
 
-    vac_pend = dias_vac_total_dev - vacaciones_ya_usadas
+    vac_pend = dias_vac_total_dev - vac_ya_eff
     if vac_pend < 0:
         vac_pend = D0
     vacaciones_a_tiempo = _q(salario_diario * vac_pend)
@@ -390,11 +420,11 @@ def calcular_finiquito(
 
     mes_pkg = calc_isr_mes_semanal_mensualizado(bucket_isr_mes_grav, fecha_emision, ingreso_mensual_equiv)
     base_isr_mes_mensualizada = mes_pkg["base_isr_mes_mensualizada"]
-    isr_antes_subsidio_mensual = mes_pkg["isr_antes_subsidio_mensual"]
-    sub_mensual_ap = mes_pkg["subsidio_mensual_topeado"]
-    isr_antes_subsidio = mes_pkg["isr_antes_subsidio_periodo"]
-    sub_ap = mes_pkg["subsidio_periodo_aplicado"]
+    isr_tabla_mensual = mes_pkg["isr_mensual_tabla_art96"]
     isr_mes_neto = mes_pkg["isr_mes_neto"]
+    isr_antes_subsidio = isr_mes_neto
+    sub_ap = D0
+    sub_mensual_ap = D0
 
     isr_174, art174_audit = calc_isr_art174_con_detalle(extra_art174, ultimo_mensual)
     particion_aud = _auditoria_particion(part, total_perc, prima_dom, ptu)
@@ -440,6 +470,11 @@ def calcular_finiquito(
             "factor_vacaciones_ciclo": float(factor_vac.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             "factor_aguinaldo": float((Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
             "vacaciones_devengadas": float(dias_vac_total_dev),
+            "vacaciones_ya_usadas_capturadas": float(vac_ya_in),
+            "vacaciones_ya_usadas_efectivas": float(vac_ya_eff),
+            "vacaciones_ya_usadas_tope_por_ingreso_año_actual": tope_vac_ya_activo,
+            "vacaciones_ya_usadas_max_permitido": float(dias_vac_total_dev) if tope_vac_ya_activo else None,
+            "vacaciones_ya_usadas_se_recorto": vac_ya_recortado,
             "vacaciones_completas_no_pagadas_dias": float(dias_vac_completos),
             "vacaciones_proporcionales_dias": float(dias_vac_prop_actual),
             "vacaciones_pendientes": float(vac_pend),
@@ -462,8 +497,8 @@ def calcular_finiquito(
             "criterio_isr_ordinario": "semanal_mensualizada_tipo_contpaq",
             "modo_total_gravable_activo": modo == "total_gravable",
             "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
-            "isr_antes_subsidio_mensual": float(isr_antes_subsidio_mensual),
-            "subsidio_mensualizado_aplicado": float(sub_mensual_ap),
+            "isr_antes_subsidio_mensual": float(isr_tabla_mensual),
+            "subsidio_mensualizado_aplicado": 0.0,
             "salario_minimo_zona": float(smg),
             "aguinaldo_exento": float(ag_ex),
             "aguinaldo_gravado": float(ag_gr),
@@ -476,9 +511,9 @@ def calcular_finiquito(
             "bucket_art174_gravado": float(extra_art174),
             "bucket_separacion_gravado": float(pa_gr),
             "base_ordinaria_mensualizada": float(base_isr_mes_mensualizada),
-            "isr_antes_subsidio_periodo": float(isr_antes_subsidio),
-            "isr_ordinario_antes_subsidio": float(isr_antes_subsidio),
-            "subsidio_aplicado": float(sub_ap),
+            "isr_antes_subsidio_periodo": float(isr_mes_neto),
+            "isr_ordinario_antes_subsidio": float(isr_mes_neto),
+            "subsidio_aplicado": 0.0,
             "isr_mes_neto": float(isr_mes_neto),
             "isr_ordinario_neto": float(isr_mes_neto),
             "isr_art174": float(isr_174),
@@ -535,11 +570,11 @@ def calcular_finiquito(
                 "base_isr_mes": float(bucket_isr_mes_grav),
                 "usa_total_menos_art174": modo in ("total_gravable", "aguinaldo_todo_gravable"),
                 "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
-                "isr_antes_subsidio": float(isr_antes_subsidio),
-                "subsidio_aplicable": float(sub_ap),
+                "isr_mensual_tabla_art96": float(isr_tabla_mensual),
+                "isr_periodo_41_y_45": float(isr_mes_neto),
                 "isr_mes_final": float(isr_mes_neto),
                 "tarifa_mensual_art96": mes_pkg["tarifa_mensual_art96"],
-                "subsidio_empleo": mes_pkg["subsidio_empleo"],
+                "nota_41_45": mes_aud.get("nota_41_45", ""),
             },
             "isr_art174_detalle": {
                 **art174_audit,
@@ -562,6 +597,8 @@ def calcular_finiquito(
                 "resultado_dias_totales_acumulados": float(dias_vac_total_dev),
                 "resultado_dias_pendientes": float(vac_pend),
                 "monto": float(vacaciones_a_tiempo),
+                "tope_vacaciones_ya_usadas_activo": tope_vac_ya_activo,
+                "tope_max_vacaciones_ya_usadas_dias": float(dias_vac_total_dev) if tope_vac_ya_activo else None,
             },
             "aguinaldo": {
                 "dias_aguinaldo": float(dias_aguinaldo_politica),
@@ -588,10 +625,10 @@ def calcular_finiquito(
                 "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
                 "base_ordinaria_mensualizada": float(base_isr_mes_mensualizada),
                 "mensualizacion_formula": "base_mensualizada = base_isr_mes_periodo / 7 * 30.4",
-                "isr_antes_subsidio_mensual": float(isr_antes_subsidio_mensual),
-                "isr_mensualizado": float(isr_antes_subsidio_mensual),
-                "subsidio_mensualizado": float(sub_mensual_ap),
-                "isr_antes_subsidio_periodo": float(isr_antes_subsidio),
+                "isr_mensual_tabla_art96": float(isr_tabla_mensual),
+                "isr_mensualizado": float(isr_tabla_mensual),
+                "subsidio_mensualizado": 0.0,
+                "isr_periodo_41_y_45": float(isr_mes_neto),
                 "isr_periodo_final": float(isr_mes_neto),
                 "isr_mes_neto_periodo": float(isr_mes_neto),
                 "isr_art174": float(isr_174),
@@ -655,7 +692,8 @@ def _mapear_pdf(
     ajuste_neto: Decimal,
 ) -> dict[str, Any]:
     """
-    Numeración fija: 41 antes de subsidio (no suma), 43 Art.174 (suma), 45 ISR (mes) neto (suma).
+    Numeración fija: 41 (referencia, mismo importe que 45; no suma), 43 Art.174 (suma), 45 ISR (mes) (suma).
+    No se aplica subsidio al empleo: 41 y 45 reflejan el ISR del periodo.
     99 Ajuste al neto se arma en export_docx (suma solo si aplica como deducción).
     suma_d = 45 + 43 + (99 si ajuste negativo) + ISR separación si aplica (para cuadrar neto).
     """
