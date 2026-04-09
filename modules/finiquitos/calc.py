@@ -11,19 +11,10 @@ from datetime import date
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Any, Literal
 
-from modules.finiquitos.config import (
-    ISR_TABLA_MENSUAL_2026,
-    ISR_TABLA_QUINCENAL_2026,
-    SUBSIDIO_LIMITE_MENSUAL_2026,
-    SUBSIDIO_PCT_2026,
-    SUBSIDIO_PCT_ENERO_2026,
-    SMG_FRONTERA_2026,
-    SMG_GENERAL_2026,
-    UMA_DIARIA_2026,
-    UMA_MENSUAL_2025,
-    UMA_MENSUAL_2026,
-)
+from modules.finiquitos.config import SMG_FRONTERA_2026, SMG_GENERAL_2026
 from modules.finiquitos.isr_partition import ParticionISR, particionar_bases_correcto_fiscal, particionar_bases_total_gravable
+from modules.finiquitos.isr_tarifa_art96 import isr_art96_con_detalle, isr_art96_importe
+from modules.finiquitos.subsidio_empleo import calcular_subsidio_empleo_periodo
 
 D2 = Decimal("0.01")
 D0 = Decimal("0")
@@ -33,57 +24,97 @@ def _q(x: Decimal) -> Decimal:
     return x.quantize(D2, rounding=ROUND_HALF_UP)
 
 
-def calc_isr_art174(extra_art174: Decimal, ultimo_mensual: Decimal) -> Decimal:
-    """ISR Art. 174: tasa efectiva por diferencia de tablas sobre mensualización del monto gravado."""
+def calc_isr_art174_con_detalle(
+    extra_art174: Decimal, ultimo_mensual: Decimal
+) -> tuple[Decimal, dict[str, Any]]:
+    """ISR Art. 174: tasa efectiva por diferencia de tablas; retorna ISR y trazabilidad."""
     if extra_art174 <= 0:
-        return D0
+        return D0, {
+            "base_art174": 0.0,
+            "isr_art174": 0.0,
+            "formula_ley": "Sin base gravable Art. 174: ISR = 0.",
+            "remuneracion_mensualizada_174": 0.0,
+            "tasa_efectiva": 0.0,
+            "tarifa_sobre_ultimo_sueldo": None,
+            "tarifa_sobre_sueldo_mas_remuneracion": None,
+        }
+
     rem_m = _q(extra_art174 / Decimal("365") * Decimal("30.4"))
-    iso = isr_art96(ultimo_mensual, "mensual")
-    icon = isr_art96(ultimo_mensual + rem_m, "mensual")
+    d_iso = isr_art96_con_detalle(ultimo_mensual, "mensual")
+    d_icon = isr_art96_con_detalle(ultimo_mensual + rem_m, "mensual")
+    iso = d_iso.isr
+    icon = d_icon.isr
     diff = max(D0, icon - iso)
     if rem_m == 0:
         tasa_174 = D0
     else:
         tasa_174 = (diff / rem_m).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-    return _q(extra_art174 * tasa_174)
+    isr_174 = _q(extra_art174 * tasa_174)
+    formula = (
+        f"Remuneración mensualizada (Art. 174) = base Art. 174 × 30.4 / 365 = {rem_m}; "
+        f"ISR sobre último sueldo (tabla mensual) = {iso}; "
+        f"ISR sobre último sueldo + remuneración = {icon}; "
+        f"diferencia = {diff}; tasa efectiva = {diff} / {rem_m} = {tasa_174}; "
+        f"ISR Art. 174 = base {extra_art174} × tasa = {isr_174}."
+    )
+    return isr_174, {
+        "base_art174": float(extra_art174),
+        "isr_art174": float(isr_174),
+        "formula_ley": formula,
+        "remuneracion_mensualizada_174": float(rem_m),
+        "tasa_efectiva": float(tasa_174),
+        "tarifa_sobre_ultimo_sueldo": d_iso.to_auditoria(),
+        "tarifa_sobre_sueldo_mas_remuneracion": d_icon.to_auditoria(),
+    }
 
 
 def calc_isr_mes_semanal_mensualizado(
     bucket_isr_mes_grav: Decimal,
     fecha_emision: date,
     ingreso_mensual_equiv: Decimal,
-) -> tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]:
+) -> dict[str, Any]:
     """
-    ISR (mes) tipo semanal mensualizado (7 días → tabla mensual art. 96).
-    Retorna: base_mensualizada, isr_antes_subsidio_mensual, subsidio_mensual_aplicado,
-             isr_antes_subsidio_periodo, subsidio_periodo_aplicado, isr_mes_neto.
+    ISR (mes): periodo 7 días, mensualización ÷7×30.4, tarifa mensual art. 96, subsidio solo al ISR del mes.
     """
     dias_periodo = Decimal("7")
-    base_isr_mes_mensualizada = (
-        _q(bucket_isr_mes_grav / dias_periodo * Decimal("30.4")) if bucket_isr_mes_grav > 0 else D0
-    )
-    isr_antes_subsidio_mensual = isr_art96(base_isr_mes_mensualizada, "mensual")
-    sub_mensualizado = subsidio_periodo(
+    factor_mes = Decimal("30.4")
+    base_periodo = _q(bucket_isr_mes_grav)
+    base_mensualizada = _q(base_periodo / dias_periodo * factor_mes) if base_periodo > 0 else D0
+    tarifa_m = isr_art96_con_detalle(base_mensualizada, "mensual")
+    isr_antes_men = tarifa_m.isr
+    sub_det = calcular_subsidio_empleo_periodo(
         fecha_emision,
-        Decimal("30.4"),
+        dias_periodo,
         ingreso_mensual_equiv=ingreso_mensual_equiv,
+        isr_antes_subsidio_mensual=isr_antes_men,
+        factor_mensual_dias=factor_mes,
     )
-    sub_mensual_ap = _q(min(sub_mensualizado, isr_antes_subsidio_mensual))
-    isr_antes_subsidio = _q(isr_antes_subsidio_mensual / Decimal("30.4") * dias_periodo)
-    sub_ap = _q(sub_mensual_ap / Decimal("30.4") * dias_periodo)
-    sub_ap = _q(min(sub_ap, isr_antes_subsidio))
-    isr_mes_neto = _q(max(D0, isr_antes_subsidio - sub_ap))
-    return (
-        base_isr_mes_mensualizada,
-        isr_antes_subsidio_mensual,
-        sub_mensual_ap,
-        isr_antes_subsidio,
-        sub_ap,
-        isr_mes_neto,
-    )
+    isr_antes_periodo = sub_det.isr_antes_subsidio_periodo
+    sub_ap = sub_det.subsidio_aplicado
+    isr_mes_neto = _q(max(D0, isr_antes_periodo - sub_ap))
+    return {
+        "base_isr_mes_periodo": base_periodo,
+        "dias_periodo": dias_periodo,
+        "tipo_periodo": "Semanal equivalente (7 días de pago); tarifa mensual art. 96 LISR (mensualización tipo nómina).",
+        "factor_mensual_dias": factor_mes,
+        "formula_mensualizacion": f"base mensualizada = (base periodo {base_periodo} ÷ {dias_periodo}) × {factor_mes} = {base_mensualizada}",
+        "base_isr_mes_mensualizada": base_mensualizada,
+        "tarifa_mensual_art96": tarifa_m.to_auditoria(),
+        "subsidio_empleo": sub_det.to_auditoria(),
+        "isr_antes_subsidio_mensual": isr_antes_men,
+        "subsidio_mensual_topeado": sub_det.subsidio_topeado_mensual,
+        "isr_antes_subsidio_periodo": isr_antes_periodo,
+        "subsidio_periodo_aplicado": sub_ap,
+        "isr_mes_neto": isr_mes_neto,
+    }
 
 
-def _auditoria_particion(part: ParticionISR, total_percepciones_finiquito: Decimal) -> dict[str, Any]:
+def _auditoria_particion(
+    part: ParticionISR,
+    total_percepciones_finiquito: Decimal,
+    prima_dom: Decimal,
+    ptu: Decimal,
+) -> dict[str, Any]:
     """total_percepciones_finiquito incluye todas las líneas del recibo (p. ej. prima de antigüedad)."""
     return {
         "modo": part.modo,
@@ -97,10 +128,34 @@ def _auditoria_particion(part: ParticionISR, total_percepciones_finiquito: Decim
         "prima_vacacional_monto": float(part.prima_vacacional),
         "prima_vac_exenta_aplicada": float(part.prima_vac_exenta_aplicada),
         "excedente_prima_vacacional": float(part.excedente_prima_vacacional),
+        "prima_dominical_total": float(prima_dom),
+        "prima_dominical_exento": 0.0,
         "excedente_prima_dominical": float(part.excedente_prima_dominical),
+        "ptu_total": float(ptu),
+        "ptu_exento": 0.0,
         "excedente_ptu": float(part.excedente_ptu),
         "base_art174": float(part.base_art174),
         "base_isr_mes": float(part.base_isr_mes),
+    }
+
+
+def _mes_pkg_para_auditoria(m: dict[str, Any]) -> dict[str, Any]:
+    """Serializa el paquete de ISR (mes) para JSON / UI."""
+    return {
+        "titulo": "4) ISR del mes (base legal: art. 96 LISR / tarifa oficial vigente)",
+        "base_isr_mes_periodo": float(m["base_isr_mes_periodo"]),
+        "dias_periodo": float(m["dias_periodo"]),
+        "tipo_periodo": m["tipo_periodo"],
+        "factor_mensual_dias": float(m["factor_mensual_dias"]),
+        "formula_mensualizacion": m["formula_mensualizacion"],
+        "base_isr_mes_mensualizada": float(m["base_isr_mes_mensualizada"]),
+        "tarifa_mensual_art96": m["tarifa_mensual_art96"],
+        "subsidio_empleo": m["subsidio_empleo"],
+        "isr_antes_subsidio_mensual": float(m["isr_antes_subsidio_mensual"]),
+        "isr_antes_subsidio_periodo": float(m["isr_antes_subsidio_periodo"]),
+        "subsidio_mensual_topeado": float(m["subsidio_mensual_topeado"]),
+        "subsidio_periodo_aplicado": float(m["subsidio_periodo_aplicado"]),
+        "isr_mes_neto": float(m["isr_mes_neto"]),
     }
 
 
@@ -162,47 +217,8 @@ def dias_vacaciones_ley_por_anio_servicio(anio_servicio: int) -> int:
 
 
 def isr_art96(base_gravada: Decimal, periodicidad: Literal["quincenal", "mensual", "15_dias"]) -> Decimal:
-    if base_gravada <= 0:
-        return D0
-    tab = ISR_TABLA_QUINCENAL_2026 if periodicidad in ("quincenal", "15_dias") else ISR_TABLA_MENSUAL_2026
-    bg = _q(base_gravada)
-    for lim_inf, lim_sup, cuota, pct in tab:
-        if bg < lim_inf:
-            continue
-        if lim_sup is not None and bg > lim_sup:
-            continue
-        excedente = bg - lim_inf
-        isr = cuota + excedente * (pct / Decimal("100"))
-        return _q(isr)
-    return D0
-
-
-def subsidio_mensual_para_fecha(fecha_pago: date) -> Decimal:
-    if fecha_pago.year == 2026 and fecha_pago.month == 1:
-        return _q(UMA_MENSUAL_2025 * SUBSIDIO_PCT_ENERO_2026)
-    return _q(UMA_MENSUAL_2026 * SUBSIDIO_PCT_2026)
-
-
-def subsidio_periodo(
-    fecha_pago: date,
-    dias_periodo: Decimal,
-    *,
-    ingreso_mensual_equiv: Decimal,
-) -> Decimal:
-    """
-    Subsidio al empleo para el periodo; no mezclar con pagos por separación en la base elegible.
-    Elegibilidad: ingreso mensual equivalente (salario_diario * 30.4) vs límite mensual.
-    Monto: UMA diaria (enero: UMA mensual 2025 / 30.4) × pct × días del periodo (coherente con ejemplo 264.30).
-    """
-    if ingreso_mensual_equiv <= 0 or ingreso_mensual_equiv > SUBSIDIO_LIMITE_MENSUAL_2026:
-        return D0
-    if fecha_pago.year == 2026 and fecha_pago.month == 1:
-        uma_d = UMA_MENSUAL_2025 / Decimal("30.4")
-        pct = SUBSIDIO_PCT_ENERO_2026
-    else:
-        uma_d = UMA_DIARIA_2026
-        pct = SUBSIDIO_PCT_2026
-    return _q(uma_d * pct * dias_periodo)
+    """ISR art. 96; la trazabilidad de fila está en `isr_art96_con_detalle`."""
+    return isr_art96_importe(base_gravada, periodicidad)
 
 
 def anios_exentos_separacion(anios_exactos: Decimal) -> int:
@@ -372,16 +388,17 @@ def calcular_finiquito(
     ingreso_mensual_equiv = salario_mensual_capturado if salario_mensual_capturado is not None else _q(salario_diario * Decimal("30.4"))
     ultimo_mensual = ingreso_mensual_equiv
 
-    (
-        base_isr_mes_mensualizada,
-        isr_antes_subsidio_mensual,
-        sub_mensual_ap,
-        isr_antes_subsidio,
-        sub_ap,
-        isr_mes_neto,
-    ) = calc_isr_mes_semanal_mensualizado(bucket_isr_mes_grav, fecha_emision, ingreso_mensual_equiv)
+    mes_pkg = calc_isr_mes_semanal_mensualizado(bucket_isr_mes_grav, fecha_emision, ingreso_mensual_equiv)
+    base_isr_mes_mensualizada = mes_pkg["base_isr_mes_mensualizada"]
+    isr_antes_subsidio_mensual = mes_pkg["isr_antes_subsidio_mensual"]
+    sub_mensual_ap = mes_pkg["subsidio_mensual_topeado"]
+    isr_antes_subsidio = mes_pkg["isr_antes_subsidio_periodo"]
+    sub_ap = mes_pkg["subsidio_periodo_aplicado"]
+    isr_mes_neto = mes_pkg["isr_mes_neto"]
 
-    isr_174 = calc_isr_art174(extra_art174, ultimo_mensual)
+    isr_174, art174_audit = calc_isr_art174_con_detalle(extra_art174, ultimo_mensual)
+    particion_aud = _auditoria_particion(part, total_perc, prima_dom, ptu)
+    mes_aud = _mes_pkg_para_auditoria(mes_pkg)
 
     # Separación art 95/96
     if pa_gr > 0:
@@ -468,7 +485,7 @@ def calcular_finiquito(
             "isr_separacion": float(isr_sep),
         },
         "auditoria": {
-            "particion_isr": _auditoria_particion(part, total_perc),
+            "particion_isr": particion_aud,
             "percepciones_finiquito": [
                 {"concepto": "Sueldo", "monto": float(sueldo)},
                 {"concepto": "Séptimo día", "monto": float(septimo)},
@@ -479,6 +496,39 @@ def calcular_finiquito(
                 {"concepto": "Prima dominical", "monto": float(prima_dom)},
                 {"concepto": "PTU", "monto": float(ptu)},
             ],
+            "seccion_fiscal": {
+                "A_resumen_percepciones": {
+                    "titulo": "A) Resumen de percepciones",
+                    "sueldo": float(sueldo),
+                    "septimo_dia": float(septimo),
+                    "vacaciones": float(vacaciones_a_tiempo),
+                    "aguinaldo": float(aguinaldo),
+                    "prima_vacacional": float(prima_vac_neta),
+                    "prima_dominical": float(prima_dom),
+                    "ptu": float(ptu),
+                    "prima_antiguedad": float(prima_antig_monto),
+                    "total_percepciones": float(total_perc),
+                },
+                "B_determinacion_art174": {
+                    "titulo": "B) Determinación de base Art. 174",
+                    **particion_aud,
+                },
+                "C_base_isr_mes": {
+                    "titulo": "C) Determinación de base ISR (mes)",
+                    "total_percepciones": float(total_perc),
+                    "base_art174_resta": float(extra_art174),
+                    "base_isr_mes": float(bucket_isr_mes_grav),
+                    "usa_total_menos_art174": modo in ("total_gravable", "aguinaldo_todo_gravable"),
+                },
+                "D_isr_mes_art96": mes_aud,
+                "E_isr_art174": {"titulo": "5) ISR Art. 174 (cálculo separado)", **art174_audit},
+                "F_ajuste_neto": {
+                    "titulo": "F) Ajuste al neto",
+                    "neto_previo": float(neto_prev),
+                    "ajuste": float(ajuste_neto),
+                    "neto_final": float(neto_final),
+                },
+            },
             "isr_mes_detalle": {
                 "total_percepciones": float(total_perc),
                 "base_art174": float(extra_art174),
@@ -488,10 +538,12 @@ def calcular_finiquito(
                 "isr_antes_subsidio": float(isr_antes_subsidio),
                 "subsidio_aplicable": float(sub_ap),
                 "isr_mes_final": float(isr_mes_neto),
+                "tarifa_mensual_art96": mes_pkg["tarifa_mensual_art96"],
+                "subsidio_empleo": mes_pkg["subsidio_empleo"],
             },
             "isr_art174_detalle": {
-                "base_art174": float(extra_art174),
-                "isr_art174": float(isr_174),
+                **art174_audit,
+                "titulo": "5) ISR Art. 174 (cálculo separado)",
             },
             "base_sueldo": {
                 "sueldo_semanal_estimado": float(_q(salario_diario * Decimal("7"))),

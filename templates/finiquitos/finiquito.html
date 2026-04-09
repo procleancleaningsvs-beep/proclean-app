@@ -237,50 +237,126 @@
     renderAdvanced(resp);
   }
 
+  function limSupTarifa(row) {
+    if (!row || !row.fila_numero) return '—';
+    if (row.limite_superior_en_adelante) return 'En adelante';
+    if (row.limite_superior != null && row.limite_superior !== undefined) return '$' + fmt(row.limite_superior);
+    return '—';
+  }
+
+  function renderTarifaArt96Bloque(row) {
+    if (!row || !row.fila_numero) return '<div class="helper">Sin fila de tarifa (base no gravable o fuera de tabla).</div>';
+    return `<div>Tabla: <span class="helper">${row.referencia_tabla || ''}</span></div>
+      <div>Fila aplicada: <strong>#${row.fila_numero}</strong> (${row.periodicidad || ''})</div>
+      <div>Base gravada usada en la fila: $${fmt(row.base_gravada)}</div>
+      <div>Límite inferior: $${fmt(row.limite_inferior)}</div>
+      <div>Límite superior: ${limSupTarifa(row)}</div>
+      <div>Cuota fija: $${fmt(row.cuota_fija)}</div>
+      <div>Porcentaje marginal sobre excedente: <strong>${fmt(row.porcentaje_marginal)}%</strong></div>
+      <div>Excedente del límite inferior: $${fmt(row.excedente_limite_inferior)}</div>
+      <div>ISR calculado (art. 96, misma periodicidad que la tabla): <strong>$${fmt(row.isr)}</strong></div>
+      <div class="helper" style="white-space:pre-wrap;">${String(row.formula_pasos || '')}</div>`;
+  }
+
+  function renderSubsidioBloque(s) {
+    if (!s) return '';
+    return `<div>Ingreso mensual equivalente (elegibilidad): $${fmt(s.ingreso_mensual_base)}</div>
+      <div>Límite legal de ingresos para subsidio (config): $${fmt(s.limite_ingresos_subsidio)}</div>
+      <div>¿Elegible?: <strong>${s.es_elegible ? 'Sí' : 'No'}</strong> — ${s.motivo_elegibilidad || ''}</div>
+      <div>UMA mensual de referencia: $${fmt(s.uma_mensual_utilizada)}</div>
+      <div>UMA diaria usada en fórmula de subsidio: $${fmt(s.uma_diaria_para_subsidio)}</div>
+      <div>Porcentaje legal (sobre UMA): ${fmt(s.porcentaje_sobre_uma_pct)}% <span class="helper">(fracción ${s.porcentaje_sobre_uma_fraccion})</span></div>
+      <div>Factor mes (días): ${fmt(s.dias_factor_mes)}</div>
+      <div>Subsidio mensual máximo (UMA mensual × %): $${fmt(s.subsidio_mensual_maximo)}</div>
+      <div>Días del periodo de pago: ${fmt(s.dias_periodo)}</div>
+      <div>Subsidio topeado por ISR mensual: $${fmt(s.subsidio_topeado_por_isr_mensual)}</div>
+      <div>Subsidio máximo del periodo (prorrateo): $${fmt(s.subsidio_periodo_maximo)}</div>
+      <div class="helper" style="white-space:pre-wrap;">${String(s.formula_prorrateo || '')}</div>
+      <div><strong>Subsidio aplicado al ISR del periodo</strong> (solo contra 41, no contra Art. 174): $${fmt(s.subsidio_aplicado)}</div>`;
+  }
+
   function renderAdvanced(resp){
     const a = resp.resultado.auditoria || {}, pv = (a.prima_vacacional || {});
-    const pi = a.particion_isr || {}, im = a.isr_mes_detalle || {}, ia = a.isr_art174_detalle || {};
-    const perc = a.percepciones_finiquito || [];
+    const sf = a.seccion_fiscal || {};
+    const A = sf.A_resumen_percepciones || {};
+    const B = sf.B_determinacion_art174 || {};
+    const C = sf.C_base_isr_mes || {};
+    const D = sf.D_isr_mes_art96 || {};
+    const E = sf.E_isr_art174 || {};
+    const F = sf.F_ajuste_neto || a.ajuste_neto || {};
+    const tarM = D.tarifa_mensual_art96 || {};
+    const sub = D.subsidio_empleo || {};
+
     $('advanced').hidden = false;
-    const percepcionesRows = perc.length
-      ? perc.map((p) => `<div>${p.concepto}: <strong>$${fmt(p.monto)}</strong></div>`).join('')
-      : '';
-    const bloque1 = `<div class="adv-hdr"><strong>1) Base total de percepciones</strong></div>
-      ${percepcionesRows}
-      <div>UMA diaria (referencia): <strong>$${fmt(pi.uma_diaria)}</strong></div>
-      <div><strong>Total percepciones:</strong> $${fmt(pi.total_percepciones)}</div>`;
-    const bloque2 = `<div class="adv-hdr"><strong>2) Determinación Art. 174</strong> (excedentes sobre exentos UMA)</div>
-      <div>Aguinaldo (monto): $${fmt(pi.aguinaldo_monto)}</div>
-      <div>Exento máximo aguinaldo (30 UMA): $${fmt(pi.limite_exento_aguinaldo)}</div>
-      <div>Excedente aguinaldo: $${fmt(pi.excedente_aguinaldo)}</div>
-      <div>Prima vacacional (monto): $${fmt(pi.prima_vacacional_monto)}</div>
-      <div>Exento máximo prima vacacional (15 UMA): $${fmt(pi.limite_exento_prima_vacacional)}</div>
-      <div>Excedente prima vacacional: $${fmt(pi.excedente_prima_vacacional)}</div>
-      <div>Excedente prima dominical: $${fmt(pi.excedente_prima_dominical)}</div>
-      <div>Excedente PTU: $${fmt(pi.excedente_ptu)}</div>
-      <div><strong>Base Art. 174:</strong> $${fmt(pi.base_art174)}</div>`;
-    const bloque3 = im.usa_total_menos_art174
-      ? `<div class="adv-hdr"><strong>3) Determinación ISR (mes)</strong></div>
-        <div>Total percepciones: $${fmt(im.total_percepciones)}</div>
-        <div>Menos base Art. 174: $${fmt(im.base_art174)}</div>
-        <div><strong>Base ISR (mes):</strong> $${fmt(im.base_isr_mes)}</div>`
-      : `<div class="adv-hdr"><strong>3) Determinación ISR (mes)</strong></div>
-        <div><strong>Base ISR (mes)</strong> (sueldo + séptimo + vacaciones, sin Art. 174): $${fmt(im.base_isr_mes)}</div>
-        <div class="helper">En modo fiscal la base del mes no se obtiene como total de percepciones menos Art. 174.</div>`;
-    const bloque4 = `<div class="adv-hdr"><strong>4) ISR del mes</strong> (sobre base ISR mes)</div>
-      <div>Base ISR (mes) periodo (7 días equiv.): $${fmt(im.base_isr_mes)}</div>
-      <div>Base mensualizada (÷7×30.4): $${fmt(im.base_isr_mes_mensualizada)}</div>
-      <div>41 I.S.R. antes de Subs al empleo (periodo): $${fmt(im.isr_antes_subsidio)}</div>
-      <div>Subsidio aplicable (periodo): $${fmt(im.subsidio_aplicable)}</div>
-      <div>45 I.S.R. (mes) final: $${fmt(im.isr_mes_final)}</div>`;
-    const bloque5 = `<div class="adv-hdr"><strong>5) ISR Art. 174</strong></div>
-      <div>Base Art. 174: $${fmt(ia.base_art174)}</div>
-      <div>43 I.S.R. Art174: $${fmt(ia.isr_art174)}</div>`;
-    const bloque6 = `<div class="adv-hdr"><strong>6) Ajuste al neto</strong></div>
-      <div>Neto previo: $${fmt(a.ajuste_neto?.neto_previo)}</div>
-      <div>99 Ajuste al neto: $${fmt(a.ajuste_neto?.ajuste)}</div>
-      <div>Neto final: $${fmt(a.ajuste_neto?.neto_final)}</div>`;
+
+    const fiscalHtml = sf && Object.keys(sf).length ? `
+      <div style="grid-column:1/-1;"><h3 class="adv-hdr-major">Sección fiscal — ISR y subsidio al empleo</h3></div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${A.titulo || 'A) Resumen de percepciones'}</strong></div>
+        <div>Sueldo: $${fmt(A.sueldo)}</div>
+        <div>Séptimo día: $${fmt(A.septimo_dia)}</div>
+        <div>Vacaciones: $${fmt(A.vacaciones)}</div>
+        <div>Aguinaldo: $${fmt(A.aguinaldo)}</div>
+        <div>Prima vacacional: $${fmt(A.prima_vacacional)}</div>
+        <div>Prima dominical: $${fmt(A.prima_dominical)}</div>
+        <div>PTU: $${fmt(A.ptu)}</div>
+        <div>Prima de antigüedad: $${fmt(A.prima_antiguedad)}</div>
+        <div><strong>Total percepciones:</strong> $${fmt(A.total_percepciones)}</div>
+      </div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${B.titulo || 'B) Determinación de base Art. 174'}</strong></div>
+        <div>UMA diaria (referencia): $${fmt(B.uma_diaria)}</div>
+        <div>Aguinaldo total: $${fmt(B.aguinaldo_monto)} · Exento (30 UMA): $${fmt(B.limite_exento_aguinaldo)} · Excedente: $${fmt(B.excedente_aguinaldo)}</div>
+        <div>Prima vac. total: $${fmt(B.prima_vacacional_monto)} · Exento (15 UMA): $${fmt(B.limite_exento_prima_vacacional)} · Excedente: $${fmt(B.excedente_prima_vacacional)}</div>
+        <div>Prima dominical: total $${fmt(B.prima_dominical_total)} · Exento $${fmt(B.prima_dominical_exento)} · Excedente $${fmt(B.excedente_prima_dominical)}</div>
+        <div>PTU: total $${fmt(B.ptu_total)} · Exento $${fmt(B.ptu_exento)} · Excedente $${fmt(B.excedente_ptu)}</div>
+        <div><strong>Base Art. 174:</strong> $${fmt(B.base_art174)}</div>
+      </div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${C.titulo || 'C) Determinación de base ISR (mes)'}</strong></div>
+        ${C.usa_total_menos_art174 ? `
+          <div>Total percepciones: $${fmt(C.total_percepciones)}</div>
+          <div>Menos base Art. 174: $${fmt(C.base_art174_resta)}</div>
+          <div><strong>Base ISR (mes):</strong> $${fmt(C.base_isr_mes)}</div>` : `
+          <div><strong>Base ISR (mes)</strong> (modo fiscal: sueldo + séptimo + vacaciones): $${fmt(C.base_isr_mes)}</div>
+          <div class="helper">En modo fiscal no equivale a «total − Art. 174».</div>`}
+      </div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${D.titulo || '4) ISR del mes (art. 96 LISR)'}</strong></div>
+        <div>Base del periodo: $${fmt(D.base_isr_mes_periodo)}</div>
+        <div>Tipo de periodo: ${D.tipo_periodo || ''}</div>
+        <div>Días del periodo: ${fmt(D.dias_periodo)} · Factor mensualización: ${fmt(D.factor_mensual_dias)} días</div>
+        <div class="helper">${D.formula_mensualizacion || ''}</div>
+        <div><strong>Base mensualizada</strong> (para tabla mensual): $${fmt(D.base_isr_mes_mensualizada)}</div>
+        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>Tarifa art. 96 (tabla mensual)</strong></div>
+        ${renderTarifaArt96Bloque(tarM)}
+        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>ISR antes de subsidio — periodo (clave 41)</strong></div>
+        <div>ISR mensual (tabla): $${fmt(D.isr_antes_subsidio_mensual)} → prorrateado a ${fmt(D.dias_periodo)} días: <strong>$${fmt(D.isr_antes_subsidio_periodo)}</strong></div>
+        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>Subsidio al empleo (solo contra ISR del mes)</strong></div>
+        ${renderSubsidioBloque(sub)}
+        <div class="adv-hdr" style="margin-top:0.5rem;"><strong>45 I.S.R. (mes) final</strong></div>
+        <div>$${fmt(D.isr_mes_neto)}</div>
+      </div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${E.titulo || '5) ISR Art. 174'}</strong></div>
+        <div>Base Art. 174: $${fmt(E.base_art174)}</div>
+        <div>Conceptos: excedente aguinaldo + excedente prima vac. + prima dom. + PTU (sin vacaciones normales).</div>
+        <div>43 I.S.R. Art174: <strong>$${fmt(E.isr_art174)}</strong></div>
+        <div class="helper" style="white-space:pre-wrap;">${String(E.formula_ley || '')}</div>
+        ${E.tarifa_sobre_ultimo_sueldo ? `<div class="adv-hdr" style="margin-top:0.35rem;">Tarifa sobre último sueldo mensual</div>${renderTarifaArt96Bloque(E.tarifa_sobre_ultimo_sueldo)}` : ''}
+        ${E.tarifa_sobre_sueldo_mas_remuneracion ? `<div class="adv-hdr" style="margin-top:0.35rem;">Tarifa sobre último sueldo + remuneración mensualizada (Art. 174)</div>${renderTarifaArt96Bloque(E.tarifa_sobre_sueldo_mas_remuneracion)}` : ''}
+      </div>
+      <div style="grid-column:1/-1;" class="fin-fiscal-block">
+        <div class="adv-hdr"><strong>${F.titulo || 'F) Ajuste al neto'}</strong></div>
+        <div>Neto previo: $${fmt(F.neto_previo)}</div>
+        <div>99 Ajuste al neto: $${fmt(F.ajuste)}</div>
+        <div>Neto final: $${fmt(F.neto_final)}</div>
+      </div>
+    ` : '';
+
     $('advanced_body').innerHTML = `
+      ${fiscalHtml}
+      <div style="grid-column:1/-1;margin-top:0.75rem;"><h3 class="adv-hdr-major">Detalle laboral (devengados)</h3></div>
       <div><strong>Base sueldo</strong><br>Sueldo semanal: $${fmt(a.base_sueldo?.sueldo_semanal_estimado)}<br>Salario diario: $${fmt(a.base_sueldo?.salario_diario_calculado)}<br>${a.base_sueldo?.formula || ''}</div>
       <div><strong>Vacaciones</strong><br>
         Días anuales por derecho: ${fmt4(a.vacaciones?.dias_vacaciones_corresponden)}<br>
@@ -300,13 +376,7 @@
         Total días aguinaldo acumulados: ${fmt4(a.aguinaldo?.resultado_dias_totales)}<br>
         Monto: salario_diario * ${fmt4(a.aguinaldo?.resultado_dias_totales)} = $${fmt(a.aguinaldo?.resultado)}
       </div>
-      <div><strong>Prima vacacional</strong><br>Días base: ${fmt4(pv.base_dias)}<br>Base monto: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>
-      ${bloque1}
-      ${bloque2}
-      ${bloque3}
-      ${bloque4}
-      ${bloque5}
-      ${bloque6}`;
+      <div><strong>Prima vacacional</strong><br>Días base: ${fmt4(pv.base_dias)}<br>Base monto: $${fmt(pv.base)}<br>Porcentaje: ${pv.porcentaje}%<br>${pv.formula}<br>Resultado: $${fmt(pv.resultado)}</div>`;
   }
 
   $('btn_excel').addEventListener('click', async () => {
