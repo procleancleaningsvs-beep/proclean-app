@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
@@ -20,6 +19,7 @@ from modules.finiquitos.calc import (
     prima_antiguedad_aplica_separacion_voluntaria,
 )
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_pdf
+from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.liquidacion import calcular_liquidacion_comparativa
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
@@ -351,9 +351,7 @@ def api_pdf():
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
 
-    pretty_name = (p["nombre"] or "Empleado").strip()
-    safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]+', "", pretty_name).strip() or "Empleado"
-    fname = f"Finiquito {safe_name}.pdf"
+    fname = build_finiquito_pdf_filename(p["nombre"] or "")
     return Response(
         pdf_b,
         mimetype="application/pdf",
@@ -414,9 +412,7 @@ def api_historial_finiquito():
                 pdf_b = render_finiquito_pdf(docx_b)
                 gen = Path(current_app.config["GENERATED_DIR"])
                 gen.mkdir(parents=True, exist_ok=True)
-                pretty_name = (p["nombre"] or "Empleado").strip()
-                safe_name = re.sub(r'[<>:"/\\\\|?*\\x00-\\x1f]+', "", pretty_name).strip() or "Empleado"
-                pdf_fn = f"Finiquito {safe_name}.pdf"
+                pdf_fn = build_finiquito_pdf_filename(p["nombre"] or "")
                 pdf_path = str(gen / pdf_fn)
                 Path(pdf_path).write_bytes(pdf_b)
             except Exception:

@@ -20,6 +20,35 @@ def _local(tag: str) -> str:
     return f"{{{W_NS}}}{tag}"
 
 
+def remove_empty_table_rows_in_docx_bytes(docx_bytes: bytes) -> bytes:
+    """
+    Elimina filas de tabla (w:tr) cuyo texto visible queda vacío tras el reemplazo.
+    Evita renglones muertos en el PDF (p. ej. fila separadora vacía u opcionales sin datos).
+    """
+    buf = BytesIO()
+    with ZipFile(BytesIO(docx_bytes), "r") as zin:
+        with ZipFile(buf, "w", ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "word/document.xml":
+                    root = ET.fromstring(data)
+                    for tbl in root.iter(_local("tbl")):
+                        _remove_empty_trs_from_tbl(tbl)
+                    data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                zout.writestr(info, data)
+    return buf.getvalue()
+
+
+def _remove_empty_trs_from_tbl(tbl: ET.Element) -> None:
+    tr_tag = _local("tr")
+    for tr in list(tbl):
+        if tr.tag != tr_tag:
+            continue
+        full = "".join(t.text or "" for t in tr.iter(_local("t")))
+        if not full.strip():
+            tbl.remove(tr)
+
+
 def replace_placeholders_in_docx_bytes(docx_bytes: bytes, mapping: dict[str, str]) -> bytes:
     """
     mapping: claves con llaves, p. ej. '{t1}' -> '1,890.24'
