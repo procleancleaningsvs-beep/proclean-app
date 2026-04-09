@@ -36,8 +36,9 @@ def _patch_document_xml(s: str) -> str:
         raise RuntimeError("No se encontró el ancla para insertar párrafo de fecha límite de pago.")
     s = s.replace(needle, insert, 1)
 
-    s = s.replace('w:top="1880"', 'w:top="1440"')
-    s = s.replace('w:header="912"', 'w:header="708"')
+    # No reducir w:top / w:header: en LibreOffice suele recortarse el logo del encabezado al exportar PDF.
+    # s = s.replace('w:top="1880"', 'w:top="1440"')
+    # s = s.replace('w:header="912"', 'w:header="708"')
     s = s.replace('<w:trHeight w:val="3303"/>', '<w:trHeight w:val="2600"/>')
 
     s = s.replace(
