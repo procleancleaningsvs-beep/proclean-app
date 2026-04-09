@@ -24,6 +24,14 @@ class TestNombreEmpleadoDocumento(unittest.TestCase):
             "YAHIR RAMON",
         )
 
+    def test_nombre_largo_documento(self):
+        self.assertEqual(
+            normalizar_nombre_empleado_documento(
+                "Justin Alexander Barbosa Villalobos"
+            ),
+            "JUSTIN ALEXANDER BARBOSA VILLALOBOS",
+        )
+
 
 class TestNombrePropioArchivo(unittest.TestCase):
     def test_minusculas(self):
@@ -54,6 +62,14 @@ class TestNombrePropioArchivo(unittest.TestCase):
         self.assertEqual(
             build_finiquito_pdf_filename("yahir ramon ramirez mata"),
             "Finiquito Yahir Ramon Ramirez Mata.pdf",
+        )
+
+    def test_particulas_espanol(self):
+        self.assertEqual(
+            build_finiquito_pdf_filename(
+                "maria del rosario de los angeles camarena"
+            ),
+            "Finiquito Maria del Rosario de los Angeles Camarena.pdf",
         )
 
 

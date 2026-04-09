@@ -24,6 +24,54 @@ def _as_positive_amount_str(s: str) -> str:
     return format_importe(abs(Decimal(raw)))
 
 
+def _fila_deduccion_docx_visible(num: str, concepto: str, importe_fmt: str) -> bool:
+    return bool((num or "").strip() or (concepto or "").strip() or (importe_fmt or "").strip())
+
+
+def empaquetar_filas_deduccion_para_docx(
+    pdf: dict[str, Any],
+    *,
+    nd: str,
+    cd: str,
+    t11d: str,
+) -> dict[str, str]:
+    """
+    Reacomoda solo los placeholders de deducción (mismos slots del template n8–nd):
+    conceptos con datos suben a las primeras filas de la columna sin dejar huecos entre activos.
+    No modifica la tabla del DOCX, solo valores sustituidos.
+    """
+    orden: list[tuple[str, str, str]] = []
+    if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
+        orden.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
+    if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
+        orden.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
+    if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
+        orden.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
+    sep_n = (pdf.get("n_sep") or "").strip()
+    sep_c = (pdf.get("c_sep") or "").strip()
+    sep_t = (pdf.get("t_sep") or "").strip()
+    if _fila_deduccion_docx_visible(sep_n, sep_c, sep_t):
+        orden.append((pdf.get("n_sep", ""), pdf.get("c_sep", ""), pdf.get("t_sep", "")))
+    if _fila_deduccion_docx_visible(nd, cd, t11d):
+        orden.append((nd, cd, t11d))
+
+    slots: tuple[tuple[str, str, str], ...] = (
+        ("n8", "c_isa", "t8"),
+        ("n9", "c_i174", "t9"),
+        ("n10", "c_imes", "t10"),
+        ("nd", "cd", "t11d"),
+    )
+    out: dict[str, str] = {k: "" for trio in slots for k in trio}
+    for i, trio in enumerate(slots):
+        if i < len(orden):
+            num, conc, imp = orden[i]
+            nk, ck, tk = trio
+            out[nk] = num
+            out[ck] = conc
+            out[tk] = imp
+    return out
+
+
 def build_finiquito_placeholders(
     *,
     lugar_emision: str,
@@ -59,6 +107,7 @@ def build_finiquito_placeholders(
     fecha_limite = fecha_limite_pago_finiquito_larga(fecha_emision)
     nombre_doc = normalizar_nombre_empleado_documento(empleado_nombre)
     t11_val = "" if ajuste == 0 else format_importe(ajuste)
+    ded_docx = empaquetar_filas_deduccion_para_docx(pdf, nd=nd, cd=cd, t11d=t11d)
     return {
         "{lugar_emision}": lugar_emision or "",
         "{estado_emision}": estado_emision or "",
@@ -94,9 +143,9 @@ def build_finiquito_placeholders(
         "{np}": np,
         "{cp}": cp,
         "{t11p}": t11p,
-        "{nd}": nd,
-        "{cd}": cd,
-        "{t11d}": _as_positive_amount_str(t11d),
+        "{nd}": ded_docx["nd"],
+        "{cd}": ded_docx["cd"],
+        "{t11d}": _as_positive_amount_str(ded_docx["t11d"]),
         "{suma_p}": format_importe(Decimal(str(tot["total_percepciones"]))),
         "{suma_d}": pdf["suma_d"],
     }
