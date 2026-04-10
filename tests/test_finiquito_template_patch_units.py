@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from modules.finiquitos.finiquito_template_patch import (
+    _patch_footer_drawing_not_behind_document,
     _patch_header_logo_src_rect,
     _patch_pg_mar_footer_gap,
     _patch_table_spacer_row,
@@ -22,13 +23,22 @@ class TestTemplatePatchUnits(unittest.TestCase):
         s = '<w:tr><w:trPr><w:trHeight w:val="2986"/></w:trPr></w:tr>'
         o = _patch_table_spacer_row(s)
         self.assertIn('w:hRule="atLeast"', o)
-        self.assertIn('w:val="1280"', o)
+        self.assertIn('w:val="1520"', o)
         self.assertNotIn("2986", o)
 
     def test_footer_margin(self):
         s = '<w:pgMar w:top="1" w:footer="827" w:left="0"/>'
         o = _patch_pg_mar_footer_gap(s)
         self.assertIn('w:footer="1120"', o)
+
+    def test_footer_anchor_behind_doc_off(self):
+        s = (
+            '<wp:anchor distT="0" behindDoc="1" locked="0">'
+            '<wp:anchor distT="0" behindDoc="1" locked="0">'
+        )
+        o = _patch_footer_drawing_not_behind_document(s)
+        self.assertEqual(o.count('behindDoc="0"'), 2)
+        self.assertNotIn('behindDoc="1"', o)
 
 
 if __name__ == "__main__":

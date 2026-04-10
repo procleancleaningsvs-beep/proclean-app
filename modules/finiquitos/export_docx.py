@@ -29,6 +29,17 @@ def _fila_deduccion_docx_visible(num: str, concepto: str, importe_fmt: str) -> b
     return bool((num or "").strip() or (concepto or "").strip() or (importe_fmt or "").strip())
 
 
+def _importe_percepcion_docx(val: Any) -> str:
+    """Importe en columna de percepciones: sin renglón visible si el monto es cero."""
+    try:
+        d = Decimal(str(val))
+    except Exception:
+        return ""
+    if d == 0:
+        return ""
+    return format_importe(d)
+
+
 def empaquetar_filas_deduccion_para_docx(
     pdf: dict[str, Any],
     *,
@@ -37,37 +48,34 @@ def empaquetar_filas_deduccion_para_docx(
     t11d: str,
 ) -> dict[str, str]:
     """
-    Compacta solo las filas ISR (41/43/45 → slots n8–n10): los conceptos activos suben
-    consecutivos sin dejar filas “muertas” si el intermedio no aplica.
-
-    El ajuste al neto en deducciones sigue fijo en {nd}{cd}{t11d} (última fila del bloque).
+    Una sola cola de deducciones activas (41 / 43 / 45 y, al final, 99 si aplica),
+    asignada en orden a los cuatro slots del template: n8→n9→n10→nd.
+    Los slots que sobren quedan vacíos para no dejar huecos entre activos.
     """
-    orden_isr: list[tuple[str, str, str]] = []
+    orden: list[tuple[str, str, str]] = []
     if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
-        orden_isr.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
+        orden.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
     if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
-        orden_isr.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
+        orden.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
     if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
-        orden_isr.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
+        orden.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
+    if _fila_deduccion_docx_visible(nd, cd, t11d):
+        orden.append((nd, cd, t11d))
 
-    slots_isr: tuple[tuple[str, str, str], ...] = (
+    slots: tuple[tuple[str, str, str], ...] = (
         ("n8", "c_isa", "t8"),
         ("n9", "c_i174", "t9"),
         ("n10", "c_imes", "t10"),
+        ("nd", "cd", "t11d"),
     )
-    out: dict[str, str] = {k: "" for trio in slots_isr for k in trio}
-    out.update({"nd": "", "cd": "", "t11d": ""})
-    for i, trio in enumerate(slots_isr):
-        if i < len(orden_isr):
-            num, conc, imp = orden_isr[i]
+    out: dict[str, str] = {k: "" for trio in slots for k in trio}
+    for i, trio in enumerate(slots):
+        if i < len(orden):
+            num, conc, imp = orden[i]
             nk, ck, tk = trio
             out[nk] = num
             out[ck] = conc
             out[tk] = imp
-    if _fila_deduccion_docx_visible(nd, cd, t11d):
-        out["nd"] = nd
-        out["cd"] = cd
-        out["t11d"] = t11d
     return out
 
 
@@ -80,9 +88,11 @@ def empaquetar_filas_percepcion_para_docx(
     t11p: str,
 ) -> dict[str, str]:
     """
-    Igual que deducciones: prima (n7) y ajuste al neto en percepciones (np) ocupan
-    dos filas consecutivas del template; si prima no aplica y sí el ajuste, el ajuste
-    sube a los placeholders de la primera fila para no dejar hueco antes de np.
+    Cola corta de percepciones con placeholders propios (prima + ajuste al neto):
+    los activos suben a {n7}/{np} consecutivos y el resto se vacía.
+
+    Sueldo…aguinaldo usan filas con texto fijo en la plantilla; ahí solo se oculta
+    el importe cuando es cero (_importe_percepcion_docx), sin reasignar etiquetas.
     """
     orden: list[tuple[str, str, str]] = []
     if _fila_deduccion_docx_visible(n7, c_pant, t7):
@@ -162,11 +172,11 @@ def build_finiquito_placeholders(
         "{empleado_nombre_completo}": nombre_doc,
         "{neto_p}": format_importe(neto),
         "{neto_pagar_letra}": importe_mxn_a_letra(neto),
-        "{t1}": format_importe(Decimal(str(lab["sueldo"]))),
-        "{t2}": format_importe(Decimal(str(lab["septimo_dia"]))),
-        "{t3}": format_importe(Decimal(str(lab["vacaciones_a_tiempo"]))),
-        "{t5}": format_importe(Decimal(str(lab["prima_vacacional"]))),
-        "{t6}": format_importe(Decimal(str(lab["aguinaldo"]))),
+        "{t1}": _importe_percepcion_docx(lab["sueldo"]),
+        "{t2}": _importe_percepcion_docx(lab["septimo_dia"]),
+        "{t3}": _importe_percepcion_docx(lab["vacaciones_a_tiempo"]),
+        "{t5}": _importe_percepcion_docx(lab["prima_vacacional"]),
+        "{t6}": _importe_percepcion_docx(lab["aguinaldo"]),
         "{n7}": perc_docx["n7"],
         "{c_pant}": perc_docx["c_pant"],
         "{t7}": perc_docx["t7"],

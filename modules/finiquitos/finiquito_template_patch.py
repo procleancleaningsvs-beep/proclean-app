@@ -64,8 +64,8 @@ def _patch_header_logo_src_rect(s: str) -> str:
 
 
 def _patch_table_spacer_row(s: str) -> str:
-    """Aire moderado bajo conceptos: entre aplastado (360/900) y cancha (2986)."""
-    new_row = '<w:trPr><w:trHeight w:val="1280" w:hRule="atLeast"/></w:trPr>'
+    """Aire bajo conceptos: un paso por encima del valor intermedio previo, lejos de 2986."""
+    new_row = '<w:trPr><w:trHeight w:val="1520" w:hRule="atLeast"/></w:trPr>'
     if new_row in s:
         return s
     old_exact = '<w:trPr><w:trHeight w:val="2986"/></w:trPr>'
@@ -74,10 +74,21 @@ def _patch_table_spacer_row(s: str) -> str:
     for old_small in (
         '<w:trPr><w:trHeight w:val="360" w:hRule="atLeast"/></w:trPr>',
         '<w:trPr><w:trHeight w:val="900" w:hRule="atLeast"/></w:trPr>',
+        '<w:trPr><w:trHeight w:val="1280" w:hRule="atLeast"/></w:trPr>',
     ):
         if old_small in s:
             return s.replace(old_small, new_row, 1)
     return s
+
+
+def _patch_footer_drawing_not_behind_document(s: str) -> str:
+    """
+    LibreOffice a veces pinta anclas del pie con behindDoc=1 como si estuvieran al inicio.
+    La firma debe leerse solo al final del documento.
+    """
+    if 'behindDoc="1"' not in s:
+        return s
+    return s.replace('behindDoc="1"', 'behindDoc="0"')
 
 
 def _patch_pg_mar_footer_gap(s: str) -> str:
@@ -230,6 +241,7 @@ def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
                     s = _remove_second_footer_run(s)
                     s = _dedupe_adjacent_placeholder(s)
                     s = _boost_spacing_and_extent(s)
+                    s = _patch_footer_drawing_not_behind_document(s)
                     data = s.encode("utf-8")
                 elif info.filename == "word/header1.xml":
                     s = data.decode("utf-8")
