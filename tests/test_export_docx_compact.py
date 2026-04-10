@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import unittest
 
-from modules.finiquitos.export_docx import empaquetar_filas_deduccion_para_docx
+from modules.finiquitos.export_docx import (
+    empaquetar_filas_deduccion_para_docx,
+    empaquetar_filas_percepcion_para_docx,
+)
 
 
 class TestEmpaquetarDeduccionesDocx(unittest.TestCase):
@@ -31,10 +34,25 @@ class TestEmpaquetarDeduccionesDocx(unittest.TestCase):
         )
         self.assertEqual(d["n8"], "41")
         self.assertEqual(d["n9"], "45")
-        self.assertEqual(d["n10"], "99")
-        self.assertEqual(d["nd"], "")
-        self.assertEqual(d["cd"], "")
-        self.assertEqual(d["t11d"], "")
+        self.assertEqual(d["c_i174"], "I.S.R. (mes)")
+        self.assertEqual(d["n10"], "")
+        self.assertEqual(d["nd"], "99")
+        self.assertEqual(d["cd"], "Ajuste al neto")
+        self.assertEqual(d["t11d"], "50.00")
+
+    def test_ajuste_percepcion_sin_prima_sube_a_n7(self):
+        p = empaquetar_filas_percepcion_para_docx(
+            "", "", "",
+            "99",
+            "Ajuste al neto",
+            "25.00",
+        )
+        self.assertEqual(p["n7"], "99")
+        self.assertEqual(p["c_pant"], "Ajuste al neto")
+        self.assertEqual(p["t7"], "25.00")
+        self.assertEqual(p["np"], "")
+        self.assertEqual(p["cp"], "")
+        self.assertEqual(p["t11p"], "")
 
 
 if __name__ == "__main__":

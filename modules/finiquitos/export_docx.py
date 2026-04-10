@@ -37,36 +37,74 @@ def empaquetar_filas_deduccion_para_docx(
     t11d: str,
 ) -> dict[str, str]:
     """
-    Reacomoda solo los placeholders de deducción (mismos slots del template n8–nd):
-    conceptos con datos suben a las primeras filas de la columna sin dejar huecos entre activos.
-    No modifica la tabla del DOCX, solo valores sustituidos.
-    """
-    orden: list[tuple[str, str, str]] = []
-    if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
-        orden.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
-    if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
-        orden.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
-    if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
-        orden.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
-    sep_n = (pdf.get("n_sep") or "").strip()
-    sep_c = (pdf.get("c_sep") or "").strip()
-    sep_t = (pdf.get("t_sep") or "").strip()
-    if _fila_deduccion_docx_visible(sep_n, sep_c, sep_t):
-        orden.append((pdf.get("n_sep", ""), pdf.get("c_sep", ""), pdf.get("t_sep", "")))
-    if _fila_deduccion_docx_visible(nd, cd, t11d):
-        orden.append((nd, cd, t11d))
+    Compacta solo las filas ISR (41/43/45 → slots n8–n10): los conceptos activos suben
+    consecutivos sin dejar filas “muertas” si el intermedio no aplica.
 
-    slots: tuple[tuple[str, str, str], ...] = (
+    El ajuste al neto en deducciones sigue fijo en {nd}{cd}{t11d} (última fila del bloque).
+    """
+    orden_isr: list[tuple[str, str, str]] = []
+    if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
+        orden_isr.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
+    if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
+        orden_isr.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
+    if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
+        orden_isr.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
+
+    slots_isr: tuple[tuple[str, str, str], ...] = (
         ("n8", "c_isa", "t8"),
         ("n9", "c_i174", "t9"),
         ("n10", "c_imes", "t10"),
-        ("nd", "cd", "t11d"),
     )
-    out: dict[str, str] = {k: "" for trio in slots for k in trio}
-    for i, trio in enumerate(slots):
+    out: dict[str, str] = {k: "" for trio in slots_isr for k in trio}
+    out.update({"nd": "", "cd": "", "t11d": ""})
+    for i, trio in enumerate(slots_isr):
+        if i < len(orden_isr):
+            num, conc, imp = orden_isr[i]
+            nk, ck, tk = trio
+            out[nk] = num
+            out[ck] = conc
+            out[tk] = imp
+    if _fila_deduccion_docx_visible(nd, cd, t11d):
+        out["nd"] = nd
+        out["cd"] = cd
+        out["t11d"] = t11d
+    return out
+
+
+def empaquetar_filas_percepcion_para_docx(
+    n7: str,
+    c_pant: str,
+    t7: str,
+    np: str,
+    cp: str,
+    t11p: str,
+) -> dict[str, str]:
+    """
+    Igual que deducciones: prima (n7) y ajuste al neto en percepciones (np) ocupan
+    dos filas consecutivas del template; si prima no aplica y sí el ajuste, el ajuste
+    sube a los placeholders de la primera fila para no dejar hueco antes de np.
+    """
+    orden: list[tuple[str, str, str]] = []
+    if _fila_deduccion_docx_visible(n7, c_pant, t7):
+        orden.append((n7, c_pant, t7))
+    if _fila_deduccion_docx_visible(np, cp, t11p):
+        orden.append((np, cp, t11p))
+
+    slots_meta: tuple[tuple[str, str, str], ...] = (
+        ("n7", "c_pant", "t7"),
+        ("np", "cp", "t11p"),
+    )
+    out: dict[str, str] = {
+        "n7": "",
+        "c_pant": "",
+        "t7": "",
+        "np": "",
+        "cp": "",
+        "t11p": "",
+    }
+    for i, (nk, ck, tk) in enumerate(slots_meta):
         if i < len(orden):
             num, conc, imp = orden[i]
-            nk, ck, tk = trio
             out[nk] = num
             out[ck] = conc
             out[tk] = imp
@@ -110,6 +148,7 @@ def build_finiquito_placeholders(
     nombre_doc = normalizar_nombre_empleado_documento(empleado_nombre)
     t11_val = "" if ajuste == 0 else format_importe(ajuste)
     ded_docx = empaquetar_filas_deduccion_para_docx(pdf, nd=nd, cd=cd, t11d=t11d)
+    perc_docx = empaquetar_filas_percepcion_para_docx(n7, c_pant, t7, np, cp, t11p)
     suma_p_num = Decimal(str(tot["total_percepciones"]))
     if ajuste < 0:
         suma_p_num = (suma_p_num + abs(ajuste)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -128,26 +167,26 @@ def build_finiquito_placeholders(
         "{t3}": format_importe(Decimal(str(lab["vacaciones_a_tiempo"]))),
         "{t5}": format_importe(Decimal(str(lab["prima_vacacional"]))),
         "{t6}": format_importe(Decimal(str(lab["aguinaldo"]))),
-        "{n7}": n7,
-        "{c_pant}": c_pant,
-        "{t7}": t7,
-        "{n8}": pdf["n8"],
-        "{c_isa}": pdf["c_isa"],
+        "{n7}": perc_docx["n7"],
+        "{c_pant}": perc_docx["c_pant"],
+        "{t7}": perc_docx["t7"],
+        "{n8}": ded_docx["n8"],
+        "{c_isa}": ded_docx["c_isa"],
         # En formato final las deducciones se imprimen en positivo (valor absoluto).
-        "{t8}": _as_positive_amount_str(pdf["t8"]),
-        "{n9}": pdf["n9"],
-        "{c_i174}": pdf["c_i174"],
-        "{t9}": _as_positive_amount_str(pdf["t9"]),
-        "{n10}": pdf["n10"],
-        "{c_imes}": pdf["c_imes"],
-        "{t10}": _as_positive_amount_str(pdf["t10"]),
+        "{t8}": _as_positive_amount_str(ded_docx["t8"]),
+        "{n9}": ded_docx["n9"],
+        "{c_i174}": ded_docx["c_i174"],
+        "{t9}": _as_positive_amount_str(ded_docx["t9"]),
+        "{n10}": ded_docx["n10"],
+        "{c_imes}": ded_docx["c_imes"],
+        "{t10}": _as_positive_amount_str(ded_docx["t10"]),
         "{n_sep}": pdf.get("n_sep", ""),
         "{c_sep}": pdf.get("c_sep", ""),
         "{t_sep}": _as_positive_amount_str(pdf.get("t_sep", "")),
         "{t11}": t11_val,
-        "{np}": np,
-        "{cp}": cp,
-        "{t11p}": t11p,
+        "{np}": perc_docx["np"],
+        "{cp}": perc_docx["cp"],
+        "{t11p}": _as_positive_amount_str(perc_docx["t11p"]),
         "{nd}": ded_docx["nd"],
         "{cd}": ded_docx["cd"],
         "{t11d}": _as_positive_amount_str(ded_docx["t11d"]),

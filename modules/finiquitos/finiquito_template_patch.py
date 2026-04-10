@@ -64,16 +64,19 @@ def _patch_header_logo_src_rect(s: str) -> str:
 
 
 def _patch_table_spacer_row(s: str) -> str:
-    """Aire moderado bajo conceptos: entre aplastado (360) y cancha (2986)."""
-    new_row = '<w:trPr><w:trHeight w:val="900" w:hRule="atLeast"/></w:trPr>'
+    """Aire moderado bajo conceptos: entre aplastado (360/900) y cancha (2986)."""
+    new_row = '<w:trPr><w:trHeight w:val="1280" w:hRule="atLeast"/></w:trPr>'
     if new_row in s:
         return s
     old_exact = '<w:trPr><w:trHeight w:val="2986"/></w:trPr>'
     if old_exact in s:
         return s.replace(old_exact, new_row, 1)
-    old_small = '<w:trPr><w:trHeight w:val="360" w:hRule="atLeast"/></w:trPr>'
-    if old_small in s:
-        return s.replace(old_small, new_row, 1)
+    for old_small in (
+        '<w:trPr><w:trHeight w:val="360" w:hRule="atLeast"/></w:trPr>',
+        '<w:trPr><w:trHeight w:val="900" w:hRule="atLeast"/></w:trPr>',
+    ):
+        if old_small in s:
+            return s.replace(old_small, new_row, 1)
     return s
 
 

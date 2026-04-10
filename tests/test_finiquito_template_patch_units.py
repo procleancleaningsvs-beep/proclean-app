@@ -22,7 +22,7 @@ class TestTemplatePatchUnits(unittest.TestCase):
         s = '<w:tr><w:trPr><w:trHeight w:val="2986"/></w:trPr></w:tr>'
         o = _patch_table_spacer_row(s)
         self.assertIn('w:hRule="atLeast"', o)
-        self.assertIn('w:val="900"', o)
+        self.assertIn('w:val="1280"', o)
         self.assertNotIn("2986", o)
 
     def test_footer_margin(self):
