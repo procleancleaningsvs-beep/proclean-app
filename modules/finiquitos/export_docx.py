@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,7 @@ def build_finiquito_placeholders(
     pdf = calc["pdf_filas"]
     neto = Decimal(str(tot["neto_final"]))
     ajuste = Decimal(str(tot["ajuste_neto"]))
+    # Convención calc: ajuste = neto_prev - neto_final. >0 baja el neto → 99 en deducciones; <0 sube → percepciones.
 
     pa = Decimal(str(lab.get("prima_antiguedad_monto") or 0))
     if incluir_prima_antig and pa > 0:
@@ -96,11 +97,11 @@ def build_finiquito_placeholders(
         n7, c_pant, t7 = "", "", ""
 
     if ajuste > 0:
+        nd, cd, t11d = "99", "Ajuste al neto", format_importe(abs(ajuste))
+        np, cp, t11p = "", "", ""
+    elif ajuste < 0:
         np, cp, t11p = "99", "Ajuste al neto", format_importe(abs(ajuste))
         nd, cd, t11d = "", "", ""
-    elif ajuste < 0:
-        np, cp, t11p = "", "", ""
-        nd, cd, t11d = "99", "Ajuste al neto", format_importe(abs(ajuste))
     else:
         np = cp = t11p = nd = cd = t11d = ""
 
@@ -109,6 +110,9 @@ def build_finiquito_placeholders(
     nombre_doc = normalizar_nombre_empleado_documento(empleado_nombre)
     t11_val = "" if ajuste == 0 else format_importe(ajuste)
     ded_docx = empaquetar_filas_deduccion_para_docx(pdf, nd=nd, cd=cd, t11d=t11d)
+    suma_p_num = Decimal(str(tot["total_percepciones"]))
+    if ajuste < 0:
+        suma_p_num = (suma_p_num + abs(ajuste)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return {
         "{lugar_emision}": lugar_emision or "",
         "{estado_emision}": estado_emision or "",
@@ -147,7 +151,7 @@ def build_finiquito_placeholders(
         "{nd}": ded_docx["nd"],
         "{cd}": ded_docx["cd"],
         "{t11d}": _as_positive_amount_str(ded_docx["t11d"]),
-        "{suma_p}": format_importe(Decimal(str(tot["total_percepciones"]))),
+        "{suma_p}": format_importe(suma_p_num),
         "{suma_d}": pdf["suma_d"],
     }
 

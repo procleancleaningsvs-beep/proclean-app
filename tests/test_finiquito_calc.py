@@ -6,7 +6,13 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from modules.finiquitos.calc import calcular_dias_vacaciones_devengados, calcular_finiquito
+from modules.finiquitos.calc import (
+    _ajuste_neto_permitido,
+    _neto_centavos_en_malla_20,
+    calcular_dias_vacaciones_devengados,
+    calcular_finiquito,
+)
+from modules.finiquitos.export_docx import build_finiquito_placeholders
 from modules.finiquitos.graph_excel import _normalize_name
 
 
@@ -114,6 +120,51 @@ class TestFiniquitoEjemplos(unittest.TestCase):
         self.assertTrue(l["vacaciones_ya_usadas_se_recorto"])
         self.assertAlmostEqual(l["vacaciones_ya_usadas_efectivas"], float(cap), places=6)
         self.assertAlmostEqual(l["vacaciones_ya_usadas_max_permitido"], float(cap), places=6)
+
+
+class TestAjusteNetoReglas(unittest.TestCase):
+    def test_malla_centavos_omite_ajuste(self):
+        self.assertTrue(_neto_centavos_en_malla_20(Decimal("2489.40")))
+        self.assertFalse(_neto_centavos_en_malla_20(Decimal("2489.42")))
+        nf, aj = _ajuste_neto_permitido(Decimal("2489.40"))
+        self.assertEqual(aj, Decimal("0"))
+        self.assertEqual(nf, Decimal("2489.40"))
+
+    def test_ajuste_positivo_99_en_deducciones_y_suma_d(self):
+        r = calcular_finiquito(
+            ingreso=date(2024, 10, 15),
+            baja=date(2026, 3, 26),
+            fecha_emision=date(2026, 3, 26),
+            salario_diario=Decimal("315.04"),
+            zona="general",
+            periodicidad_isr="semanal_mensualizada",
+            modo="total_gravable",
+            dias_sueldo_pendientes=Decimal("6"),
+            septimos_pendientes=Decimal("1"),
+            dias_aguinaldo_politica=Decimal("15"),
+            prima_vacacional_pct=Decimal("25"),
+            vacaciones_ya_usadas=Decimal("0"),
+            aguinaldo_ya_pagado=Decimal("0"),
+            prima_vac_ya_pagada=Decimal("0"),
+            incluir_prima_antiguedad=False,
+            motivo_baja="despido",
+        )
+        aj = Decimal(str(r["totales"]["ajuste_neto"]))
+        self.assertGreater(aj, 0)
+        m = build_finiquito_placeholders(
+            lugar_emision="X",
+            estado_emision="Y",
+            fecha_emision=date(2026, 3, 26),
+            fecha_baja=date(2026, 3, 26),
+            empleado_nombre="Z",
+            calc=r,
+            incluir_prima_antig=False,
+        )
+        self.assertEqual(m["{nd}"], "99")
+        self.assertEqual(m["{np}"], "")
+        ded = Decimal(str(r["totales"]["total_deducciones_reales"]))
+        suma_d = Decimal(m["{suma_d}"].replace(",", ""))
+        self.assertEqual(suma_d, ded + aj)
 
 
 if __name__ == "__main__":

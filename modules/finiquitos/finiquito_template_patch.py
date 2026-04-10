@@ -121,46 +121,84 @@ def _patch_atentamente_spacing(s: str) -> str:
 
 
 def _patch_neto_cell_nowrap_wider(s: str) -> str:
-    """Evita salto raro Neto/$/monto: celda un poco más ancha + noWrap."""
+    """Evita partir 'Neto a Pagar' + monto: celda ancha, tab más a la derecha, sin noWrap (mejor en LO)."""
     needle_tc = (
         '<w:tcW w:w="4862" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>'
         '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tcBorders>'
         '<w:vAlign w:val="center"/></w:tcPr><w:p w14:paraId="09F3A52C"'
     )
     repl_tc = (
+        '<w:tcW w:w="6600" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>'
+        '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tcBorders>'
+        '<w:vAlign w:val="center"/></w:tcPr><w:p w14:paraId="09F3A52C"'
+    )
+    if needle_tc in s:
+        s = s.replace(needle_tc, repl_tc, 1)
+    needle_oldwrap = (
         '<w:tcW w:w="5400" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>'
         '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tcBorders>'
         '<w:vAlign w:val="center"/><w:noWrap/></w:tcPr><w:p w14:paraId="09F3A52C"'
     )
-    if needle_tc in s:
-        s = s.replace(needle_tc, repl_tc, 1)
-    s = s.replace(
-        '<w:tabs><w:tab w:val="left" w:pos="2611"/></w:tabs><w:spacing w:before="83"/><w:ind w:right="126"/>'
-        '<w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:position w:val="2"/><w:sz w:val="18"/></w:rPr></w:pPr>'
-        '<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">                      </w:t></w:r>'
-        '<w:proofErr w:type="gramStart"/><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t>Neto</w:t>',
-        '<w:tabs><w:tab w:val="left" w:pos="3200"/></w:tabs><w:spacing w:before="83"/><w:ind w:right="72"/>'
-        '<w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:position w:val="2"/><w:sz w:val="18"/></w:rPr></w:pPr>'
-        '<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t xml:space="preserve">                      </w:t></w:r>'
-        '<w:proofErr w:type="gramStart"/><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t>Neto</w:t>',
-        1,
+    repl_nowrap_off = (
+        '<w:tcW w:w="6600" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>'
+        '<w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/></w:tcBorders>'
+        '<w:vAlign w:val="center"/></w:tcPr><w:p w14:paraId="09F3A52C"'
     )
+    if needle_oldwrap in s:
+        s = s.replace(needle_oldwrap, repl_nowrap_off, 1)
+    for pos, right in (("2611", "126"), ("3200", "72")):
+        old_tab = (
+            f'<w:tabs><w:tab w:val="left" w:pos="{pos}"/></w:tabs><w:spacing w:before="83"/><w:ind w:right="{right}"/>'
+            '<w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:position w:val="2"/><w:sz w:val="18"/></w:rPr></w:pPr>'
+            '<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr>'
+            '<w:t xml:space="preserve">                      </w:t></w:r>'
+            '<w:proofErr w:type="gramStart"/><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t>Neto</w:t>'
+        )
+        if old_tab in s:
+            s = s.replace(
+                old_tab,
+                '<w:tabs><w:tab w:val="left" w:pos="4320"/></w:tabs><w:spacing w:before="83"/><w:ind w:right="36"/>'
+                '<w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:position w:val="2"/><w:sz w:val="18"/></w:rPr></w:pPr>'
+                '<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr>'
+                '<w:t xml:space="preserve">   </w:t></w:r>'
+                '<w:proofErr w:type="gramStart"/><w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:b/><w:sz w:val="20"/></w:rPr><w:t>Neto</w:t>',
+                1,
+            )
+            break
     return s
 
 
-def _patch_signature_cell_underline(s: str) -> str:
-    """Línea visible para firmar en la celda central (nombre sigue en footer)."""
-    old = (
-        '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="00E607E1" w:rsidRDefault="00E607E1" '
-        'w:rsidP="00D50D59"><w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="87"/>'
-        '<w:rPr><w:sz w:val="18"/></w:rPr></w:pPr></w:p></w:tc>'
-    )
-    new = (
+def _patch_signature_cell_remove_body_line(s: str) -> str:
+    """Quita línea de firma del cuerpo (celda 11B7B088 antes de totales); la firma va al pie."""
+    bad = (
         '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="00E607E1" w:rsidRDefault="00E607E1" '
         'w:rsidP="00D50D59"><w:pPr><w:pStyle w:val="TableParagraph"/><w:spacing w:before="120" w:after="60"/>'
         '<w:ind w:left="0"/><w:jc w:val="center"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
         '<w:r><w:rPr><w:sz w:val="18"/></w:rPr>'
         '<w:t xml:space="preserve">______________________________________________</w:t></w:r></w:p></w:tc>'
+    )
+    good = (
+        '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="00E607E1" w:rsidRDefault="00E607E1" '
+        'w:rsidP="00D50D59"><w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="87"/>'
+        '<w:rPr><w:sz w:val="18"/></w:rPr></w:pPr></w:p></w:tc>'
+    )
+    if bad in s:
+        return s.replace(bad, good, 1)
+    return s
+
+
+def _patch_footer_line_above_nombre(s: str) -> str:
+    """Línea para firmar solo en el textbox del pie, encima del nombre."""
+    if "w14:paraId=\"F1RM4SIG\"" in s:
+        return s
+    old = '<w:txbxContent><w:p w14:paraId="5BB30B96"'
+    new = (
+        '<w:txbxContent><w:p w14:paraId="F1RM4SIG" w14:textId="77777777" w:rsidR="00CE1084" '
+        'w:rsidRDefault="00E607E1" w:rsidP="00E607E1"><w:pPr><w:pStyle w:val="Textoindependiente"/>'
+        '<w:spacing w:before="120" w:after="140"/><w:jc w:val="center"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:sz w:val="18"/></w:rPr>'
+        '<w:t xml:space="preserve">______________________________________________</w:t></w:r></w:p>'
+        '<w:p w14:paraId="5BB30B96"'
     )
     if old in s:
         return s.replace(old, new, 1)
@@ -200,7 +238,7 @@ def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
                     s = _patch_pg_mar_footer_gap(s)
                     s = _patch_atentamente_spacing(s)
                     s = _patch_neto_cell_nowrap_wider(s)
-                    s = _patch_signature_cell_underline(s)
+                    s = _patch_signature_cell_remove_body_line(s)
                     data = s.encode("utf-8")
                 zout.writestr(info, data)
     return buf.getvalue()

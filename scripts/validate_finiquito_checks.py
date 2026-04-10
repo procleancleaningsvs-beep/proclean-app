@@ -58,8 +58,8 @@ def main() -> None:
     ded = Decimal(str(calc["totales"]["total_deducciones_reales"]))
     suma_d = Decimal(calc["pdf_filas"]["suma_d"].replace(",", ""))
     aj = Decimal(str(calc["totales"]["ajuste_neto"]))
-    extra99 = abs(aj) if aj < 0 else Decimal("0")
-    print("5) suma_d == ded + linea 99 (si ajuste neg):", suma_d == ded + extra99)
+    extra99 = abs(aj) if aj > 0 else Decimal("0")
+    print("5) suma_d == ded + linea 99 (si ajuste > 0 deducción):", suma_d == ded + extra99)
     pdf = calc["pdf_filas"]
     print("6) ISR mes label:", pdf["c_isa"])
     print("7) ISR 174 label:", pdf["c_i174"] or "(vacío)")

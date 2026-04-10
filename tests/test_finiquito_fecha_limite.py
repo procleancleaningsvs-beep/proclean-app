@@ -57,7 +57,7 @@ class TestPdfSumaDeducciones(unittest.TestCase):
         suma_s = r["pdf_filas"]["suma_d"].replace(",", "")
         suma_d = Decimal(suma_s)
         ajuste = Decimal(str(r["totales"]["ajuste_neto"]))
-        extra_99 = abs(ajuste) if ajuste < 0 else Decimal("0")
+        extra_99 = abs(ajuste) if ajuste > 0 else Decimal("0")
         self.assertEqual(suma_d, ded + extra_99)
         self.assertEqual(r["pdf_filas"]["c_imes"], "I.S.R. (mes)")
 

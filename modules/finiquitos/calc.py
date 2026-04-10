@@ -444,7 +444,8 @@ def calcular_finiquito(
     ded_reales = _q(isr_mes_neto + isr_174 + isr_sep)
     neto_prev = _q(total_perc - ded_reales)
     neto_final, ajuste_neto = _ajuste_neto_permitido(neto_prev)
-    extra_99_deduccion = _q(abs(ajuste_neto)) if ajuste_neto < 0 else D0
+    # ajuste_neto = neto_prev - neto_final: >0 baja el neto → línea 99 en deducciones; <0 sube → en percepciones.
+    extra_99_deduccion = _q(abs(ajuste_neto)) if ajuste_neto > 0 else D0
     suma_43_45_99 = _q(isr_mes_neto + isr_174 + extra_99_deduccion)
 
     pdf_map = _mapear_pdf(
@@ -658,9 +659,18 @@ def _prima_antiguedad_procede(motivo: str, anios_exact: Decimal) -> bool:
     return True
 
 
+def _neto_centavos_en_malla_20(neto: Decimal) -> bool:
+    """Centavos del neto (2 decimales) en {00,20,40,60,80} → no hace falta ajuste al neto."""
+    q = _q(neto)
+    cent = int((q * 100) % 100)
+    return cent in (0, 20, 40, 60, 80)
+
+
 def _ajuste_neto_permitido(neto_prev: Decimal) -> tuple[Decimal, Decimal]:
     """Menor |ajuste| para que centavos finales ∈ {00,20,40,60,80}; empate → preferir .00."""
     neto_prev = _q(neto_prev)
+    if _neto_centavos_en_malla_20(neto_prev):
+        return neto_prev, D0
     centavos_objetivo = {0, 20, 40, 60, 80}
     best_neto: Decimal | None = None
     best_adj: Decimal | None = None
@@ -695,7 +705,7 @@ def _mapear_pdf(
     Numeración fija: 41 (referencia, mismo importe que 45; no suma), 43 Art.174 (suma), 45 ISR (mes) (suma).
     No se aplica subsidio al empleo: 41 y 45 reflejan el ISR del periodo.
     99 Ajuste al neto se arma en export_docx (suma solo si aplica como deducción).
-    suma_d = 45 + 43 + (99 si ajuste negativo) + ISR separación si aplica (para cuadrar neto).
+    suma_d = 45 + 43 + (99 si ajuste > 0) + ISR separación si aplica (para cuadrar neto).
     """
     lbl_41 = "I.S.R. antes de Subs al empleo"
     lbl_43 = "I.S.R. Art174"
@@ -716,7 +726,7 @@ def _mapear_pdf(
     else:
         n10, c10, t10 = "", "", ""
 
-    extra_ajuste_ded = _q(abs(ajuste_neto)) if ajuste_neto < 0 else D0
+    extra_ajuste_ded = _q(abs(ajuste_neto)) if ajuste_neto > 0 else D0
     suma_43_45_99 = _q(isr_mes_neto + isr_174 + extra_ajuste_ded)
     suma_d_num = _q(suma_43_45_99 + isr_sep)
 
