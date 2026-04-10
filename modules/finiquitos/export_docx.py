@@ -9,6 +9,7 @@ from typing import Any
 
 from modules.finiquitos.calc import format_importe
 from modules.finiquitos.docx_placeholders import replace_placeholders_in_docx_bytes
+from modules.finiquitos.finiquito_template_patch import patch_finiquito_docx_template_bytes
 from modules.finiquitos.fecha_es import fecha_emision_larga
 from modules.finiquitos.fecha_limite_pago import fecha_limite_pago_finiquito_larga
 from modules.finiquitos.nombre_archivo_finiquito import normalizar_nombre_empleado_documento
@@ -152,10 +153,35 @@ def build_finiquito_placeholders(
 
 
 def render_finiquito_docx(template_path: Path, mapping: dict[str, str]) -> bytes:
+    """
+    Lee la plantilla del path dado, aplica parches de layout (misma lógica en app y CLI)
+    y sustituye placeholders.
+    """
     raw = template_path.read_bytes()
-    return replace_placeholders_in_docx_bytes(raw, mapping)
+    patched = patch_finiquito_docx_template_bytes(raw)
+    return replace_placeholders_in_docx_bytes(patched, mapping)
 
 
 def render_finiquito_pdf(docx_bytes: bytes, *, pdf_stem: str | None = None) -> bytes:
     return docx_bytes_to_pdf_bytes(docx_bytes, pdf_stem=pdf_stem)
+
+
+def render_finiquito_final(
+    template_path: Path,
+    mapping: dict[str, str],
+    *,
+    pdf_stem: str | None = None,
+) -> tuple[bytes, bytes]:
+    """
+    Pipeline único: plantilla → parches → DOCX con placeholders → PDF (LibreOffice).
+    Usar desde Flask y desde scripts de prueba.
+    """
+    docx_b = render_finiquito_docx(template_path, mapping)
+    pdf_b = render_finiquito_pdf(docx_b, pdf_stem=pdf_stem)
+    return docx_b, pdf_b
+
+
+def finiquito_docx_template_bundle_path() -> Path:
+    """Plantilla empaquetada en el repo (referencia para scripts sin Flask)."""
+    return Path(__file__).resolve().parents[2] / "docx_templates" / "FINIQUITO FORMATO.docx"
 

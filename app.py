@@ -835,6 +835,8 @@ def ensure_forced_admin_from_env() -> None:
 
 
 def ensure_default_templates() -> None:
+    from modules.finiquitos.finiquito_template_patch import patch_finiquito_docx_template_bytes
+
     DOCX_TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
     for filename in TEMPLATE_FILENAMES.values():
         src = BUNDLED_TEMPLATES_DIR / filename
@@ -843,8 +845,10 @@ def ensure_default_templates() -> None:
             dst.write_bytes(src.read_bytes())
     fin_src = BUNDLED_TEMPLATES_DIR / "FINIQUITO FORMATO.docx"
     fin_dst = DOCX_TEMPLATES_DIR / "FINIQUITO FORMATO.docx"
-    if fin_src.exists() and not fin_dst.exists():
-        fin_dst.write_bytes(fin_src.read_bytes())
+    if fin_src.exists():
+        fin_dst.parent.mkdir(parents=True, exist_ok=True)
+        # Misma plantilla parcheada que usa el render en memoria: evita divergencia bundle vs volumen.
+        fin_dst.write_bytes(patch_finiquito_docx_template_bytes(fin_src.read_bytes()))
 
 
 def get_or_create_secret_key() -> str:

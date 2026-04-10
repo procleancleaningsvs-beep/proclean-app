@@ -18,7 +18,7 @@ from modules.finiquitos.calc import (
     calcular_finiquito,
     prima_antiguedad_aplica_separacion_voluntaria,
 )
-from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_pdf
+from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_final
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
@@ -329,8 +329,7 @@ def api_pdf():
     fname = build_finiquito_pdf_filename(p["nombre"] or "")
     pdf_stem = Path(fname).stem
     try:
-        docx_b = render_finiquito_docx(tpl, mapping)
-        pdf_b = render_finiquito_pdf(docx_b, pdf_stem=pdf_stem)
+        _docx_b, pdf_b = render_finiquito_final(tpl, mapping, pdf_stem=pdf_stem)
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
 
@@ -408,10 +407,9 @@ def api_historial_finiquito():
                 incluir_prima_antig=incluir_pa,
             )
             try:
-                docx_b = render_finiquito_docx(tpl, mapping)
                 pdf_fn = build_finiquito_pdf_filename(p["nombre"] or "")
                 pdf_stem = Path(pdf_fn).stem
-                pdf_b = render_finiquito_pdf(docx_b, pdf_stem=pdf_stem)
+                _docx_b, pdf_b = render_finiquito_final(tpl, mapping, pdf_stem=pdf_stem)
                 gen = Path(current_app.config["GENERATED_DIR"])
                 gen.mkdir(parents=True, exist_ok=True)
                 pdf_path = str(gen / pdf_fn)

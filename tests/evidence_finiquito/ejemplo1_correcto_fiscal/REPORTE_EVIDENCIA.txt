@@ -1,22 +1,21 @@
-=== Confirmación plantilla en disco ===
-Ruta: C:\Users\Yahir\Downloads\proclean-app\docx_templates\FINIQUITO FORMATO.docx
-Tamaño bytes: 31132
-mtime_ns: 1775774653652047900
+=== Pipeline ===
+render_finiquito_final(template_path, mapping, pdf_stem) — mismo que api_pdf
+Template path: C:\Users\Yahir\Downloads\proclean-app\docx_templates\FINIQUITO FORMATO.docx
+Tamaño bytes (disco): 31155
 
-=== Evidencia XML plantilla (tras parche) ===
-{'label': 'plantilla_parchada', 'header_srcRect_snippet': 'srcRect l="0" t="0" r="0" b="0"/>', 'header_recorte_5393_presente': False, 'document_trHeight_2986': False, 'document_spacer_atLeast_360': True, 'atentamente_context': 'w:ind w:right="195"/><w:jc w:val="center"/><w:rPr><w:b/><w:bCs/></w:rPr><w:spacing w:before="360" w:after="4320"/></w:pPr><w:r w:rsidRPr="009D1778"><w:rPr><w:b/><w:bCs/><w:spacing w:val="-2"/></w:rPr><w:t>ATENTAMENTE</w:', 'footer_textbox_cy_6872024_inner': '990000', 'pgMar_footer_twips': '1440', 'placeholders_suma_pendientes': False, 'tablas_document': 17}
+=== Evidencia XML plantilla en disco (raw, sin parche previo al análisis) ===
+{'label': 'plantilla_disco_sin_placeholder', 'header_srcRect_snippet': 'srcRect l="0" t="0" r="0" b="0"/>', 'header_recorte_5393_presente': False, 'document_trHeight_2986': False, 'document_spacer_atLeast_900': True, 'atentamente_context': 'w:ind w:right="195"/><w:jc w:val="center"/><w:rPr><w:b/><w:bCs/></w:rPr><w:spacing w:before="360" w:after="1440"/></w:pPr><w:r w:rsidRPr="009D1778"><w:rPr><w:b/><w:bCs/><w:spacing w:val="-2"/></w:rPr><w:t>ATENTAMENTE</w:', 'footer_textbox_cy_6872024_inner': '720000', 'pgMar_footer_twips': '1120', 'firma_guiones': True, 'neto_nowrap': True, 'placeholders_suma_pendientes': False, 'tablas_document': 17}
 
-=== Evidencia XML generado (ejemplo 1) ===
-{'label': 'generado_placeholder', 'header_srcRect_snippet': 'srcRect l="0" t="0" r="0" b="0" />', 'header_recorte_5393_presente': False, 'document_trHeight_2986': False, 'document_spacer_atLeast_360': True, 'atentamente_context': 'right="195" /><w:jc w:val="center" /><w:rPr><w:b /><w:bCs /></w:rPr><w:spacing w:before="360" w:after="4320" /></w:pPr><w:r w:rsidRPr="009D1778"><w:rPr><w:b /><w:bCs /><w:spacing w:val="-2" /></w:rPr><w:t>ATENTAMENTE</w:', 'footer_textbox_cy_6872024_inner': '990000', 'pgMar_footer_twips': '1440', 'placeholders_suma_pendientes': False, 'tablas_document': 17}
+=== Evidencia XML generado (tras patch+placeholders en memoria) ===
+{'label': 'generado_pipeline_unificado', 'header_srcRect_snippet': 'srcRect l="0" t="0" r="0" b="0" />', 'header_recorte_5393_presente': False, 'document_trHeight_2986': False, 'document_spacer_atLeast_900': True, 'atentamente_context': 'right="195" /><w:jc w:val="center" /><w:rPr><w:b /><w:bCs /></w:rPr><w:spacing w:before="360" w:after="1440" /></w:pPr><w:r w:rsidRPr="009D1778"><w:rPr><w:b /><w:bCs /><w:spacing w:val="-2" /></w:rPr><w:t>ATENTAMENTE</w:', 'footer_textbox_cy_6872024_inner': '720000', 'pgMar_footer_twips': '1120', 'firma_guiones': True, 'neto_nowrap': True, 'placeholders_suma_pendientes': False, 'tablas_document': 17}
 
 === Totales ===
-suma_p sustituido en mapping: '16,226.12'
-Ese texto aparece en document.xml generado: True
-Placeholders {suma_p}/{suma_d} aún en XML: False
-Cantidad <w:tbl> en document.xml generado: 17
-Algún w:t mezcla etiqueta+monto totales: False
+suma_p en mapping: '16,226.12'
+presente en document.xml: True
+placeholders pendientes: False
+w:t mezcla etiqueta+monto: False
 
-=== Archivos generados ===
+=== Salida ===
 C:\Users\Yahir\Downloads\proclean-app\tests\evidence_finiquito\ejemplo1_correcto_fiscal\Finiquito Prueba Ejemplo1 Correcto Fiscal.docx
 C:\Users\Yahir\Downloads\proclean-app\tests\evidence_finiquito\ejemplo1_correcto_fiscal\Finiquito Prueba Ejemplo1 Correcto Fiscal.pdf
-PDF bytes: 97769
+PDF bytes: 98220

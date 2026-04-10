@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from scripts.patch_finiquito_footer_signature import (
+from modules.finiquitos.finiquito_template_patch import (
     _patch_header_logo_src_rect,
-    _patch_pg_mar_more_footer_gap,
+    _patch_pg_mar_footer_gap,
     _patch_table_spacer_row,
 )
 
@@ -22,13 +22,13 @@ class TestTemplatePatchUnits(unittest.TestCase):
         s = '<w:tr><w:trPr><w:trHeight w:val="2986"/></w:trPr></w:tr>'
         o = _patch_table_spacer_row(s)
         self.assertIn('w:hRule="atLeast"', o)
-        self.assertIn('w:val="360"', o)
+        self.assertIn('w:val="900"', o)
         self.assertNotIn("2986", o)
 
     def test_footer_margin(self):
         s = '<w:pgMar w:top="1" w:footer="827" w:left="0"/>'
-        o = _patch_pg_mar_more_footer_gap(s)
-        self.assertIn('w:footer="1440"', o)
+        o = _patch_pg_mar_footer_gap(s)
+        self.assertIn('w:footer="1120"', o)
 
 
 if __name__ == "__main__":
