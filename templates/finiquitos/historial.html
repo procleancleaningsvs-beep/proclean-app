@@ -491,9 +491,9 @@
   $('fin_hist_dl_cancel').addEventListener('click', () => $('fin_hist_dialog_download').close());
 
   document.getElementById('fin_hist_table').addEventListener('click', (ev) => {
-    const el = ev.target instanceof HTMLElement ? ev.target : null;
-    if (!el) return;
-    const btn = el.closest('button.fin-hist-view, button.fin-hist-reopen, button.fin-hist-download, button.fin-hist-del');
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest('button.fin-hist-view, button.fin-hist-reopen, button.fin-hist-download, button.fin-hist-del');
     if (!btn || !(btn instanceof HTMLButtonElement)) return;
     const id = parseInt(btn.getAttribute('data-id') || '0', 10);
     if (!id) return;

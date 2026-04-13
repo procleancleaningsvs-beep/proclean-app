@@ -33,6 +33,7 @@
         <span>Modo de cálculo</span>
         <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
         <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
+        <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
       </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
@@ -116,7 +117,6 @@
           <label><input type="radio" name="incluir_pa" value="si"> Sí</label>
         </div>
       </div>
-      <label>Observaciones internas<textarea id="observaciones_internas" rows="2"></textarea></label>
       <div class="fin-desglose-switch-row">
         <span>Edición libre del desglose</span>
         <label class="fin-switch" title="Solo la tabla de importes del recibo">
@@ -426,6 +426,68 @@
     refreshDesgloseFootApprox();
   }
 
+  function applyDesgloseFilasDesdeHistorial(filas) {
+    const tb = $('fin_desglose_tbody');
+    if (!tb || !Array.isArray(filas) || !filas.length) return;
+    tb.innerHTML = '';
+    filas.forEach((r) => {
+      const tr = document.createElement('tr');
+      const id = String(r.id || newRowId('row:'));
+      const tipo = String(r.tipo || 'P');
+      const clave = String(r.clave || '');
+      tr.setAttribute('data-row-id', id);
+      tr.setAttribute('data-tipo', tipo);
+      tr.setAttribute('data-clave', clave);
+      const concepto = String(r.concepto || '');
+      const baseRow = id.startsWith('base:');
+      if (baseRow) {
+        const td1 = document.createElement('td');
+        td1.textContent = concepto;
+        const td2 = document.createElement('td');
+        const inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'fin-desglose-monto';
+        inp.setAttribute('inputmode', 'decimal');
+        inp.autocomplete = 'off';
+        if (tipo === 'ISR' && clave === 'isr_41_ref') inp.disabled = true;
+        inp.value = fmtInputNum(r.monto);
+        td2.appendChild(inp);
+        const td3 = document.createElement('td');
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        tr.appendChild(td3);
+      } else {
+        const td1 = document.createElement('td');
+        const ci = document.createElement('input');
+        ci.type = 'text';
+        ci.className = 'fin-desglose-concepto';
+        ci.placeholder = 'Concepto';
+        ci.autocomplete = 'off';
+        ci.value = concepto;
+        td1.appendChild(ci);
+        const td2 = document.createElement('td');
+        const mi = document.createElement('input');
+        mi.type = 'text';
+        mi.className = 'fin-desglose-monto';
+        mi.setAttribute('inputmode', 'decimal');
+        mi.autocomplete = 'off';
+        mi.value = fmtInputNum(r.monto);
+        td2.appendChild(mi);
+        const td3 = document.createElement('td');
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'link-btn fin-desglose-del';
+        del.textContent = 'Quitar';
+        td3.appendChild(del);
+        tr.appendChild(td1);
+        tr.appendChild(td2);
+        tr.appendChild(td3);
+      }
+      tb.appendChild(tr);
+    });
+    refreshDesgloseFootApprox();
+  }
+
   let desgloseRecalcT = null;
   function scheduleDesgloseRecalc() {
     if (!$('sw_edicion_desglose') || !$('sw_edicion_desglose').checked) return;
@@ -467,7 +529,6 @@
       aguinaldo_pagado_previamente: valRadio('aguinaldo_pagado_flag') === 'si',
       dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
       incluir_prima_antiguedad: valRadio('incluir_pa') === 'si',
-      observaciones_internas: $('observaciones_internas').value,
       edicion_libre_desglose: desgloseOn,
       desglose_manual: desgloseOn ? { filas: collectDesgloseFilas() } : {},
     };
@@ -880,31 +941,28 @@
         if (opt) sel.value = opt.value;
       }
       $('zona_salarial').value = f.zona_salarial === 'frontera' ? 'frontera' : 'general';
-      const modoRaw = String(f.modo_calculo || '').trim();
-      if (modoRaw === 'aguinaldo_todo_gravable') {
+      const modoForm = String(f.modo_calculo || 'total_gravable').trim();
+      const mrad = document.querySelector(`input[name="modo_calculo"][value="${modoForm}"]`);
+      if (mrad) mrad.checked = true;
+      else {
         const fb = document.querySelector('input[name="modo_calculo"][value="total_gravable"]');
         if (fb) fb.checked = true;
-      } else {
-        const mrad = document.querySelector(`input[name="modo_calculo"][value="${modoRaw}"]`);
-        if (mrad) mrad.checked = true;
-        else {
-          const fb = document.querySelector('input[name="modo_calculo"][value="total_gravable"]');
-          if (fb) fb.checked = true;
-        }
       }
       const swDes = $('sw_edicion_desglose');
-      if (swDes) swDes.checked = false;
-      $('fin_desglose_hint').hidden = true;
-      $('fin_desglose_editor_wrap').hidden = true;
+      const dm = f.desglose_manual && typeof f.desglose_manual === 'object' ? f.desglose_manual.filas : null;
+      const desgloseOn = !!f.edicion_libre_desglose && Array.isArray(dm) && dm.length > 0;
+      if (swDes) swDes.checked = desgloseOn;
+      $('fin_desglose_hint').hidden = !desgloseOn;
+      $('fin_desglose_editor_wrap').hidden = !desgloseOn;
       const tbd = $('fin_desglose_tbody');
       if (tbd) tbd.innerHTML = '';
+      if (desgloseOn) applyDesgloseFilasDesdeHistorial(dm);
       $('sueldo_semanal').value = f.sueldo_semanal || '';
       $('dias_aguinaldo_politica').value = f.dias_aguinaldo_politica || '15';
       $('prima_vacacional_pct').value = f.prima_vacacional_pct || '25';
       $('vacaciones_ya_usadas').value = f.vacaciones_ya_usadas || '0';
       $('prima_dias_cubiertos').value = f.prima_dias_cubiertos || '0';
       $('dias_sueldo_pendientes').value = f.dias_sueldo_pendientes || '0';
-      $('observaciones_internas').value = f.observaciones_internas || '';
       const ag = f.aguinaldo_pagado_previamente ? 'si' : 'no';
       const pr = f.prima_pagada_previamente ? 'si' : 'no';
       const agInp = document.querySelector(`input[name="aguinaldo_pagado_flag"][value="${ag}"]`);
@@ -920,7 +978,15 @@
       u.searchParams.delete('rehidratar');
       const qs = u.searchParams.toString();
       window.history.replaceState({}, '', u.pathname + (qs ? '?' + qs : ''));
-      msg($('calc_msg'), 'Datos cargados desde el historial. Revisa fechas y exporta de nuevo si lo necesitas.');
+      let doneMsg = 'Datos cargados desde el historial (captura guardada al exportar). Revisa y vuelve a calcular si lo necesitas.';
+      const incompletos = [];
+      if (!(f.nombre_completo || '').trim()) incompletos.push('nombre');
+      if (!(f.fecha_ingreso || '').trim()) incompletos.push('fecha de ingreso');
+      if (!(f.fecha_baja || '').trim()) incompletos.push('fecha de baja');
+      if (!(f.sueldo_semanal || '').trim()) incompletos.push('sueldo semanal');
+      if (incompletos.length) doneMsg += ' Nota: en este registro faltan ' + incompletos.join(', ') + ' — revisa antes de exportar.';
+      if (f.edicion_libre_desglose && (!dm || !dm.length)) doneMsg += ' Nota: el registro indica desglose libre pero no hay filas guardadas; usa «Calcular» para regenerar la tabla.';
+      msg($('calc_msg'), doneMsg, false);
       scheduleAutoSummary();
     } catch (e) {
       msg($('calc_msg'), 'Error de red al cargar el historial.', true);

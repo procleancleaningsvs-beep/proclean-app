@@ -213,6 +213,14 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
 
     prima_pagada_previamente = str(data.get("prima_pagada_previamente") or "").lower() in ("1", "true", "on", "yes", "si")
 
+    modo_solicitado = str(data.get("modo_calculo") or "total_gravable").strip().lower()
+    if modo_solicitado not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
+        modo_solicitado = "total_gravable"
+
+    dm = data.get("desglose_manual")
+    if not isinstance(dm, dict):
+        dm = {}
+
     return {
         "ingreso": ingreso,
         "baja": baja,
@@ -223,6 +231,7 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "zona": zona,
         "periodicidad": periodicidad,
         "modo": modo,
+        "modo_solicitado": modo_solicitado,
         "salario_diario": sal_diario,
         "sueldo_semanal": sueldo_semanal,
         "dias_aguinaldo": _parse_dec(data.get("dias_aguinaldo_politica"), "15"),
@@ -240,6 +249,8 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
         "motivo": "retiro_voluntario",
         "observaciones": (data.get("observaciones_internas") or "").strip(),
         "salario_mensual_capturado": sal_m_dec,
+        "edicion_libre_desglose": _bool_coerce_entrada(data.get("edicion_libre_desglose")),
+        "desglose_manual": dm,
     }
 
 
@@ -330,11 +341,17 @@ def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
             return default
         return str(v).strip()
 
-    modo = _normalize_finiquito_modo(entrada.get("modo"))
+    modo_raw = str(entrada.get("modo_solicitado") or entrada.get("modo") or "total_gravable").strip().lower()
+    if modo_raw not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
+        modo_raw = "total_gravable"
 
     zona = str(entrada.get("zona") or "general").strip().lower()
     if zona not in ("general", "frontera"):
         zona = "general"
+
+    dm = entrada.get("desglose_manual")
+    if not isinstance(dm, dict):
+        dm = {}
 
     return {
         "nombre_completo": str(entrada.get("nombre") or ""),
@@ -344,7 +361,7 @@ def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
         "lugar_emision": str(entrada.get("lugar_emision") or ""),
         "estado_emision": str(entrada.get("estado_emision") or ""),
         "zona_salarial": zona,
-        "modo_calculo": modo,
+        "modo_calculo": modo_raw,
         "sueldo_semanal": num_str("sueldo_semanal", ""),
         "dias_aguinaldo_politica": num_str("dias_aguinaldo", "15"),
         "prima_vacacional_pct": num_str("prima_vac_pct", "25"),
@@ -354,7 +371,8 @@ def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
         "prima_dias_cubiertos": num_str("prima_dias_cubiertos", "0"),
         "dias_sueldo_pendientes": num_str("dias_sueldo", "0"),
         "incluir_prima_antiguedad": _bool_coerce_entrada(entrada.get("incluir_pa")),
-        "observaciones_internas": str(entrada.get("observaciones") or ""),
+        "edicion_libre_desglose": _bool_coerce_entrada(entrada.get("edicion_libre_desglose")),
+        "desglose_manual": dm,
     }
 
 
@@ -689,7 +707,13 @@ def api_historial_registro(hid: int):
     except (json.JSONDecodeError, TypeError):
         snap = {}
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-    entrada = snap.get("entrada") or {}
+    raw_ent = snap.get("entrada")
+    entrada = raw_ent if isinstance(raw_ent, dict) else {}
+    if raw_ent is not None and not isinstance(raw_ent, dict):
+        logger.warning("historial finiquito id=%s: entrada con tipo inesperado %s", hid, type(raw_ent).__name__)
+    if not entrada:
+        logger.warning("historial finiquito id=%s: snapshot sin entrada capturada o vacía", hid)
+    formulario = _entrada_a_formulario_api(entrada)
     return jsonify(
         {
             "ok": True,
@@ -701,7 +725,7 @@ def api_historial_registro(hid: int):
             "pdf_filename": row["pdf_filename"],
             "pdf_disponible": _resolved_pdf_path_if_safe(row["pdf_path"], gen) is not None,
             "snapshot": snap,
-            "formulario": _entrada_a_formulario_api(entrada if isinstance(entrada, dict) else {}),
+            "formulario": formulario,
         }
     )
 
