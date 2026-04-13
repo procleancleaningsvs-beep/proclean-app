@@ -63,8 +63,8 @@ def _patch_header_logo_src_rect(s: str) -> str:
     )
 
 
-# Ancla única: fila espaciadora del cuadro de DESGLOSE (entre conceptos y totales): trPr + primera celda 981 dxa.
-_DESGLOSE_SPACER_ROW_SUFFIX = '</w:trPr><w:tc><w:tcPr><w:tcW w:w="981"'
+# Ancla única: fila espaciadora del DESGLOSE (después de </w:trPr> de la altura, sigue la 1.ª celda 981 dxa).
+_DESGLOSE_SPACER_ROW_SUFFIX = '<w:tc><w:tcPr><w:tcW w:w="981"'
 _DESGLOSE_SPACER_TARGET_TWIPS = "1950"
 
 
