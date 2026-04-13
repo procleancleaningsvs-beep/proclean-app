@@ -248,8 +248,24 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
   const msg = (el, text, err) => { el.textContent = text || ''; el.style.color = err ? '#b00020' : ''; };
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt4 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  const rehidratarParam = new URLSearchParams(window.location.search).get('rehidratar');
   let primaDiasEdited = false;
   let opcTimer = null;
+
+  function normalizeModoCalculoForm(raw) {
+    const slug = String(raw || 'total_gravable').trim().toLowerCase().replace(/-/g, '_').replace(/\s+/g, '_');
+    const compact = slug.replace(/_/g, '');
+    if (slug === 'correcto_fiscal' || slug === 'total_gravable') return slug;
+    if (compact.includes('aguinaldo') && compact.includes('todo') && compact.includes('gravable')) return 'total_gravable';
+    return 'total_gravable';
+  }
+
+  function syncDesgloseHeroSwitchLabel() {
+    const lab = $('fin_desglose_switch_label');
+    const sw = $('sw_edicion_desglose');
+    if (!lab || !sw) return;
+    lab.textContent = sw.checked ? 'Activado' : 'Desactivado';
+  }
 
   function setOpcionalesPagosPreviosInteractivos(on) {
     const row = $('fin_perc_optional_row');
@@ -667,7 +683,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       <h4>Aguinaldo</h4><div class="pv-grid">
         <div>Días anuales de aguinaldo: <strong>${fmt4(l.dias_aguinaldo_aplicables)}</strong></div>
         <div>Días completos acumulados no pagados: <strong>${fmt4(l.aguinaldo_completos_no_pagados_dias)}</strong></div>
-        <div>Días laborados del año: <strong>${l.dias_trabajados_anio}</strong> / ${l.dias_anio_aguinaldo}</div>
+        <div>Días laborados (año de baja, desde ingreso o 1 ene.): <strong>${l.dias_trabajados_anio}</strong> / ${l.dias_anio_aguinaldo}</div>
         <div>Factor aguinaldo: <strong>${fmt4(l.factor_aguinaldo)}</strong></div>
         <div>Días proporcionales año actual: <strong>${fmt4(l.aguinaldo_proporcional_dias)}</strong></div>
         <div>Total días de aguinaldo a pagar: <strong>${fmt4(l.aguinaldo_total_dias)}</strong></div>
@@ -814,7 +830,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       <div><strong>Aguinaldo</strong><br>
         Días anuales de aguinaldo: ${fmt4(a.aguinaldo?.dias_aguinaldo)}<br>
         Días completos acumulados no pagados: ${fmt4(a.aguinaldo?.dias_completos_no_pagados)}<br>
-        Días laborados del año: ${a.aguinaldo?.dias_laborados}<br>
+        Días laborados (año de baja, desde ingreso o 1 ene.): ${a.aguinaldo?.dias_laborados}<br>
         Factor aguinaldo: ${a.aguinaldo?.dias_laborados} / ${a.aguinaldo?.dias_anio} = ${fmt4(a.aguinaldo?.factor)}<br>
         Días proporcionales: ${fmt4(a.aguinaldo?.dias_aguinaldo)} * ${fmt4(a.aguinaldo?.factor)} = ${fmt4(a.aguinaldo?.resultado_dias_proporcionales)}<br>
         Total días aguinaldo acumulados: ${fmt4(a.aguinaldo?.resultado_dias_totales)}<br>
@@ -876,9 +892,11 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         $('sw_edicion_desglose').checked = false;
         $('fin_desglose_hint').hidden = true;
         $('fin_desglose_editor_wrap').hidden = true;
+        syncDesgloseHeroSwitchLabel();
         return;
       }
       dg2InitFromCalc(window.__lastCalcPayload);
+      syncDesgloseHeroSwitchLabel();
       return;
     }
     window.__dg2 = { percepciones: [], deducciones: [] };
@@ -894,6 +912,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         msg($('calc_msg'), 'Error de red.', true);
       }
     }
+    syncDesgloseHeroSwitchLabel();
   });
 
   $('fin_desglose_editor_wrap').addEventListener('click', (e) => {
@@ -1001,7 +1020,6 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
   $('vacaciones_ya_usadas').addEventListener('input', ()=>{ if(!primaDiasEdited) syncPrimaDiasSuggest(); });
   $('prima_dias_cubiertos').addEventListener('input', ()=>{ primaDiasEdited = true; });
   document.querySelectorAll('input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', ()=>{ syncPrimaDiasSuggest(); scheduleAutoSummary(); }));
-  $('fecha_emision').value = new Date().toISOString().slice(0,10);
   wirePercReadonlyToggle('dias_aguinaldo_politica', 'btn_unlock_dias_aguinaldo_politica');
   wirePercReadonlyToggle('prima_vacacional_pct', 'btn_unlock_prima_vacacional_pct');
   syncPrimaDiasSuggest();
@@ -1039,8 +1057,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         if (opt) sel.value = opt.value;
       }
       $('zona_salarial').value = f.zona_salarial === 'frontera' ? 'frontera' : 'general';
-      let modoForm = String(f.modo_calculo || 'total_gravable').trim();
-      if (modoForm === 'aguinaldo_todo_gravable') modoForm = 'total_gravable';
+      const modoForm = normalizeModoCalculoForm(f.modo_calculo);
       const mrad = document.querySelector(`input[name="modo_calculo"][value="${modoForm}"]`);
       if (mrad) mrad.checked = true;
       else {
@@ -1057,6 +1074,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       if (swDes) swDes.checked = desgloseOn;
       $('fin_desglose_hint').hidden = !desgloseOn;
       $('fin_desglose_editor_wrap').hidden = !desgloseOn;
+      syncDesgloseHeroSwitchLabel();
       $('sueldo_semanal').value = f.sueldo_semanal || '';
       $('dias_aguinaldo_politica').value = f.dias_aguinaldo_politica || '15';
       $('prima_vacacional_pct').value = f.prima_vacacional_pct || '25';
@@ -1119,6 +1137,11 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
 
   void (async () => {
     await tryRehydrateFromHistorial();
+    const today = new Date().toISOString().slice(0, 10);
+    if (!rehidratarParam) {
+      if (!$('fecha_baja').value) $('fecha_baja').value = today;
+      if (!$('fecha_emision').value) $('fecha_emision').value = today;
+    }
     await refreshOpcionalesPagosPrevios();
   })();
 })();

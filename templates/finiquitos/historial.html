@@ -268,7 +268,7 @@
         <div><strong>Aguinaldo</strong><br>
           Días anuales: ${fmt4(a.aguinaldo?.dias_aguinaldo)}<br>
           Días completos no pagados: ${fmt4(a.aguinaldo?.dias_completos_no_pagados)}<br>
-          Días laborados del año: ${escapeHtml(String(a.aguinaldo?.dias_laborados ?? ''))} / ${escapeHtml(String(a.aguinaldo?.dias_anio ?? ''))}<br>
+          Días laborados (año de baja, desde ingreso o 1 ene.): ${escapeHtml(String(a.aguinaldo?.dias_laborados ?? ''))} / ${escapeHtml(String(a.aguinaldo?.dias_anio ?? ''))}<br>
           Factor: ${fmt4(a.aguinaldo?.factor)}<br>
           Total días aguinaldo: ${fmt4(a.aguinaldo?.resultado_dias_totales)}<br>
           Monto: $${fmt(a.aguinaldo?.resultado)}

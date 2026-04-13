@@ -121,6 +121,36 @@ class TestFiniquitoEjemplos(unittest.TestCase):
         self.assertAlmostEqual(l["vacaciones_ya_usadas_efectivas"], float(cap), places=6)
         self.assertAlmostEqual(l["vacaciones_ya_usadas_max_permitido"], float(cap), places=6)
 
+    def test_aguinaldo_dias_laborados_anio_respeta_fecha_ingreso(self) -> None:
+        """Proporcional del año de baja: no contar días antes del ingreso en el mismo año calendario."""
+        ing = date(2026, 3, 5)
+        baja = date(2026, 4, 12)
+        r = calcular_finiquito(
+            ingreso=ing,
+            baja=baja,
+            fecha_emision=baja,
+            salario_diario=Decimal("315.04"),
+            zona="general",
+            periodicidad_isr="semanal_mensualizada",
+            modo="total_gravable",
+            dias_sueldo_pendientes=Decimal("0"),
+            septimos_pendientes=Decimal("0"),
+            dias_aguinaldo_politica=Decimal("15"),
+            prima_vacacional_pct=Decimal("25"),
+            vacaciones_ya_usadas=Decimal("0"),
+            aguinaldo_ya_pagado=Decimal("0"),
+            prima_vac_ya_pagada=Decimal("0"),
+            incluir_prima_antiguedad=False,
+            motivo_baja="despido",
+            aguinaldo_pagado_previamente=False,
+            año_calendario_actual=2026,
+        )
+        l = r["laboral"]
+        esperado = (baja - ing).days + 1
+        self.assertEqual(l["dias_trabajados_anio"], esperado)
+        da = float(l["dias_anio_aguinaldo"])
+        self.assertAlmostEqual(l["factor_aguinaldo"], float(esperado) / da, places=4)
+
 
 class TestAjusteNetoReglas(unittest.TestCase):
     def test_malla_centavos_omite_ajuste(self):
