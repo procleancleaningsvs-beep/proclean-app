@@ -23,7 +23,7 @@ from modules.finiquitos.calc import (
 )
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_final
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
-from modules.finiquitos.edicion_libre_finiquito import merge_finiquito_calc_with_manual
+from modules.finiquitos.edicion_libre_finiquito import apply_desglose_manual
 from modules.finiquitos.excel_mirror_fecha_ingreso import buscar_fecha_ingreso_headcount_onedrive
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
@@ -115,13 +115,16 @@ def _modo_finiquito_etiqueta(modo: str | None) -> str:
     return _MODO_FINIQUITO_ETIQUETA.get(key, str(modo))
 
 
-def _merge_calc_con_edicion_libre(data: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
-    if not _bool_coerce_entrada(data.get("edicion_libre")):
+def _apply_desglose_manual_si_aplica(data: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
+    if not _bool_coerce_entrada(data.get("edicion_libre_desglose")):
         return calc
-    manual = data.get("importes_manuales")
-    if not isinstance(manual, dict) or not manual:
+    dm = data.get("desglose_manual")
+    if not isinstance(dm, dict):
         return calc
-    return merge_finiquito_calc_with_manual(calc, manual)
+    filas = dm.get("filas")
+    if not isinstance(filas, list) or not filas:
+        return calc
+    return apply_desglose_manual(calc, filas)
 
 
 def _payload_resumen_lista(payload_json: str | None) -> dict[str, Any]:
@@ -458,7 +461,7 @@ def api_calcular():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _merge_calc_con_edicion_libre(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc)
     return jsonify(
         {
             "ok": True,
@@ -507,7 +510,7 @@ def api_pdf():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _merge_calc_con_edicion_libre(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc)
     tpl = template_finiquito_path()
     if not tpl.is_file():
         return jsonify({"ok": False, "error": f"No existe la plantilla DOCX en {tpl}"}), 400
@@ -586,7 +589,7 @@ def api_historial_finiquito():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _merge_calc_con_edicion_libre(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc)
     pdf_path = None
     pdf_fn = None
     if data.get("incluir_pdf_guardado"):

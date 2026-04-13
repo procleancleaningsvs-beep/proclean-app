@@ -1,4 +1,4 @@
-"""Aplicación de importes manuales sobre un resultado de finiquito ya calculado (fase 1)."""
+"""Edición libre limitada al desglose: filas editables + extras y recálculo de totales/PDF."""
 
 from __future__ import annotations
 
@@ -7,11 +7,34 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from modules.finiquitos.calc import _ajuste_neto_permitido, _mapear_pdf
+from modules.finiquitos.calc import _ajuste_neto_permitido, _mapear_pdf, format_importe
 
 logger = logging.getLogger(__name__)
 
 D0 = Decimal("0")
+
+# Claves enviadas desde el desglose (frontend) → campo en laboral
+LAB_POR_CLAVE: dict[str, str] = {
+    "sueldo": "sueldo",
+    "septimo_dia": "septimo_dia",
+    "vacaciones_a_tiempo": "vacaciones_a_tiempo",
+    "prima_vacacional": "prima_vacacional",
+    "aguinaldo": "aguinaldo",
+    "prima_antiguedad_monto": "prima_antiguedad_monto",
+    "prima_dominical": "prima_dominical",
+    "ptu": "ptu",
+}
+
+_LAB_SUM_KEYS = (
+    "sueldo",
+    "septimo_dia",
+    "vacaciones_a_tiempo",
+    "prima_vacacional",
+    "aguinaldo",
+    "prima_antiguedad_monto",
+    "prima_dominical",
+    "ptu",
+)
 
 
 def _q(x: Decimal, q: Decimal = Decimal("0.01")) -> Decimal:
@@ -25,105 +48,99 @@ def _dec(x: Any) -> Decimal:
         return D0
 
 
-def merge_finiquito_calc_with_manual(calc: dict[str, Any], manual: dict[str, Any]) -> dict[str, Any]:
+def apply_desglose_manual(calc: dict[str, Any], filas: list[Any]) -> dict[str, Any]:
     """
-    Copia el dict de cálculo y aplica montos manuales conocidos; recalcula totales, pdf_filas y
-    fragmentos de auditoría usados en vista/PDF.
+    Aplica filas del desglose manual (solo montos y extras).
+    Cada fila: {id, tipo: P|D|ISR, concepto, monto, clave?}
+    - tipo P con id extra-p:* → suma a percepciones extra
+    - tipo D con id extra-d:* → suma a deducciones extra
+    - tipo ISR con clave isr_ordinario | isr_art174 | isr_separacion
     """
     out = copy.deepcopy(calc)
-    if not manual:
+    if not filas:
         return out
 
     lab = out["laboral"]
     fis = out["fiscal"]
+    extra_p = D0
+    extra_d = D0
 
-    lab_map = {
-        "sueldo": "sueldo",
-        "septimo_dia": "septimo_dia",
-        "vacaciones": "vacaciones_a_tiempo",
-        "prima_vacacional": "prima_vacacional",
-        "aguinaldo": "aguinaldo",
-        "prima_antiguedad": "prima_antiguedad_monto",
-        "prima_dominical": "prima_dominical",
-        "ptu": "ptu",
-    }
-    for src, dst in lab_map.items():
-        if src not in manual:
+    for row in filas:
+        if not isinstance(row, dict):
             continue
-        try:
-            lab[dst] = float(manual[src])
-        except (TypeError, ValueError):
+        tipo = str(row.get("tipo") or "").strip().upper()
+        rid = str(row.get("id") or "")
+        monto = _dec(row.get("monto"))
+
+        if tipo == "P" and rid.startswith("extra-p:"):
+            extra_p += monto
+            continue
+        if tipo == "D" and rid.startswith("extra-d:"):
+            extra_d += monto
             continue
 
-    if "isr_ordinario" in manual:
-        try:
-            v = float(manual["isr_ordinario"])
-        except (TypeError, ValueError):
-            v = float(fis.get("isr_mes_neto") or 0)
-        for k in (
-            "isr_mes_neto",
-            "isr_ordinario_neto",
-            "isr_antes_subsidio_periodo",
-            "isr_ordinario_antes_subsidio",
-        ):
-            if k in fis:
-                fis[k] = v
-    if "isr_art174" in manual:
-        try:
-            fis["isr_art174"] = float(manual["isr_art174"])
-        except (TypeError, ValueError):
-            pass
-    if "isr_separacion" in manual:
-        try:
-            fis["isr_separacion"] = float(manual["isr_separacion"])
-        except (TypeError, ValueError):
-            pass
+        if tipo == "P" and rid.startswith("base:P:"):
+            ck = str(row.get("clave") or "").strip()
+            lk = LAB_POR_CLAVE.get(ck)
+            if lk:
+                lab[lk] = float(monto)
+            continue
 
-    _recompute_totales_y_pdf(out)
-    _patch_auditoria_resumen(out)
-    logger.info("Finiquito: aplicados importes_manuales (edición libre), keys=%s", sorted(manual.keys()))
-    return out
+        if tipo == "ISR" and rid.startswith("base:ISR:"):
+            ck = str(row.get("clave") or "").strip()
+            v = float(monto)
+            if ck == "isr_ordinario":
+                for k in (
+                    "isr_mes_neto",
+                    "isr_ordinario_neto",
+                    "isr_antes_subsidio_periodo",
+                    "isr_ordinario_antes_subsidio",
+                ):
+                    if k in fis:
+                        fis[k] = v
+            elif ck == "isr_art174":
+                fis["isr_art174"] = v
+            elif ck == "isr_separacion":
+                fis["isr_separacion"] = v
 
-
-def _recompute_totales_y_pdf(c: dict[str, Any]) -> None:
-    lab = c["laboral"]
-    fis = c["fiscal"]
-    sueldo = _dec(lab.get("sueldo"))
-    sept = _dec(lab.get("septimo_dia"))
-    vac = _dec(lab.get("vacaciones_a_tiempo"))
-    pv = _dec(lab.get("prima_vacacional"))
-    ag = _dec(lab.get("aguinaldo"))
-    pa = _dec(lab.get("prima_antiguedad_monto"))
-    pdom = _dec(lab.get("prima_dominical"))
-    ptu = _dec(lab.get("ptu"))
-    total_perc = _q(sueldo + sept + vac + pv + ag + pa + pdom + ptu)
+    total_perc = D0
+    for k in _LAB_SUM_KEYS:
+        total_perc += _dec(lab.get(k))
+    total_perc = _q(total_perc + extra_p)
 
     isr_mes = _dec(fis.get("isr_mes_neto"))
     isr174 = _dec(fis.get("isr_art174"))
     isr_sep = _dec(fis.get("isr_separacion"))
-    ded_reales = _q(isr_mes + isr174 + isr_sep)
+    ded_reales = _q(isr_mes + isr174 + isr_sep + extra_d)
     neto_prev = _q(total_perc - ded_reales)
     neto_final, ajuste_neto = _ajuste_neto_permitido(neto_prev)
     extra_99 = _q(abs(ajuste_neto)) if ajuste_neto > D0 else D0
     suma_43_45_99 = _q(isr_mes + isr174 + extra_99)
+    suma_d_num = _q(suma_43_45_99 + isr_sep + extra_d)
 
-    tot = c["totales"]
+    tot = out["totales"]
     tot["total_percepciones"] = float(total_perc)
     tot["total_deducciones_reales"] = float(ded_reales)
     tot["suma_deducciones_43_45_99"] = float(suma_43_45_99)
     tot["ajuste_neto"] = float(ajuste_neto)
     tot["neto_final"] = float(neto_final)
 
-    c["pdf_filas"] = _mapear_pdf(
+    pf = _mapear_pdf(
         isr_antes_subsidio=isr_mes,
         isr_mes_neto=isr_mes,
         isr_174=isr174,
         isr_sep=isr_sep,
         ajuste_neto=ajuste_neto,
     )
+    pf["suma_d"] = format_importe(suma_d_num)
+    out["pdf_filas"] = pf
+
+    _patch_auditoria_desglose(out, neto_prev_sin_ajuste=float(neto_prev), extra_p=float(extra_p), extra_d=float(extra_d))
+    logger.info("Finiquito: desglose manual aplicado (%d filas).", len(filas))
+    return out
 
 
-def _patch_auditoria_resumen(c: dict[str, Any]) -> None:
+def _patch_auditoria_desglose(c: dict[str, Any], *, neto_prev_sin_ajuste: float, extra_p: float, extra_d: float) -> None:
     aud = c.setdefault("auditoria", {})
     lab = c["laboral"]
     fis = c["fiscal"]
@@ -139,6 +156,8 @@ def _patch_auditoria_resumen(c: dict[str, Any]) -> None:
         {"concepto": "Prima dominical", "monto": float(lab.get("prima_dominical") or 0)},
         {"concepto": "PTU", "monto": float(lab.get("ptu") or 0)},
     ]
+    if extra_p > 0:
+        aud["percepciones_finiquito"].append({"concepto": "Otros (desglose manual)", "monto": extra_p})
 
     sf = aud.setdefault("seccion_fiscal", {})
     A = sf.setdefault("A_resumen_percepciones", {})
@@ -153,13 +172,7 @@ def _patch_auditoria_resumen(c: dict[str, Any]) -> None:
     A["total_percepciones"] = float(tot.get("total_percepciones") or 0)
 
     F = sf.setdefault("F_ajuste_neto", {})
-    npv = _q(
-        _dec(tot.get("total_percepciones"))
-        - _dec(fis.get("isr_mes_neto"))
-        - _dec(fis.get("isr_art174"))
-        - _dec(fis.get("isr_separacion"))
-    )
-    F["neto_previo"] = float(npv)
+    F["neto_previo"] = float(neto_prev_sin_ajuste)
     F["ajuste"] = float(tot.get("ajuste_neto") or 0)
     F["neto_final"] = float(tot.get("neto_final") or 0)
     aud["ajuste_neto"] = dict(F)
@@ -169,3 +182,6 @@ def _patch_auditoria_resumen(c: dict[str, Any]) -> None:
     isr_blk["isr_mes_neto_periodo"] = float(fis.get("isr_mes_neto") or 0)
     isr_blk["isr_art174"] = float(fis.get("isr_art174") or 0)
     isr_blk["isr_separacion"] = float(fis.get("isr_separacion") or 0)
+
+    c.setdefault("edicion_libre_desglose_meta", {})
+    c["edicion_libre_desglose_meta"] = {"extra_percepciones": extra_p, "extra_deducciones": extra_d}
