@@ -47,34 +47,46 @@
 
     <section class="fin-sec">
       <h3>Percepciones</h3>
-      <div class="grid-2">
-        <label>Sueldo semanal *<input type="text" id="sueldo_semanal" inputmode="decimal" required placeholder="2,205.28"></label>
-        <label>Días sueldo pendientes<input type="text" id="dias_sueldo_pendientes" value="0"></label>
-      </div>
-      <div class="grid-2">
-        <label>Vacaciones ya pagadas/disfrutadas (días)<input type="text" id="vacaciones_ya_usadas" value="0" inputmode="decimal" autocomplete="off">
-          <span id="vac_tope_hint" class="helper"></span>
-        </label>
-        <label>Prima vacacional %<input type="text" id="prima_vacacional_pct" value="25"></label>
-      </div>
-      <div class="grid-2">
-        <label>Días aguinaldo aplicables<input type="text" id="dias_aguinaldo_politica" value="15"></label>
-        <div>
-          <span>¿Ya se pagó previamente prima vacacional?</span>
-          <div class="mode-toggle compact">
-            <label><input type="radio" name="prima_pagada_flag" value="si" checked> Sí</label>
-            <label><input type="radio" name="prima_pagada_flag" value="no"> No</label>
+      <div class="fin-perc-wrap">
+        <div class="grid-2 fin-perc-grid">
+          <label>Sueldo semanal *<input type="text" id="sueldo_semanal" inputmode="decimal" required placeholder="2,205.28"></label>
+          <label>Días sueldo pendientes<input type="text" id="dias_sueldo_pendientes" value="0"></label>
+          <div class="fin-perc-field">
+            <div class="fin-perc-head">
+              <span class="fin-perc-head-text">Días aguinaldo aplicables</span>
+              <button type="button" class="link-btn fin-perc-unlock" id="btn_unlock_dias_aguinaldo_politica" aria-pressed="false">Modificar</button>
+            </div>
+            <input type="text" id="dias_aguinaldo_politica" value="15" readonly inputmode="decimal" autocomplete="off">
           </div>
+          <div class="fin-perc-field">
+            <div class="fin-perc-head">
+              <span class="fin-perc-head-text">Prima vacacional %</span>
+              <button type="button" class="link-btn fin-perc-unlock" id="btn_unlock_prima_vacacional_pct" aria-pressed="false">Modificar</button>
+            </div>
+            <input type="text" id="prima_vacacional_pct" value="25" readonly inputmode="decimal" autocomplete="off">
+          </div>
+          <label>Vacaciones ya pagadas/disfrutadas (días)<input type="text" id="vacaciones_ya_usadas" value="0" inputmode="decimal" autocomplete="off">
+            <span id="vac_tope_hint" class="helper"></span>
+          </label>
           <label id="prima_dias_wrap">Días con prima vacacional ya cubierta
             <input type="text" id="prima_dias_cubiertos" value="0" inputmode="decimal">
           </label>
         </div>
-      </div>
-      <div id="pagos_previos_block" hidden>
-        <span>¿Ya se pagó previamente aguinaldo?</span>
-        <div class="mode-toggle compact">
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="si" checked> Sí</label>
-          <label><input type="radio" name="aguinaldo_pagado_flag" value="no"> No</label>
+        <div class="grid-2 fin-perc-optional-row fin-perc-optional-row--solo-prima" id="fin_perc_optional_row">
+          <div id="pagos_previos_block" class="fin-perc-optional-col" hidden>
+            <span>¿Ya se pagó previamente aguinaldo?</span>
+            <div class="mode-toggle compact">
+              <label><input type="radio" name="aguinaldo_pagado_flag" value="si" checked> Sí</label>
+              <label><input type="radio" name="aguinaldo_pagado_flag" value="no"> No</label>
+            </div>
+          </div>
+          <div class="fin-perc-optional-col fin-perc-optional-prima">
+            <span>¿Ya se pagó previamente prima vacacional?</span>
+            <div class="mode-toggle compact">
+              <label><input type="radio" name="prima_pagada_flag" value="si" checked> Sí</label>
+              <label><input type="radio" name="prima_pagada_flag" value="no"> No</label>
+            </div>
+          </div>
         </div>
       </div>
       <div id="auto-kpis-left" class="helper"></div>
@@ -129,7 +141,33 @@
   function updateConditionalQuestions() {
     const fi = $('fecha_ingreso').value;
     const y = new Date().getFullYear();
-    $('pagos_previos_block').hidden = !(fi && Number(fi.slice(0,4)) < y);
+    const showAgu = !!(fi && Number(fi.slice(0, 4)) < y);
+    $('pagos_previos_block').hidden = !showAgu;
+    const optRow = $('fin_perc_optional_row');
+    if (optRow) optRow.classList.toggle('fin-perc-optional-row--solo-prima', !showAgu);
+  }
+
+  function wirePercReadonlyToggle(inputId, btnId) {
+    const inp = $(inputId);
+    const btn = $(btnId);
+    if (!inp || !btn) return;
+    const apply = (locked) => {
+      if (locked) {
+        inp.setAttribute('readonly', '');
+        btn.textContent = 'Modificar';
+        btn.setAttribute('aria-pressed', 'false');
+      } else {
+        inp.removeAttribute('readonly');
+        btn.textContent = 'Fijar';
+        btn.setAttribute('aria-pressed', 'true');
+      }
+    };
+    btn.addEventListener('click', () => {
+      const locked = inp.hasAttribute('readonly');
+      apply(!locked);
+      if (locked) inp.focus();
+    });
+    apply(true);
   }
 
   function syncPrimaDiasSuggest() {
@@ -465,6 +503,8 @@
   $('prima_dias_cubiertos').addEventListener('input', ()=>{ primaDiasEdited = true; });
   document.querySelectorAll('input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', ()=>{ syncPrimaDiasSuggest(); scheduleAutoSummary(); }));
   $('fecha_emision').value = new Date().toISOString().slice(0,10);
+  wirePercReadonlyToggle('dias_aguinaldo_politica', 'btn_unlock_dias_aguinaldo_politica');
+  wirePercReadonlyToggle('prima_vacacional_pct', 'btn_unlock_prima_vacacional_pct');
   updateConditionalQuestions();
   syncPrimaDiasSuggest();
 })();
