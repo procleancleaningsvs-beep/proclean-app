@@ -22,6 +22,7 @@ from modules.finiquitos.calc import (
 )
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_final
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
+from modules.finiquitos.excel_mirror_fecha_ingreso import buscar_fecha_ingreso_headcount_onedrive
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
 from services.finiquitos_history import (
@@ -381,6 +382,26 @@ def api_excel_ingreso():
     if msg:
         return jsonify({"ok": False, "error": msg}), 400
     return jsonify({"ok": True, "fecha_ingreso": fd.isoformat() if fd else None})
+
+
+@finiquitos_bp.route("/buscar-fecha-ingreso-excel", methods=["POST"])
+def buscar_fecha_ingreso_excel_mirror():
+    """Descarga el Excel de headcount desde OneDrive (enlace compartido) y cruza por nombre."""
+    err = _login_required_json()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get("nombre_completo") or "").strip()
+    fd, nombre_encontrado, msg = buscar_fecha_ingreso_headcount_onedrive(nombre)
+    if msg:
+        return jsonify({"ok": False, "error": msg}), 400
+    return jsonify(
+        {
+            "ok": True,
+            "fecha_ingreso": fd.isoformat() if fd else None,
+            "nombre_encontrado": nombre_encontrado or "",
+        }
+    )
 
 
 @finiquitos_bp.route("/api/calcular", methods=["POST"])

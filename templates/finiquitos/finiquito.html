@@ -492,11 +492,47 @@
   }
 
   $('btn_excel').addEventListener('click', async () => {
-    msg($('excel_msg'), 'Buscando…');
-    const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() })});
-    const j = await r.json();
-    if (!j.ok) return msg($('excel_msg'), j.error || 'Error', true);
-    $('fecha_ingreso').value = j.fecha_ingreso; updatePrimaAntiguedadUI(); scheduleOpcionalesPagosPrevios(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+    const nombre = $('nombre_completo').value.trim();
+    const btn = $('btn_excel');
+    if (!nombre) return msg($('excel_msg'), 'Captura el nombre completo del trabajador antes de buscar en el Excel.', true);
+    msg($('excel_msg'), 'Buscando fecha de ingreso…');
+    btn.disabled = true;
+    try {
+      const r = await fetch('{{ url_for("finiquitos.buscar_fecha_ingreso_excel_mirror") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre_completo: nombre }),
+      });
+      let j;
+      try {
+        j = await r.json();
+      } catch (e) {
+        msg($('excel_msg'), 'La respuesta del servidor no es JSON válido.', true);
+        return;
+      }
+      if (!j.ok) {
+        const err = (j.error || '').toLowerCase();
+        if (err.includes('no se encontró coincidencia')) {
+          msg($('excel_msg'), 'No se encontró coincidencia.', true);
+          return;
+        }
+        if (err.includes('no tiene fecha válida')) {
+          msg($('excel_msg'), 'La coincidencia existe, pero no tiene fecha válida.', true);
+          return;
+        }
+        msg($('excel_msg'), j.error || ('Error HTTP ' + r.status), true);
+        return;
+      }
+      $('fecha_ingreso').value = j.fecha_ingreso;
+      updatePrimaAntiguedadUI();
+      scheduleOpcionalesPagosPrevios();
+      scheduleAutoSummary();
+      msg($('excel_msg'), 'Fecha encontrada.');
+    } catch (e) {
+      msg($('excel_msg'), 'No se pudo contactar al servidor. Revisa tu conexión e inténtalo de nuevo.', true);
+    } finally {
+      btn.disabled = false;
+    }
   });
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
