@@ -3,27 +3,297 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Finiquitos</span>
-    <h2>Historial</h2>
-    <p>Registros de finiquitos generados (snapshots JSON y PDF cuando aplica).</p>
+    <h2>Historial de finiquitos</h2>
+    <p>Registros generados en la herramienta: lectura rápida, búsqueda y acciones por registro.</p>
   </div>
 </section>
 
-<div class="form-card">
-  <p>
-    <a href="{{ url_for('finiquitos.pagina_finiquito') }}">Finiquito</a>
-  </p>
-  <div id="lista"></div>
+<div class="form-card fin-hist-card">
+  <p class="fin-hist-back"><a href="{{ url_for('finiquitos.pagina_finiquito') }}">← Volver a Finiquito</a></p>
+
+  <div class="fin-hist-toolbar history-toolbar">
+    <label class="history-search-label" for="fin_hist_search">Buscar en historial
+      <input type="search" id="fin_hist_search" class="history-search-input fin-hist-search" placeholder="Empleado, usuario, fecha, modo, archivo, sueldo, ingreso, total…" autocomplete="off" aria-label="Filtrar filas del historial de finiquitos">
+    </label>
+  </div>
+  <p id="fin_hist_filter_empty" class="history-filter-empty" hidden>No hay coincidencias con la búsqueda.</p>
+
+  <div class="fin-hist-table-wrap" role="region" aria-label="Tabla de historial de finiquitos">
+    <table class="fin-hist-table" id="fin_hist_table" hidden>
+      <thead>
+        <tr>
+          <th scope="col">ID</th>
+          <th scope="col">Fecha / hora</th>
+          <th scope="col">Usuario</th>
+          <th scope="col">Modo</th>
+          <th scope="col">Archivo PDF</th>
+          <th scope="col">Empleado</th>
+          <th scope="col" class="fin-hist-num">Sueldo semanal</th>
+          <th scope="col">Fecha ingreso</th>
+          <th scope="col" class="fin-hist-num">Total finiquito</th>
+          <th scope="col" class="fin-hist-actions-col">Acciones</th>
+        </tr>
+      </thead>
+      <tbody id="fin_hist_tbody"></tbody>
+    </table>
+  </div>
+
+  <p id="fin_hist_empty" class="empty-state" hidden>Todavía no hay finiquitos en el historial.</p>
+  <p id="fin_hist_error" class="empty-state" hidden></p>
 </div>
+
+<dialog id="fin_hist_dialog_detalle" class="fin-hist-dialog">
+  <form method="dialog" class="fin-hist-dialog-form">
+    <header class="fin-hist-dialog-head">
+      <h3 id="fin_hist_detalle_title">Detalle del registro</h3>
+      <button type="submit" class="fin-hist-dialog-close" value="close" aria-label="Cerrar">×</button>
+    </header>
+    <div id="fin_hist_detalle_body" class="fin-hist-dialog-body"></div>
+    <footer class="fin-hist-dialog-foot">
+      <button type="button" class="btn btn-secondary" id="fin_hist_btn_calc_from_det">Ver cálculos (avanzado)</button>
+      <button type="submit" class="btn btn-primary" value="close">Cerrar</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="fin_hist_dialog_calculo" class="fin-hist-dialog fin-hist-dialog--wide">
+  <form method="dialog" class="fin-hist-dialog-form">
+    <header class="fin-hist-dialog-head">
+      <h3>Cálculo (vista avanzada)</h3>
+      <button type="submit" class="fin-hist-dialog-close" value="close" aria-label="Cerrar">×</button>
+    </header>
+    <div class="fin-hist-dialog-body">
+      <p class="helper">JSON del objeto de cálculo guardado en el registro (diagnóstico y trazabilidad).</p>
+      <pre id="fin_hist_calc_pre" class="fin-hist-pre"></pre>
+    </div>
+    <footer class="fin-hist-dialog-foot">
+      <button type="submit" class="btn btn-primary" value="close">Cerrar</button>
+    </footer>
+  </form>
+</dialog>
 
 <script>
 (function(){
-  fetch('{{ url_for("finiquitos.api_historial_lista") }}')
-    .then(r => r.json())
-    .then(j => {
-      const el = document.getElementById('lista');
-      if (!j.ok) { el.textContent = 'error'; return; }
-      el.innerHTML = '<h3>Finiquitos</h3><ul>' + j.items.map(i => '<li>#' + i.id + ' — ' + i.created_at + ' — ' + (i.username||'') + ' — ' + (i.modo_calculo||'') + (i.pdf_filename ? ' — ' + i.pdf_filename : '') + '</li>').join('') + '</ul>';
+  const $ = (id) => document.getElementById(id);
+  const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const puedeEliminar = {{ (current_user and current_user.role == 'admin')|tojson }};
+  const urlDetalle = (id) => "{{ url_for('finiquitos.api_historial_registro', hid=0) }}".replace(/\/0$/, '/' + id);
+  const urlPdf = (id) => "{{ url_for('finiquitos.api_historial_registro_pdf', hid=0) }}".replace(/\/0\/pdf$/, '/' + id + '/pdf');
+  const urlDocx = (id) => "{{ url_for('finiquitos.api_historial_registro_docx', hid=0) }}".replace(/\/0\/docx$/, '/' + id + '/docx');
+
+  let itemsCache = [];
+  let lastSnapshot = null;
+
+  function rowSearchBlob(it) {
+    const parts = [
+      it.id,
+      it.created_at,
+      it.username,
+      it.modo_calculo,
+      it.modo_etiqueta,
+      it.pdf_filename,
+      it.nombre_empleado,
+      it.sueldo_semanal,
+      it.fecha_ingreso,
+      it.total_finiquito_pagado != null ? fmt(it.total_finiquito_pagado) : '',
+      it.total_finiquito_pagado,
+    ];
+    return parts.join(' ').toLowerCase();
+  }
+
+  function renderRows(list) {
+    const tb = $('fin_hist_tbody');
+    tb.innerHTML = list.map((it) => {
+      const total = it.total_finiquito_pagado != null ? '$' + fmt(it.total_finiquito_pagado) : '—';
+      const pdfName = it.pdf_filename || '—';
+      const delBtn = puedeEliminar
+        ? `<button type="button" class="btn btn-secondary danger-btn fin-hist-icon-btn fin-hist-del" data-id="${it.id}" title="Eliminar registro">Eliminar</button>`
+        : '';
+      const pdfBtn = it.pdf_disponible
+        ? `<a class="btn btn-secondary fin-hist-icon-btn" href="${urlPdf(it.id)}" target="_blank" rel="noopener">PDF</a>`
+        : `<span class="btn btn-secondary fin-hist-icon-btn fin-hist-disabled" title="No hay PDF guardado para este registro" role="text">PDF</span>`;
+      return `<tr data-id="${it.id}" data-search="${rowSearchBlob(it).replace(/"/g, '&quot;')}">
+        <td class="fin-hist-mono">${it.id}</td>
+        <td class="fin-hist-nowrap">${it.created_at || '—'}</td>
+        <td>${escapeHtml(it.username || '')}</td>
+        <td>${escapeHtml(it.modo_etiqueta || it.modo_calculo || '')}</td>
+        <td class="history-cell-wrap">${escapeHtml(pdfName)}</td>
+        <td class="history-cell-wrap">${escapeHtml(it.nombre_empleado || '—')}</td>
+        <td class="fin-hist-num">${it.sueldo_semanal ? '$' + fmt(it.sueldo_semanal) : '—'}</td>
+        <td class="fin-hist-mono">${escapeHtml(it.fecha_ingreso || '—')}</td>
+        <td class="fin-hist-num">${total}</td>
+        <td class="fin-hist-actions-cell">
+          <div class="fin-hist-actions">
+            <button type="button" class="btn btn-secondary fin-hist-icon-btn" data-act="detalle" data-id="${it.id}" title="Ver desglose del registro">Detalle</button>
+            <button type="button" class="btn btn-secondary fin-hist-icon-btn" data-act="calculo" data-id="${it.id}" title="Ver cálculos (avanzado)">Cálculos</button>
+            ${pdfBtn}
+            <a class="btn btn-secondary fin-hist-icon-btn" href="${urlDocx(it.id)}" target="_blank" rel="noopener">DOCX</a>
+            ${delBtn}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function applyFilter() {
+    const q = ($('fin_hist_search').value || '').trim().toLowerCase();
+    const rows = [...document.querySelectorAll('#fin_hist_tbody tr')];
+    let shown = 0;
+    rows.forEach((tr) => {
+      const hay = !q || (tr.getAttribute('data-search') || '').includes(q);
+      tr.hidden = !hay;
+      if (hay) shown++;
     });
+    $('fin_hist_filter_empty').hidden = !(rows.length && shown === 0);
+  }
+
+  function buildDetalleHtml(snap) {
+    const ent = snap.entrada || {};
+    const calc = snap.calculo || {};
+    const lab = calc.laboral || {};
+    const fis = calc.fiscal || {};
+    const tot = calc.totales || {};
+    const ing = ent.ingreso != null ? String(ent.ingreso).slice(0, 10) : '—';
+    const baj = ent.baja != null ? String(ent.baja).slice(0, 10) : '—';
+    const emi = ent.emision != null ? String(ent.emision).slice(0, 10) : '—';
+    return `
+      <div class="fin-hist-detail-grid">
+        <div><strong>Empleado</strong><br>${escapeHtml(ent.nombre || '—')}</div>
+        <div><strong>Fecha ingreso</strong><br>${escapeHtml(ing)}</div>
+        <div><strong>Fecha baja</strong><br>${escapeHtml(baj)}</div>
+        <div><strong>Emisión</strong><br>${escapeHtml(emi)}</div>
+        <div><strong>Sueldo semanal</strong><br>${ent.sueldo_semanal != null && ent.sueldo_semanal !== '' ? '$' + fmt(ent.sueldo_semanal) : '—'}</div>
+        <div><strong>Salario diario</strong><br>${ent.salario_diario != null ? '$' + fmt(ent.salario_diario) : '—'}</div>
+        <div><strong>Zona / modo</strong><br>${escapeHtml(ent.zona || '')} · ${escapeHtml(ent.modo || '')}</div>
+      </div>
+      <h4 class="fin-hist-detail-sub">Percepciones (montos)</h4>
+      <div class="fin-hist-detail-grid">
+        <div>Sueldo<br><strong>$${fmt(lab.sueldo)}</strong></div>
+        <div>Séptimo día<br><strong>$${fmt(lab.septimo_dia)}</strong></div>
+        <div>Vacaciones<br><strong>$${fmt(lab.vacaciones_a_tiempo)}</strong></div>
+        <div>Aguinaldo<br><strong>$${fmt(lab.aguinaldo)}</strong></div>
+        <div>Prima vacacional<br><strong>$${fmt(lab.prima_vacacional)}</strong></div>
+        <div>Prima antigüedad<br><strong>$${fmt(lab.prima_antiguedad_monto)}</strong></div>
+      </div>
+      <h4 class="fin-hist-detail-sub">Deducciones</h4>
+      <div class="fin-hist-detail-grid">
+        <div>41 I.S.R. (ref.)<br><strong>$${fmt(fis.isr_ordinario_antes_subsidio)}</strong></div>
+        <div>43 I.S.R. Art. 174<br><strong>$${fmt(fis.isr_art174)}</strong></div>
+        <div>45 I.S.R. (mes)<br><strong>$${fmt(fis.isr_ordinario_neto)}</strong></div>
+        <div>ISR separación<br><strong>$${fmt(fis.isr_separacion)}</strong></div>
+        <div>99 Ajuste al neto<br><strong>$${fmt(tot.ajuste_neto)}</strong></div>
+      </div>
+      <h4 class="fin-hist-detail-sub">Totales</h4>
+      <div class="fin-hist-detail-grid fin-hist-detail-totals">
+        <div>Total percepciones<br><strong>$${fmt(tot.total_percepciones)}</strong></div>
+        <div>Total deducciones<br><strong>$${fmt(tot.total_deducciones_reales)}</strong></div>
+        <div>Neto final<br><strong>$${fmt(tot.neto_final)}</strong></div>
+      </div>`;
+  }
+
+  async function openDetalle(id) {
+    const dlg = $('fin_hist_dialog_detalle');
+    $('fin_hist_detalle_body').innerHTML = '<p class="helper">Cargando…</p>';
+    dlg.showModal();
+    try {
+      const r = await fetch(urlDetalle(id), { headers: { 'Accept': 'application/json' } });
+      const j = await r.json();
+      if (!j.ok) {
+        $('fin_hist_detalle_body').innerHTML = '<p class="helper">No se pudo cargar el registro.</p>';
+        lastSnapshot = null;
+        return;
+      }
+      lastSnapshot = j.snapshot || {};
+      $('fin_hist_detalle_title').textContent = 'Detalle #' + j.id + ' — ' + (j.created_at || '');
+      $('fin_hist_detalle_body').innerHTML = buildDetalleHtml(lastSnapshot);
+    } catch (e) {
+      $('fin_hist_detalle_body').innerHTML = '<p class="helper">Error de red.</p>';
+      lastSnapshot = null;
+    }
+  }
+
+  function openCalculoFromCache() {
+    const calc = (lastSnapshot && lastSnapshot.calculo) || {};
+    $('fin_hist_calc_pre').textContent = JSON.stringify(calc, null, 2);
+    $('fin_hist_dialog_calculo').showModal();
+  }
+
+  async function openCalculoOnly(id) {
+    const r = await fetch(urlDetalle(id), { headers: { 'Accept': 'application/json' } });
+    const j = await r.json();
+    if (!j.ok) return;
+    lastSnapshot = j.snapshot || {};
+    $('fin_hist_calc_pre').textContent = JSON.stringify(j.snapshot.calculo || {}, null, 2);
+    $('fin_hist_dialog_calculo').showModal();
+  }
+
+  document.getElementById('fin_hist_table').addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLElement)) return;
+    const btn = t.closest('button[data-act], button.fin-hist-del');
+    if (!btn || !(btn instanceof HTMLButtonElement)) return;
+    const id = parseInt(btn.getAttribute('data-id') || '0', 10);
+    if (!id) return;
+    if (btn.classList.contains('fin-hist-del')) {
+      if (!window.confirm('¿Eliminar este registro del historial' + (itemsCache.find((x) => x.id === id)?.pdf_filename ? ' y su PDF asociado' : '') + '? Esta acción no se puede deshacer.')) return;
+      fetch(urlDetalle(id), { method: 'DELETE' }).then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok || !j.ok) {
+          window.alert(j.error || 'No se pudo eliminar.');
+          return;
+        }
+        load();
+      });
+      return;
+    }
+    const act = btn.getAttribute('data-act');
+    if (act === 'detalle') openDetalle(id);
+    if (act === 'calculo') openCalculoOnly(id);
+  });
+
+  $('fin_hist_btn_calc_from_det').addEventListener('click', () => {
+    if (lastSnapshot && lastSnapshot.calculo) {
+      $('fin_hist_calc_pre').textContent = JSON.stringify(lastSnapshot.calculo, null, 2);
+      $('fin_hist_dialog_calculo').showModal();
+    }
+  });
+
+  $('fin_hist_search').addEventListener('input', applyFilter);
+
+  function load() {
+    const errEl = $('fin_hist_error');
+    errEl.hidden = true;
+    fetch('{{ url_for("finiquitos.api_historial_lista") }}')
+      .then((r) => r.json())
+      .then((j) => {
+        if (!j.ok) {
+          errEl.textContent = 'No se pudo cargar el historial.';
+          errEl.hidden = false;
+          $('fin_hist_table').hidden = true;
+          $('fin_hist_empty').hidden = true;
+          return;
+        }
+        itemsCache = j.items || [];
+        if (!itemsCache.length) {
+          $('fin_hist_table').hidden = true;
+          $('fin_hist_empty').hidden = false;
+          return;
+        }
+        $('fin_hist_empty').hidden = true;
+        $('fin_hist_table').hidden = false;
+        renderRows(itemsCache);
+        applyFilter();
+      })
+      .catch(() => {
+        errEl.textContent = 'Error de red al cargar el historial.';
+        errEl.hidden = false;
+      });
+  }
+  load();
 })();
 </script>
 {% endblock %}

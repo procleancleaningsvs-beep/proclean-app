@@ -72,8 +72,8 @@
             <input type="text" id="prima_dias_cubiertos" value="0" inputmode="decimal">
           </label>
         </div>
-        <div class="grid-2 fin-perc-optional-row fin-perc-optional-row--solo-prima" id="fin_perc_optional_row">
-          <div id="pagos_previos_block" class="fin-perc-optional-col" hidden>
+        <div class="grid-2 fin-perc-optional-row" id="fin_perc_optional_row">
+          <div id="pagos_previos_block" class="fin-perc-optional-col">
             <span>¿Ya se pagó previamente aguinaldo?</span>
             <div class="mode-toggle compact">
               <label><input type="radio" name="aguinaldo_pagado_flag" value="si" checked> Sí</label>
@@ -136,15 +136,6 @@
     const ds = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
     const ms = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
     return `${ds[d.getDay()]} ${d.getDate()} de ${ms[d.getMonth()]} de ${d.getFullYear()}`;
-  }
-
-  function updateConditionalQuestions() {
-    const fi = $('fecha_ingreso').value;
-    const y = new Date().getFullYear();
-    const showAgu = !!(fi && Number(fi.slice(0, 4)) < y);
-    $('pagos_previos_block').hidden = !showAgu;
-    const optRow = $('fin_perc_optional_row');
-    if (optRow) optRow.classList.toggle('fin-perc-optional-row--solo-prima', !showAgu);
   }
 
   function wirePercReadonlyToggle(inputId, btnId) {
@@ -442,7 +433,7 @@
     const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() })});
     const j = await r.json();
     if (!j.ok) return msg($('excel_msg'), j.error || 'Error', true);
-    $('fecha_ingreso').value = j.fecha_ingreso; updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+    $('fecha_ingreso').value = j.fecha_ingreso; updatePrimaAntiguedadUI(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
   });
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
@@ -498,14 +489,13 @@
   $('vacaciones_ya_usadas').addEventListener('change', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
   $('vacaciones_ya_usadas').addEventListener('input', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
   document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"], input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
-  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updateConditionalQuestions(); updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
+  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
   $('vacaciones_ya_usadas').addEventListener('input', ()=>{ if(!primaDiasEdited) syncPrimaDiasSuggest(); });
   $('prima_dias_cubiertos').addEventListener('input', ()=>{ primaDiasEdited = true; });
   document.querySelectorAll('input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', ()=>{ syncPrimaDiasSuggest(); scheduleAutoSummary(); }));
   $('fecha_emision').value = new Date().toISOString().slice(0,10);
   wirePercReadonlyToggle('dias_aguinaldo_politica', 'btn_unlock_dias_aguinaldo_politica');
   wirePercReadonlyToggle('prima_vacacional_pct', 'btn_unlock_prima_vacacional_pct');
-  updateConditionalQuestions();
   syncPrimaDiasSuggest();
 })();
 </script>

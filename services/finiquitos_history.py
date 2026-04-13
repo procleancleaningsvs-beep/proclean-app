@@ -90,3 +90,31 @@ def list_finiquito_history(db_path: str, limit: int = 200) -> list[sqlite3.Row]:
     finally:
         conn.close()
 
+
+def get_finiquito_history_row(db_path: str, record_id: int) -> sqlite3.Row | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """
+            SELECT h.*, u.username
+            FROM historial_finiquitos h
+            JOIN users u ON u.id = h.user_id
+            WHERE h.id = ?
+            """,
+            (record_id,),
+        ).fetchone()
+        return row
+    finally:
+        conn.close()
+
+
+def delete_finiquito_history(db_path: str, record_id: int) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute("DELETE FROM historial_finiquitos WHERE id = ?", (record_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+

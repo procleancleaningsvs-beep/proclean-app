@@ -1052,3 +1052,171 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
     position: static;
   }
 }
+
+/* Historial de finiquitos */
+.fin-hist-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.fin-hist-back {
+  margin: 0;
+}
+.fin-hist-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #fff;
+}
+.fin-hist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.fin-hist-table th,
+.fin-hist-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.fin-hist-table thead th {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+.fin-hist-table tbody tr:hover {
+  background: #f8fafc;
+}
+.fin-hist-table tbody tr[hidden] {
+  display: none;
+}
+.fin-hist-mono {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fin-hist-nowrap {
+  white-space: nowrap;
+}
+.fin-hist-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.fin-hist-actions-col {
+  min-width: 220px;
+}
+.fin-hist-actions-cell {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.fin-hist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.fin-hist-icon-btn {
+  font-size: 0.82rem;
+  padding: 6px 10px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.fin-hist-disabled {
+  opacity: 0.45;
+  pointer-events: none;
+  cursor: not-allowed;
+}
+.fin-hist-dialog {
+  max-width: min(720px, 96vw);
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+.fin-hist-dialog--wide {
+  max-width: min(920px, 98vw);
+}
+.fin-hist-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+.fin-hist-dialog-form {
+  display: flex;
+  flex-direction: column;
+  max-height: 88vh;
+}
+.fin-hist-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+  border-radius: 16px 16px 0 0;
+}
+.fin-hist-dialog-head h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.fin-hist-dialog-close {
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #64748b;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.fin-hist-dialog-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.fin-hist-dialog-body {
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+}
+.fin-hist-dialog-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+  border-radius: 0 0 16px 16px;
+}
+.fin-hist-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px 16px;
+  margin-bottom: 12px;
+}
+.fin-hist-detail-sub {
+  margin: 16px 0 8px;
+  font-size: 0.95rem;
+  color: #334155;
+}
+.fin-hist-detail-totals {
+  background: #f8fafc;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+.fin-hist-pre {
+  max-height: 55vh;
+  overflow: auto;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  margin: 0;
+}

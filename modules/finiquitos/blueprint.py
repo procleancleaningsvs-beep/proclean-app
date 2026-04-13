@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
@@ -10,7 +11,7 @@ from typing import Any
 
 from functools import wraps
 
-from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from modules.finiquitos import config as fincfg
 from modules.finiquitos.calc import (
@@ -18,12 +19,14 @@ from modules.finiquitos.calc import (
     calcular_finiquito,
     prima_antiguedad_aplica_separacion_voluntaria,
 )
-from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_final
+from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_final
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
 from services.finiquitos_history import (
+    delete_finiquito_history,
     ensure_finiquitos_tables,
+    get_finiquito_history_row,
     insert_finiquito_history,
     list_finiquito_history,
 )
@@ -79,6 +82,63 @@ def template_finiquito_path() -> Path:
 
 def _now_iso() -> str:
     return datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+_MODO_FINIQUITO_ETIQUETA: dict[str, str] = {
+    "correcto_fiscal": "Fiscal",
+    "aguinaldo_todo_gravable": "Aguinaldo todo gravable",
+    "total_gravable": "Total gravable",
+}
+
+
+def _modo_finiquito_etiqueta(modo: str | None) -> str:
+    if not modo:
+        return ""
+    key = str(modo).strip().lower()
+    return _MODO_FINIQUITO_ETIQUETA.get(key, str(modo))
+
+
+def _payload_resumen_lista(payload_json: str | None) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "nombre_empleado": "",
+        "sueldo_semanal": "",
+        "fecha_ingreso": "",
+        "total_finiquito_pagado": None,
+    }
+    if not payload_json:
+        return out
+    try:
+        d = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError):
+        return out
+    ent = d.get("entrada") or {}
+    calc = d.get("calculo") or {}
+    tot = calc.get("totales") or {}
+    ing = ent.get("ingreso")
+    out["nombre_empleado"] = str(ent.get("nombre") or "").strip()
+    ss = ent.get("sueldo_semanal")
+    out["sueldo_semanal"] = "" if ss is None else str(ss).strip()
+    if ing is not None:
+        s = str(ing).strip()
+        out["fecha_ingreso"] = s[:10] if len(s) >= 10 else s
+    if "neto_final" in tot:
+        try:
+            out["total_finiquito_pagado"] = float(tot["neto_final"])
+        except (TypeError, ValueError):
+            out["total_finiquito_pagado"] = None
+    return out
+
+
+def _resolved_pdf_path_if_safe(pdf_path: str | None, generated_dir: Path) -> Path | None:
+    if not pdf_path or not str(pdf_path).strip():
+        return None
+    try:
+        p = Path(pdf_path).resolve()
+        root = generated_dir.resolve()
+        p.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return p if p.is_file() else None
 
 
 def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
@@ -437,19 +497,141 @@ def api_historial_lista():
     if err:
         return err
     rows = list_finiquito_history(str(current_app.config["DATABASE"]))
+    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
     out = []
     for r in rows:
+        res = _payload_resumen_lista(r["payload_json"])
+        pdf_ok = _resolved_pdf_path_if_safe(r["pdf_path"], gen) is not None
         out.append(
             {
                 "id": r["id"],
                 "created_at": r["created_at"],
                 "username": r["username"],
                 "modo_calculo": r["modo_calculo"],
+                "modo_etiqueta": _modo_finiquito_etiqueta(r["modo_calculo"]),
                 "pdf_filename": r["pdf_filename"],
+                "nombre_empleado": res["nombre_empleado"],
+                "sueldo_semanal": res["sueldo_semanal"],
+                "fecha_ingreso": res["fecha_ingreso"],
+                "total_finiquito_pagado": res["total_finiquito_pagado"],
+                "pdf_disponible": pdf_ok,
                 "tipo": "finiquito",
             }
         )
     return jsonify({"ok": True, "items": out})
+
+
+@finiquitos_bp.route("/api/historial/registro/<int:hid>", methods=["GET", "DELETE"])
+def api_historial_registro(hid: int):
+    err = _login_required_json()
+    if err:
+        return err
+    if request.method == "DELETE":
+        if g.user.get("role") != "admin":
+            return jsonify({"ok": False, "error": "Solo administradores pueden eliminar registros."}), 403
+        row = get_finiquito_history_row(str(current_app.config["DATABASE"]), hid)
+        if not row:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+        pdf_p = _resolved_pdf_path_if_safe(row["pdf_path"], gen)
+        if not delete_finiquito_history(str(current_app.config["DATABASE"]), hid):
+            return jsonify({"ok": False, "error": "No se pudo eliminar."}), 500
+        if pdf_p and pdf_p.is_file():
+            try:
+                pdf_p.unlink()
+            except OSError:
+                pass
+        return jsonify({"ok": True})
+
+    row = get_finiquito_history_row(str(current_app.config["DATABASE"]), hid)
+    if not row:
+        return jsonify({"ok": False, "error": "No encontrado."}), 404
+    try:
+        snap = json.loads(row["payload_json"])
+    except (json.JSONDecodeError, TypeError):
+        snap = {}
+    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+    return jsonify(
+        {
+            "ok": True,
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "username": row["username"],
+            "modo_calculo": row["modo_calculo"],
+            "modo_etiqueta": _modo_finiquito_etiqueta(row["modo_calculo"]),
+            "pdf_filename": row["pdf_filename"],
+            "pdf_disponible": _resolved_pdf_path_if_safe(row["pdf_path"], gen) is not None,
+            "snapshot": snap,
+        }
+    )
+
+
+@finiquitos_bp.route("/api/historial/registro/<int:hid>/pdf", methods=["GET"])
+def api_historial_registro_pdf(hid: int):
+    if g.user is None:
+        return redirect(url_for("login"))
+    row = get_finiquito_history_row(str(current_app.config["DATABASE"]), hid)
+    if not row:
+        return jsonify({"ok": False, "error": "No encontrado."}), 404
+    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+    pdf_p = _resolved_pdf_path_if_safe(row["pdf_path"], gen)
+    if not pdf_p:
+        return jsonify({"ok": False, "error": "No hay PDF guardado para este registro."}), 404
+    return send_file(
+        pdf_p,
+        mimetype="application/pdf",
+        download_name=row["pdf_filename"] or pdf_p.name,
+        as_attachment=True,
+    )
+
+
+@finiquitos_bp.route("/api/historial/registro/<int:hid>/docx", methods=["GET"])
+def api_historial_registro_docx(hid: int):
+    if g.user is None:
+        return redirect(url_for("login"))
+    row = get_finiquito_history_row(str(current_app.config["DATABASE"]), hid)
+    if not row:
+        return jsonify({"ok": False, "error": "No encontrado."}), 404
+    try:
+        payload = json.loads(row["payload_json"])
+    except (json.JSONDecodeError, TypeError):
+        return jsonify({"ok": False, "error": "Snapshot inválido."}), 400
+    entrada = payload.get("entrada") or {}
+    calc = payload.get("calculo")
+    if not calc:
+        return jsonify({"ok": False, "error": "Sin cálculo en el snapshot."}), 400
+    consts = payload.get("constantes") or {}
+    incluir_pa = bool(consts.get("prima_antiguedad_incluida"))
+    emision = _parse_date(str(entrada.get("emision") or "")[:10]) or date.today()
+    baja = _parse_date(str(entrada.get("baja") or "")[:10])
+    if baja is None:
+        return jsonify({"ok": False, "error": "Snapshot sin fecha de baja."}), 400
+    tpl = template_finiquito_path()
+    if not tpl.is_file():
+        return jsonify({"ok": False, "error": f"No existe la plantilla DOCX en {tpl}"}), 400
+    mapping = build_finiquito_placeholders(
+        lugar_emision=str(entrada.get("lugar_emision") or ""),
+        estado_emision=str(entrada.get("estado_emision") or ""),
+        fecha_emision=emision,
+        fecha_baja=baja,
+        empleado_nombre=str(entrada.get("nombre") or ""),
+        calc=calc,
+        incluir_prima_antig=incluir_pa,
+    )
+    try:
+        docx_b = render_finiquito_docx(tpl, mapping)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+    pdf_fn = row["pdf_filename"] or ""
+    base = Path(pdf_fn).stem if pdf_fn else ""
+    if not base:
+        base = Path(build_finiquito_pdf_filename(str(entrada.get("nombre") or ""))).stem
+    fname = f"{base}.docx" if base else "Finiquito.docx"
+    return Response(
+        docx_b,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 def register_finiquitos(app):
