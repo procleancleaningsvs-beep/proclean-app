@@ -94,52 +94,6 @@ def _patch_desglose_spacer_row_height(s: str) -> str:
     return s
 
 
-_NETO_PARA_MARKER = 'w14:paraId="09F3A52C"'
-_NETO_INNER_GRID_OLD = '<w:tblGrid><w:gridCol w:w="5778"/><w:gridCol w:w="4819"/></w:tblGrid>'
-_NETO_INNER_GRID_NEW = '<w:tblGrid><w:gridCol w:w="3400"/><w:gridCol w:w="7197"/></w:tblGrid>'
-_NETO_CELL_LABEL_W = "3400"
-_NETO_CELL_AMOUNT_W = "7197"
-
-
-def _patch_neto_a_pagar_inner_table_prevent_wrap(s: str) -> str:
-    """
-    Tabla interna de totales (Suma + Neto a Pagar): más ancho a la celda del importe y tab
-    más a la izquierda para que montos largos no pasen a segunda línea. No toca el desglose central.
-    """
-    if _NETO_PARA_MARKER not in s:
-        return s
-    i = s.find(_NETO_PARA_MARKER)
-    tr0 = s.rfind("<w:tr", 0, i)
-    tr1 = s.find("</w:tr>", i)
-    if tr0 < 0 or tr1 < 0:
-        return s
-    tr1 += len("</w:tr>")
-    win = max(0, tr0 - 12000)
-    gi = s[win:tr0].rfind(_NETO_INNER_GRID_OLD)
-    if gi < 0:
-        return s
-    tbl0 = win + gi
-    tbl1 = s.find("</w:tbl>", tr1)
-    if tbl1 < 0:
-        return s
-    chunk = s[tbl0:tbl1]
-    if _NETO_INNER_GRID_OLD in chunk:
-        chunk = chunk.replace(_NETO_INNER_GRID_OLD, _NETO_INNER_GRID_NEW, 1)
-    chunk = chunk.replace('<w:tcW w:w="5778"', f'<w:tcW w:w="{_NETO_CELL_LABEL_W}"')
-    chunk = chunk.replace('<w:tcW w:w="4819"', f'<w:tcW w:w="{_NETO_CELL_AMOUNT_W}"')
-    mi = chunk.find(_NETO_PARA_MARKER)
-    if mi >= 0:
-        t0 = chunk.rfind("<w:tr", 0, mi)
-        t1 = chunk.find("</w:tr>", mi) + len("</w:tr>")
-        net = chunk[t0:t1]
-        if 'w:pos="4320"' in net:
-            net = net.replace('w:pos="4320"', 'w:pos="2600"', 1)
-        if '<w:ind w:right="36"/>' in net:
-            net = net.replace('<w:ind w:right="36"/>', '<w:ind w:right="0"/>', 1)
-        chunk = chunk[:t0] + net + chunk[t1:]
-    return s[:tbl0] + chunk + s[tbl1:]
-
-
 def _patch_footer_drawing_not_behind_document(s: str) -> str:
     """
     LibreOffice a veces pinta anclas del pie con behindDoc=1 como si estuvieran al inicio.
@@ -209,6 +163,27 @@ def _patch_signature_cell_remove_body_line(s: str) -> str:
     )
     if bad in s:
         return s.replace(bad, good, 1)
+    # Plantilla recompilada con scripts/patch_finiquito_docx_template.py (rsid 003D30AC): misma celda,
+    # guiones + nombre en cuerpo; debe vaciarse para no duplicar la firma respecto al pie.
+    bad_build = (
+        '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:spacing w:before="240"/><w:ind w:left="0"/>'
+        '<w:jc w:val="center"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:sz w:val="18"/></w:rPr>'
+        '<w:t xml:space="preserve">________________________________________</w:t></w:r></w:p>'
+        '<w:p w14:paraId="11B7B089" w14:textId="3AEE4490" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:spacing w:before="200" w:after="0" w:line="276" '
+        'w:lineRule="atLeast"/><w:ind w:left="0"/><w:jc w:val="center"/>'
+        '<w:rPr><w:sz w:val="17"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:sz w:val="17"/></w:rPr><w:t>{empleado_nombre_completo}</w:t></w:r></w:p>'
+    )
+    good_build = (
+        '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="87"/>'
+        '<w:rPr><w:sz w:val="18"/></w:rPr></w:pPr></w:p>'
+    )
+    if bad_build in s:
+        return s.replace(bad_build, good_build, 1)
     return s
 
 
@@ -261,7 +236,6 @@ def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
                 elif info.filename == "word/document.xml":
                     s = data.decode("utf-8")
                     s = _patch_desglose_spacer_row_height(s)
-                    s = _patch_neto_a_pagar_inner_table_prevent_wrap(s)
                     s = _patch_pg_mar_footer_gap(s)
                     s = _patch_atentamente_spacing(s)
                     s = _patch_signature_cell_remove_body_line(s)

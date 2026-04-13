@@ -8,8 +8,8 @@ from modules.finiquitos.finiquito_template_patch import (
     _patch_desglose_spacer_row_height,
     _patch_footer_drawing_not_behind_document,
     _patch_header_logo_src_rect,
-    _patch_neto_a_pagar_inner_table_prevent_wrap,
     _patch_pg_mar_footer_gap,
+    _patch_signature_cell_remove_body_line,
 )
 
 
@@ -38,24 +38,25 @@ class TestTemplatePatchUnits(unittest.TestCase):
         o = _patch_desglose_spacer_row_height(s)
         self.assertIn('w:val="2080"', o)
 
-    def test_neto_inner_table_widen_and_tab(self):
+    def test_signature_body_build_template_cleared(self):
         s = (
-            '<w:tbl>'
-            '<w:tblGrid><w:gridCol w:w="5778"/><w:gridCol w:w="4819"/></w:tblGrid>'
-            '<w:tr><w:tc><w:tcPr><w:tcW w:w="5778"/></w:tcPr><w:p><w:t>{suma_p}</w:t></w:p></w:tc>'
-            '<w:tc><w:tcPr><w:tcW w:w="4819"/></w:tcPr></w:tc></w:tr>'
-            '<w:tr><w:tc><w:tcPr><w:tcW w:w="5778"/></w:tcPr></w:tc>'
-            '<w:tc><w:tcPr><w:tcW w:w="4819"/></w:tcPr>'
-            '<w:p w14:paraId="09F3A52C"><w:pPr><w:pStyle w:val="TableParagraph"/>'
-            '<w:tabs><w:tab w:val="left" w:pos="4320"/></w:tabs><w:ind w:right="36"/>'
-            '</w:pPr></w:p></w:tc></w:tr>'
-            "</w:tbl>"
+            "<w:document>"
+            '<w:p w14:paraId="11B7B088" w14:textId="3AEE4489" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+            '<w:pPr><w:pStyle w:val="TableParagraph"/><w:spacing w:before="240"/><w:ind w:left="0"/>'
+            '<w:jc w:val="center"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="18"/></w:rPr>'
+            '<w:t xml:space="preserve">________________________________________</w:t></w:r></w:p>'
+            '<w:p w14:paraId="11B7B089" w14:textId="3AEE4490" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+            '<w:pPr><w:pStyle w:val="TableParagraph"/><w:spacing w:before="200" w:after="0" w:line="276" '
+            'w:lineRule="atLeast"/><w:ind w:left="0"/><w:jc w:val="center"/>'
+            '<w:rPr><w:sz w:val="17"/></w:rPr></w:pPr>'
+            '<w:r><w:rPr><w:sz w:val="17"/></w:rPr><w:t>{empleado_nombre_completo}</w:t></w:r></w:p>'
+            "</w:document>"
         )
-        o = _patch_neto_a_pagar_inner_table_prevent_wrap(s)
-        self.assertIn('w:w="7197"', o)
-        self.assertIn('w:pos="2600"', o)
-        self.assertNotIn('w:pos="4320"', o)
-        self.assertNotIn('w:w="4819"', o)
+        o = _patch_signature_cell_remove_body_line(s)
+        self.assertNotIn("________________________________________", o)
+        self.assertNotIn("{empleado_nombre_completo}", o)
+        self.assertIn('w:ind w:left="87"', o)
 
     def test_footer_margin(self):
         s = '<w:pgMar w:top="1" w:footer="827" w:left="0"/>'
