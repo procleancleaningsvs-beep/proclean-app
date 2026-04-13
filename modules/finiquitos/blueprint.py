@@ -141,6 +141,25 @@ def _resolved_pdf_path_if_safe(pdf_path: str | None, generated_dir: Path) -> Pat
     return p if p.is_file() else None
 
 
+def _sanitize_download_basename(raw: str | None, *, fallback: str) -> str:
+    """Nombre de archivo sin ruta ni extensión forzada; seguro para Content-Disposition."""
+    fb = (fallback or "Finiquito").strip() or "Finiquito"
+    if not raw or not str(raw).strip():
+        return fb
+    s = Path(str(raw).strip()).name.replace("\\", "").replace("/", "")
+    for ch in ('<', '>', ':', '"', '|', '?', '*'):
+        s = s.replace(ch, "_")
+    s = s.strip(" .") or fb
+    low = s.lower()
+    for ext in (".pdf", ".docx"):
+        if low.endswith(ext):
+            s = s[: -len(ext)].strip(" .") or fb
+            break
+    if len(s) > 150:
+        s = s[:150].strip(" .") or fb
+    return s or fb
+
+
 def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
     ingreso = _parse_date(data.get("fecha_ingreso"))
     baja = _parse_date(data.get("fecha_baja"))
@@ -527,7 +546,7 @@ def api_historial_registro(hid: int):
     if err:
         return err
     if request.method == "DELETE":
-        if g.user.get("role") != "admin":
+        if g.user["role"] != "admin":
             return jsonify({"ok": False, "error": "Solo administradores pueden eliminar registros."}), 403
         row = get_finiquito_history_row(str(current_app.config["DATABASE"]), hid)
         if not row:
@@ -577,10 +596,18 @@ def api_historial_registro_pdf(hid: int):
     pdf_p = _resolved_pdf_path_if_safe(row["pdf_path"], gen)
     if not pdf_p:
         return jsonify({"ok": False, "error": "No hay PDF guardado para este registro."}), 404
+    default_name = row["pdf_filename"] or pdf_p.name
+    default_stem = Path(default_name).stem or "Finiquito"
+    raw_bn = (request.args.get("basename") or request.args.get("nombre") or "").strip()
+    if raw_bn:
+        stem = _sanitize_download_basename(raw_bn, fallback=default_stem)
+        download_name = f"{stem}.pdf"
+    else:
+        download_name = default_name
     return send_file(
         pdf_p,
         mimetype="application/pdf",
-        download_name=row["pdf_filename"] or pdf_p.name,
+        download_name=download_name,
         as_attachment=True,
     )
 
@@ -626,7 +653,13 @@ def api_historial_registro_docx(hid: int):
     base = Path(pdf_fn).stem if pdf_fn else ""
     if not base:
         base = Path(build_finiquito_pdf_filename(str(entrada.get("nombre") or ""))).stem
-    fname = f"{base}.docx" if base else "Finiquito.docx"
+    default_stem = base or "Finiquito"
+    raw_bn = (request.args.get("basename") or request.args.get("nombre") or "").strip()
+    if raw_bn:
+        stem = _sanitize_download_basename(raw_bn, fallback=default_stem)
+        fname = f"{stem}.docx"
+    else:
+        fname = f"{default_stem}.docx"
     return Response(
         docx_b,
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

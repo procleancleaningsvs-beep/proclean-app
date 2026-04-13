@@ -1104,31 +1104,55 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   font-variant-numeric: tabular-nums;
 }
 .fin-hist-actions-col {
-  min-width: 220px;
+  min-width: 118px;
 }
-.fin-hist-actions-cell {
-  padding-top: 8px;
-  padding-bottom: 8px;
+.fin-hist-dl-dialog {
+  max-width: min(440px, 96vw);
 }
-.fin-hist-actions {
+.fin-hist-dl-body {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 14px;
+}
+.fin-hist-dl-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin: 0;
+}
+.fin-hist-dl-legend {
+  font-weight: 700;
+  color: #0f172a;
+  padding: 0 6px;
+}
+.fin-hist-dl-custom-label {
+  display: grid;
   gap: 6px;
-  align-items: center;
-  justify-content: flex-end;
+  margin-top: 10px;
+  font-weight: 600;
+  font-size: 0.92rem;
 }
-.fin-hist-icon-btn {
-  font-size: 0.82rem;
-  padding: 6px 10px;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.fin-hist-dl-input {
+  max-width: 100%;
 }
-.fin-hist-disabled {
-  opacity: 0.45;
-  pointer-events: none;
-  cursor: not-allowed;
+.fin-hist-fiscal-block {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: #fafbfc;
+}
+.fin-hist-adv-hdr {
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 8px;
+}
+.fin-hist-adv-major {
+  margin-top: 1.25rem;
+}
+.fin-hist-formula {
+  white-space: pre-wrap;
+  margin-top: 4px;
 }
 .fin-hist-dialog {
   max-width: min(720px, 96vw);
@@ -1208,15 +1232,4 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   padding: 12px;
   border-radius: 12px;
   border: 1px solid var(--line);
-}
-.fin-hist-pre {
-  max-height: 55vh;
-  overflow: auto;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  background: #0f172a;
-  color: #e2e8f0;
-  padding: 12px 14px;
-  border-radius: 10px;
-  margin: 0;
 }

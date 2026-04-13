@@ -42,7 +42,7 @@
   <p id="fin_hist_error" class="empty-state" hidden></p>
 </div>
 
-<dialog id="fin_hist_dialog_detalle" class="fin-hist-dialog">
+<dialog id="fin_hist_dialog_detalle" class="fin-hist-dialog fin-hist-dialog--wide">
   <form method="dialog" class="fin-hist-dialog-form">
     <header class="fin-hist-dialog-head">
       <h3 id="fin_hist_detalle_title">Detalle del registro</h3>
@@ -50,24 +50,40 @@
     </header>
     <div id="fin_hist_detalle_body" class="fin-hist-dialog-body"></div>
     <footer class="fin-hist-dialog-foot">
-      <button type="button" class="btn btn-secondary" id="fin_hist_btn_calc_from_det">Ver cálculos (avanzado)</button>
       <button type="submit" class="btn btn-primary" value="close">Cerrar</button>
     </footer>
   </form>
 </dialog>
 
-<dialog id="fin_hist_dialog_calculo" class="fin-hist-dialog fin-hist-dialog--wide">
+<dialog id="fin_hist_dialog_download" class="fin-hist-dialog fin-hist-dl-dialog">
   <form method="dialog" class="fin-hist-dialog-form">
     <header class="fin-hist-dialog-head">
-      <h3>Cálculo (vista avanzada)</h3>
+      <h3>Descargar finiquito</h3>
       <button type="submit" class="fin-hist-dialog-close" value="close" aria-label="Cerrar">×</button>
     </header>
-    <div class="fin-hist-dialog-body">
-      <p class="helper">JSON del objeto de cálculo guardado en el registro (diagnóstico y trazabilidad).</p>
-      <pre id="fin_hist_calc_pre" class="fin-hist-pre"></pre>
+    <div class="fin-hist-dialog-body fin-hist-dl-body">
+      <fieldset class="fin-hist-dl-fieldset">
+        <legend class="fin-hist-dl-legend">Formato</legend>
+        <div class="mode-toggle compact">
+          <label><input type="radio" name="fin_hist_dl_fmt" value="pdf" checked> PDF</label>
+          <label><input type="radio" name="fin_hist_dl_fmt" value="docx"> DOCX</label>
+        </div>
+      </fieldset>
+      <fieldset class="fin-hist-dl-fieldset">
+        <legend class="fin-hist-dl-legend">Nombre del archivo</legend>
+        <div class="mode-toggle compact">
+          <label><input type="radio" name="fin_hist_dl_name" value="default" checked> Nombre por defecto (Finiquito + empleado)</label>
+          <label><input type="radio" name="fin_hist_dl_name" value="custom"> Personalizado</label>
+        </div>
+        <label class="fin-hist-dl-custom-label">Nombre base (sin extensión)
+          <input type="text" id="fin_hist_dl_basename" class="table-input fin-hist-dl-input" placeholder="Ej. Finiquito_Juan_Perez" maxlength="150" autocomplete="off" disabled>
+        </label>
+        <p class="helper" id="fin_hist_dl_hint"></p>
+      </fieldset>
     </div>
     <footer class="fin-hist-dialog-foot">
-      <button type="submit" class="btn btn-primary" value="close">Cerrar</button>
+      <button type="button" class="btn btn-secondary" id="fin_hist_dl_cancel" value="close">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="fin_hist_dl_go">Descargar</button>
     </footer>
   </form>
 </dialog>
@@ -76,13 +92,30 @@
 (function(){
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmt4 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
   const puedeEliminar = {{ (current_user and current_user.role == 'admin')|tojson }};
-  const urlDetalle = (id) => "{{ url_for('finiquitos.api_historial_registro', hid=0) }}".replace(/\/0$/, '/' + id);
-  const urlPdf = (id) => "{{ url_for('finiquitos.api_historial_registro_pdf', hid=0) }}".replace(/\/0\/pdf$/, '/' + id + '/pdf');
-  const urlDocx = (id) => "{{ url_for('finiquitos.api_historial_registro_docx', hid=0) }}".replace(/\/0\/docx$/, '/' + id + '/docx');
+  const PH = '888888';
+  const urlDetalle = (id) => "{{ url_for('finiquitos.api_historial_registro', hid=888888) }}".replace(PH, String(id));
+  const urlPdfTmpl = "{{ url_for('finiquitos.api_historial_registro_pdf', hid=888888) }}";
+  const urlDocxTmpl = "{{ url_for('finiquitos.api_historial_registro_docx', hid=888888) }}";
+  const urlPdf = (id, basename) => {
+    let u = urlPdfTmpl.replace(PH, String(id));
+    if (basename) u += (u.includes('?') ? '&' : '?') + 'basename=' + encodeURIComponent(basename);
+    return u;
+  };
+  const urlDocx = (id, basename) => {
+    let u = urlDocxTmpl.replace(PH, String(id));
+    if (basename) u += (u.includes('?') ? '&' : '?') + 'basename=' + encodeURIComponent(basename);
+    return u;
+  };
+
+  const svgEye = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>';
+  const svgDl = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const svgTrash = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 4v10h10V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 14v-4M14 14v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
   let itemsCache = [];
-  let lastSnapshot = null;
+  let dlRecordId = null;
+  let dlPdfDisponible = false;
 
   function rowSearchBlob(it) {
     const parts = [
@@ -101,54 +134,147 @@
     return parts.join(' ').toLowerCase();
   }
 
-  function renderRows(list) {
-    const tb = $('fin_hist_tbody');
-    tb.innerHTML = list.map((it) => {
-      const total = it.total_finiquito_pagado != null ? '$' + fmt(it.total_finiquito_pagado) : '—';
-      const pdfName = it.pdf_filename || '—';
-      const delBtn = puedeEliminar
-        ? `<button type="button" class="btn btn-secondary danger-btn fin-hist-icon-btn fin-hist-del" data-id="${it.id}" title="Eliminar registro">Eliminar</button>`
-        : '';
-      const pdfBtn = it.pdf_disponible
-        ? `<a class="btn btn-secondary fin-hist-icon-btn" href="${urlPdf(it.id)}" target="_blank" rel="noopener">PDF</a>`
-        : `<span class="btn btn-secondary fin-hist-icon-btn fin-hist-disabled" title="No hay PDF guardado para este registro" role="text">PDF</span>`;
-      return `<tr data-id="${it.id}" data-search="${rowSearchBlob(it).replace(/"/g, '&quot;')}">
-        <td class="fin-hist-mono">${it.id}</td>
-        <td class="fin-hist-nowrap">${it.created_at || '—'}</td>
-        <td>${escapeHtml(it.username || '')}</td>
-        <td>${escapeHtml(it.modo_etiqueta || it.modo_calculo || '')}</td>
-        <td class="history-cell-wrap">${escapeHtml(pdfName)}</td>
-        <td class="history-cell-wrap">${escapeHtml(it.nombre_empleado || '—')}</td>
-        <td class="fin-hist-num">${it.sueldo_semanal ? '$' + fmt(it.sueldo_semanal) : '—'}</td>
-        <td class="fin-hist-mono">${escapeHtml(it.fecha_ingreso || '—')}</td>
-        <td class="fin-hist-num">${total}</td>
-        <td class="fin-hist-actions-cell">
-          <div class="fin-hist-actions">
-            <button type="button" class="btn btn-secondary fin-hist-icon-btn" data-act="detalle" data-id="${it.id}" title="Ver desglose del registro">Detalle</button>
-            <button type="button" class="btn btn-secondary fin-hist-icon-btn" data-act="calculo" data-id="${it.id}" title="Ver cálculos (avanzado)">Cálculos</button>
-            ${pdfBtn}
-            <a class="btn btn-secondary fin-hist-icon-btn" href="${urlDocx(it.id)}" target="_blank" rel="noopener">DOCX</a>
-            ${delBtn}
-          </div>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-
   function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
-  function applyFilter() {
-    const q = ($('fin_hist_search').value || '').trim().toLowerCase();
-    const rows = [...document.querySelectorAll('#fin_hist_tbody tr')];
-    let shown = 0;
-    rows.forEach((tr) => {
-      const hay = !q || (tr.getAttribute('data-search') || '').includes(q);
-      tr.hidden = !hay;
-      if (hay) shown++;
-    });
-    $('fin_hist_filter_empty').hidden = !(rows.length && shown === 0);
+  function limSupTarifa(row) {
+    if (!row || !row.fila_numero) return '—';
+    if (row.limite_superior_en_adelante) return 'En adelante';
+    if (row.limite_superior != null && row.limite_superior !== undefined) return '$' + fmt(row.limite_superior);
+    return '—';
+  }
+
+  function renderTarifaArt96Bloque(row) {
+    if (!row || !row.fila_numero) return '<div class="helper">Sin fila de tarifa (base no gravable o fuera de tabla).</div>';
+    return `<div>Tabla: <span class="helper">${escapeHtml(row.referencia_tabla || '')}</span></div>
+      <div>Fila aplicada: <strong>#${row.fila_numero}</strong> (${escapeHtml(row.periodicidad || '')})</div>
+      <div>Base gravada usada en la fila: $${fmt(row.base_gravada)}</div>
+      <div>Límite inferior: $${fmt(row.limite_inferior)}</div>
+      <div>Límite superior: ${limSupTarifa(row)}</div>
+      <div>Cuota fija: $${fmt(row.cuota_fija)}</div>
+      <div>Porcentaje marginal sobre excedente: <strong>${fmt(row.porcentaje_marginal)}%</strong></div>
+      <div>Excedente del límite inferior: $${fmt(row.excedente_limite_inferior)}</div>
+      <div>ISR calculado (art. 96, misma periodicidad que la tabla): <strong>$${fmt(row.isr)}</strong></div>
+      <div class="helper fin-hist-formula">${escapeHtml(String(row.formula_pasos || ''))}</div>`;
+  }
+
+  function buildCalculoAvanzadoHtml(calc) {
+    const a = calc.auditoria || {};
+    const pv = a.prima_vacacional || {};
+    const sf = a.seccion_fiscal || {};
+    const A = sf.A_resumen_percepciones || {};
+    const B = sf.B_determinacion_art174 || {};
+    const C = sf.C_base_isr_mes || {};
+    const D = sf.D_isr_mes_art96 || {};
+    const E = sf.E_isr_art174 || {};
+    const F = sf.F_ajuste_neto || a.ajuste_neto || {};
+    const tarM = D.tarifa_mensual_art96 || {};
+
+    const fiscalHtml = sf && Object.keys(sf).length ? `
+      <h4 class="fin-hist-detail-sub fin-hist-adv-major">Cálculo avanzado — ISR (mes) y Art. 174</h4>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(A.titulo || 'A) Resumen de percepciones')}</div>
+        <div class="pv-grid">
+          <div>Sueldo: $${fmt(A.sueldo)}</div>
+          <div>Séptimo día: $${fmt(A.septimo_dia)}</div>
+          <div>Vacaciones: $${fmt(A.vacaciones)}</div>
+          <div>Aguinaldo: $${fmt(A.aguinaldo)}</div>
+          <div>Prima vacacional: $${fmt(A.prima_vacacional)}</div>
+          <div>Prima dominical: $${fmt(A.prima_dominical)}</div>
+          <div>PTU: $${fmt(A.ptu)}</div>
+          <div>Prima de antigüedad: $${fmt(A.prima_antiguedad)}</div>
+          <div><strong>Total percepciones:</strong> $${fmt(A.total_percepciones)}</div>
+        </div>
+      </div>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(B.titulo || 'B) Determinación de base Art. 174')}</div>
+        <div class="pv-grid">
+          <div>UMA diaria (referencia): $${fmt(B.uma_diaria)}</div>
+          <div>Aguinaldo total: $${fmt(B.aguinaldo_monto)} · Exento (30 UMA): $${fmt(B.limite_exento_aguinaldo)} · Excedente: $${fmt(B.excedente_aguinaldo)}</div>
+          <div>Prima vac. total: $${fmt(B.prima_vacacional_monto)} · Exento (15 UMA): $${fmt(B.limite_exento_prima_vacacional)} · Excedente: $${fmt(B.excedente_prima_vacacional)}</div>
+          <div>Prima dominical: total $${fmt(B.prima_dominical_total)} · Exento $${fmt(B.prima_dominical_exento)} · Excedente $${fmt(B.excedente_prima_dominical)}</div>
+          <div>PTU: total $${fmt(B.ptu_total)} · Exento $${fmt(B.ptu_exento)} · Excedente $${fmt(B.excedente_ptu)}</div>
+          <div><strong>Base Art. 174:</strong> $${fmt(B.base_art174)}</div>
+        </div>
+      </div>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(C.titulo || 'C) Determinación de base ISR (mes)')}</div>
+        <div class="pv-grid">
+          ${C.usa_total_menos_art174 ? `
+            <div>Total percepciones: $${fmt(C.total_percepciones)}</div>
+            <div>Menos base Art. 174: $${fmt(C.base_art174_resta)}</div>
+            <div><strong>Base ISR (mes):</strong> $${fmt(C.base_isr_mes)}</div>` : `
+            <div><strong>Base ISR (mes)</strong> (modo fiscal: sueldo + séptimo + vacaciones): $${fmt(C.base_isr_mes)}</div>
+            <div class="helper">En modo fiscal no equivale a «total − Art. 174».</div>`}
+        </div>
+      </div>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(D.titulo || 'ISR del mes (art. 96 LISR)')}</div>
+        <div class="pv-grid">
+          <div>Base del periodo: $${fmt(D.base_isr_mes_periodo)}</div>
+          <div>Tipo de periodo: ${escapeHtml(D.tipo_periodo || '')}</div>
+          <div>Días del periodo: ${fmt(D.dias_periodo)} · Factor mensualización: ${fmt(D.factor_mensual_dias)} días</div>
+          <div class="helper">${escapeHtml(String(D.formula_mensualizacion || ''))}</div>
+          <div><strong>Base mensualizada</strong> (para tabla mensual): $${fmt(D.base_isr_mes_mensualizada)}</div>
+        </div>
+        <div class="fin-hist-adv-hdr" style="margin-top:0.65rem;">Tarifa art. 96 (tabla mensual)</div>
+        ${renderTarifaArt96Bloque(tarM)}
+        <div class="fin-hist-adv-hdr" style="margin-top:0.65rem;">ISR del periodo</div>
+        <div class="pv-grid">
+          <div>ISR según tabla mensual (art. 96): $${fmt(D.isr_mensual_tabla_art96)}</div>
+          <div>Prorrateo a ${fmt(D.dias_periodo)} días: $${fmt(D.isr_periodo_prorrateado)}</div>
+          <div class="helper fin-hist-formula">${escapeHtml(String(D.nota_41_45 || ''))}</div>
+          <div><strong>41 I.S.R. antes de Subs al empleo</strong> (referencia): $${fmt(D.isr_mes_neto)}</div>
+          <div><strong>45 I.S.R. (mes)</strong> (deducible): $${fmt(D.isr_mes_neto)}</div>
+        </div>
+      </div>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(E.titulo || 'ISR Art. 174')}</div>
+        <div class="pv-grid">
+          <div>Base Art. 174: $${fmt(E.base_art174)}</div>
+          <div>43 I.S.R. Art174: <strong>$${fmt(E.isr_art174)}</strong></div>
+          <div class="helper fin-hist-formula">${escapeHtml(String(E.formula_ley || ''))}</div>
+        </div>
+        ${E.tarifa_sobre_ultimo_sueldo ? `<div class="fin-hist-adv-hdr" style="margin-top:0.35rem;">Tarifa sobre último sueldo mensual</div>${renderTarifaArt96Bloque(E.tarifa_sobre_ultimo_sueldo)}` : ''}
+        ${E.tarifa_sobre_sueldo_mas_remuneracion ? `<div class="fin-hist-adv-hdr" style="margin-top:0.35rem;">Tarifa sobre último sueldo + remuneración (Art. 174)</div>${renderTarifaArt96Bloque(E.tarifa_sobre_sueldo_mas_remuneracion)}` : ''}
+      </div>
+      <div class="fin-hist-fiscal-block">
+        <div class="fin-hist-adv-hdr">${escapeHtml(F.titulo || 'Ajuste al neto')}</div>
+        <div class="pv-grid">
+          <div>Neto previo: $${fmt(F.neto_previo)}</div>
+          <div>99 Ajuste al neto: $${fmt(F.ajuste)}</div>
+          <div>Neto final: $${fmt(F.neto_final)}</div>
+        </div>
+      </div>
+    ` : '<p class="helper">Sin bloque fiscal detallado en este snapshot (datos antiguos o vacíos).</p>';
+
+    const laboralHtml = `
+      <h4 class="fin-hist-detail-sub fin-hist-adv-major">Cálculo avanzado — Detalle laboral (devengados)</h4>
+      <div class="pv-grid">
+        <div><strong>Base sueldo</strong><br>Sueldo semanal: $${fmt(a.base_sueldo?.sueldo_semanal_estimado)}<br>Salario diario: $${fmt(a.base_sueldo?.salario_diario_calculado)}<br><span class="helper">${escapeHtml(String(a.base_sueldo?.formula || ''))}</span></div>
+        <div><strong>Vacaciones</strong><br>
+          Días anuales por derecho: ${fmt4(a.vacaciones?.dias_vacaciones_corresponden)}<br>
+          Días completos acumulados no pagados: ${fmt4(a.vacaciones?.dias_vacaciones_completos_no_pagados)}<br>
+          Días laborados del ciclo: ${escapeHtml(String(a.vacaciones?.dias_laborados_ciclo ?? ''))}<br>
+          Factor vacaciones: ${escapeHtml(String(a.vacaciones?.dias_laborados_ciclo ?? ''))} / ${escapeHtml(String(a.vacaciones?.dias_anio_ciclo ?? ''))} = ${fmt4(a.vacaciones?.factor)}<br>
+          Días proporcionales: ${fmt4(a.vacaciones?.resultado_dias_proporcionales)}<br>
+          Total días (devengados a la baja): ${fmt4(a.vacaciones?.resultado_dias_totales_acumulados)}<br>
+          ${a.vacaciones?.tope_vacaciones_ya_usadas_activo ? `<strong>Tope vacaciones ya usadas:</strong> máximo ${fmt4(a.vacaciones?.tope_max_vacaciones_ya_usadas_dias)} días.<br>` : ''}
+          Monto: $${fmt(a.vacaciones?.monto)}
+        </div>
+        <div><strong>Aguinaldo</strong><br>
+          Días anuales: ${fmt4(a.aguinaldo?.dias_aguinaldo)}<br>
+          Días completos no pagados: ${fmt4(a.aguinaldo?.dias_completos_no_pagados)}<br>
+          Días laborados del año: ${escapeHtml(String(a.aguinaldo?.dias_laborados ?? ''))} / ${escapeHtml(String(a.aguinaldo?.dias_anio ?? ''))}<br>
+          Factor: ${fmt4(a.aguinaldo?.factor)}<br>
+          Total días aguinaldo: ${fmt4(a.aguinaldo?.resultado_dias_totales)}<br>
+          Monto: $${fmt(a.aguinaldo?.resultado)}
+        </div>
+        <div><strong>Prima vacacional</strong><br>Días base: ${fmt4(pv.base_dias)}<br>Base monto: $${fmt(pv.base)}<br>Porcentaje: ${escapeHtml(String(pv.porcentaje ?? ''))}%<br><span class="helper">${escapeHtml(String(pv.formula || ''))}</span><br>Resultado: $${fmt(pv.resultado)}</div>
+      </div>`;
+
+    return fiscalHtml + laboralHtml;
   }
 
   function buildDetalleHtml(snap) {
@@ -160,7 +286,8 @@
     const ing = ent.ingreso != null ? String(ent.ingreso).slice(0, 10) : '—';
     const baj = ent.baja != null ? String(ent.baja).slice(0, 10) : '—';
     const emi = ent.emision != null ? String(ent.emision).slice(0, 10) : '—';
-    return `
+    const main = `
+      <h4 class="fin-hist-detail-sub">Datos generales</h4>
       <div class="fin-hist-detail-grid">
         <div><strong>Empleado</strong><br>${escapeHtml(ent.nombre || '—')}</div>
         <div><strong>Fecha ingreso</strong><br>${escapeHtml(ing)}</div>
@@ -170,7 +297,7 @@
         <div><strong>Salario diario</strong><br>${ent.salario_diario != null ? '$' + fmt(ent.salario_diario) : '—'}</div>
         <div><strong>Zona / modo</strong><br>${escapeHtml(ent.zona || '')} · ${escapeHtml(ent.modo || '')}</div>
       </div>
-      <h4 class="fin-hist-detail-sub">Percepciones (montos)</h4>
+      <h4 class="fin-hist-detail-sub">Percepciones</h4>
       <div class="fin-hist-detail-grid">
         <div>Sueldo<br><strong>$${fmt(lab.sueldo)}</strong></div>
         <div>Séptimo día<br><strong>$${fmt(lab.septimo_dia)}</strong></div>
@@ -193,6 +320,47 @@
         <div>Total deducciones<br><strong>$${fmt(tot.total_deducciones_reales)}</strong></div>
         <div>Neto final<br><strong>$${fmt(tot.neto_final)}</strong></div>
       </div>`;
+    const adv = buildCalculoAvanzadoHtml(calc);
+    return main + adv;
+  }
+
+  function renderRows(list) {
+    const tb = $('fin_hist_tbody');
+    tb.innerHTML = list.map((it) => {
+      const total = it.total_finiquito_pagado != null ? '$' + fmt(it.total_finiquito_pagado) : '—';
+      const pdfName = it.pdf_filename || '—';
+      const delBtn = puedeEliminar
+        ? `<button type="button" class="checkid-btn-icon checkid-btn-icon--danger fin-hist-del" data-id="${it.id}" title="Eliminar registro" aria-label="Eliminar registro del historial">${svgTrash}</button>`
+        : '';
+      return `<tr data-id="${it.id}" data-search="${rowSearchBlob(it).replace(/"/g, '&quot;')}">
+        <td class="fin-hist-mono">${it.id}</td>
+        <td class="fin-hist-nowrap">${it.created_at || '—'}</td>
+        <td>${escapeHtml(it.username || '')}</td>
+        <td>${escapeHtml(it.modo_etiqueta || it.modo_calculo || '')}</td>
+        <td class="history-cell-wrap">${escapeHtml(pdfName)}</td>
+        <td class="history-cell-wrap">${escapeHtml(it.nombre_empleado || '—')}</td>
+        <td class="fin-hist-num">${it.sueldo_semanal ? '$' + fmt(it.sueldo_semanal) : '—'}</td>
+        <td class="fin-hist-mono">${escapeHtml(it.fecha_ingreso || '—')}</td>
+        <td class="fin-hist-num">${total}</td>
+        <td class="checkid-h-actions checkid-h-actions-cell fin-hist-actions-col-inner">
+          <button type="button" class="checkid-btn-icon fin-hist-view" data-id="${it.id}" title="Ver detalle" aria-label="Ver detalle del finiquito">${svgEye}</button>
+          <button type="button" class="checkid-btn-icon fin-hist-download" data-id="${it.id}" title="Descargar" aria-label="Descargar finiquito">${svgDl}</button>
+          ${delBtn}
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  function applyFilter() {
+    const q = ($('fin_hist_search').value || '').trim().toLowerCase();
+    const rows = [...document.querySelectorAll('#fin_hist_tbody tr')];
+    let shown = 0;
+    rows.forEach((tr) => {
+      const hay = !q || (tr.getAttribute('data-search') || '').includes(q);
+      tr.hidden = !hay;
+      if (hay) shown++;
+    });
+    $('fin_hist_filter_empty').hidden = !(rows.length && shown === 0);
   }
 
   async function openDetalle(id) {
@@ -200,48 +368,144 @@
     $('fin_hist_detalle_body').innerHTML = '<p class="helper">Cargando…</p>';
     dlg.showModal();
     try {
-      const r = await fetch(urlDetalle(id), { headers: { 'Accept': 'application/json' } });
+      const r = await fetch(urlDetalle(id), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
       const j = await r.json();
       if (!j.ok) {
         $('fin_hist_detalle_body').innerHTML = '<p class="helper">No se pudo cargar el registro.</p>';
-        lastSnapshot = null;
         return;
       }
-      lastSnapshot = j.snapshot || {};
       $('fin_hist_detalle_title').textContent = 'Detalle #' + j.id + ' — ' + (j.created_at || '');
-      $('fin_hist_detalle_body').innerHTML = buildDetalleHtml(lastSnapshot);
+      $('fin_hist_detalle_body').innerHTML = buildDetalleHtml(j.snapshot || {});
     } catch (e) {
       $('fin_hist_detalle_body').innerHTML = '<p class="helper">Error de red.</p>';
-      lastSnapshot = null;
     }
   }
 
-  function openCalculoFromCache() {
-    const calc = (lastSnapshot && lastSnapshot.calculo) || {};
-    $('fin_hist_calc_pre').textContent = JSON.stringify(calc, null, 2);
-    $('fin_hist_dialog_calculo').showModal();
+  function openDownloadModal(id) {
+    const it = itemsCache.find((x) => x.id === id);
+    dlRecordId = id;
+    dlPdfDisponible = !!(it && it.pdf_disponible);
+    $('fin_hist_dl_basename').value = '';
+    document.querySelector('input[name="fin_hist_dl_name"][value="default"]').checked = true;
+    $('fin_hist_dl_basename').disabled = true;
+    const pdfR = document.querySelector('input[name="fin_hist_dl_fmt"][value="pdf"]');
+    const docxR = document.querySelector('input[name="fin_hist_dl_fmt"][value="docx"]');
+    if (pdfR) pdfR.disabled = !dlPdfDisponible;
+    if (dlPdfDisponible) {
+      if (pdfR) pdfR.checked = true;
+    } else if (docxR) {
+      docxR.checked = true;
+    }
+    syncDlHints();
+    $('fin_hist_dialog_download').showModal();
   }
 
-  async function openCalculoOnly(id) {
-    const r = await fetch(urlDetalle(id), { headers: { 'Accept': 'application/json' } });
-    const j = await r.json();
-    if (!j.ok) return;
-    lastSnapshot = j.snapshot || {};
-    $('fin_hist_calc_pre').textContent = JSON.stringify(j.snapshot.calculo || {}, null, 2);
-    $('fin_hist_dialog_calculo').showModal();
+  function syncDlHints() {
+    const pdfRadio = document.querySelector('input[name="fin_hist_dl_fmt"][value="pdf"]');
+    if (pdfRadio) pdfRadio.disabled = !dlPdfDisponible;
+    const sel = document.querySelector('input[name="fin_hist_dl_fmt"]:checked');
+    if (sel && sel.value === 'pdf' && !dlPdfDisponible) {
+      const docxR = document.querySelector('input[name="fin_hist_dl_fmt"][value="docx"]');
+      if (docxR) docxR.checked = true;
+    }
+    const hint = $('fin_hist_dl_hint');
+    hint.textContent = dlPdfDisponible ? '' : 'Sin PDF almacenado para este registro: solo puedes descargar DOCX (regenerado desde el cálculo guardado).';
   }
+
+  document.querySelectorAll('input[name="fin_hist_dl_fmt"]').forEach((el) => el.addEventListener('change', syncDlHints));
+
+  document.querySelectorAll('input[name="fin_hist_dl_name"]').forEach((el) => {
+    el.addEventListener('change', () => {
+      const custom = document.querySelector('input[name="fin_hist_dl_name"]:checked')?.value === 'custom';
+      $('fin_hist_dl_basename').disabled = !custom;
+      if (custom) $('fin_hist_dl_basename').focus();
+    });
+  });
+
+  function filenameFromCD(cd) {
+    if (!cd) return null;
+    const m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i.exec(cd);
+    if (!m) return null;
+    const raw = (m[1] || m[2] || '').trim();
+    try {
+      return decodeURIComponent(raw.replace(/^"+|"+$/g, ''));
+    } catch (e) {
+      return raw.replace(/^"+|"+$/g, '');
+    }
+  }
+
+  async function runDownload() {
+    const id = dlRecordId;
+    if (!id) return;
+    const fmtVal = document.querySelector('input[name="fin_hist_dl_fmt"]:checked')?.value || 'docx';
+    if (fmtVal === 'pdf' && !dlPdfDisponible) {
+      window.alert('No hay PDF guardado para este registro. Elige DOCX o genera de nuevo el PDF desde Finiquito.');
+      return;
+    }
+    const useCustom = document.querySelector('input[name="fin_hist_dl_name"]:checked')?.value === 'custom';
+    const stem = ($('fin_hist_dl_basename').value || '').trim();
+    if (useCustom && !stem) {
+      window.alert('Escribe un nombre base para el archivo o elige «Nombre por defecto».');
+      return;
+    }
+    const basename = useCustom ? stem : '';
+    const url = fmtVal === 'pdf' ? urlPdf(id, basename) : urlDocx(id, basename);
+    try {
+      const r = await fetch(url, { credentials: 'same-origin' });
+      const ct = (r.headers.get('Content-Type') || '').toLowerCase();
+      if (!r.ok) {
+        let msg = 'No se pudo descargar el archivo.';
+        const errTxt = await r.text();
+        try {
+          const ej = JSON.parse(errTxt);
+          if (ej.error) msg = ej.error;
+        } catch (_) {}
+        window.alert(msg);
+        return;
+      }
+      if (ct.includes('application/json')) {
+        const j = await r.json().catch(() => ({}));
+        window.alert(j.error || 'Error al descargar.');
+        return;
+      }
+      const blob = await r.blob();
+      const cd = r.headers.get('Content-Disposition');
+      let fname = filenameFromCD(cd) || ('Finiquito.' + (fmtVal === 'pdf' ? 'pdf' : 'docx'));
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fname;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      $('fin_hist_dialog_download').close();
+    } catch (e) {
+      window.alert('Error de red al descargar.');
+    }
+  }
+
+  $('fin_hist_dl_go').addEventListener('click', runDownload);
+  $('fin_hist_dl_cancel').addEventListener('click', () => $('fin_hist_dialog_download').close());
 
   document.getElementById('fin_hist_table').addEventListener('click', (ev) => {
-    const t = ev.target;
-    if (!(t instanceof HTMLElement)) return;
-    const btn = t.closest('button[data-act], button.fin-hist-del');
+    const el = ev.target instanceof HTMLElement ? ev.target : null;
+    if (!el) return;
+    const btn = el.closest('button.fin-hist-view, button.fin-hist-download, button.fin-hist-del');
     if (!btn || !(btn instanceof HTMLButtonElement)) return;
     const id = parseInt(btn.getAttribute('data-id') || '0', 10);
     if (!id) return;
     if (btn.classList.contains('fin-hist-del')) {
-      if (!window.confirm('¿Eliminar este registro del historial' + (itemsCache.find((x) => x.id === id)?.pdf_filename ? ' y su PDF asociado' : '') + '? Esta acción no se puede deshacer.')) return;
-      fetch(urlDetalle(id), { method: 'DELETE' }).then(async (r) => {
-        const j = await r.json().catch(() => ({}));
+      const it = itemsCache.find((x) => x.id === id);
+      const extra = it && it.pdf_filename ? ' y su PDF asociado' : '';
+      if (!window.confirm('¿Eliminar este registro del historial' + extra + '? Esta acción no se puede deshacer.')) return;
+      fetch(urlDetalle(id), { method: 'DELETE', credentials: 'same-origin' }).then(async (r) => {
+        let j = {};
+        const txt = await r.text();
+        try {
+          j = JSON.parse(txt);
+        } catch (_) {
+          j = {};
+        }
         if (!r.ok || !j.ok) {
           window.alert(j.error || 'No se pudo eliminar.');
           return;
@@ -250,16 +514,8 @@
       });
       return;
     }
-    const act = btn.getAttribute('data-act');
-    if (act === 'detalle') openDetalle(id);
-    if (act === 'calculo') openCalculoOnly(id);
-  });
-
-  $('fin_hist_btn_calc_from_det').addEventListener('click', () => {
-    if (lastSnapshot && lastSnapshot.calculo) {
-      $('fin_hist_calc_pre').textContent = JSON.stringify(lastSnapshot.calculo, null, 2);
-      $('fin_hist_dialog_calculo').showModal();
-    }
+    if (btn.classList.contains('fin-hist-view')) openDetalle(id);
+    if (btn.classList.contains('fin-hist-download')) openDownloadModal(id);
   });
 
   $('fin_hist_search').addEventListener('input', applyFilter);
@@ -267,7 +523,7 @@
   function load() {
     const errEl = $('fin_hist_error');
     errEl.hidden = true;
-    fetch('{{ url_for("finiquitos.api_historial_lista") }}')
+    fetch('{{ url_for("finiquitos.api_historial_lista") }}', { credentials: 'same-origin' })
       .then((r) => r.json())
       .then((j) => {
         if (!j.ok) {
