@@ -8,6 +8,7 @@ from modules.finiquitos.finiquito_template_patch import (
     _patch_desglose_spacer_row_height,
     _patch_footer_drawing_not_behind_document,
     _patch_header_logo_src_rect,
+    _patch_neto_a_pagar_inner_table_prevent_wrap,
     _patch_pg_mar_footer_gap,
 )
 
@@ -26,7 +27,7 @@ class TestTemplatePatchUnits(unittest.TestCase):
         )
         o = _patch_desglose_spacer_row_height(s)
         self.assertIn('w:hRule="atLeast"', o)
-        self.assertIn('w:val="1950"', o)
+        self.assertIn('w:val="2080"', o)
         self.assertNotIn("2986", o)
 
     def test_desglose_spacer_upgrades_1780(self):
@@ -35,7 +36,26 @@ class TestTemplatePatchUnits(unittest.TestCase):
             '<w:tc><w:tcPr><w:tcW w:w="981" w:type="dxa"/></w:tcPr></w:tc></w:tr>'
         )
         o = _patch_desglose_spacer_row_height(s)
-        self.assertIn('w:val="1950"', o)
+        self.assertIn('w:val="2080"', o)
+
+    def test_neto_inner_table_widen_and_tab(self):
+        s = (
+            '<w:tbl>'
+            '<w:tblGrid><w:gridCol w:w="5778"/><w:gridCol w:w="4819"/></w:tblGrid>'
+            '<w:tr><w:tc><w:tcPr><w:tcW w:w="5778"/></w:tcPr><w:p><w:t>{suma_p}</w:t></w:p></w:tc>'
+            '<w:tc><w:tcPr><w:tcW w:w="4819"/></w:tcPr></w:tc></w:tr>'
+            '<w:tr><w:tc><w:tcPr><w:tcW w:w="5778"/></w:tcPr></w:tc>'
+            '<w:tc><w:tcPr><w:tcW w:w="4819"/></w:tcPr>'
+            '<w:p w14:paraId="09F3A52C"><w:pPr><w:pStyle w:val="TableParagraph"/>'
+            '<w:tabs><w:tab w:val="left" w:pos="4320"/></w:tabs><w:ind w:right="36"/>'
+            '</w:pPr></w:p></w:tc></w:tr>'
+            "</w:tbl>"
+        )
+        o = _patch_neto_a_pagar_inner_table_prevent_wrap(s)
+        self.assertIn('w:w="7197"', o)
+        self.assertIn('w:pos="2600"', o)
+        self.assertNotIn('w:pos="4320"', o)
+        self.assertNotIn('w:w="4819"', o)
 
     def test_footer_margin(self):
         s = '<w:pgMar w:top="1" w:footer="827" w:left="0"/>'

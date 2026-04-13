@@ -54,7 +54,7 @@ def _analyze_docx(label: str, data: bytes) -> dict[str, str | int | bool]:
         "footer_textbox_cy_6872024_inner": cy_name,
         "pgMar_footer_twips": footer_m.group(1) if footer_m else "",
         "firma_guiones": "______________" in d,
-        "desglose_spacer_1950_atLeast": 'w:val="1950" w:hRule="atLeast"' in d and "2986" not in d,
+        "desglose_spacer_2080_atLeast": 'w:val="2080" w:hRule="atLeast"' in d and "2986" not in d,
         "placeholders_suma_pendientes": ("{suma_p}" in d) or ("{suma_d}" in d),
         "tablas_document": d.count("<w:tbl"),
     }
