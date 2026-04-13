@@ -29,8 +29,17 @@ def _fila_deduccion_docx_visible(num: str, concepto: str, importe_fmt: str) -> b
     return bool((num or "").strip() or (concepto or "").strip() or (importe_fmt or "").strip())
 
 
+def _importe_sueldo_o_septimo_docx(val: Any) -> str:
+    """Sueldo y séptimo día siempre muestran importe, incluso 0.00."""
+    try:
+        d = Decimal(str(val))
+    except Exception:
+        d = Decimal("0")
+    return format_importe(d)
+
+
 def _importe_percepcion_docx(val: Any) -> str:
-    """Importe en columna de percepciones: sin renglón visible si el monto es cero."""
+    """Importe en columna de percepciones (excepto sueldo/séptimo): vacío si el monto es cero."""
     try:
         d = Decimal(str(val))
     except Exception:
@@ -91,8 +100,8 @@ def empaquetar_filas_percepcion_para_docx(
     Cola corta de percepciones con placeholders propios (prima + ajuste al neto):
     los activos suben a {n7}/{np} consecutivos y el resto se vacía.
 
-    Sueldo…aguinaldo usan filas con texto fijo en la plantilla; ahí solo se oculta
-    el importe cuando es cero (_importe_percepcion_docx), sin reasignar etiquetas.
+    Sueldo y séptimo siempre llevan 0.00 si aplica; el resto de importes de filas fijas
+    usa _importe_percepcion_docx (vacío en cero).
     """
     orden: list[tuple[str, str, str]] = []
     if _fila_deduccion_docx_visible(n7, c_pant, t7):
@@ -172,8 +181,8 @@ def build_finiquito_placeholders(
         "{empleado_nombre_completo}": nombre_doc,
         "{neto_p}": format_importe(neto),
         "{neto_pagar_letra}": importe_mxn_a_letra(neto),
-        "{t1}": _importe_percepcion_docx(lab["sueldo"]),
-        "{t2}": _importe_percepcion_docx(lab["septimo_dia"]),
+        "{t1}": _importe_sueldo_o_septimo_docx(lab["sueldo"]),
+        "{t2}": _importe_sueldo_o_septimo_docx(lab["septimo_dia"]),
         "{t3}": _importe_percepcion_docx(lab["vacaciones_a_tiempo"]),
         "{t5}": _importe_percepcion_docx(lab["prima_vacacional"]),
         "{t6}": _importe_percepcion_docx(lab["aguinaldo"]),

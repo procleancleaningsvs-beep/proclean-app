@@ -5,9 +5,17 @@ from __future__ import annotations
 import unittest
 
 from modules.finiquitos.export_docx import (
+    _importe_sueldo_o_septimo_docx,
     empaquetar_filas_deduccion_para_docx,
     empaquetar_filas_percepcion_para_docx,
 )
+
+
+class TestSueldoSeptimoFormat(unittest.TestCase):
+    def test_siempre_muestra_cero(self):
+        self.assertEqual(_importe_sueldo_o_septimo_docx(0), "0.00")
+        self.assertEqual(_importe_sueldo_o_septimo_docx(None), "0.00")
+        self.assertEqual(_importe_sueldo_o_septimo_docx(""), "0.00")
 
 
 class TestEmpaquetarDeduccionesDocx(unittest.TestCase):

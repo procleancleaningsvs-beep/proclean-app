@@ -64,8 +64,8 @@ def _patch_header_logo_src_rect(s: str) -> str:
 
 
 def _patch_table_spacer_row(s: str) -> str:
-    """Aire bajo conceptos: un paso por encima del valor intermedio previo, lejos de 2986."""
-    new_row = '<w:trPr><w:trHeight w:val="1520" w:hRule="atLeast"/></w:trPr>'
+    """Aire bajo conceptos: más alto que 1520, sin volver a 2986 ni invadir el pie."""
+    new_row = '<w:trPr><w:trHeight w:val="1780" w:hRule="atLeast"/></w:trPr>'
     if new_row in s:
         return s
     old_exact = '<w:trPr><w:trHeight w:val="2986"/></w:trPr>'
@@ -75,6 +75,7 @@ def _patch_table_spacer_row(s: str) -> str:
         '<w:trPr><w:trHeight w:val="360" w:hRule="atLeast"/></w:trPr>',
         '<w:trPr><w:trHeight w:val="900" w:hRule="atLeast"/></w:trPr>',
         '<w:trPr><w:trHeight w:val="1280" w:hRule="atLeast"/></w:trPr>',
+        '<w:trPr><w:trHeight w:val="1520" w:hRule="atLeast"/></w:trPr>',
     ):
         if old_small in s:
             return s.replace(old_small, new_row, 1)
@@ -132,6 +133,76 @@ def _patch_atentamente_spacing(s: str) -> str:
         return s[: ppr_open + len("<w:pPr>")] + new_inner + s[ppr_close:]
     insert = f'<w:spacing w:before="360" w:after="{target_after}"/>'
     return s[:ppr_close] + insert + s[ppr_close:]
+
+
+def _patch_neto_totals_row_and_grid(s: str) -> str:
+    """
+    La fila de totales usa dos columnas (5778 + 4819 dxa); la celda del monto queda estrecha
+    y LibreOffice parte el renglón con importes largos. Se redistribuye el ancho manteniendo
+    la suma de columnas (10597 dxa) y se alinea el tblGrid.
+    """
+    marker = 'w14:paraId="09F3A52C"'
+    if marker not in s:
+        return s
+    i = s.find(marker)
+    tr0 = s.rfind("<w:tr", 0, i)
+    tr1 = s.find("</w:tr>", i)
+    if tr0 < 0 or tr1 < 0:
+        return s
+    tr1 += len("</w:tr>")
+    row = s[tr0:tr1]
+    if "w:w=\"4819\"" in row and "w:w=\"5778\"" in row:
+        row = row.replace('<w:tcW w:w="5778"', '<w:tcW w:w="4097"', 1).replace('<w:tcW w:w="4819"', '<w:tcW w:w="6500"', 1)
+        s = s[:tr0] + row + s[tr1:]
+        tr1 = tr0 + len(row)
+
+    tbl0 = s.rfind("<w:tbl", 0, tr0)
+    if tbl0 >= 0:
+        g0 = s.find("<w:tblGrid>", tbl0)
+        g1 = s.find("</w:tblGrid>", g0)
+        if g0 >= 0 and g1 >= 0 and g0 < tr0:
+            g1 += len("</w:tblGrid>")
+            grid = s[g0:g1]
+            old_g = '<w:tblGrid><w:gridCol w:w="5778"/><w:gridCol w:w="4819"/></w:tblGrid>'
+            new_g = '<w:tblGrid><w:gridCol w:w="4097"/><w:gridCol w:w="6500"/></w:tblGrid>'
+            if old_g in grid:
+                s = s[:g0] + new_g + s[g1:]
+    return s
+
+
+def _patch_neto_paragraph_nowrap(s: str) -> str:
+    """Un solo renglón lógico para Neto + monto (evita salto dentro de la celda)."""
+    marker = 'w14:paraId="09F3A52C"'
+    if marker not in s:
+        return s
+    a = s.find(marker)
+    ppr = s.find("<w:pPr>", a)
+    if ppr < 0 or ppr > a + 400:
+        return s
+    ppr_end = s.find("</w:pPr>", ppr)
+    if ppr_end < 0:
+        return s
+    inner = s[ppr + len("<w:pPr>") : ppr_end]
+    if "w:noWrap" in inner:
+        return s
+    key = '<w:pStyle w:val="TableParagraph"/>'
+    j = inner.find(key)
+    if j < 0:
+        return s
+    new_inner = inner[: j + len(key)] + "<w:noWrap/>" + inner[j + len(key) :]
+    new_inner = new_inner.replace('<w:ind w:right="36"/>', '<w:ind w:right="0"/>', 1)
+    return s[: ppr + len("<w:pPr>")] + new_inner + s[ppr_end:]
+
+
+def _patch_neto_tab_stop_for_wide_cell(s: str) -> str:
+    """Tab del renglón Neto: más ancho útil a la derecha para el importe (idempotente)."""
+    new = '<w:tab w:val="left" w:pos="3000"/>'
+    if new in s:
+        return s
+    old = '<w:tab w:val="left" w:pos="4320"/>'
+    if old not in s:
+        return s
+    return s.replace(old, new, 1)
 
 
 def _patch_neto_cell_nowrap_wider(s: str) -> str:
@@ -253,6 +324,9 @@ def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
                     s = _patch_pg_mar_footer_gap(s)
                     s = _patch_atentamente_spacing(s)
                     s = _patch_neto_cell_nowrap_wider(s)
+                    s = _patch_neto_totals_row_and_grid(s)
+                    s = _patch_neto_paragraph_nowrap(s)
+                    s = _patch_neto_tab_stop_for_wide_cell(s)
                     s = _patch_signature_cell_remove_body_line(s)
                     data = s.encode("utf-8")
                 zout.writestr(info, data)
