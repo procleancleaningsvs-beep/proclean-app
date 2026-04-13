@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
@@ -22,6 +23,7 @@ from modules.finiquitos.calc import (
 )
 from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_final
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
+from modules.finiquitos.edicion_libre_finiquito import merge_finiquito_calc_with_manual
 from modules.finiquitos.excel_mirror_fecha_ingreso import buscar_fecha_ingreso_headcount_onedrive
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
@@ -36,6 +38,8 @@ from services.finiquitos_history import (
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "finiquitos"
 _ONEDRIVE_URL_ENV = "FINIQUITOS_ONEDRIVE_SHARED_URL"
+
+logger = logging.getLogger(__name__)
 
 finiquitos_bp = Blueprint(
     "finiquitos",
@@ -88,16 +92,36 @@ def _now_iso() -> str:
 
 _MODO_FINIQUITO_ETIQUETA: dict[str, str] = {
     "correcto_fiscal": "Fiscal",
-    "aguinaldo_todo_gravable": "Aguinaldo todo gravable",
     "total_gravable": "Total gravable",
 }
+
+
+def _normalize_finiquito_modo(modo_raw: Any) -> str:
+    m = str(modo_raw or "total_gravable").strip().lower()
+    if m == "aguinaldo_todo_gravable":
+        logger.warning("modo_calculo legado 'aguinaldo_todo_gravable' recibido; se normaliza a 'total_gravable'.")
+        return "total_gravable"
+    if m not in ("correcto_fiscal", "total_gravable"):
+        return "total_gravable"
+    return m
 
 
 def _modo_finiquito_etiqueta(modo: str | None) -> str:
     if not modo:
         return ""
     key = str(modo).strip().lower()
+    if key == "aguinaldo_todo_gravable":
+        return "Total gravable"
     return _MODO_FINIQUITO_ETIQUETA.get(key, str(modo))
+
+
+def _merge_calc_con_edicion_libre(data: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
+    if not _bool_coerce_entrada(data.get("edicion_libre")):
+        return calc
+    manual = data.get("importes_manuales")
+    if not isinstance(manual, dict) or not manual:
+        return calc
+    return merge_finiquito_calc_with_manual(calc, manual)
 
 
 def _payload_resumen_lista(payload_json: str | None) -> dict[str, Any]:
@@ -170,9 +194,7 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
     if zona not in ("general", "frontera"):
         zona = "general"
     periodicidad = "semanal_mensualizada"
-    modo = (data.get("modo_calculo") or "total_gravable").strip().lower()
-    if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
-        modo = "total_gravable"
+    modo = _normalize_finiquito_modo(data.get("modo_calculo"))
     sueldo_semanal = _parse_dec(data.get("sueldo_semanal"))
     sal_diario_in = _parse_dec(data.get("salario_diario"))
     sal_diario = _parse_dec("0")
@@ -305,9 +327,7 @@ def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
             return default
         return str(v).strip()
 
-    modo = str(entrada.get("modo") or "total_gravable").strip().lower()
-    if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
-        modo = "total_gravable"
+    modo = _normalize_finiquito_modo(entrada.get("modo"))
 
     zona = str(entrada.get("zona") or "general").strip().lower()
     if zona not in ("general", "frontera"):
@@ -438,6 +458,7 @@ def api_calcular():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
+    calc = _merge_calc_con_edicion_libre(data, calc)
     return jsonify(
         {
             "ok": True,
@@ -486,6 +507,7 @@ def api_pdf():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
+    calc = _merge_calc_con_edicion_libre(data, calc)
     tpl = template_finiquito_path()
     if not tpl.is_file():
         return jsonify({"ok": False, "error": f"No existe la plantilla DOCX en {tpl}"}), 400
@@ -564,6 +586,7 @@ def api_historial_finiquito():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
+    calc = _merge_calc_con_edicion_libre(data, calc)
     pdf_path = None
     pdf_fn = None
     if data.get("incluir_pdf_guardado"):

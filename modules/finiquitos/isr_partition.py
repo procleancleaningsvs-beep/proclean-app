@@ -1,7 +1,7 @@
 """
 Partición de bases entre ISR (mes) y Art. 174 LISR (finiquito).
 
-Regla central (modos total_gravable y aguinaldo_todo_gravable):
+Regla central (modo total_gravable):
   base_art174 = excedentes sobre exentos UMA (aguinaldo 30, prima vac. 15) + prima dominical + PTU
   base_isr_mes = total_percepciones - base_art174
 
@@ -27,7 +27,7 @@ def _q(x: Decimal, q: Decimal = Decimal("0.01")) -> Decimal:
     return x.quantize(q, rounding=ROUND_HALF_UP)
 
 
-ModoParticion = Literal["total_gravable", "aguinaldo_todo_gravable", "correcto_fiscal"]
+ModoParticion = Literal["total_gravable", "correcto_fiscal"]
 
 
 @dataclass(frozen=True)
@@ -59,7 +59,6 @@ def particionar_bases_total_gravable(
     prima_dominical: Decimal,
     ptu: Decimal,
     fecha_referencia: date,
-    modo: Literal["total_gravable", "aguinaldo_todo_gravable"],
 ) -> ParticionISR:
     uma_d = limite_exento_aguinaldo_uma(fecha_referencia) / Decimal("30")
     lim_ag = limite_exento_aguinaldo_uma(fecha_referencia)
@@ -89,7 +88,7 @@ def particionar_bases_total_gravable(
         excedente_ptu=exc_ptu,
         base_art174=base_174,
         base_isr_mes=base_mes,
-        modo=modo,
+        modo="total_gravable",
         aguinaldo_exento_aplicado=ag_ex_apl,
         prima_vac_exenta_aplicada=pv_ex_apl,
     )

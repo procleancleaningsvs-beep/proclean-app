@@ -265,7 +265,7 @@ def calcular_finiquito(
     salario_diario: Decimal,
     zona: Literal["general", "frontera"],
     periodicidad_isr: Literal["quincenal", "mensual", "15_dias", "semanal_mensualizada"],
-    modo: Literal["correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"],
+    modo: Literal["correcto_fiscal", "total_gravable"],
     dias_sueldo_pendientes: Decimal,
     septimos_pendientes: Decimal,
     dias_aguinaldo_politica: Decimal,
@@ -369,7 +369,7 @@ def calcular_finiquito(
         sueldo + septimo + vacaciones_a_tiempo + prima_vac_neta + aguinaldo + prima_antig_monto + prima_dom + ptu
     )
 
-    if modo in ("total_gravable", "aguinaldo_todo_gravable"):
+    if modo == "total_gravable":
         part = particionar_bases_total_gravable(
             total_percepciones=total_perc,
             aguinaldo=aguinaldo,
@@ -377,7 +377,6 @@ def calcular_finiquito(
             prima_dominical=prima_dom,
             ptu=ptu,
             fecha_referencia=fecha_emision,
-            modo=modo,
         )
         bucket_isr_mes_grav = part.base_isr_mes
         extra_art174 = part.base_art174
@@ -385,14 +384,8 @@ def calcular_finiquito(
         ag_gr = part.excedente_aguinaldo
         pv_ex = part.prima_vac_exenta_aplicada
         pv_gr = part.excedente_prima_vacacional
-        if modo == "total_gravable":
-            pa_ex = D0
-            pa_gr = _q(prima_antig_monto)
-        else:
-            anios_ex = anios_exentos_separacion(anios_exact)
-            lim_sep = 90 * smg * Decimal(anios_ex)
-            pa_ex = _q(min(prima_antig_monto, lim_sep))
-            pa_gr = _q(max(D0, prima_antig_monto - pa_ex))
+        pa_ex = D0
+        pa_gr = _q(prima_antig_monto)
     else:
         part = particionar_bases_correcto_fiscal(
             sueldo=sueldo,
@@ -554,7 +547,7 @@ def calcular_finiquito(
                     "total_percepciones": float(total_perc),
                     "base_art174_resta": float(extra_art174),
                     "base_isr_mes": float(bucket_isr_mes_grav),
-                    "usa_total_menos_art174": modo in ("total_gravable", "aguinaldo_todo_gravable"),
+                    "usa_total_menos_art174": modo == "total_gravable",
                 },
                 "D_isr_mes_art96": mes_aud,
                 "E_isr_art174": {"titulo": "5) ISR Art. 174 (cálculo separado)", **art174_audit},
@@ -569,7 +562,7 @@ def calcular_finiquito(
                 "total_percepciones": float(total_perc),
                 "base_art174": float(extra_art174),
                 "base_isr_mes": float(bucket_isr_mes_grav),
-                "usa_total_menos_art174": modo in ("total_gravable", "aguinaldo_todo_gravable"),
+                "usa_total_menos_art174": modo == "total_gravable",
                 "base_isr_mes_mensualizada": float(base_isr_mes_mensualizada),
                 "isr_mensual_tabla_art96": float(isr_tabla_mensual),
                 "isr_periodo_41_y_45": float(isr_mes_neto),

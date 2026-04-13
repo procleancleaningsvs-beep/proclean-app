@@ -41,7 +41,7 @@ class TestFiniquitoEjemplos(unittest.TestCase):
         self.assertGreaterEqual(r["fiscal"]["isr_ordinario_antes_subsidio"], 0)
         self.assertGreaterEqual(r["totales"]["neto_final"], 0)
 
-    def test_ejemplo_2_aguinaldo_gravable(self):
+    def test_ejemplo_2_total_gravable(self):
         r = calcular_finiquito(
             ingreso=date(2024, 10, 15),
             baja=date(2026, 3, 26),
@@ -49,7 +49,7 @@ class TestFiniquitoEjemplos(unittest.TestCase):
             salario_diario=Decimal("315.04"),
             zona="general",
             periodicidad_isr="semanal_mensualizada",
-            modo="aguinaldo_todo_gravable",
+            modo="total_gravable",
             dias_sueldo_pendientes=Decimal("6"),
             septimos_pendientes=Decimal("1"),
             dias_aguinaldo_politica=Decimal("15"),

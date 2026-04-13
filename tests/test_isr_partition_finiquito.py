@@ -20,7 +20,6 @@ class TestParticionTodoGravable(unittest.TestCase):
             prima_dominical=Decimal("0"),
             ptu=Decimal("0"),
             fecha_referencia=date(2026, 4, 7),
-            modo="total_gravable",
         )
         self.assertEqual(p.base_art174, Decimal("0.00"))
         self.assertEqual(p.base_isr_mes, Decimal("3213.68"))
@@ -36,7 +35,6 @@ class TestParticionTodoGravable(unittest.TestCase):
             prima_dominical=Decimal("0"),
             ptu=Decimal("0"),
             fecha_referencia=date(2026, 4, 7),
-            modo="total_gravable",
         )
         self.assertEqual(p.base_art174, Decimal("0.00"))
         self.assertEqual(p.base_isr_mes, Decimal("2673.57"))
