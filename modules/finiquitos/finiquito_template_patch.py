@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import zipfile
 from io import BytesIO
+from pathlib import Path
 
 
 CLOSE_ALT = "</mc:AlternateContent></w:r>"
@@ -212,6 +213,78 @@ def _dedupe_adjacent_placeholder(s: str) -> str:
     )
 
 
+def _patch_desglose_concept_placeholders_finiquito(s: str) -> str:
+    """
+    Sustituye textos fijos de concepto/número en la tabla de desglose por placeholders
+    {p1_num}…{p5_nom} para que la edición libre v2 pueda reexportar número y nombre.
+    Idempotente si ya se aplicó.
+    """
+    if "{p1_nom}" in s:
+        return s
+    base = Path(__file__).resolve().parent
+
+    def _read(name: str) -> str | None:
+        p = base / name
+        if not p.is_file():
+            return None
+        return p.read_text(encoding="utf-8")
+
+    n1 = '<w:t>1</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    n1b = '<w:t>{p1_num}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    if n1 in s:
+        s = s.replace(n1, n1b, 1)
+    if "<w:t>Sueldo</w:t>" in s:
+        s = s.replace("<w:t>Sueldo</w:t>", "<w:t>{p1_nom}</w:t>", 1)
+
+    n2 = '<w:t>3</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    n2b = '<w:t>{p2_num}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    if n2 in s:
+        s = s.replace(n2, n2b, 1)
+    old2 = _read("_snippet_row2_p.xml")
+    new2 = (
+        '<w:p w14:paraId="7BBE51AF" w14:textId="77777777" w:rsidR="00CE1084" w:rsidRDefault="00000000">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="88"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:color w:val="808080"/><w:sz w:val="18"/></w:rPr><w:t>{p2_nom}</w:t></w:r></w:p></w:tc>'
+    )
+    if old2 and old2 in s:
+        s = s.replace(old2, new2, 1)
+
+    n3 = '<w:t>19</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    n3b = '<w:t>{p3_num}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    if n3 in s:
+        s = s.replace(n3, n3b, 1)
+    old3 = _read("_snippet_row3_p.xml")
+    new3 = (
+        '<w:p w14:paraId="4B78EA14" w14:textId="77777777" w:rsidR="00CE1084" w:rsidRDefault="00000000">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="88"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:color w:val="808080"/><w:sz w:val="18"/></w:rPr><w:t>{p3_nom}</w:t></w:r></w:p></w:tc>'
+    )
+    if old3 and old3 in s:
+        s = s.replace(old3, new3, 1)
+
+    n4 = '<w:t>22</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    n4b = '<w:t>{p4_num}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    if n4 in s:
+        s = s.replace(n4, n4b, 1)
+    old4 = _read("_snippet_row4_concept.xml")
+    new4 = (
+        '<w:p w14:paraId="18B298EA" w14:textId="660A8FBB" w:rsidR="003D30AC" w:rsidRDefault="003D30AC">'
+        '<w:pPr><w:pStyle w:val="TableParagraph"/><w:ind w:left="88"/><w:rPr><w:sz w:val="18"/></w:rPr></w:pPr>'
+        '<w:r><w:rPr><w:color w:val="808080"/><w:sz w:val="18"/></w:rPr><w:t>{p4_nom}</w:t></w:r></w:p></w:tc>'
+    )
+    if old4 and old4 in s:
+        s = s.replace(old4, new4, 1)
+
+    n5 = '<w:t>24</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    n5b = '<w:t>{p5_num}</w:t></w:r></w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="3042" w:type="dxa"'
+    if n5 in s:
+        s = s.replace(n5, n5b, 1)
+    if "<w:t>Aguinaldo</w:t>" in s:
+        s = s.replace("<w:t>Aguinaldo</w:t>", "<w:t>{p5_nom}</w:t>", 1)
+
+    return s
+
+
 def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
     """
     Aplica todos los parches al ZIP DOCX. Idempotente con los valores objetivo actuales.
@@ -239,6 +312,7 @@ def patch_finiquito_docx_template_bytes(docx_bytes: bytes) -> bytes:
                     s = _patch_pg_mar_footer_gap(s)
                     s = _patch_atentamente_spacing(s)
                     s = _patch_signature_cell_remove_body_line(s)
+                    s = _patch_desglose_concept_placeholders_finiquito(s)
                     data = s.encode("utf-8")
                 zout.writestr(info, data)
     return buf.getvalue()

@@ -1,4 +1,4 @@
-"""Edición libre limitada al desglose: filas editables + extras y recálculo de totales/PDF."""
+"""Edición libre v2: solo desglose/placeholders DOCX, ISR automático, deducciones extra empaquetadas."""
 
 from __future__ import annotations
 
@@ -7,33 +7,37 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from modules.finiquitos.calc import _ajuste_neto_permitido, _mapear_pdf, format_importe
+from modules.finiquitos.calc import (
+    _ajuste_neto_permitido,
+    _mapear_pdf,
+    calc_isr_art174_con_detalle,
+    calc_isr_mes_semanal_mensualizado,
+    format_importe,
+    isr_art96,
+)
 
 logger = logging.getLogger(__name__)
 
 D0 = Decimal("0")
 
-# Claves enviadas desde el desglose (frontend) → campo en laboral
-LAB_POR_CLAVE: dict[str, str] = {
-    "sueldo": "sueldo",
-    "septimo_dia": "septimo_dia",
-    "vacaciones_a_tiempo": "vacaciones_a_tiempo",
-    "prima_vacacional": "prima_vacacional",
-    "aguinaldo": "aguinaldo",
-    "prima_antiguedad_monto": "prima_antiguedad_monto",
-    "prima_dominical": "prima_dominical",
-    "ptu": "ptu",
+SLOT_ORDER_P = ("t1", "t2", "t3", "t5", "t6", "n7", "np")
+
+LAB_BY_SLOT: dict[str, str] = {
+    "t1": "sueldo",
+    "t2": "septimo_dia",
+    "t3": "vacaciones_a_tiempo",
+    "t5": "prima_vacacional",
+    "t6": "aguinaldo",
 }
 
-_LAB_SUM_KEYS = (
-    "sueldo",
-    "septimo_dia",
-    "vacaciones_a_tiempo",
-    "prima_vacacional",
-    "aguinaldo",
-    "prima_antiguedad_monto",
-    "prima_dominical",
-    "ptu",
+DEFAULT_P_ROWS: tuple[tuple[str, str, str], ...] = (
+    ("t1", "1", "Sueldo"),
+    ("t2", "3", "Séptimo día"),
+    ("t3", "19", "Vacaciones a tiempo"),
+    ("t5", "22", "Prima de vacaciones reportadas"),
+    ("t6", "24", "Aguinaldo"),
+    ("n7", "29", "Prima de antigüedad"),
+    ("np", "", ""),
 )
 
 
@@ -48,14 +52,156 @@ def _dec(x: Any) -> Decimal:
         return D0
 
 
-def apply_desglose_manual(calc: dict[str, Any], filas: list[Any]) -> dict[str, Any]:
+def _bool(v: Any) -> bool:
+    if isinstance(v, bool):
+        return v
+    return str(v).lower() in ("1", "true", "yes", "si", "on")
+
+
+def _norm_fiscal(s: str) -> str:
+    t = (s or "").strip().lower()
+    return "exento" if t == "exento" else "gravable"
+
+
+def _parse_percepciones_v2(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        slot = str(row.get("slot") or "").strip().lower()
+        if slot not in SLOT_ORDER_P:
+            continue
+        out.append(
+            {
+                "slot": slot,
+                "num": str(row.get("num") or "").strip(),
+                "nom": str(row.get("nom") or "").strip(),
+                "monto": float(row.get("monto") or 0),
+                "fiscal": _norm_fiscal(str(row.get("fiscal") or "gravable")),
+            }
+        )
+    return out
+
+
+def _parse_deducciones_extra_v2(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        out.append(
+            {
+                "id": str(row.get("id") or ""),
+                "num": str(row.get("num") or "").strip(),
+                "nom": str(row.get("nom") or "").strip(),
+                "monto": float(row.get("monto") or 0),
+            }
+        )
+    return out
+
+
+def _sort_p_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(r: dict[str, Any]) -> tuple[int, str]:
+        try:
+            return (int(str(r.get("num") or "0").strip() or "0"), str(r.get("slot") or ""))
+        except ValueError:
+            return (10**9, str(r.get("slot") or ""))
+
+    return sorted(rows, key=key)
+
+
+def _assign_physical_slots(sorted_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i, slot in enumerate(SLOT_ORDER_P):
+        if i < len(sorted_rows):
+            r = dict(sorted_rows[i])
+            r["slot"] = slot
+            out.append(r)
+        else:
+            out.append({"slot": slot, "num": "", "nom": "", "monto": 0.0, "fiscal": "gravable"})
+    return out
+
+
+def _recalc_isr_v2(
+    *,
+    rows_p: list[dict[str, Any]],
+    sin_isr: bool,
+    ultimo_mensual: Decimal,
+    fecha_emision: Any,
+) -> tuple[Decimal, Decimal, Decimal]:
+    if sin_isr:
+        return D0, D0, D0
+    base_mes = D0
+    base_174 = D0
+    pa_grav = D0
+    for r in rows_p:
+        m = _dec(r.get("monto"))
+        if _norm_fiscal(str(r.get("fiscal"))) != "gravable":
+            continue
+        sl = str(r.get("slot") or "")
+        if sl == "n7":
+            pa_grav += m
+            continue
+        base_mes += m
+        if sl in ("t5", "t6"):
+            base_174 += m
+    isr_mes_neto = calc_isr_mes_semanal_mensualizado(base_mes, fecha_emision, ultimo_mensual)["isr_mes_neto"]
+    isr_174, _ = calc_isr_art174_con_detalle(base_174, ultimo_mensual)
+    if pa_grav > 0:
+        isr_ult = isr_art96(ultimo_mensual, "mensual")
+        if pa_grav >= ultimo_mensual and ultimo_mensual > 0:
+            tasa_sep = _q(isr_ult / ultimo_mensual)
+            isr_sep = _q(pa_grav * tasa_sep)
+        else:
+            isr_sep = isr_art96(pa_grav, "mensual")
+    else:
+        isr_sep = D0
+    return _q(isr_mes_neto), _q(isr_174), _q(isr_sep)
+
+
+def _default_p_rows_from_calc(calc: dict[str, Any]) -> list[dict[str, Any]]:
+    lab = calc.get("laboral") or {}
+    pa = _dec(lab.get("prima_antiguedad_monto"))
+    rows: list[dict[str, Any]] = []
+    for slot, num, nom in DEFAULT_P_ROWS:
+        lk = LAB_BY_SLOT.get(slot)
+        m = float(lab.get(lk) or 0) if lk else 0.0
+        if slot == "n7":
+            m = float(pa or 0)
+            if m <= 0:
+                num, nom = "", ""
+        if slot == "np":
+            m = 0.0
+        rows.append({"slot": slot, "num": num, "nom": nom, "monto": m, "fiscal": "gravable"})
+    return rows
+
+
+def apply_desglose_manual(
+    calc: dict[str, Any],
+    dm_or_filas: Any,
+    *,
+    entrada: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
-    Aplica filas del desglose manual (solo montos y extras).
-    Cada fila: {id, tipo: P|D|ISR, concepto, monto, clave?}
-    - tipo P con id extra-p:* → suma a percepciones extra
-    - tipo D con id extra-d:* → suma a deducciones extra
-    - tipo ISR con clave isr_ordinario | isr_art174 | isr_separacion
+    v1: dm_or_filas es list[dict] (filas legacy).
+    v2: dm_or_filas es dict con v==2, percepciones, deducciones_extra, sin_isr.
     """
+    if isinstance(dm_or_filas, dict) and dm_or_filas.get("v") == 2:
+        return _apply_v2(calc, dm_or_filas, entrada=entrada or {})
+    if isinstance(dm_or_filas, list):
+        return _apply_v1_legacy(calc, dm_or_filas)
+    if isinstance(dm_or_filas, dict):
+        filas = dm_or_filas.get("filas")
+        if isinstance(filas, list) and filas:
+            return _apply_v1_legacy(calc, filas)
+    return copy.deepcopy(calc)
+
+
+def _apply_v1_legacy(calc: dict[str, Any], filas: list[Any]) -> dict[str, Any]:
+    """Compatibilidad: filas con tipo P/D/ISR y claves base (sin v2)."""
     out = copy.deepcopy(calc)
     if not filas:
         return out
@@ -64,6 +210,17 @@ def apply_desglose_manual(calc: dict[str, Any], filas: list[Any]) -> dict[str, A
     fis = out["fiscal"]
     extra_p = D0
     extra_d = D0
+
+    LAB_POR_CLAVE: dict[str, str] = {
+        "sueldo": "sueldo",
+        "septimo_dia": "septimo_dia",
+        "vacaciones_a_tiempo": "vacaciones_a_tiempo",
+        "prima_vacacional": "prima_vacacional",
+        "aguinaldo": "aguinaldo",
+        "prima_antiguedad_monto": "prima_antiguedad_monto",
+        "prima_dominical": "prima_dominical",
+        "ptu": "ptu",
+    }
 
     for row in filas:
         if not isinstance(row, dict):
@@ -103,6 +260,16 @@ def apply_desglose_manual(calc: dict[str, Any], filas: list[Any]) -> dict[str, A
             elif ck == "isr_separacion":
                 fis["isr_separacion"] = v
 
+    _LAB_SUM_KEYS = (
+        "sueldo",
+        "septimo_dia",
+        "vacaciones_a_tiempo",
+        "prima_vacacional",
+        "aguinaldo",
+        "prima_antiguedad_monto",
+        "prima_dominical",
+        "ptu",
+    )
     total_perc = D0
     for k in _LAB_SUM_KEYS:
         total_perc += _dec(lab.get(k))
@@ -134,54 +301,118 @@ def apply_desglose_manual(calc: dict[str, Any], filas: list[Any]) -> dict[str, A
     )
     pf["suma_d"] = format_importe(suma_d_num)
     out["pdf_filas"] = pf
-
-    _patch_auditoria_desglose(out, neto_prev_sin_ajuste=float(neto_prev), extra_p=float(extra_p), extra_d=float(extra_d))
-    logger.info("Finiquito: desglose manual aplicado (%d filas).", len(filas))
+    out.setdefault("edicion_libre_desglose_meta", {})
+    out["edicion_libre_desglose_meta"] = {"extra_percepciones": float(extra_p), "extra_deducciones": float(extra_d), "v": 1}
+    logger.info("Finiquito: desglose manual v1 (%d filas).", len(filas))
     return out
 
 
-def _patch_auditoria_desglose(c: dict[str, Any], *, neto_prev_sin_ajuste: float, extra_p: float, extra_d: float) -> None:
-    aud = c.setdefault("auditoria", {})
-    lab = c["laboral"]
-    fis = c["fiscal"]
-    tot = c["totales"]
+def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, Any]) -> dict[str, Any]:
+    out = copy.deepcopy(calc)
+    sin_isr = _bool(dm.get("sin_isr"))
+    raw_p = _parse_percepciones_v2(dm.get("percepciones"))
+    if not raw_p:
+        raw_p = _default_p_rows_from_calc(calc)
+    sorted_p = _sort_p_rows(raw_p)
+    rows_p = _assign_physical_slots(sorted_p)
+    ded_ex = _parse_deducciones_extra_v2(dm.get("deducciones_extra"))
 
-    aud["percepciones_finiquito"] = [
-        {"concepto": "Sueldo", "monto": float(lab.get("sueldo") or 0)},
-        {"concepto": "Séptimo día", "monto": float(lab.get("septimo_dia") or 0)},
-        {"concepto": "Vacaciones", "monto": float(lab.get("vacaciones_a_tiempo") or 0)},
-        {"concepto": "Prima vacacional", "monto": float(lab.get("prima_vacacional") or 0)},
-        {"concepto": "Aguinaldo", "monto": float(lab.get("aguinaldo") or 0)},
-        {"concepto": "Prima de antigüedad", "monto": float(lab.get("prima_antiguedad_monto") or 0)},
-        {"concepto": "Prima dominical", "monto": float(lab.get("prima_dominical") or 0)},
-        {"concepto": "PTU", "monto": float(lab.get("ptu") or 0)},
-    ]
-    if extra_p > 0:
-        aud["percepciones_finiquito"].append({"concepto": "Otros (desglose manual)", "monto": extra_p})
+    lab = out["laboral"]
+    fis = out["fiscal"]
+    lab["ptu"] = 0.0
+    lab["prima_dominical"] = 0.0
+    ent = entrada or {}
 
-    sf = aud.setdefault("seccion_fiscal", {})
-    A = sf.setdefault("A_resumen_percepciones", {})
-    A["sueldo"] = float(lab.get("sueldo") or 0)
-    A["septimo_dia"] = float(lab.get("septimo_dia") or 0)
-    A["vacaciones"] = float(lab.get("vacaciones_a_tiempo") or 0)
-    A["aguinaldo"] = float(lab.get("aguinaldo") or 0)
-    A["prima_vacacional"] = float(lab.get("prima_vacacional") or 0)
-    A["prima_dominical"] = float(lab.get("prima_dominical") or 0)
-    A["ptu"] = float(lab.get("ptu") or 0)
-    A["prima_antiguedad"] = float(lab.get("prima_antiguedad_monto") or 0)
-    A["total_percepciones"] = float(tot.get("total_percepciones") or 0)
+    ultimo_mensual = _dec(ent.get("salario_mensual_capturado"))
+    if ultimo_mensual <= 0:
+        sal_d = _dec(lab.get("salario_diario"))
+        ultimo_mensual = _q(sal_d * Decimal("30.4")) if sal_d > 0 else D0
 
-    F = sf.setdefault("F_ajuste_neto", {})
-    F["neto_previo"] = float(neto_prev_sin_ajuste)
-    F["ajuste"] = float(tot.get("ajuste_neto") or 0)
-    F["neto_final"] = float(tot.get("neto_final") or 0)
-    aud["ajuste_neto"] = dict(F)
+    fe_raw = ent.get("emision") or ent.get("fecha_emision")
+    try:
+        from datetime import date as _date
 
-    isr_blk = aud.setdefault("isr", {})
-    isr_blk["isr_periodo_41_y_45"] = float(fis.get("isr_mes_neto") or 0)
-    isr_blk["isr_mes_neto_periodo"] = float(fis.get("isr_mes_neto") or 0)
-    isr_blk["isr_art174"] = float(fis.get("isr_art174") or 0)
-    isr_blk["isr_separacion"] = float(fis.get("isr_separacion") or 0)
+        if hasattr(fe_raw, "year"):
+            fecha_emision = fe_raw  # type: ignore[assignment]
+        else:
+            s = str(fe_raw or "")[:10]
+            fecha_emision = _date.fromisoformat(s) if len(s) >= 10 else _date.today()
+    except Exception:
+        from datetime import date as _date
 
-    c.setdefault("edicion_libre_desglose_meta", {})
-    c["edicion_libre_desglose_meta"] = {"extra_percepciones": extra_p, "extra_deducciones": extra_d}
+        fecha_emision = _date.today()
+
+    isr_mes, isr_174, isr_sep = _recalc_isr_v2(
+        rows_p=rows_p,
+        sin_isr=sin_isr,
+        ultimo_mensual=ultimo_mensual,
+        fecha_emision=fecha_emision,
+    )
+
+    for sl, row in zip(SLOT_ORDER_P, rows_p):
+        lk = LAB_BY_SLOT.get(sl)
+        m = float(row.get("monto") or 0)
+        if lk:
+            lab[lk] = m
+        elif sl == "n7":
+            lab["prima_antiguedad_monto"] = m
+        elif sl == "np":
+            lab["prima_dominical"] = m
+
+    extra_d = sum((_dec(d.get("monto")) for d in ded_ex), D0)
+
+    fis["isr_mes_neto"] = float(isr_mes)
+    fis["isr_ordinario_neto"] = float(isr_mes)
+    fis["isr_antes_subsidio_periodo"] = float(isr_mes)
+    fis["isr_ordinario_antes_subsidio"] = float(isr_mes)
+    fis["isr_art174"] = float(isr_174)
+    fis["isr_separacion"] = float(isr_sep)
+
+    total_perc = sum(_dec(r.get("monto")) for r in rows_p)
+    total_perc = _q(total_perc)
+    ded_reales = _q(isr_mes + isr_174 + isr_sep + extra_d)
+    neto_prev = _q(total_perc - ded_reales)
+    neto_final, ajuste_neto = _ajuste_neto_permitido(neto_prev)
+    extra_99 = _q(abs(ajuste_neto)) if ajuste_neto > D0 else D0
+    suma_43_45_99 = _q(isr_mes + isr_174 + extra_99)
+    suma_d_num = _q(suma_43_45_99 + isr_sep + extra_d)
+
+    tot = out["totales"]
+    tot["total_percepciones"] = float(total_perc)
+    tot["total_deducciones_reales"] = float(ded_reales)
+    tot["suma_deducciones_43_45_99"] = float(suma_43_45_99)
+    tot["ajuste_neto"] = float(ajuste_neto)
+    tot["neto_final"] = float(neto_final)
+
+    pf = _mapear_pdf(
+        isr_antes_subsidio=isr_mes,
+        isr_mes_neto=isr_mes,
+        isr_174=isr_174,
+        isr_sep=isr_sep,
+        ajuste_neto=ajuste_neto,
+    )
+    pf["suma_d"] = format_importe(suma_d_num)
+    out["pdf_filas"] = pf
+
+    out["edicion_libre_desglose_meta"] = {
+        "v": 2,
+        "sin_isr": sin_isr,
+        "extra_deducciones": float(extra_d),
+        "percepciones": rows_p,
+        "deducciones_extra": ded_ex,
+    }
+    logger.info("Finiquito: desglose manual v2 aplicado.")
+    return out
+
+
+def merge_desglose_v2_into_entrada_for_history(entrada: dict[str, Any], desglose_manual: dict[str, Any]) -> None:
+    """Mantiene desglose_manual completo en entrada para rehidratar."""
+    if not isinstance(entrada, dict) or not isinstance(desglose_manual, dict):
+        return
+    if desglose_manual.get("v") == 2:
+        entrada["desglose_manual"] = desglose_manual
+
+
+def build_default_percepciones_for_form(calc: dict[str, Any]) -> list[dict[str, Any]]:
+    """JSON para el formulario al activar edición libre (7 filas)."""
+    return _default_p_rows_from_calc(calc)

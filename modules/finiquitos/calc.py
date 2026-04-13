@@ -318,8 +318,13 @@ def calcular_finiquito(
     prima_vacacional = _q(prima_base_monto * (prima_vacacional_pct / Decimal("100")))
 
     # Aguinaldo acumulado: según pago previo (año actual) o desde ingreso.
+    # Días del año de baja para proporcional: desde 1 ene. o desde la fecha de ingreso si es posterior (nunca antes del ingreso).
     inicio_anio = date(baja.year, 1, 1)
-    dias_trabajados_anio = (baja - inicio_anio).days + 1
+    ini_periodo_aguinaldo_anio_baja = ingreso if ingreso > inicio_anio else inicio_anio
+    if ini_periodo_aguinaldo_anio_baja > baja:
+        dias_trabajados_anio = 0
+    else:
+        dias_trabajados_anio = (baja - ini_periodo_aguinaldo_anio_baja).days + 1
     dias_anio_cal = 366 if baja.year % 4 == 0 and (baja.year % 100 != 0 or baja.year % 400 == 0) else 365
     ag_prop_actual = dias_aguinaldo_politica * Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)
     ag_completos_no_pag = D0
@@ -601,7 +606,7 @@ def calcular_finiquito(
                 "dias_laborados": dias_trabajados_anio,
                 "dias_anio": dias_anio_cal,
                 "factor": float((Decimal(dias_trabajados_anio) / Decimal(dias_anio_cal)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)),
-                "formula": "aguinaldo = salario_diario * dias_aguinaldo * dias_laborados / dias_anio",
+                "formula": "proporcional año baja: dias_laborados = días desde max(1-ene, ingreso) hasta baja; aguinaldo ∝ dias_laborados/dias_anio",
                 "resultado_dias_proporcionales": float(ag_prop_actual),
                 "resultado_dias_totales": float(ag_total_dias),
                 "resultado": float(aguinaldo),

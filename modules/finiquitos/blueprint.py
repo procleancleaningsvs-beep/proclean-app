@@ -96,35 +96,55 @@ _MODO_FINIQUITO_ETIQUETA: dict[str, str] = {
 }
 
 
+def _modo_slug_finiquito(modo_raw: Any) -> str:
+    """Normaliza espacios/guiones a guión bajo para comparar variantes de texto."""
+    s = str(modo_raw or "").strip().lower().replace("-", "_")
+    s = "_".join(p for p in s.replace(" ", "_").split("_") if p)
+    return s
+
+
 def _normalize_finiquito_modo(modo_raw: Any) -> str:
-    m = str(modo_raw or "total_gravable").strip().lower()
-    if m == "aguinaldo_todo_gravable":
-        logger.warning("modo_calculo legado 'aguinaldo_todo_gravable' recibido; se normaliza a 'total_gravable'.")
+    """
+    Solo modos activos: correcto_fiscal | total_gravable.
+    Cualquier slug que implique 'aguinaldo' + 'todo' + 'gravable' se trata como legado y se mapea a total_gravable.
+    """
+    m = _modo_slug_finiquito(modo_raw) or "total_gravable"
+    if m in ("correcto_fiscal", "total_gravable"):
+        return m
+    legacy = "aguinaldo" in m and "todo" in m and "gravable" in m
+    if legacy:
+        logger.warning("modo_calculo legado recibido (%r); se normaliza a 'total_gravable'.", modo_raw)
         return "total_gravable"
-    if m not in ("correcto_fiscal", "total_gravable"):
-        return "total_gravable"
-    return m
+    if m:
+        logger.warning("modo_calculo desconocido (%r); se usa 'total_gravable'.", modo_raw)
+    return "total_gravable"
 
 
 def _modo_finiquito_etiqueta(modo: str | None) -> str:
-    if not modo:
+    if modo is None or str(modo).strip() == "":
         return ""
-    key = str(modo).strip().lower()
-    if key == "aguinaldo_todo_gravable":
-        return "Total gravable"
-    return _MODO_FINIQUITO_ETIQUETA.get(key, str(modo))
+    key = _normalize_finiquito_modo(modo)
+    return _MODO_FINIQUITO_ETIQUETA.get(key, key)
 
 
-def _apply_desglose_manual_si_aplica(data: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
+def _apply_desglose_manual_si_aplica(
+    data: dict[str, Any],
+    calc: dict[str, Any],
+    *,
+    entrada: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not _bool_coerce_entrada(data.get("edicion_libre_desglose")):
         return calc
     dm = data.get("desglose_manual")
     if not isinstance(dm, dict):
         return calc
+    ent = entrada or {}
+    if dm.get("v") == 2:
+        return apply_desglose_manual(calc, dm, entrada=ent)
     filas = dm.get("filas")
     if not isinstance(filas, list) or not filas:
         return calc
-    return apply_desglose_manual(calc, filas)
+    return apply_desglose_manual(calc, filas, entrada=ent)
 
 
 def _payload_resumen_lista(payload_json: str | None) -> dict[str, Any]:
@@ -213,9 +233,7 @@ def _payload_from_request(data: dict[str, Any]) -> dict[str, Any]:
 
     prima_pagada_previamente = str(data.get("prima_pagada_previamente") or "").lower() in ("1", "true", "on", "yes", "si")
 
-    modo_solicitado = str(data.get("modo_calculo") or "total_gravable").strip().lower()
-    if modo_solicitado not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
-        modo_solicitado = "total_gravable"
+    modo_solicitado = modo
 
     dm = data.get("desglose_manual")
     if not isinstance(dm, dict):
@@ -341,9 +359,7 @@ def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
             return default
         return str(v).strip()
 
-    modo_raw = str(entrada.get("modo_solicitado") or entrada.get("modo") or "total_gravable").strip().lower()
-    if modo_raw not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
-        modo_raw = "total_gravable"
+    modo_raw = _normalize_finiquito_modo(entrada.get("modo_solicitado") or entrada.get("modo"))
 
     zona = str(entrada.get("zona") or "general").strip().lower()
     if zona not in ("general", "frontera"):
@@ -479,7 +495,7 @@ def api_calcular():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _apply_desglose_manual_si_aplica(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
     return jsonify(
         {
             "ok": True,
@@ -528,7 +544,7 @@ def api_pdf():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _apply_desglose_manual_si_aplica(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
     tpl = template_finiquito_path()
     if not tpl.is_file():
         return jsonify({"ok": False, "error": f"No existe la plantilla DOCX en {tpl}"}), 400
@@ -607,7 +623,7 @@ def api_historial_finiquito():
         motivo_baja=p["motivo"],
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
-    calc = _apply_desglose_manual_si_aplica(data, calc)
+    calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
     pdf_path = None
     pdf_fn = None
     if data.get("incluir_pdf_guardado"):

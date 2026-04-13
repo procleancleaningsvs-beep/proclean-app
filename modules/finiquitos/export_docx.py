@@ -130,6 +130,152 @@ def empaquetar_filas_percepcion_para_docx(
     return out
 
 
+def empaquetar_filas_deduccion_para_docx_extras(
+    pdf: dict[str, Any],
+    extra_rows: list[tuple[str, str, str]],
+    *,
+    nd: str,
+    cd: str,
+    t11d: str,
+) -> dict[str, str]:
+    """
+    Igual que empaquetar_filas_deduccion_para_docx pero inserta deducciones extra del usuario
+    (num, concepto, importe ya formateado) antes del renglón 99 (nd/cd/t11d), y compacta a 4 slots.
+    Si hay más de 4 renglones visibles, fusiona el excedente en el último slot como «Varios».
+    """
+    orden: list[tuple[str, str, str]] = []
+    if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
+        orden.append((pdf["n8"], pdf["c_isa"], pdf["t8"]))
+    if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
+        orden.append((pdf["n9"], pdf["c_i174"], pdf["t9"]))
+    if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
+        orden.append((pdf["n10"], pdf["c_imes"], pdf["t10"]))
+    for num, conc, imp in extra_rows:
+        if _fila_deduccion_docx_visible(num, conc, imp):
+            orden.append((num, conc, imp))
+    if _fila_deduccion_docx_visible(nd, cd, t11d):
+        orden.append((nd, cd, t11d))
+
+    slots: tuple[tuple[str, str, str], ...] = (
+        ("n8", "c_isa", "t8"),
+        ("n9", "c_i174", "t9"),
+        ("n10", "c_imes", "t10"),
+        ("nd", "cd", "t11d"),
+    )
+    out: dict[str, str] = {k: "" for trio in slots for k in trio}
+    if len(orden) <= len(slots):
+        for i, trio in enumerate(slots):
+            if i < len(orden):
+                num, conc, imp = orden[i]
+                nk, ck, tk = trio
+                out[nk] = num
+                out[ck] = conc
+                out[tk] = imp
+        return out
+
+    for i in range(3):
+        num, conc, imp = orden[i]
+        nk, ck, tk = slots[i]
+        out[nk] = num
+        out[ck] = conc
+        out[tk] = imp
+    rest = orden[3:]
+    tot = Decimal("0")
+    for _, _, imp in rest:
+        try:
+            tot += abs(Decimal(str(imp).replace(",", "")))
+        except Exception:
+            pass
+    nk, ck, tk = slots[3]
+    out[nk] = rest[0][0] if rest else ""
+    out[ck] = "Varios"
+    out[tk] = format_importe(tot) if tot > 0 else ""
+    return out
+
+
+def _mapping_desglose_label_defaults() -> dict[str, str]:
+    """Placeholders añadidos por parche de plantilla (filas 1–5 concepto/número)."""
+    return {
+        "{p1_num}": "1",
+        "{p1_nom}": "Sueldo",
+        "{p2_num}": "3",
+        "{p2_nom}": "Séptimo día",
+        "{p3_num}": "19",
+        "{p3_nom}": "Vacaciones a tiempo",
+        "{p4_num}": "22",
+        "{p4_nom}": "Prima de vacaciones reportadas",
+        "{p5_num}": "24",
+        "{p5_nom}": "Aguinaldo",
+    }
+
+
+def _merge_desglose_v2_placeholders(mapping: dict[str, str], calc: dict[str, Any]) -> None:
+    meta = calc.get("edicion_libre_desglose_meta") or {}
+    if meta.get("v") != 2:
+        return
+    rows_list = meta.get("percepciones") or []
+    by_slot = {str(r.get("slot") or ""): r for r in rows_list if isinstance(r, dict)}
+    pairs = (
+        ("t1", "p1"),
+        ("t2", "p2"),
+        ("t3", "p3"),
+        ("t5", "p4"),
+        ("t6", "p5"),
+    )
+    for slot, pref in pairs:
+        r = by_slot.get(slot) or {}
+        mapping["{" + pref + "_num}"] = str(r.get("num") or "")
+        mapping["{" + pref + "_nom}"] = str(r.get("nom") or "")
+        m = Decimal(str(r.get("monto") or 0))
+        if slot in ("t1", "t2"):
+            mapping["{" + slot + "}"] = _importe_sueldo_o_septimo_docx(m)
+        else:
+            mapping["{" + slot + "}"] = _importe_percepcion_docx(m)
+
+    tot = calc["totales"]
+    pdf = calc["pdf_filas"]
+    ajuste = Decimal(str(tot.get("ajuste_neto") or 0))
+    n7 = by_slot.get("n7") or {}
+    np = by_slot.get("np") or {}
+
+    extras: list[tuple[str, str, str]] = []
+    for d in sorted(meta.get("deducciones_extra") or [], key=lambda x: int(str(x.get("num") or "999"))):
+        if not isinstance(d, dict):
+            continue
+        nn = str(d.get("num") or "").strip()
+        cn = str(d.get("nom") or "").strip()
+        tv = Decimal(str(d.get("monto") or 0))
+        if not nn and not cn and tv == 0:
+            continue
+        extras.append((nn, cn, format_importe(tv)))
+
+    nd, cd, t11d = "", "", ""
+    if ajuste > 0:
+        nd, cd, t11d = "99", "Ajuste al neto", format_importe(abs(ajuste))
+
+    ded_docx = empaquetar_filas_deduccion_para_docx_extras(pdf, extras, nd=nd, cd=cd, t11d=t11d)
+    for k, v in ded_docx.items():
+        if k in ("t8", "t9", "t10", "t11d"):
+            mapping["{" + k + "}"] = _as_positive_amount_str(v)
+        else:
+            mapping["{" + k + "}"] = v
+
+    if ajuste < 0:
+        mapping["{np}"] = "99"
+        mapping["{cp}"] = "Ajuste al neto"
+        mapping["{t11p}"] = _as_positive_amount_str(format_importe(abs(ajuste)))
+    else:
+        mapping["{np}"] = str(np.get("num") or "")
+        mapping["{cp}"] = str(np.get("nom") or "")
+        tpm = Decimal(str(np.get("monto") or 0))
+        mapping["{t11p}"] = _as_positive_amount_str(format_importe(tpm)) if tpm > 0 else ""
+
+    mapping["{n7}"] = str(n7.get("num") or "")
+    mapping["{c_pant}"] = str(n7.get("nom") or "")
+    t7m = Decimal(str(n7.get("monto") or 0))
+    mapping["{t7}"] = _importe_percepcion_docx(t7m)
+
+
 def build_finiquito_placeholders(
     *,
     lugar_emision: str,
@@ -171,7 +317,7 @@ def build_finiquito_placeholders(
     suma_p_num = Decimal(str(tot["total_percepciones"]))
     if ajuste < 0:
         suma_p_num = (suma_p_num + abs(ajuste)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    return {
+    mapping: dict[str, str] = {
         "{lugar_emision}": lugar_emision or "",
         "{estado_emision}": estado_emision or "",
         "{fecha_emision_larga}": fecha_larga,
@@ -212,6 +358,9 @@ def build_finiquito_placeholders(
         "{suma_p}": format_importe(suma_p_num),
         "{suma_d}": pdf["suma_d"],
     }
+    mapping.update(_mapping_desglose_label_defaults())
+    _merge_desglose_v2_placeholders(mapping, calc)
+    return mapping
 
 
 def render_finiquito_docx(template_path: Path, mapping: dict[str, str]) -> bytes:

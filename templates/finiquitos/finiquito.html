@@ -9,20 +9,54 @@
 </section>
 
 <style>
-.fin-desglose-switch-row { display:flex; align-items:center; gap:0.75rem; flex-wrap:wrap; margin-top:0.75rem; }
+.fin-desglose-switch-row { display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap; margin-top:0.75rem; }
+.fin-desglose-hero {
+  margin-top:1rem;
+  padding:0.85rem 1rem;
+  border-radius:10px;
+  border:1px solid #d7dee3;
+  background:linear-gradient(180deg, #f6f9fb 0%, #eef3f7 100%);
+  box-shadow:0 2px 8px rgba(15, 23, 42, 0.06);
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:1rem;
+  flex-wrap:wrap;
+}
+.fin-desglose-hero-text { flex:1; min-width:12rem; }
+.fin-desglose-hero-title { display:block; font-weight:600; font-size:1.05rem; color:#1a237e; letter-spacing:-0.01em; }
+.fin-desglose-hero-sub { display:block; margin-top:0.35rem; font-size:0.88rem; color:#455a64; line-height:1.35; max-width:36rem; }
+.fin-desglose-hero-switch { flex-shrink:0; display:flex; align-items:center; gap:0.5rem; padding-top:0.15rem; }
+.fin-desglose-hero-switch .fin-switch-hint { font-size:0.8rem; color:#546e7a; font-weight:500; }
 .fin-switch { position:relative; display:inline-block; width:2.75rem; height:1.45rem; flex-shrink:0; }
+.fin-switch.fin-switch--hero { width:3.5rem; height:1.85rem; }
 .fin-switch input { opacity:0; width:0; height:0; position:absolute; }
-.fin-switch-track { position:absolute; cursor:pointer; inset:0; background:#cfd8dc; border-radius:999px; transition:background .2s; }
+.fin-switch-track { position:absolute; cursor:pointer; inset:0; background:#cfd8dc; border-radius:999px; transition:background .2s, box-shadow .2s; }
 .fin-switch-track::after { content:""; position:absolute; height:1.1rem; width:1.1rem; left:0.18rem; bottom:0.17rem; background:#fff; border-radius:50%; transition:transform .2s; box-shadow:0 1px 2px rgba(0,0,0,.15); }
-.fin-switch input:checked + .fin-switch-track { background:#2e7d32; }
+.fin-switch.fin-switch--hero .fin-switch-track::after { height:1.4rem; width:1.4rem; left:0.22rem; bottom:0.22rem; }
+.fin-switch input:checked + .fin-switch-track { background:#2e7d32; box-shadow:inset 0 1px 2px rgba(0,0,0,.08); }
 .fin-switch input:focus-visible + .fin-switch-track { outline:2px solid #1976d2; outline-offset:2px; }
-.fin-switch input:checked + .fin-switch-track::after { transform:translateX(1.25rem); }
-.fin-desglose-editor { margin-top:0.5rem; border:1px solid #e0e0e0; border-radius:6px; padding:0.5rem 0.75rem; background:#fafafa; }
-.fin-desglose-table { width:100%; border-collapse:collapse; font-size:0.92rem; }
-.fin-desglose-table th, .fin-desglose-table td { text-align:left; padding:0.35rem 0.4rem; border-bottom:1px solid #eee; vertical-align:middle; }
-.fin-desglose-table input.fin-desglose-concepto { width:100%; max-width:16rem; }
-.fin-desglose-table input.fin-desglose-monto { width:7rem; text-align:right; }
-.fin-desglose-actions { display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.5rem; }
+.fin-switch.fin-switch--hero input:checked + .fin-switch-track::after { transform:translateX(1.55rem); }
+.fin-switch:not(.fin-switch--hero) input:checked + .fin-switch-track::after { transform:translateX(1.25rem); }
+.fin-dg2-wrap { margin-top:0.5rem; border:1px solid #e0e0e0; border-radius:6px; padding:0.6rem 0.75rem; background:#fafafa; }
+.fin-dg2-cols { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; }
+@media (max-width: 900px) { .fin-dg2-cols { grid-template-columns: 1fr; } }
+.fin-dg2-block h4 { margin:0 0 0.35rem 0; font-size:0.95rem; }
+.fin-dg2-table { width:100%; border-collapse:collapse; font-size:0.88rem; }
+.fin-dg2-table th, .fin-dg2-table td { text-align:left; padding:0.3rem 0.35rem; border-bottom:1px solid #eee; vertical-align:middle; }
+.fin-dg2-table th:nth-child(3), .fin-dg2-table td:nth-child(3) { text-align:right; }
+.fin-dg2-table .fin-dg2-num { width:2.5rem; }
+.fin-dg2-table .fin-dg2-conc { max-width:10rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fin-dg2-isr { margin-top:0.5rem; padding:0.45rem 0.5rem; background:#fff; border:1px solid #eee; border-radius:4px; font-size:0.86rem; }
+.fin-dg2-isr-row { display:flex; justify-content:space-between; gap:0.5rem; }
+.fin-dg2-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-top:0.45rem; }
+.fin-dg2-foot { margin-top:0.35rem; font-size:0.86rem; color:#444; }
+dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem; }
+.fin-dg2-dlg-inner { padding:1rem 1.1rem; }
+.fin-dg2-dlg h4 { margin:0 0 0.5rem 0; }
+.fin-dg2-dlg label { display:block; margin-bottom:0.45rem; font-size:0.9rem; }
+.fin-dg2-dlg input[type="text"], .fin-dg2-dlg select { width:100%; box-sizing:border-box; }
+.fin-dg2-dlg-actions { display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem; }
 </style>
 
 <div class="form-card fin-layout" id="finiquito-root">
@@ -33,7 +67,6 @@
         <span>Modo de cálculo</span>
         <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
         <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
-        <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
       </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
@@ -117,27 +150,76 @@
           <label><input type="radio" name="incluir_pa" value="si"> Sí</label>
         </div>
       </div>
-      <div class="fin-desglose-switch-row">
-        <span>Edición libre del desglose</span>
-        <label class="fin-switch" title="Solo la tabla de importes del recibo">
-          <input type="checkbox" id="sw_edicion_desglose" role="switch" autocomplete="off" aria-label="Edición libre del desglose">
-          <span class="fin-switch-track" aria-hidden="true"></span>
-        </label>
-      </div>
-      <p class="helper" id="fin_desglose_hint" hidden>Activa el interruptor para editar solo la tabla de desglose (percepciones, ISR y deducciones). Los totales se recalculan con esos valores. No modifica nombre, fechas ni demás campos del formulario.</p>
-      <div id="fin_desglose_editor_wrap" class="fin-desglose-editor" hidden>
-        <p class="helper" style="margin-top:0;">Tabla de desglose — importes del finiquito</p>
-        <table class="fin-desglose-table" id="fin_desglose_table">
-          <thead><tr><th>Concepto</th><th>Importe</th><th></th></tr></thead>
-          <tbody id="fin_desglose_tbody"></tbody>
-          <tfoot><tr><td colspan="2"><strong>Total percepciones (tabla)</strong></td><td id="fin_desglose_sum_p"></td></tr>
-          <tr><td colspan="2"><strong>Total deducciones (tabla, incl. ISR)</strong></td><td id="fin_desglose_sum_d"></td></tr></tfoot>
-        </table>
-        <div class="fin-desglose-actions">
-          <button type="button" class="btn btn-secondary" id="btn_desglose_add_p">+ Percepción extra</button>
-          <button type="button" class="btn btn-secondary" id="btn_desglose_add_d">+ Deducción extra</button>
+      <div class="fin-desglose-hero" id="fin_desglose_hero">
+        <div class="fin-desglose-hero-text">
+          <span class="fin-desglose-hero-title">Edición libre del desglose</span>
+          <span class="fin-desglose-hero-sub">Activa para ajustar solo la tabla de importes del recibo (DOCX). No cambia nombre, fechas ni demás datos generales.</span>
+        </div>
+        <div class="fin-desglose-hero-switch">
+          <span class="fin-switch-hint" id="fin_desglose_switch_label">Desactivado</span>
+          <label class="fin-switch fin-switch--hero" title="Solo la tabla de desglose del formato">
+            <input type="checkbox" id="sw_edicion_desglose" role="switch" autocomplete="off" aria-label="Edición libre del desglose">
+            <span class="fin-switch-track" aria-hidden="true"></span>
+          </label>
         </div>
       </div>
+      <p class="helper" id="fin_desglose_hint" hidden>Edita únicamente la tabla de desglose del formato (placeholders DOCX). El ISR se recalcula solo; no puedes editarlo línea a línea. No modifica datos generales del formulario.</p>
+      <div id="fin_desglose_editor_wrap" class="fin-dg2-wrap" hidden>
+        <div class="fin-dg2-cols">
+          <div class="fin-dg2-block">
+            <h4>Percepciones</h4>
+            <table class="fin-dg2-table" aria-label="Percepciones desglose">
+              <thead><tr><th>#</th><th>Concepto</th><th>Importe</th><th></th><th></th></tr></thead>
+              <tbody id="fin_dg2_p_tbody"></tbody>
+            </table>
+            <div class="fin-dg2-actions">
+              <button type="button" class="btn btn-secondary" id="btn_dg2_add_p">+ Percepción</button>
+            </div>
+          </div>
+          <div class="fin-dg2-block">
+            <h4>Deducciones</h4>
+            <div class="fin-dg2-isr" id="fin_dg2_isr_panel">
+              <div class="fin-dg2-isr-row"><span>ISR (automático)</span><span id="fin_dg2_isr_hint" class="helper"></span></div>
+              <div id="fin_dg2_isr_lines"></div>
+              <label class="fin-desglose-switch-row" style="margin-top:0.5rem;">
+                <span>Desactivar deducción ISR</span>
+                <label class="fin-switch" title="Quita ISR del desglose y totales">
+                  <input type="checkbox" id="sw_dg2_sin_isr" role="switch" autocomplete="off" aria-label="Desactivar deducción ISR">
+                  <span class="fin-switch-track" aria-hidden="true"></span>
+                </label>
+              </label>
+            </div>
+            <table class="fin-dg2-table" style="margin-top:0.5rem;" aria-label="Deducciones adicionales">
+              <thead><tr><th>#</th><th>Concepto</th><th>Importe</th><th></th><th></th></tr></thead>
+              <tbody id="fin_dg2_d_tbody"></tbody>
+            </table>
+            <div class="fin-dg2-actions">
+              <button type="button" class="btn btn-secondary" id="btn_dg2_add_d">+ Deducción</button>
+            </div>
+          </div>
+        </div>
+        <div class="fin-dg2-foot" id="fin_dg2_foot"></div>
+      </div>
+      <dialog id="fin_dg2_dialog" class="fin-dg2-dlg">
+        <div class="fin-dg2-dlg-inner">
+          <h4 id="fin_dg2_dlg_title">Editar concepto</h4>
+          <input type="hidden" id="fin_dg2_dlg_side" value="">
+          <input type="hidden" id="fin_dg2_dlg_idx" value="">
+          <label>Catálogo
+            <select id="fin_dg2_dlg_cat"></select>
+          </label>
+          <label>Número <input type="text" id="fin_dg2_dlg_num" inputmode="numeric" maxlength="6" autocomplete="off"></label>
+          <label>Nombre <input type="text" id="fin_dg2_dlg_nom" maxlength="120" autocomplete="off"></label>
+          <label>Importe <input type="text" id="fin_dg2_dlg_monto" inputmode="decimal" autocomplete="off"></label>
+          <label id="fin_dg2_dlg_fiscal_wrap">Clasificación
+            <select id="fin_dg2_dlg_fiscal"><option value="gravable">Gravable</option><option value="exento">Exento</option></select>
+          </label>
+          <div class="fin-dg2-dlg-actions">
+            <button type="button" class="btn btn-secondary" id="fin_dg2_dlg_cancel">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="fin_dg2_dlg_ok">Guardar</button>
+          </div>
+        </div>
+      </dialog>
     </section>
   </div>
 
@@ -297,195 +379,175 @@
     return Number.isFinite(n) ? n : 0;
   }
 
-  function collectDesgloseFilas() {
-    const tb = $('fin_desglose_tbody');
-    if (!tb) return [];
-    const filas = [];
-    tb.querySelectorAll('tr[data-row-id]').forEach((tr) => {
-      const id = tr.getAttribute('data-row-id') || '';
-      const tipo = tr.getAttribute('data-tipo') || '';
-      const clave = tr.getAttribute('data-clave') || '';
-      const conceptoEl = tr.querySelector('.fin-desglose-concepto');
-      const montoEl = tr.querySelector('.fin-desglose-monto');
-      const tdf = tr.querySelector('td');
-      const concepto = conceptoEl ? conceptoEl.value.trim() : (tdf ? tdf.textContent.trim() : '');
-      const monto = montoEl ? parseNumLoose(montoEl.value) : 0;
-      filas.push({ id, tipo, clave, concepto, monto });
-    });
-    return filas;
+  const DG2_SLOTS = ['t1', 't2', 't3', 't5', 't6', 'n7', 'np'];
+  const DG2_CAT_P = [
+    { k: '4', n: '4', t: 'Horas extra' }, { k: '6', n: '6', t: 'Comisiones' }, { k: '9', n: '9', t: 'Incapacidad pagada empresa' },
+    { k: '10', n: '10', t: 'Prima dominical' }, { k: '11', n: '11', t: 'Día festivo / descanso' }, { k: '12', n: '12', t: 'Gratificación' },
+    { k: '13', n: '13', t: 'Compensación' }, { k: '16', n: '16', t: 'Retroactivo' }, { k: '17', n: '17', t: 'Ajuste de sueldos' },
+    { k: '26', n: '26', t: 'Indemnización' }, { k: '27', n: '27', t: 'Separación Única' }, { k: '__otros', n: '', t: 'Otros' },
+  ];
+  const DG2_CAT_D = [
+    { k: '64', n: '64', t: 'Préstamo empresa' }, { k: '66', n: '66', t: 'Anticipo sueldo' }, { k: '70', n: '70', t: 'Deducción general' },
+    { k: '74', n: '74', t: 'Anticipo vacaciones' }, { k: '179', n: '179', t: 'Infonavit CR correspondiente' }, { k: '__otros', n: '', t: 'Otros' },
+  ];
+  function dg2Ensure() {
+    if (!window.__dg2) window.__dg2 = { percepciones: [], deducciones: [] };
   }
-
-  function refreshDesgloseFootApprox() {
-    const rows = collectDesgloseFilas();
-    let sp = 0;
-    let sd = 0;
-    rows.forEach((r) => {
-      const m = Number(r.monto) || 0;
-      if (r.tipo === 'P') sp += m;
-      else if (r.tipo === 'D') sd += m;
-      else if (r.tipo === 'ISR' && r.clave !== 'isr_41_ref') sd += m;
-    });
-    const ep = $('fin_desglose_sum_p');
-    const ed = $('fin_desglose_sum_d');
-    if (ep) ep.textContent = '$' + fmt(sp);
-    if (ed) ed.textContent = '$' + fmt(sd);
+  function dg2LabRow(slot, num, nom, labKey) {
+    return { slot, num, nom, monto: 0, fiscal: 'gravable', fixed: true, labKey: labKey || null };
   }
-
-  function buildDesgloseTableFromCalc(resp) {
-    const tb = $('fin_desglose_tbody');
-    if (!tb || !resp?.resultado) return;
-    const prev = collectDesgloseFilas();
-    const extras = prev.filter((r) => {
-      const id = String(r.id || '');
-      return id.startsWith('extra-p:') || id.startsWith('extra-d:');
-    });
+  function dg2InitFromCalc(resp) {
+    dg2Ensure();
     const l = resp.resultado.laboral;
     const f = resp.resultado.fiscal;
-    const defs = [
-      { id: 'base:P:sueldo', tipo: 'P', clave: 'sueldo', c: 'Sueldo', m: l.sueldo },
-      { id: 'base:P:septimo', tipo: 'P', clave: 'septimo_dia', c: 'Séptimo día', m: l.septimo_dia },
-      { id: 'base:P:vac', tipo: 'P', clave: 'vacaciones_a_tiempo', c: 'Vacaciones', m: l.vacaciones_a_tiempo },
-      { id: 'base:P:pv', tipo: 'P', clave: 'prima_vacacional', c: 'Prima vacacional', m: l.prima_vacacional },
-      { id: 'base:P:ag', tipo: 'P', clave: 'aguinaldo', c: 'Aguinaldo', m: l.aguinaldo },
-      { id: 'base:P:pa', tipo: 'P', clave: 'prima_antiguedad_monto', c: 'Prima de antigüedad', m: l.prima_antiguedad_monto },
-      { id: 'base:P:pd', tipo: 'P', clave: 'prima_dominical', c: 'Prima dominical', m: l.prima_dominical },
-      { id: 'base:P:ptu', tipo: 'P', clave: 'ptu', c: 'PTU', m: l.ptu },
+    const baseRows = [
+      dg2LabRow('t1', '1', 'Sueldo', 'sueldo'),
+      dg2LabRow('t2', '3', 'Séptimo día', 'septimo_dia'),
+      dg2LabRow('t3', '19', 'Vacaciones a tiempo', 'vacaciones_a_tiempo'),
+      dg2LabRow('t5', '22', 'Prima de vacaciones reportadas', 'prima_vacacional'),
+      dg2LabRow('t6', '24', 'Aguinaldo', 'aguinaldo'),
+      dg2LabRow('n7', '29', 'Prima de antigüedad', 'prima_antiguedad_monto'),
+      dg2LabRow('np', '', '', null),
     ];
-    tb.innerHTML = '';
-    defs.forEach((p) => {
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-row-id', p.id);
-      tr.setAttribute('data-tipo', p.tipo);
-      tr.setAttribute('data-clave', p.clave);
-      tr.innerHTML = `<td>${p.c}</td><td><input type="text" class="fin-desglose-monto" inputmode="decimal" autocomplete="off" value="${fmtInputNum(p.m)}"></td><td></td>`;
-      tb.appendChild(tr);
+    window.__dg2.percepciones = baseRows.map((r) => {
+      const m = r.labKey ? Number(l[r.labKey] || 0) || 0 : Number(l.prima_dominical || 0) || 0;
+      return { ...r, monto: m };
     });
-    const isr = [
-      { id: 'base:ISR:41', clave: 'isr_41_ref', c: '41 I.S.R. antes de Subs al empleo (referencia)', m: f.isr_ordinario_antes_subsidio },
-      { id: 'base:ISR:43', clave: 'isr_art174', c: '43 I.S.R. Art174', m: f.isr_art174 },
-      { id: 'base:ISR:45', clave: 'isr_ordinario', c: '45 I.S.R. (mes)', m: f.isr_mes_neto },
-      { id: 'base:ISR:sep', clave: 'isr_separacion', c: 'ISR separación (prima antigüedad)', m: f.isr_separacion },
-    ];
-    isr.forEach((p) => {
-      const tr = document.createElement('tr');
-      tr.setAttribute('data-row-id', p.id);
-      tr.setAttribute('data-tipo', 'ISR');
-      tr.setAttribute('data-clave', p.clave);
-      const dis = p.clave === 'isr_41_ref' ? ' disabled' : '';
-      tr.innerHTML = `<td>${p.c}</td><td><input type="text" class="fin-desglose-monto" inputmode="decimal" autocomplete="off"${dis} value="${fmtInputNum(p.m)}"></td><td></td>`;
-      tb.appendChild(tr);
-    });
-    extras.forEach((r) => {
-      const id = String(r.id || '');
-      if (id.startsWith('extra-p:')) {
-        addExtraPercRow();
-        const last = tb.querySelector('tr:last-child');
-        if (last) {
-          last.setAttribute('data-row-id', id);
-          const ci = last.querySelector('.fin-desglose-concepto');
-          const mi = last.querySelector('.fin-desglose-monto');
-          if (ci) ci.value = r.concepto || '';
-          if (mi) mi.value = fmtInputNum(r.monto);
-        }
-      } else if (id.startsWith('extra-d:')) {
-        addExtraDedRow();
-        const last = tb.querySelector('tr:last-child');
-        if (last) {
-          last.setAttribute('data-row-id', id);
-          const ci = last.querySelector('.fin-desglose-concepto');
-          const mi = last.querySelector('.fin-desglose-monto');
-          if (ci) ci.value = r.concepto || '';
-          if (mi) mi.value = fmtInputNum(r.monto);
-        }
-      }
-    });
-    refreshDesgloseFootApprox();
+    const pa = window.__dg2.percepciones[5];
+    if (pa.monto <= 0) { pa.num = ''; pa.nom = ''; }
+    window.__dg2._lastFiscal = f;
+    dg2RenderTables(resp);
   }
-
-  function addExtraPercRow() {
-    const tb = $('fin_desglose_tbody');
-    if (!tb) return;
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-row-id', newRowId('extra-p:'));
-    tr.setAttribute('data-tipo', 'P');
-    tr.setAttribute('data-clave', '');
-    tr.innerHTML = '<td><input type="text" class="fin-desglose-concepto" placeholder="Concepto" autocomplete="off"></td><td><input type="text" class="fin-desglose-monto" inputmode="decimal" value="0.00" autocomplete="off"></td><td><button type="button" class="link-btn fin-desglose-del">Quitar</button></td>';
-    tb.appendChild(tr);
-    refreshDesgloseFootApprox();
-  }
-
-  function addExtraDedRow() {
-    const tb = $('fin_desglose_tbody');
-    if (!tb) return;
-    const tr = document.createElement('tr');
-    tr.setAttribute('data-row-id', newRowId('extra-d:'));
-    tr.setAttribute('data-tipo', 'D');
-    tr.setAttribute('data-clave', '');
-    tr.innerHTML = '<td><input type="text" class="fin-desglose-concepto" placeholder="Concepto" autocomplete="off"></td><td><input type="text" class="fin-desglose-monto" inputmode="decimal" value="0.00" autocomplete="off"></td><td><button type="button" class="link-btn fin-desglose-del">Quitar</button></td>';
-    tb.appendChild(tr);
-    refreshDesgloseFootApprox();
-  }
-
-  function applyDesgloseFilasDesdeHistorial(filas) {
-    const tb = $('fin_desglose_tbody');
-    if (!tb || !Array.isArray(filas) || !filas.length) return;
-    tb.innerHTML = '';
-    filas.forEach((r) => {
-      const tr = document.createElement('tr');
-      const id = String(r.id || newRowId('row:'));
-      const tipo = String(r.tipo || 'P');
-      const clave = String(r.clave || '');
-      tr.setAttribute('data-row-id', id);
-      tr.setAttribute('data-tipo', tipo);
-      tr.setAttribute('data-clave', clave);
-      const concepto = String(r.concepto || '');
-      const baseRow = id.startsWith('base:');
-      if (baseRow) {
-        const td1 = document.createElement('td');
-        td1.textContent = concepto;
-        const td2 = document.createElement('td');
-        const inp = document.createElement('input');
-        inp.type = 'text';
-        inp.className = 'fin-desglose-monto';
-        inp.setAttribute('inputmode', 'decimal');
-        inp.autocomplete = 'off';
-        if (tipo === 'ISR' && clave === 'isr_41_ref') inp.disabled = true;
-        inp.value = fmtInputNum(r.monto);
-        td2.appendChild(inp);
-        const td3 = document.createElement('td');
-        tr.appendChild(td1);
-        tr.appendChild(td2);
-        tr.appendChild(td3);
-      } else {
-        const td1 = document.createElement('td');
-        const ci = document.createElement('input');
-        ci.type = 'text';
-        ci.className = 'fin-desglose-concepto';
-        ci.placeholder = 'Concepto';
-        ci.autocomplete = 'off';
-        ci.value = concepto;
-        td1.appendChild(ci);
-        const td2 = document.createElement('td');
-        const mi = document.createElement('input');
-        mi.type = 'text';
-        mi.className = 'fin-desglose-monto';
-        mi.setAttribute('inputmode', 'decimal');
-        mi.autocomplete = 'off';
-        mi.value = fmtInputNum(r.monto);
-        td2.appendChild(mi);
-        const td3 = document.createElement('td');
-        const del = document.createElement('button');
-        del.type = 'button';
-        del.className = 'link-btn fin-desglose-del';
-        del.textContent = 'Quitar';
-        td3.appendChild(del);
-        tr.appendChild(td1);
-        tr.appendChild(td2);
-        tr.appendChild(td3);
-      }
-      tb.appendChild(tr);
+  function dg2FillCat(sel, side) {
+    sel.innerHTML = '';
+    const arr = side === 'p' ? DG2_CAT_P : DG2_CAT_D;
+    arr.forEach((o) => {
+      const op = document.createElement('option');
+      op.value = o.k;
+      op.textContent = o.t === 'Otros' ? 'Otros' : `${o.n} ${o.t}`;
+      sel.appendChild(op);
     });
-    refreshDesgloseFootApprox();
+  }
+  function dg2SortPercepciones() {
+    dg2Ensure();
+    window.__dg2.percepciones.sort((a, b) => {
+      const na = parseInt(String(a.num || '0'), 10);
+      const nb = parseInt(String(b.num || '0'), 10);
+      if (na !== nb) return na - nb;
+      return String(a.slot).localeCompare(String(b.slot));
+    });
+    const slots = DG2_SLOTS.slice();
+    window.__dg2.percepciones = window.__dg2.percepciones.map((r, i) => ({ ...r, slot: slots[i] || 'np' }));
+  }
+  function dg2CollectPercepcionesPayload() {
+    dg2SortPercepciones();
+    return window.__dg2.percepciones.map((r) => ({
+      slot: r.slot,
+      num: String(r.num || '').trim(),
+      nom: String(r.nom || '').trim(),
+      monto: Number(r.monto) || 0,
+      fiscal: r.fiscal === 'exento' ? 'exento' : 'gravable',
+    }));
+  }
+  function dg2CollectDeduccionesPayload() {
+    dg2Ensure();
+    return (window.__dg2.deducciones || []).map((r) => ({
+      id: r.id || '',
+      num: String(r.num || '').trim(),
+      nom: String(r.nom || '').trim(),
+      monto: Number(r.monto) || 0,
+    }));
+  }
+  function dg2RenderTables(resp) {
+    dg2Ensure();
+    const tbP = $('fin_dg2_p_tbody');
+    const tbD = $('fin_dg2_d_tbody');
+    if (!tbP || !tbD) return;
+    tbP.innerHTML = '';
+    window.__dg2.percepciones.forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      tr.dataset.idx = String(idx);
+      const num = (row.num || '—') + '';
+      const nom = (row.nom || '—') + '';
+      const fis = row.fiscal === 'exento' ? 'Exe.' : 'Grav.';
+      const delP = row.fixed ? '' : `<button type="button" class="link-btn fin-dg2-del" data-side="p" data-idx="${idx}">Quitar</button>`;
+      tr.innerHTML = `<td class="fin-dg2-num">${escapeHtml(num)}</td><td class="fin-dg2-conc" title="${escapeHtml(nom)}">${escapeHtml(nom)}</td><td>$${fmt(row.monto)}</td><td>${escapeHtml(fis)}</td><td><button type="button" class="link-btn fin-dg2-edit" data-side="p" data-idx="${idx}" aria-label="Editar">✎</button>${delP}</td>`;
+      tbP.appendChild(tr);
+    });
+    tbD.innerHTML = '';
+    (window.__dg2.deducciones || []).forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      tr.dataset.idx = String(idx);
+      const num = (row.num || '—') + '';
+      const nom = (row.nom || '—') + '';
+      tr.innerHTML = `<td class="fin-dg2-num">${escapeHtml(num)}</td><td class="fin-dg2-conc" title="${escapeHtml(nom)}">${escapeHtml(nom)}</td><td>$${fmt(row.monto)}</td><td></td><td><button type="button" class="link-btn fin-dg2-edit" data-side="d" data-idx="${idx}" aria-label="Editar">✎</button><button type="button" class="link-btn fin-dg2-del" data-side="d" data-idx="${idx}">Quitar</button></td>`;
+      tbD.appendChild(tr);
+    });
+    const f = (resp && resp.resultado && resp.resultado.fiscal) || window.__dg2._lastFiscal || {};
+    const lines = $('fin_dg2_isr_lines');
+    if (lines) {
+      lines.innerHTML = `
+        <div class="fin-dg2-isr-row"><span>41 (ref.)</span><span>$${fmt(f.isr_ordinario_antes_subsidio)}</span></div>
+        <div class="fin-dg2-isr-row"><span>43 Art.174</span><span>$${fmt(f.isr_art174)}</span></div>
+        <div class="fin-dg2-isr-row"><span>45 Mes</span><span>$${fmt(f.isr_mes_neto)}</span></div>
+        <div class="fin-dg2-isr-row"><span>Separación</span><span>$${fmt(f.isr_separacion)}</span></div>`;
+    }
+    const hint = $('fin_dg2_isr_hint');
+    if (hint) hint.textContent = ($('sw_dg2_sin_isr') && $('sw_dg2_sin_isr').checked) ? '(ISR desactivado en envío)' : '';
+    const foot = $('fin_dg2_foot');
+    if (foot && resp && resp.resultado && resp.resultado.totales) {
+      const t = resp.resultado.totales;
+      foot.textContent = `Totales (después de recalcular): percepciones $${fmt(t.total_percepciones)} · deducciones $${fmt(t.total_deducciones_reales)} · neto $${fmt(t.neto_final)}`;
+    }
+  }
+  function escapeHtml(s) {
+    return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+  function dg2OpenDialog(side, idx) {
+    dg2Ensure();
+    const dlg = $('fin_dg2_dialog');
+    if (!dlg || !dlg.showModal) return;
+    $('fin_dg2_dlg_side').value = side;
+    $('fin_dg2_dlg_idx').value = String(idx);
+    const row = side === 'p' ? window.__dg2.percepciones[idx] : window.__dg2.deducciones[idx];
+    if (!row) return;
+    $('fin_dg2_dlg_title').textContent = side === 'p' ? 'Editar percepción' : 'Editar deducción';
+    dg2FillCat($('fin_dg2_dlg_cat'), side);
+    $('fin_dg2_dlg_cat').value = '__otros';
+    $('fin_dg2_dlg_num').value = row.num || '';
+    $('fin_dg2_dlg_nom').value = row.nom || '';
+    $('fin_dg2_dlg_monto').value = fmtInputNum(row.monto);
+    $('fin_dg2_dlg_fiscal').value = row.fiscal === 'exento' ? 'exento' : 'gravable';
+    $('fin_dg2_dlg_fiscal_wrap').style.display = side === 'p' ? '' : 'none';
+    dlg.showModal();
+  }
+  function dg2ApplyDialog() {
+    const side = $('fin_dg2_dlg_side').value;
+    const idx = parseInt($('fin_dg2_dlg_idx').value, 10);
+    const cat = $('fin_dg2_dlg_cat').value;
+    let num = ($('fin_dg2_dlg_num').value || '').trim();
+    let nom = ($('fin_dg2_dlg_nom').value || '').trim();
+    const monto = parseNumLoose($('fin_dg2_dlg_monto').value);
+    const fiscal = $('fin_dg2_dlg_fiscal').value;
+    const arr = side === 'p' ? window.__dg2.percepciones : window.__dg2.deducciones;
+    if (!arr[idx]) return;
+    if (cat !== '__otros') {
+      const list = side === 'p' ? DG2_CAT_P : DG2_CAT_D;
+      const hit = list.find((x) => x.k === cat);
+      if (hit && hit.k !== '__otros') { num = hit.n; nom = hit.t; }
+    }
+    arr[idx] = { ...arr[idx], num, nom, monto, fiscal: side === 'p' ? fiscal : 'gravable' };
+    $('fin_dg2_dialog').close();
+    dg2SortPercepciones();
+    scheduleDesgloseRecalc();
+  }
+  function dg2ApplyFromHistorial(dm) {
+    dg2Ensure();
+    if (!dm || dm.v !== 2) return false;
+    window.__dg2.percepciones = (dm.percepciones || []).map((r) => ({ ...r, fixed: true }));
+    window.__dg2.deducciones = (dm.deducciones_extra || []).map((r) => ({ ...r, id: r.id || newRowId('dex:') }));
+    if ($('sw_dg2_sin_isr')) $('sw_dg2_sin_isr').checked = !!dm.sin_isr;
+    return true;
   }
 
   let desgloseRecalcT = null;
@@ -501,7 +563,7 @@
         msg($('calc_msg'), 'Listo.');
         window.__lastCalcPayload = j;
         renderPreview(j);
-        if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) buildDesgloseTableFromCalc(j);
+        if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2InitFromCalc(j);
       } catch (e) {
         msg($('calc_msg'), 'Error de red.', true);
       }
@@ -530,7 +592,14 @@
       dias_sueldo_pendientes: $('dias_sueldo_pendientes').value,
       incluir_prima_antiguedad: valRadio('incluir_pa') === 'si',
       edicion_libre_desglose: desgloseOn,
-      desglose_manual: desgloseOn ? { filas: collectDesgloseFilas() } : {},
+      desglose_manual: desgloseOn
+        ? {
+            v: 2,
+            sin_isr: !!($('sw_dg2_sin_isr') && $('sw_dg2_sin_isr').checked),
+            percepciones: dg2CollectPercepcionesPayload(),
+            deducciones_extra: dg2CollectDeduccionesPayload(),
+          }
+        : {},
     };
   }
 
@@ -626,7 +695,7 @@
       ${factorNota}`;
     $('preview').hidden = false;
     renderAdvanced(resp);
-    if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) buildDesgloseTableFromCalc(resp);
+    if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2InitFromCalc(resp);
   }
 
   function limSupTarifa(row) {
@@ -809,10 +878,10 @@
         $('fin_desglose_editor_wrap').hidden = true;
         return;
       }
-      buildDesgloseTableFromCalc(window.__lastCalcPayload);
+      dg2InitFromCalc(window.__lastCalcPayload);
       return;
     }
-    $('fin_desglose_tbody').innerHTML = '';
+    window.__dg2 = { percepciones: [], deducciones: [] };
     if (window.__lastCalcPayload) {
       msg($('calc_msg'), 'Restaurando cálculo automático…');
       try {
@@ -829,21 +898,50 @@
 
   $('fin_desglose_editor_wrap').addEventListener('click', (e) => {
     const t = e.target;
-    if (t.classList.contains('fin-desglose-del')) {
-      const tr = t.closest('tr');
-      if (tr) tr.remove();
-      refreshDesgloseFootApprox();
-      if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) scheduleDesgloseRecalc();
+    if (t.classList.contains('fin-dg2-edit')) {
+      const side = t.getAttribute('data-side');
+      const idx = parseInt(t.getAttribute('data-idx') || '-1', 10);
+      if (side && idx >= 0) dg2OpenDialog(side, idx);
+    }
+    if (t.classList.contains('fin-dg2-del')) {
+      const side = t.getAttribute('data-side');
+      const idx = parseInt(t.getAttribute('data-idx') || '-1', 10);
+      if (side === 'd' && idx >= 0 && window.__dg2 && window.__dg2.deducciones) {
+        window.__dg2.deducciones.splice(idx, 1);
+        scheduleDesgloseRecalc();
+      }
+      if (side === 'p' && idx >= 0 && window.__dg2 && window.__dg2.percepciones && !window.__dg2.percepciones[idx].fixed) {
+        window.__dg2.percepciones.splice(idx, 1);
+        scheduleDesgloseRecalc();
+      }
     }
   });
-  $('fin_desglose_editor_wrap').addEventListener('input', (e) => {
-    if (e.target.classList.contains('fin-desglose-monto') || e.target.classList.contains('fin-desglose-concepto')) {
-      refreshDesgloseFootApprox();
-      scheduleDesgloseRecalc();
+  $('btn_dg2_add_p').addEventListener('click', () => {
+    dg2Ensure();
+    if (window.__dg2.percepciones.length >= 7) return msg($('calc_msg'), 'Máximo 7 percepciones (límite de placeholders del formato).', true);
+    window.__dg2.percepciones.push({ slot: 'np', num: '', nom: '', monto: 0, fiscal: 'gravable', fixed: false });
+    dg2OpenDialog('p', window.__dg2.percepciones.length - 1);
+  });
+  $('btn_dg2_add_d').addEventListener('click', () => {
+    dg2Ensure();
+    window.__dg2.deducciones.push({ id: newRowId('dex:'), num: '', nom: '', monto: 0 });
+    dg2OpenDialog('d', window.__dg2.deducciones.length - 1);
+  });
+  $('sw_dg2_sin_isr').addEventListener('change', () => { scheduleDesgloseRecalc(); });
+  $('fin_dg2_dlg_cancel').addEventListener('click', () => { $('fin_dg2_dialog').close(); });
+  $('fin_dg2_dlg_ok').addEventListener('click', () => { dg2ApplyDialog(); });
+  $('fin_dg2_dlg_cat').addEventListener('change', () => {
+    const v = $('fin_dg2_dlg_cat').value;
+    if (v !== '__otros') {
+      const side = $('fin_dg2_dlg_side').value;
+      const list = side === 'p' ? DG2_CAT_P : DG2_CAT_D;
+      const hit = list.find((x) => x.k === v);
+      if (hit && hit.k !== '__otros') {
+        $('fin_dg2_dlg_num').value = hit.n;
+        $('fin_dg2_dlg_nom').value = hit.t;
+      }
     }
   });
-  $('btn_desglose_add_p').addEventListener('click', () => { addExtraPercRow(); scheduleDesgloseRecalc(); });
-  $('btn_desglose_add_d').addEventListener('click', () => { addExtraDedRow(); scheduleDesgloseRecalc(); });
 
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
@@ -941,7 +1039,8 @@
         if (opt) sel.value = opt.value;
       }
       $('zona_salarial').value = f.zona_salarial === 'frontera' ? 'frontera' : 'general';
-      const modoForm = String(f.modo_calculo || 'total_gravable').trim();
+      let modoForm = String(f.modo_calculo || 'total_gravable').trim();
+      if (modoForm === 'aguinaldo_todo_gravable') modoForm = 'total_gravable';
       const mrad = document.querySelector(`input[name="modo_calculo"][value="${modoForm}"]`);
       if (mrad) mrad.checked = true;
       else {
@@ -949,14 +1048,15 @@
         if (fb) fb.checked = true;
       }
       const swDes = $('sw_edicion_desglose');
-      const dm = f.desglose_manual && typeof f.desglose_manual === 'object' ? f.desglose_manual.filas : null;
-      const desgloseOn = !!f.edicion_libre_desglose && Array.isArray(dm) && dm.length > 0;
+      const dm = f.desglose_manual && typeof f.desglose_manual === 'object' ? f.desglose_manual : null;
+      let desgloseOn = false;
+      if (f.edicion_libre_desglose && dm) {
+        if (dm.v === 2) desgloseOn = Array.isArray(dm.percepciones) && dm.percepciones.length > 0;
+        else desgloseOn = Array.isArray(dm.filas) && dm.filas.length > 0;
+      }
       if (swDes) swDes.checked = desgloseOn;
       $('fin_desglose_hint').hidden = !desgloseOn;
       $('fin_desglose_editor_wrap').hidden = !desgloseOn;
-      const tbd = $('fin_desglose_tbody');
-      if (tbd) tbd.innerHTML = '';
-      if (desgloseOn) applyDesgloseFilasDesdeHistorial(dm);
       $('sueldo_semanal').value = f.sueldo_semanal || '';
       $('dias_aguinaldo_politica').value = f.dias_aguinaldo_politica || '15';
       $('prima_vacacional_pct').value = f.prima_vacacional_pct || '25';
@@ -974,6 +1074,28 @@
       if (paInp) paInp.checked = true;
       syncPrimaDiasSuggest();
       updatePrimaAntiguedadUI();
+      if (desgloseOn && dm && dm.v === 2) {
+        try {
+          const r2 = await fetch('{{ url_for("finiquitos.api_calcular") }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload()),
+            credentials: 'same-origin',
+          });
+          const cj = await r2.json();
+          if (cj.ok) {
+            window.__lastCalcPayload = cj;
+            dg2InitFromCalc(cj);
+            dg2ApplyFromHistorial(dm);
+            dg2RenderTables(cj);
+            renderPreview(cj);
+          }
+        } catch (_) {
+          /* ignorar */
+        }
+      } else if (desgloseOn && dm && dm.v !== 2) {
+        msg($('calc_msg'), 'Este registro usa un formato antiguo de desglose; vuelve a calcular y configura la edición libre actual.', true);
+      }
       const u = new URL(window.location.href);
       u.searchParams.delete('rehidratar');
       const qs = u.searchParams.toString();
@@ -985,7 +1107,9 @@
       if (!(f.fecha_baja || '').trim()) incompletos.push('fecha de baja');
       if (!(f.sueldo_semanal || '').trim()) incompletos.push('sueldo semanal');
       if (incompletos.length) doneMsg += ' Nota: en este registro faltan ' + incompletos.join(', ') + ' — revisa antes de exportar.';
-      if (f.edicion_libre_desglose && (!dm || !dm.length)) doneMsg += ' Nota: el registro indica desglose libre pero no hay filas guardadas; usa «Calcular» para regenerar la tabla.';
+      if (f.edicion_libre_desglose && (!dm || (dm.v === 2 && !(dm.percepciones || []).length) || (dm.v !== 2 && !(dm.filas || []).length))) {
+        doneMsg += ' Nota: el registro indica desglose libre pero faltan datos guardados; usa «Calcular» para regenerar.';
+      }
       msg($('calc_msg'), doneMsg, false);
       scheduleAutoSummary();
     } catch (e) {
