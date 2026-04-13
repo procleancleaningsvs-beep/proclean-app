@@ -15,6 +15,7 @@ from flask import Blueprint, Response, current_app, g, jsonify, redirect, render
 
 from modules.finiquitos import config as fincfg
 from modules.finiquitos.calc import (
+    anios_servicio_exactos,
     calcular_dias_vacaciones_devengados,
     calcular_finiquito,
     prima_antiguedad_aplica_separacion_voluntaria,
@@ -279,6 +280,60 @@ def _build_finiquito_snapshot_payload(
     }
 
 
+def _bool_coerce_entrada(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    return str(val).lower() in ("1", "true", "yes", "si", "on")
+
+
+def _entrada_a_formulario_api(entrada: dict[str, Any]) -> dict[str, Any]:
+    """Mapea snapshot.entrada (claves internas del payload) al JSON que consume el formulario."""
+    if not entrada:
+        return {}
+
+    def slice_iso(key: str) -> str:
+        v = entrada.get(key)
+        if v is None or v == "":
+            return ""
+        s = str(v).strip()
+        return s[:10] if len(s) >= 10 else s
+
+    def num_str(key: str, default: str = "0") -> str:
+        v = entrada.get(key)
+        if v is None or v == "":
+            return default
+        return str(v).strip()
+
+    modo = str(entrada.get("modo") or "total_gravable").strip().lower()
+    if modo not in ("correcto_fiscal", "aguinaldo_todo_gravable", "total_gravable"):
+        modo = "total_gravable"
+
+    zona = str(entrada.get("zona") or "general").strip().lower()
+    if zona not in ("general", "frontera"):
+        zona = "general"
+
+    return {
+        "nombre_completo": str(entrada.get("nombre") or ""),
+        "fecha_ingreso": slice_iso("ingreso"),
+        "fecha_baja": slice_iso("baja"),
+        "fecha_emision": slice_iso("emision"),
+        "lugar_emision": str(entrada.get("lugar_emision") or ""),
+        "estado_emision": str(entrada.get("estado_emision") or ""),
+        "zona_salarial": zona,
+        "modo_calculo": modo,
+        "sueldo_semanal": num_str("sueldo_semanal", ""),
+        "dias_aguinaldo_politica": num_str("dias_aguinaldo", "15"),
+        "prima_vacacional_pct": num_str("prima_vac_pct", "25"),
+        "vacaciones_ya_usadas": num_str("vac_ya", "0"),
+        "prima_pagada_previamente": _bool_coerce_entrada(entrada.get("prima_pagada_previamente")),
+        "aguinaldo_pagado_previamente": _bool_coerce_entrada(entrada.get("aguinaldo_pagado_previamente")),
+        "prima_dias_cubiertos": num_str("prima_dias_cubiertos", "0"),
+        "dias_sueldo_pendientes": num_str("dias_sueldo", "0"),
+        "incluir_prima_antiguedad": _bool_coerce_entrada(entrada.get("incluir_pa")),
+        "observaciones_internas": str(entrada.get("observaciones") or ""),
+    }
+
+
 @finiquitos_bp.route("/finiquito", methods=["GET"])
 @_login_required_page
 def pagina_finiquito():
@@ -289,6 +344,23 @@ def pagina_finiquito():
 @_login_required_page
 def pagina_historial():
     return render_template("historial.html")
+
+
+@finiquitos_bp.route("/api/antiguedad-servicio", methods=["POST"])
+def api_antiguedad_servicio():
+    """Años de servicio exactos (misma función que el cálculo laboral): ingreso → baja."""
+    err = _login_required_json()
+    if err:
+        return err
+    data = request.get_json(silent=True) or {}
+    ing = _parse_date(data.get("fecha_ingreso"))
+    baj = _parse_date(data.get("fecha_baja"))
+    if ing is None or baj is None:
+        return jsonify({"ok": False, "error": "Se requieren fecha de ingreso y fecha de baja."}), 400
+    if ing > baj:
+        return jsonify({"ok": False, "error": "La fecha de ingreso no puede ser posterior a la fecha de baja."}), 400
+    anios = anios_servicio_exactos(ing, baj)
+    return jsonify({"ok": True, "anios_servicio_exactos": float(anios)})
 
 
 @finiquitos_bp.route("/api/excel-ingreso", methods=["POST"])
@@ -570,6 +642,7 @@ def api_historial_registro(hid: int):
     except (json.JSONDecodeError, TypeError):
         snap = {}
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+    entrada = snap.get("entrada") or {}
     return jsonify(
         {
             "ok": True,
@@ -581,6 +654,7 @@ def api_historial_registro(hid: int):
             "pdf_filename": row["pdf_filename"],
             "pdf_disponible": _resolved_pdf_path_if_safe(row["pdf_path"], gen) is not None,
             "snapshot": snap,
+            "formulario": _entrada_a_formulario_api(entrada if isinstance(entrada, dict) else {}),
         }
     )
 

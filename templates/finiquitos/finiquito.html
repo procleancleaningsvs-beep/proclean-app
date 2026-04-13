@@ -16,6 +16,7 @@
         <span>Modo de cálculo</span>
         <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
         <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
+        <label><input type="radio" name="modo_calculo" value="aguinaldo_todo_gravable"> Aguinaldo todo gravable</label>
       </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
@@ -88,6 +89,7 @@
             </div>
           </div>
         </div>
+        <p id="fin_perc_optional_hint" class="helper" hidden></p>
       </div>
       <div id="auto-kpis-left" class="helper"></div>
       <div id="pa_status" class="helper"></div>
@@ -128,6 +130,67 @@
   const fmt = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmt4 = (n) => Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
   let primaDiasEdited = false;
+  let opcTimer = null;
+
+  function setOpcionalesPagosPreviosInteractivos(on) {
+    const row = $('fin_perc_optional_row');
+    if (!row) return;
+    row.querySelectorAll('input[type="radio"]').forEach((inp) => { inp.disabled = !on; });
+    row.setAttribute('aria-disabled', on ? 'false' : 'true');
+  }
+
+  async function refreshOpcionalesPagosPrevios() {
+    const row = $('fin_perc_optional_row');
+    const hint = $('fin_perc_optional_hint');
+    if (!row || !hint) return;
+    const fi = $('fecha_ingreso').value;
+    const fb = $('fecha_baja').value;
+    if (!fi || !fb) {
+      row.hidden = false;
+      hint.hidden = true;
+      hint.textContent = '';
+      setOpcionalesPagosPreviosInteractivos(true);
+      return;
+    }
+    try {
+      const r = await fetch('{{ url_for("finiquitos.api_antiguedad_servicio") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fecha_ingreso: fi, fecha_baja: fb }),
+        credentials: 'same-origin',
+      });
+      const j = await r.json();
+      if (!j.ok) {
+        row.hidden = false;
+        hint.hidden = true;
+        hint.textContent = '';
+        setOpcionalesPagosPreviosInteractivos(true);
+        return;
+      }
+      const anios = Number(j.anios_servicio_exactos);
+      if (anios < 1) {
+        row.hidden = true;
+        hint.hidden = false;
+        hint.textContent = 'Con menos de un año de servicio entre la fecha de ingreso y la fecha de baja (mismo criterio que el módulo: días de servicio ÷ 365.25), no aplica indicar si ya se pagó aguinaldo o prima vacacional.';
+        setOpcionalesPagosPreviosInteractivos(false);
+      } else {
+        row.hidden = false;
+        hint.hidden = true;
+        hint.textContent = '';
+        setOpcionalesPagosPreviosInteractivos(true);
+      }
+    } catch (e) {
+      row.hidden = false;
+      hint.hidden = true;
+      hint.textContent = '';
+      setOpcionalesPagosPreviosInteractivos(true);
+    }
+  }
+
+  function scheduleOpcionalesPagosPrevios() {
+    clearTimeout(opcTimer);
+    opcTimer = setTimeout(() => { void refreshOpcionalesPagosPrevios(); }, 280);
+  }
 
   function fechaBonitaEs(v) {
     if (!v) return '';
@@ -433,7 +496,7 @@
     const r = await fetch('{{ url_for("finiquitos.api_excel_ingreso") }}', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ nombre_completo: $('nombre_completo').value.trim() })});
     const j = await r.json();
     if (!j.ok) return msg($('excel_msg'), j.error || 'Error', true);
-    $('fecha_ingreso').value = j.fecha_ingreso; updatePrimaAntiguedadUI(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
+    $('fecha_ingreso').value = j.fecha_ingreso; updatePrimaAntiguedadUI(); scheduleOpcionalesPagosPrevios(); scheduleAutoSummary(); msg($('excel_msg'), 'Fecha de ingreso cargada desde Excel.');
   });
   $('btn_calc').addEventListener('click', async () => {
     msg($('calc_msg'), 'Calculando…');
@@ -489,7 +552,7 @@
   $('vacaciones_ya_usadas').addEventListener('change', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
   $('vacaciones_ya_usadas').addEventListener('input', () => { clampVacacionesYaUsadasIfNeeded(); scheduleAutoSummary(); });
   document.querySelectorAll('input[name="aguinaldo_pagado_flag"], input[name="modo_calculo"], input[name="incluir_pa"], input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', scheduleAutoSummary));
-  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updatePrimaAntiguedadUI(); scheduleAutoSummary(); }));
+  ['fecha_ingreso','fecha_baja'].forEach((id)=>$(id).addEventListener('change', ()=>{ updatePrimaAntiguedadUI(); scheduleOpcionalesPagosPrevios(); scheduleAutoSummary(); }));
   $('vacaciones_ya_usadas').addEventListener('input', ()=>{ if(!primaDiasEdited) syncPrimaDiasSuggest(); });
   $('prima_dias_cubiertos').addEventListener('input', ()=>{ primaDiasEdited = true; });
   document.querySelectorAll('input[name="prima_pagada_flag"]').forEach((el)=>el.addEventListener('change', ()=>{ syncPrimaDiasSuggest(); scheduleAutoSummary(); }));
@@ -497,6 +560,79 @@
   wirePercReadonlyToggle('dias_aguinaldo_politica', 'btn_unlock_dias_aguinaldo_politica');
   wirePercReadonlyToggle('prima_vacacional_pct', 'btn_unlock_prima_vacacional_pct');
   syncPrimaDiasSuggest();
+
+  async function tryRehydrateFromHistorial() {
+    const raw = new URLSearchParams(window.location.search).get('rehidratar');
+    if (!raw) return;
+    const id = parseInt(raw, 10);
+    if (!id) return;
+    const PH = '888888';
+    const url = "{{ url_for('finiquitos.api_historial_registro', hid=888888) }}".replace(PH, String(id));
+    msg($('calc_msg'), 'Cargando finiquito desde historial…');
+    try {
+      const r = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const j = await r.json();
+      if (!j.ok) {
+        msg($('calc_msg'), j.error || 'No se pudo cargar el registro.', true);
+        return;
+      }
+      const f = j.formulario;
+      if (!f || typeof f !== 'object') {
+        msg($('calc_msg'), 'El registro no incluye datos de formulario para rehidratar.', true);
+        return;
+      }
+      primaDiasEdited = true;
+      $('nombre_completo').value = f.nombre_completo || '';
+      $('fecha_ingreso').value = f.fecha_ingreso || '';
+      $('fecha_baja').value = f.fecha_baja || '';
+      $('fecha_emision').value = f.fecha_emision || new Date().toISOString().slice(0, 10);
+      $('lugar_emision').value = f.lugar_emision || '';
+      const sel = $('estado_emision');
+      if (sel && f.estado_emision) {
+        const want = String(f.estado_emision).trim();
+        const opt = [...sel.options].find((o) => (o.value || '').trim() === want || (o.textContent || '').trim() === want);
+        if (opt) sel.value = opt.value;
+      }
+      $('zona_salarial').value = f.zona_salarial === 'frontera' ? 'frontera' : 'general';
+      const mrad = document.querySelector(`input[name="modo_calculo"][value="${f.modo_calculo}"]`);
+      if (mrad) mrad.checked = true;
+      else {
+        const fb = document.querySelector('input[name="modo_calculo"][value="total_gravable"]');
+        if (fb) fb.checked = true;
+      }
+      $('sueldo_semanal').value = f.sueldo_semanal || '';
+      $('dias_aguinaldo_politica').value = f.dias_aguinaldo_politica || '15';
+      $('prima_vacacional_pct').value = f.prima_vacacional_pct || '25';
+      $('vacaciones_ya_usadas').value = f.vacaciones_ya_usadas || '0';
+      $('prima_dias_cubiertos').value = f.prima_dias_cubiertos || '0';
+      $('dias_sueldo_pendientes').value = f.dias_sueldo_pendientes || '0';
+      $('observaciones_internas').value = f.observaciones_internas || '';
+      const ag = f.aguinaldo_pagado_previamente ? 'si' : 'no';
+      const pr = f.prima_pagada_previamente ? 'si' : 'no';
+      const agInp = document.querySelector(`input[name="aguinaldo_pagado_flag"][value="${ag}"]`);
+      if (agInp) agInp.checked = true;
+      const prInp = document.querySelector(`input[name="prima_pagada_flag"][value="${pr}"]`);
+      if (prInp) prInp.checked = true;
+      const pa = f.incluir_prima_antiguedad ? 'si' : 'no';
+      const paInp = document.querySelector(`input[name="incluir_pa"][value="${pa}"]`);
+      if (paInp) paInp.checked = true;
+      syncPrimaDiasSuggest();
+      updatePrimaAntiguedadUI();
+      const u = new URL(window.location.href);
+      u.searchParams.delete('rehidratar');
+      const qs = u.searchParams.toString();
+      window.history.replaceState({}, '', u.pathname + (qs ? '?' + qs : ''));
+      msg($('calc_msg'), 'Datos cargados desde el historial. Revisa fechas y exporta de nuevo si lo necesitas.');
+      scheduleAutoSummary();
+    } catch (e) {
+      msg($('calc_msg'), 'Error de red al cargar el historial.', true);
+    }
+  }
+
+  void (async () => {
+    await tryRehydrateFromHistorial();
+    await refreshOpcionalesPagosPrevios();
+  })();
 })();
 </script>
 {% endblock %}

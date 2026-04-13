@@ -1104,7 +1104,7 @@ th { color: var(--muted); font-size: .88rem; text-transform: uppercase; letter-s
   font-variant-numeric: tabular-nums;
 }
 .fin-hist-actions-col {
-  min-width: 118px;
+  min-width: 154px;
 }
 .fin-hist-dl-dialog {
   max-width: min(440px, 96vw);

@@ -109,7 +109,9 @@
     return u;
   };
 
+  const finiquitoFormUrl = "{{ url_for('finiquitos.pagina_finiquito') }}";
   const svgEye = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>';
+  const svgReopen = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M21 21v-5h-5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
   const svgDl = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const svgTrash = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 4v10h10V10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M10 14v-4M14 14v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
@@ -344,6 +346,7 @@
         <td class="fin-hist-num">${total}</td>
         <td class="checkid-h-actions checkid-h-actions-cell fin-hist-actions-col-inner">
           <button type="button" class="checkid-btn-icon fin-hist-view" data-id="${it.id}" title="Ver detalle" aria-label="Ver detalle del finiquito">${svgEye}</button>
+          <button type="button" class="checkid-btn-icon fin-hist-reopen" data-id="${it.id}" title="Editar o recalcular con los datos de este registro" aria-label="Abrir finiquito con los datos guardados">${svgReopen}</button>
           <button type="button" class="checkid-btn-icon fin-hist-download" data-id="${it.id}" title="Descargar" aria-label="Descargar finiquito">${svgDl}</button>
           ${delBtn}
         </td>
@@ -490,7 +493,7 @@
   document.getElementById('fin_hist_table').addEventListener('click', (ev) => {
     const el = ev.target instanceof HTMLElement ? ev.target : null;
     if (!el) return;
-    const btn = el.closest('button.fin-hist-view, button.fin-hist-download, button.fin-hist-del');
+    const btn = el.closest('button.fin-hist-view, button.fin-hist-reopen, button.fin-hist-download, button.fin-hist-del');
     if (!btn || !(btn instanceof HTMLButtonElement)) return;
     const id = parseInt(btn.getAttribute('data-id') || '0', 10);
     if (!id) return;
@@ -515,6 +518,11 @@
       return;
     }
     if (btn.classList.contains('fin-hist-view')) openDetalle(id);
+    if (btn.classList.contains('fin-hist-reopen')) {
+      const sep = finiquitoFormUrl.includes('?') ? '&' : '?';
+      window.location.href = finiquitoFormUrl + sep + 'rehidratar=' + encodeURIComponent(String(id));
+      return;
+    }
     if (btn.classList.contains('fin-hist-download')) openDownloadModal(id);
   });
 
