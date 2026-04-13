@@ -395,7 +395,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
     return Number.isFinite(n) ? n : 0;
   }
 
-  const DG2_SLOTS = ['t1', 't2', 't3', 't5', 't6', 'n7', 'np'];
+  const DG2_MAX_PERC_EXTRA = 1;
   const DG2_CAT_P = [
     { k: '4', n: '4', t: 'Horas extra' }, { k: '6', n: '6', t: 'Comisiones' }, { k: '9', n: '9', t: 'Incapacidad pagada empresa' },
     { k: '10', n: '10', t: 'Prima dominical' }, { k: '11', n: '11', t: 'Día festivo / descanso' }, { k: '12', n: '12', t: 'Gratificación' },
@@ -407,20 +407,22 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
     { k: '74', n: '74', t: 'Anticipo vacaciones' }, { k: '179', n: '179', t: 'Infonavit CR correspondiente' }, { k: '__otros', n: '', t: 'Otros' },
   ];
   function dg2Ensure() {
-    if (!window.__dg2) window.__dg2 = { percepciones: [], deducciones: [] };
+    if (!window.__dg2) window.__dg2 = { percepciones: [], percepcionesExtra: [], deducciones: [] };
+    if (!Array.isArray(window.__dg2.percepcionesExtra)) window.__dg2.percepcionesExtra = [];
   }
   function dg2LabRow(slot, num, nom, labKey) {
     return { slot, num, nom, monto: 0, fiscal: 'gravable', fixed: true, labKey: labKey || null };
   }
   function dg2InitFromCalc(resp) {
     dg2Ensure();
+    window.__dg2.percepcionesExtra = [];
     const l = resp.resultado.laboral;
     const f = resp.resultado.fiscal;
     const baseRows = [
       dg2LabRow('t1', '1', 'Sueldo', 'sueldo'),
       dg2LabRow('t2', '3', 'Séptimo día', 'septimo_dia'),
       dg2LabRow('t3', '19', 'Vacaciones a tiempo', 'vacaciones_a_tiempo'),
-      dg2LabRow('t5', '22', 'Prima de vacaciones reportadas', 'prima_vacacional'),
+      dg2LabRow('t5', '22', 'Prima vacacional', 'prima_vacacional'),
       dg2LabRow('t6', '24', 'Aguinaldo', 'aguinaldo'),
       dg2LabRow('n7', '29', 'Prima de antigüedad', 'prima_antiguedad_monto'),
       dg2LabRow('np', '', '', null),
@@ -444,25 +446,22 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       sel.appendChild(op);
     });
   }
-  function dg2SortPercepciones() {
-    dg2Ensure();
-    window.__dg2.percepciones.sort((a, b) => {
-      const na = parseInt(String(a.num || '0'), 10);
-      const nb = parseInt(String(b.num || '0'), 10);
-      if (na !== nb) return na - nb;
-      return String(a.slot).localeCompare(String(b.slot));
-    });
-    const slots = DG2_SLOTS.slice();
-    window.__dg2.percepciones = window.__dg2.percepciones.map((r, i) => ({ ...r, slot: slots[i] || 'np' }));
-  }
   function dg2CollectPercepcionesPayload() {
-    dg2SortPercepciones();
     return window.__dg2.percepciones.map((r) => ({
       slot: r.slot,
       num: String(r.num || '').trim(),
       nom: String(r.nom || '').trim(),
       monto: Number(r.monto) || 0,
       fiscal: r.fiscal === 'exento' ? 'exento' : 'gravable',
+    }));
+  }
+  function dg2CollectPercepcionesExtraPayload() {
+    dg2Ensure();
+    return (window.__dg2.percepcionesExtra || []).map((r) => ({
+      id: r.id || '',
+      num: String(r.num || '').trim(),
+      nom: String(r.nom || '').trim(),
+      monto: Number(r.monto) || 0,
     }));
   }
   function dg2CollectDeduccionesPayload() {
@@ -488,6 +487,14 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       const fis = row.fiscal === 'exento' ? 'Exe.' : 'Grav.';
       const delP = row.fixed ? '' : `<button type="button" class="link-btn fin-dg2-del" data-side="p" data-idx="${idx}">Quitar</button>`;
       tr.innerHTML = `<td class="fin-dg2-num">${escapeHtml(num)}</td><td class="fin-dg2-conc" title="${escapeHtml(nom)}">${escapeHtml(nom)}</td><td>$${fmt(row.monto)}</td><td>${escapeHtml(fis)}</td><td><button type="button" class="link-btn fin-dg2-edit" data-side="p" data-idx="${idx}" aria-label="Editar">✎</button>${delP}</td>`;
+      tbP.appendChild(tr);
+    });
+    (window.__dg2.percepcionesExtra || []).forEach((row, idx) => {
+      const tr = document.createElement('tr');
+      tr.dataset.idx = String(idx);
+      const num = (row.num || '—') + '';
+      const nom = (row.nom || '—') + '';
+      tr.innerHTML = `<td class="fin-dg2-num">${escapeHtml(num)}</td><td class="fin-dg2-conc" title="${escapeHtml(nom)}">${escapeHtml(nom)}</td><td>$${fmt(row.monto)}</td><td><span class="helper">extra</span></td><td><button type="button" class="link-btn fin-dg2-edit" data-side="px" data-idx="${idx}" aria-label="Editar">✎</button><button type="button" class="link-btn fin-dg2-del" data-side="px" data-idx="${idx}">Quitar</button></td>`;
       tbP.appendChild(tr);
     });
     tbD.innerHTML = '';
@@ -525,10 +532,10 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
     if (!dlg || !dlg.showModal) return;
     $('fin_dg2_dlg_side').value = side;
     $('fin_dg2_dlg_idx').value = String(idx);
-    const row = side === 'p' ? window.__dg2.percepciones[idx] : window.__dg2.deducciones[idx];
+    const row = side === 'p' ? window.__dg2.percepciones[idx] : side === 'px' ? window.__dg2.percepcionesExtra[idx] : window.__dg2.deducciones[idx];
     if (!row) return;
     $('fin_dg2_dlg_title').textContent = side === 'p' ? 'Editar percepción' : 'Editar deducción';
-    dg2FillCat($('fin_dg2_dlg_cat'), side);
+    dg2FillCat($('fin_dg2_dlg_cat'), side === 'px' ? 'p' : side);
     $('fin_dg2_dlg_cat').value = '__otros';
     $('fin_dg2_dlg_num').value = row.num || '';
     $('fin_dg2_dlg_nom').value = row.nom || '';
@@ -545,22 +552,45 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
     let nom = ($('fin_dg2_dlg_nom').value || '').trim();
     const monto = parseNumLoose($('fin_dg2_dlg_monto').value);
     const fiscal = $('fin_dg2_dlg_fiscal').value;
-    const arr = side === 'p' ? window.__dg2.percepciones : window.__dg2.deducciones;
+    const arr = side === 'p' ? window.__dg2.percepciones : side === 'px' ? window.__dg2.percepcionesExtra : window.__dg2.deducciones;
     if (!arr[idx]) return;
     if (cat !== '__otros') {
-      const list = side === 'p' ? DG2_CAT_P : DG2_CAT_D;
+      const list = side === 'p' || side === 'px' ? DG2_CAT_P : DG2_CAT_D;
       const hit = list.find((x) => x.k === cat);
       if (hit && hit.k !== '__otros') { num = hit.n; nom = hit.t; }
     }
-    arr[idx] = { ...arr[idx], num, nom, monto, fiscal: side === 'p' ? fiscal : 'gravable' };
+    arr[idx] = { ...arr[idx], num, nom, monto, fiscal: (side === 'p' || side === 'px') ? fiscal : 'gravable' };
     $('fin_dg2_dialog').close();
-    dg2SortPercepciones();
     scheduleDesgloseRecalc();
+  }
+  function dg2SyncMontosFromCalc(resp) {
+    dg2Ensure();
+    const l = resp.resultado.laboral;
+    window.__dg2.percepciones.forEach((row) => {
+      if (row.labKey) row.monto = Number(l[row.labKey] || 0) || 0;
+      if (row.slot === 'n7') {
+        row.monto = Number(l.prima_antiguedad_monto || 0) || 0;
+        if (row.monto <= 0) { row.num = ''; row.nom = ''; }
+      }
+      if (row.slot === 'np') row.monto = Number(l.prima_dominical || 0) || 0;
+    });
+    window.__dg2._lastFiscal = resp.resultado.fiscal;
+    dg2RenderTables(resp);
   }
   function dg2ApplyFromHistorial(dm) {
     dg2Ensure();
     if (!dm || dm.v !== 2) return false;
-    window.__dg2.percepciones = (dm.percepciones || []).map((r) => ({ ...r, fixed: true }));
+    window.__dg2.percepcionesExtra = Array.isArray(dm.percepciones_extra) ? dm.percepciones_extra.map((r) => ({ ...r, id: r.id || newRowId('pex:') })) : [];
+    const saved = dm.percepciones || [];
+    const bySlot = new Map((saved || []).filter((r) => r && r.slot).map((r) => [r.slot, r]));
+    window.__dg2.percepciones.forEach((row) => {
+      const o = bySlot.get(row.slot);
+      if (!o) return;
+      if (o.num != null) row.num = String(o.num);
+      if (o.nom != null) row.nom = String(o.nom);
+      if (o.monto != null) row.monto = Number(o.monto) || 0;
+      if (o.fiscal) row.fiscal = o.fiscal === 'exento' ? 'exento' : 'gravable';
+    });
     window.__dg2.deducciones = (dm.deducciones_extra || []).map((r) => ({ ...r, id: r.id || newRowId('dex:') }));
     if ($('sw_dg2_sin_isr')) $('sw_dg2_sin_isr').checked = !!dm.sin_isr;
     return true;
@@ -579,7 +609,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         msg($('calc_msg'), 'Listo.');
         window.__lastCalcPayload = j;
         renderPreview(j);
-        if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2InitFromCalc(j);
+        if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2SyncMontosFromCalc(j);
       } catch (e) {
         msg($('calc_msg'), 'Error de red.', true);
       }
@@ -613,6 +643,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
             v: 2,
             sin_isr: !!($('sw_dg2_sin_isr') && $('sw_dg2_sin_isr').checked),
             percepciones: dg2CollectPercepcionesPayload(),
+            percepciones_extra: dg2CollectPercepcionesExtraPayload(),
             deducciones_extra: dg2CollectDeduccionesPayload(),
           }
         : {},
@@ -711,7 +742,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       ${factorNota}`;
     $('preview').hidden = false;
     renderAdvanced(resp);
-    if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2InitFromCalc(resp);
+    if ($('sw_edicion_desglose') && $('sw_edicion_desglose').checked) dg2SyncMontosFromCalc(resp);
   }
 
   function limSupTarifa(row) {
@@ -899,7 +930,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
       syncDesgloseHeroSwitchLabel();
       return;
     }
-    window.__dg2 = { percepciones: [], deducciones: [] };
+    window.__dg2 = { percepciones: [], percepcionesExtra: [], deducciones: [] };
     if (window.__lastCalcPayload) {
       msg($('calc_msg'), 'Restaurando cálculo automático…');
       try {
@@ -917,7 +948,7 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
 
   $('fin_desglose_editor_wrap').addEventListener('click', (e) => {
     const t = e.target;
-    if (t.classList.contains('fin-dg2-edit')) {
+      if (t.classList.contains('fin-dg2-edit')) {
       const side = t.getAttribute('data-side');
       const idx = parseInt(t.getAttribute('data-idx') || '-1', 10);
       if (side && idx >= 0) dg2OpenDialog(side, idx);
@@ -929,6 +960,10 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         window.__dg2.deducciones.splice(idx, 1);
         scheduleDesgloseRecalc();
       }
+      if (side === 'px' && idx >= 0 && window.__dg2 && window.__dg2.percepcionesExtra) {
+        window.__dg2.percepcionesExtra.splice(idx, 1);
+        scheduleDesgloseRecalc();
+      }
       if (side === 'p' && idx >= 0 && window.__dg2 && window.__dg2.percepciones && !window.__dg2.percepciones[idx].fixed) {
         window.__dg2.percepciones.splice(idx, 1);
         scheduleDesgloseRecalc();
@@ -937,9 +972,11 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
   });
   $('btn_dg2_add_p').addEventListener('click', () => {
     dg2Ensure();
-    if (window.__dg2.percepciones.length >= 7) return msg($('calc_msg'), 'Máximo 7 percepciones (límite de placeholders del formato).', true);
-    window.__dg2.percepciones.push({ slot: 'np', num: '', nom: '', monto: 0, fiscal: 'gravable', fixed: false });
-    dg2OpenDialog('p', window.__dg2.percepciones.length - 1);
+    if ((window.__dg2.percepcionesExtra || []).length >= DG2_MAX_PERC_EXTRA) {
+      return msg($('calc_msg'), 'El formato solo admite 1 percepción extra ({p1} / {p_nuevo} / {t12}).', true);
+    }
+    window.__dg2.percepcionesExtra.push({ id: newRowId('pex:'), num: '', nom: '', monto: 0, fiscal: 'gravable' });
+    dg2OpenDialog('px', window.__dg2.percepcionesExtra.length - 1);
   });
   $('btn_dg2_add_d').addEventListener('click', () => {
     dg2Ensure();

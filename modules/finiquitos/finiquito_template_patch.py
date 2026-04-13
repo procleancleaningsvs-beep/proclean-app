@@ -219,7 +219,7 @@ def _patch_desglose_concept_placeholders_finiquito(s: str) -> str:
     {p1_num}…{p5_nom} para que la edición libre v2 pueda reexportar número y nombre.
     Idempotente si ya se aplicó.
     """
-    if "{p1_nom}" in s:
+    if "{r1n}" in s or "{p1_nom}" in s:
         return s
     base = Path(__file__).resolve().parent
 

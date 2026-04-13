@@ -34,7 +34,7 @@ DEFAULT_P_ROWS: tuple[tuple[str, str, str], ...] = (
     ("t1", "1", "Sueldo"),
     ("t2", "3", "Séptimo día"),
     ("t3", "19", "Vacaciones a tiempo"),
-    ("t5", "22", "Prima de vacaciones reportadas"),
+    ("t5", "22", "Prima vacacional"),
     ("t6", "24", "Aguinaldo"),
     ("n7", "29", "Prima de antigüedad"),
     ("np", "", ""),
@@ -103,26 +103,49 @@ def _parse_deducciones_extra_v2(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _sort_p_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    def key(r: dict[str, Any]) -> tuple[int, str]:
-        try:
-            return (int(str(r.get("num") or "0").strip() or "0"), str(r.get("slot") or ""))
-        except ValueError:
-            return (10**9, str(r.get("slot") or ""))
-
-    return sorted(rows, key=key)
-
-
-def _assign_physical_slots(sorted_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _merge_percepciones_by_stable_slot(
+    raw_p: list[dict[str, Any]],
+    defaults: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Una fila por slot en SLOT_ORDER_P. Identidad = campo `slot` (t1, t2, …), nunca el número SAT.
+    No reordena por número ni reasigna slots por posición.
+    """
+    by_slot: dict[str, dict[str, Any]] = {}
+    for r in raw_p:
+        sl = str(r.get("slot") or "").strip().lower()
+        if sl not in SLOT_ORDER_P:
+            continue
+        row = dict(r)
+        row["slot"] = sl
+        by_slot[sl] = row
     out: list[dict[str, Any]] = []
-    for i, slot in enumerate(SLOT_ORDER_P):
-        if i < len(sorted_rows):
-            r = dict(sorted_rows[i])
-            r["slot"] = slot
-            out.append(r)
+    for d in defaults:
+        sl = str(d["slot"])
+        if sl in by_slot:
+            merged = {**d, **by_slot[sl]}
+            merged["slot"] = sl
+            out.append(merged)
         else:
-            out.append({"slot": slot, "num": "", "nom": "", "monto": 0.0, "fiscal": "gravable"})
+            out.append(dict(d))
     return out
+
+
+def _parse_percepciones_extra_v2(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        out.append(
+            {
+                "num": str(row.get("num") or "").strip(),
+                "nom": str(row.get("nom") or "").strip(),
+                "monto": float(row.get("monto") or 0),
+            }
+        )
+    return out[:1]
 
 
 def _recalc_isr_v2(
@@ -131,12 +154,14 @@ def _recalc_isr_v2(
     sin_isr: bool,
     ultimo_mensual: Decimal,
     fecha_emision: Any,
+    percepciones_extra: list[dict[str, Any]] | None = None,
 ) -> tuple[Decimal, Decimal, Decimal]:
     if sin_isr:
         return D0, D0, D0
     base_mes = D0
     base_174 = D0
     pa_grav = D0
+    extras = percepciones_extra or []
     for r in rows_p:
         m = _dec(r.get("monto"))
         if _norm_fiscal(str(r.get("fiscal"))) != "gravable":
@@ -148,6 +173,10 @@ def _recalc_isr_v2(
         base_mes += m
         if sl in ("t5", "t6"):
             base_174 += m
+    for xr in extras:
+        m = _dec(xr.get("monto"))
+        base_mes += m
+        base_174 += m
     isr_mes_neto = calc_isr_mes_semanal_mensualizado(base_mes, fecha_emision, ultimo_mensual)["isr_mes_neto"]
     isr_174, _ = calc_isr_art174_con_detalle(base_174, ultimo_mensual)
     if pa_grav > 0:
@@ -311,10 +340,12 @@ def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, An
     out = copy.deepcopy(calc)
     sin_isr = _bool(dm.get("sin_isr"))
     raw_p = _parse_percepciones_v2(dm.get("percepciones"))
+    defaults = _default_p_rows_from_calc(calc)
     if not raw_p:
-        raw_p = _default_p_rows_from_calc(calc)
-    sorted_p = _sort_p_rows(raw_p)
-    rows_p = _assign_physical_slots(sorted_p)
+        rows_p = defaults
+    else:
+        rows_p = _merge_percepciones_by_stable_slot(raw_p, defaults)
+    perc_extra = _parse_percepciones_extra_v2(dm.get("percepciones_extra"))
     ded_ex = _parse_deducciones_extra_v2(dm.get("deducciones_extra"))
 
     lab = out["laboral"]
@@ -347,6 +378,7 @@ def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, An
         sin_isr=sin_isr,
         ultimo_mensual=ultimo_mensual,
         fecha_emision=fecha_emision,
+        percepciones_extra=perc_extra,
     )
 
     for sl, row in zip(SLOT_ORDER_P, rows_p):
@@ -360,6 +392,7 @@ def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, An
             lab["prima_dominical"] = m
 
     extra_d = sum((_dec(d.get("monto")) for d in ded_ex), D0)
+    extra_p_amount = sum((_dec(x.get("monto")) for x in perc_extra), D0)
 
     fis["isr_mes_neto"] = float(isr_mes)
     fis["isr_ordinario_neto"] = float(isr_mes)
@@ -368,7 +401,7 @@ def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, An
     fis["isr_art174"] = float(isr_174)
     fis["isr_separacion"] = float(isr_sep)
 
-    total_perc = sum(_dec(r.get("monto")) for r in rows_p)
+    total_perc = sum(_dec(r.get("monto")) for r in rows_p) + extra_p_amount
     total_perc = _q(total_perc)
     ded_reales = _q(isr_mes + isr_174 + isr_sep + extra_d)
     neto_prev = _q(total_perc - ded_reales)
@@ -398,7 +431,9 @@ def _apply_v2(calc: dict[str, Any], dm: dict[str, Any], *, entrada: dict[str, An
         "v": 2,
         "sin_isr": sin_isr,
         "extra_deducciones": float(extra_d),
+        "extra_percepciones": float(extra_p_amount),
         "percepciones": rows_p,
+        "percepciones_extra": perc_extra,
         "deducciones_extra": ded_ex,
     }
     logger.info("Finiquito: desglose manual v2 aplicado.")

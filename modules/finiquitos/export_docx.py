@@ -193,20 +193,30 @@ def empaquetar_filas_deduccion_para_docx_extras(
     return out
 
 
-def _mapping_desglose_label_defaults() -> dict[str, str]:
-    """Placeholders añadidos por parche de plantilla (filas 1–5 concepto/número)."""
-    return {
-        "{p1_num}": "1",
-        "{p1_nom}": "Sueldo",
-        "{p2_num}": "3",
-        "{p2_nom}": "Séptimo día",
-        "{p3_num}": "19",
-        "{p3_nom}": "Vacaciones a tiempo",
-        "{p4_num}": "22",
-        "{p4_nom}": "Prima de vacaciones reportadas",
-        "{p5_num}": "24",
-        "{p5_nom}": "Aguinaldo",
+def _mapping_desglose_labels_canonical_base() -> dict[str, str]:
+    """
+    Modo normal (edición libre apagada): mapeo fijo explícito slot → número/concepto.
+    Nuevo formato DOCX: {r1n}{r1c}…{r5c}; compatibilidad con plantillas parcheadas {pN_num}/{pN_nom}.
+    """
+    r = {
+        "{r1n}": "1",
+        "{r1c}": "Sueldo",
+        "{r2n}": "3",
+        "{r2c}": "Séptimo día",
+        "{r3n}": "19",
+        "{r3c}": "Vacaciones a tiempo",
+        "{r4n}": "22",
+        "{r4c}": "Prima vacacional",
+        "{r5n}": "24",
+        "{r5c}": "Aguinaldo",
+        "{p1}": "",
+        "{p_nuevo}": "",
+        "{t12}": "",
     }
+    for i in range(1, 6):
+        r[f"{{p{i}_num}}"] = r[f"{{r{i}n}}"]
+        r[f"{{p{i}_nom}}"] = r[f"{{r{i}c}}"]
+    return r
 
 
 def _merge_desglose_v2_placeholders(mapping: dict[str, str], calc: dict[str, Any]) -> None:
@@ -215,22 +225,29 @@ def _merge_desglose_v2_placeholders(mapping: dict[str, str], calc: dict[str, Any
         return
     rows_list = meta.get("percepciones") or []
     by_slot = {str(r.get("slot") or ""): r for r in rows_list if isinstance(r, dict)}
-    pairs = (
-        ("t1", "p1"),
-        ("t2", "p2"),
-        ("t3", "p3"),
-        ("t5", "p4"),
-        ("t6", "p5"),
-    )
-    for slot, pref in pairs:
+    slot_to_row_idx = (("t1", 1), ("t2", 2), ("t3", 3), ("t5", 4), ("t6", 5))
+    for slot, ri in slot_to_row_idx:
         r = by_slot.get(slot) or {}
-        mapping["{" + pref + "_num}"] = str(r.get("num") or "")
-        mapping["{" + pref + "_nom}"] = str(r.get("nom") or "")
+        num = str(r.get("num") or "")
+        nom = str(r.get("nom") or "")
+        mapping[f"{{r{ri}n}}"] = num
+        mapping[f"{{r{ri}c}}"] = nom
+        mapping[f"{{p{ri}_num}}"] = num
+        mapping[f"{{p{ri}_nom}}"] = nom
         m = Decimal(str(r.get("monto") or 0))
         if slot in ("t1", "t2"):
             mapping["{" + slot + "}"] = _importe_sueldo_o_septimo_docx(m)
         else:
             mapping["{" + slot + "}"] = _importe_percepcion_docx(m)
+
+    pex = meta.get("percepciones_extra") or []
+    mapping["{p1}"] = mapping["{p_nuevo}"] = mapping["{t12}"] = ""
+    if isinstance(pex, list) and len(pex) > 0 and isinstance(pex[0], dict):
+        e0 = pex[0]
+        mapping["{p1}"] = str(e0.get("num") or "").strip()
+        mapping["{p_nuevo}"] = str(e0.get("nom") or "").strip()
+        t12m = Decimal(str(e0.get("monto") or 0))
+        mapping["{t12}"] = _importe_percepcion_docx(t12m)
 
     tot = calc["totales"]
     pdf = calc["pdf_filas"]
@@ -358,7 +375,7 @@ def build_finiquito_placeholders(
         "{suma_p}": format_importe(suma_p_num),
         "{suma_d}": pdf["suma_d"],
     }
-    mapping.update(_mapping_desglose_label_defaults())
+    mapping.update(_mapping_desglose_labels_canonical_base())
     _merge_desglose_v2_placeholders(mapping, calc)
     return mapping
 
