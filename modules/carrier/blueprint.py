@@ -43,8 +43,9 @@ from modules.carrier.db import (
     get_monthly_base,
     insert_carrier_curso_export_log,
     insert_expediente,
+    count_format_history_for_carrier,
     list_carrier_curso_export_logs,
-    list_format_history_for_carrier,
+    list_format_history_for_carrier_page,
     list_monthly_bases,
     parse_slots,
     dumps_slots,
@@ -406,6 +407,41 @@ def _merge_sources_for_expediente(
     return sources
 
 
+def _slot_editor_state(slots: dict[str, Any], expediente_id: int) -> dict[str, Any]:
+    """Metadatos mínimos para vista previa/edición en cliente (sin rutas absolutas)."""
+    out: dict[str, Any] = {}
+    for slot in ALL_UPLOAD_SLOTS:
+        meta = _slot_meta(slots, slot)
+        if not meta.get("rel"):
+            out[slot] = {"has_file": False}
+            continue
+        path = _storage_root() / str(meta["rel"])
+        ext = path.suffix.lower() if path.exists() else ""
+        cn = meta.get("crop_norm")
+        rs_val: float | None = None
+        rs = meta.get("render_scale")
+        if rs is not None and str(rs).strip() != "":
+            try:
+                rs_val = max(0.25, min(3.0, float(rs)))
+            except (TypeError, ValueError):
+                rs_val = None
+        out[slot] = {
+            "has_file": True,
+            "orig": str(meta.get("orig") or ""),
+            "ext": ext,
+            "crop_norm": cn
+            if isinstance(cn, (list, tuple)) and len(cn) == 4
+            else None,
+            "render_scale": rs_val,
+            "preview_url": url_for(
+                "carrier_curso.expediente_preview_slot",
+                expediente_id=expediente_id,
+                slot=slot,
+            ),
+        }
+    return out
+
+
 def _workspace_context(
     db_path: str,
     row: Any,
@@ -463,18 +499,6 @@ def _workspace_context(
             except Exception:
                 pdf_page_counts[slot] = 0
 
-    imss_rows: list[dict[str, Any]] = []
-    for rec in list_format_history_for_carrier(db_path, int(row.user_id), limit=50):
-        imss_rows.append(
-            {
-                "id": rec["id"],
-                "filename": rec["filename"],
-                "created_at": rec["created_at"],
-                "movement_count": int(rec["movement_count"] or 0),
-                "nombres": _nombres_movimientos_desde_payload(rec["payload_json"]),
-            }
-        )
-
     show_alta_formulario = (request.args.get("alta_form") or "").strip() == "1"
 
     dt = now_in_app_tz()
@@ -498,7 +522,7 @@ def _workspace_context(
         "upload_prefix": upload_prefix,
         "constancia_modo": modo,
         "alta_movimiento_idx": int(getattr(row, "alta_movimiento_idx", 0) or 0),
-        "historial_imss_rows": imss_rows,
+        "slot_editor_state": _slot_editor_state(slots, int(row.id)),
         "show_alta_formulario": show_alta_formulario,
     }
 
@@ -866,6 +890,7 @@ def expediente_upload_slot(expediente_id: int, slot: str):
 def expediente_slot_meta(expediente_id: int):
     if (redir := _login_required()) is not None:
         return redir
+    xhr = (request.headers.get("X-Carrier-Xhr") or "").strip() == "1"
     db_path = _db_path()
     row = get_expediente(db_path, expediente_id)
     if not row or int(row.user_id) != int(g.user["id"]):
@@ -873,12 +898,17 @@ def expediente_slot_meta(expediente_id: int):
 
     slot = (request.form.get("slot") or "").strip()
     if slot not in ALL_UPLOAD_SLOTS:
+        if xhr:
+            return jsonify({"ok": False, "error": "Apartado no válido."}), 400
         abort(400)
 
     slots = parse_slots(row.slots_json)
     meta = _slot_meta(slots, slot)
     if not meta.get("rel"):
-        flash("Primero sube un archivo para este apartado.", "error")
+        msg = "Primero sube un archivo para este apartado."
+        if xhr:
+            return jsonify({"ok": False, "error": msg}), 400
+        flash(msg, "error")
         return redirect(url_for("carrier_curso.index", e=expediente_id))
 
     path = _storage_root() / str(meta["rel"])
@@ -931,6 +961,8 @@ def expediente_slot_meta(expediente_id: int):
 
     slots[slot] = meta
     update_expediente_slots_json(db_path, expediente_id, dumps_slots(slots), now_iso())
+    if xhr:
+        return jsonify({"ok": True})
     flash("Opciones de recorte / páginas guardadas (opcional).", "success")
     return redirect(url_for("carrier_curso.index", e=expediente_id))
 
@@ -989,6 +1021,50 @@ def expediente_vincular_formato(expediente_id: int):
     else:
         flash("No se pudo vincular la constancia (revisa que sea tuya).", "error")
     return redirect(url_for("carrier_curso.index", e=expediente_id))
+
+
+@carrier_curso_bp.route("/expediente/<int:expediente_id>/formatos-imss.json")
+def formatos_imss_json(expediente_id: int):
+    """Historial IMSS paginado + búsqueda para el modal de vinculación (solo titular del expediente)."""
+    if (redir := _login_required()) is not None:
+        return redir
+    db_path = _db_path()
+    row = get_expediente(db_path, expediente_id)
+    if not row or int(row.user_id) != int(g.user["id"]):
+        abort(404)
+    uid = int(g.user["id"])
+    q = (request.args.get("q") or "").strip()
+    page = request.args.get("page", default=1, type=int) or 1
+    per_page = request.args.get("per_page", default=12, type=int) or 12
+    page = max(1, page)
+    per_page = max(5, min(40, per_page))
+    offset = (page - 1) * per_page
+    total = count_format_history_for_carrier(db_path, uid, q)
+    raw = list_format_history_for_carrier_page(
+        db_path, uid, q=q or None, offset=offset, limit=per_page
+    )
+    rows_out: list[dict[str, Any]] = []
+    for rec in raw:
+        rows_out.append(
+            {
+                "id": rec["id"],
+                "filename": rec["filename"],
+                "created_at": rec["created_at"],
+                "movement_count": int(rec["movement_count"] or 0),
+                "nombres": _nombres_movimientos_desde_payload(rec["payload_json"]),
+            }
+        )
+    total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+    return jsonify(
+        {
+            "ok": True,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "rows": rows_out,
+        }
+    )
 
 
 @carrier_curso_bp.route("/expediente/<int:expediente_id>/preview/<slot>")

@@ -413,19 +413,77 @@ def update_expediente_constancia_modo(
 
 
 def list_format_history_for_carrier(db_path: str, user_id: int, limit: int = 80) -> list[dict[str, Any]]:
+    """Lista reciente (compatibilidad). Preferir `list_format_history_for_carrier_page`."""
+    return list_format_history_for_carrier_page(db_path, user_id, q=None, offset=0, limit=limit)
+
+
+def _like_escape(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def count_format_history_for_carrier(db_path: str, user_id: int, q: str | None) -> int:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            """
-            SELECT id, filename, pdf_path, movement_count, payload_json, created_at
-            FROM format_history
-            WHERE user_id = ?
-            ORDER BY datetime(created_at) DESC
-            LIMIT ?
-            """,
-            (int(user_id), limit),
-        ).fetchall()
+        needle = (q or "").strip()
+        if not needle:
+            row = conn.execute(
+                "SELECT COUNT(*) AS c FROM format_history WHERE user_id = ?",
+                (int(user_id),),
+            ).fetchone()
+        else:
+            pat = f"%{_like_escape(needle)}%"
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c FROM format_history
+                WHERE user_id = ?
+                  AND (filename LIKE ? ESCAPE '\\' OR IFNULL(payload_json, '') LIKE ? ESCAPE '\\')
+                """,
+                (int(user_id), pat, pat),
+            ).fetchone()
+        return int(row["c"]) if row else 0
+    finally:
+        conn.close()
+
+
+def list_format_history_for_carrier_page(
+    db_path: str,
+    user_id: int,
+    *,
+    q: str | None,
+    offset: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        off = max(0, int(offset))
+        lim = max(1, min(100, int(limit)))
+        needle = (q or "").strip()
+        if not needle:
+            rows = conn.execute(
+                """
+                SELECT id, filename, pdf_path, movement_count, payload_json, created_at
+                FROM format_history
+                WHERE user_id = ?
+                ORDER BY datetime(created_at) DESC
+                LIMIT ? OFFSET ?
+                """,
+                (int(user_id), lim, off),
+            ).fetchall()
+        else:
+            pat = f"%{_like_escape(needle)}%"
+            rows = conn.execute(
+                """
+                SELECT id, filename, pdf_path, movement_count, payload_json, created_at
+                FROM format_history
+                WHERE user_id = ?
+                  AND (filename LIKE ? ESCAPE '\\' OR IFNULL(payload_json, '') LIKE ? ESCAPE '\\')
+                ORDER BY datetime(created_at) DESC
+                LIMIT ? OFFSET ?
+                """,
+                (int(user_id), pat, pat, lim, off),
+            ).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
             out.append(
