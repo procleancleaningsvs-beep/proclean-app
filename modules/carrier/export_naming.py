@@ -14,7 +14,8 @@ import re
 from generator import INVALID_FILENAME_CHARS
 
 
-def first_worker_name_from_payload_json(payload_json: str | None) -> str | None:
+def worker_name_from_payload_json(payload_json: str | None, movimiento_idx: int = 0) -> str | None:
+    """Nombre del movimiento en posición `movimiento_idx` (0-based) dentro del payload del formato."""
     if not payload_json or not str(payload_json).strip():
         return None
     try:
@@ -23,14 +24,20 @@ def first_worker_name_from_payload_json(payload_json: str | None) -> str | None:
         return None
     if not isinstance(data, list) or not data:
         return None
-    first = data[0]
-    if not isinstance(first, dict):
+    if movimiento_idx < 0 or movimiento_idx >= len(data):
         return None
-    n = first.get("nombre")
+    row = data[movimiento_idx]
+    if not isinstance(row, dict):
+        return None
+    n = row.get("nombre")
     if n is None:
         return None
     s = str(n).strip()
     return s or None
+
+
+def first_worker_name_from_payload_json(payload_json: str | None) -> str | None:
+    return worker_name_from_payload_json(payload_json, 0)
 
 
 def curso_export_pdf_display_name(*, worker_name_from_alta: str | None, expediente_nombre: str) -> str:

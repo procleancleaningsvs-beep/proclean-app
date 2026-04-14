@@ -7,7 +7,7 @@
   <p class="helper">
     Mes base (paquete de pago): <strong>{{ workspace.expediente.base_year_month }}</strong>.
     Nombre en expediente: <strong>{{ workspace.expediente.nombre_persona }}</strong>
-    {% if workspace.expediente.nombre_persona == pendiente_nombre_alta %}— se completará al generar el Alta{% endif %}.
+    {% if workspace.expediente.nombre_persona == pendiente_nombre_alta %}— se completará al vincular o generar la constancia{% endif %}.
   </p>
 </section>
 
@@ -17,49 +17,116 @@
 </div>
 {% endif %}
 
-{% if current_user.role == 'admin' %}
-<section class="panel">
-  <h3 class="panel-title">Datos (administrador)</h3>
-  <form method="post" action="{{ url_for('carrier_curso.expediente_edit', expediente_id=workspace.expediente.id) }}" class="form-card compact-form">
-    <input type="hidden" name="action" value="save_meta">
-    <div class="grid-2">
-      <label>Nombre en expediente
-        <input type="text" name="nombre_persona" value="{{ workspace.expediente.nombre_persona }}" required>
-      </label>
-      <label>Mes base
-        <input type="month" name="base_year_month" value="{{ workspace.expediente.base_year_month }}" required>
-      </label>
-    </div>
-    <div class="form-footer">
-      <button type="submit" class="btn btn-secondary">Guardar</button>
-    </div>
-  </form>
-  <p class="helper">Documentos base del mes: SIPARE {% if workspace.monthly and workspace.monthly.sipare_relpath %}✓{% else %}falta{% endif %} · Pago IMSS {% if workspace.monthly and workspace.monthly.pago_imss_relpath %}✓{% else %}falta{% endif %}</p>
-</section>
-{% endif %}
-
 <section class="panel carrier-alta-panel" id="carrier-alta-imss">
-  <h3 class="panel-title">Constancia IMSS (Alta)</h3>
-  {% if workspace.alta_info %}
-  <p class="helper">Vinculado: <code>{{ workspace.alta_info.filename }}</code> {% if not workspace.alta_info.exists %}(archivo no encontrado){% endif %}</p>
-  <div class="carrier-actions-row">
-    <a class="btn btn-secondary" href="{{ url_for('descargar', record_id=workspace.alta_info.id) }}">Descargar constancia</a>
-    <form method="post" action="{{ url_for('carrier_curso.expediente_edit', expediente_id=workspace.expediente.id) }}" onsubmit="return confirm('¿Quitar el vínculo con esta constancia?');">
-      <input type="hidden" name="action" value="clear_alta">
-      <button type="submit" class="btn btn-secondary danger-btn">Quitar vínculo</button>
-    </form>
+  <h3 class="panel-title">Constancia IMSS</h3>
+
+  <form method="post" action="{{ url_for('carrier_curso.expediente_constancia_modo', expediente_id=workspace.expediente.id) }}" class="carrier-constancia-modo-row">
+    <span class="helper" style="margin-right:12px;">Tipo:</span>
+    <label class="carrier-radio-line"><input type="radio" name="constancia_modo" value="alta" {% if workspace.constancia_modo != 'renovacion' %}checked{% endif %} onchange="this.form.submit()"> Alta nueva (constancia IMSS)</label>
+    <label class="carrier-radio-line"><input type="radio" name="constancia_modo" value="renovacion" {% if workspace.constancia_modo == 'renovacion' %}checked{% endif %} onchange="this.form.submit()"> Renovación (extracto SUA)</label>
+  </form>
+
+  {% if workspace.constancia_modo == 'renovacion' %}
+  <p class="helper">En renovación no se genera constancia desde el formulario IMSS. Sube el extracto SUA como anexo en la tarjeta de abajo.</p>
+  <div class="carrier-renovacion-card carrier-anexo-card">
+    <h4>{{ slot_labels.renovacion_sua }}</h4>
+    {% set rmeta = workspace.slots.get('renovacion_sua', {}) %}
+    <p class="helper">{% if rmeta.get('rel') %}Archivo: {{ rmeta.get('orig', '—') }}{% else %}Sin archivo{% endif %}</p>
+    {% if rmeta.get('rel') %}
+    <a class="btn btn-secondary btn-sm" target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=workspace.expediente.id, slot='renovacion_sua') }}">Vista previa</a>
+    {% endif %}
+    <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="renovacion_sua" data-slot-title="Subir renovación / extracto SUA">Subir extracto SUA</button>
   </div>
-  <p class="helper">Puedes generar otra constancia abajo; se reemplazará el vínculo.</p>
+  {% else %}
+    {% if workspace.alta_info %}
+    <div class="carrier-alta-compact">
+      <p class="helper">Constancia vinculada: <code>{{ workspace.alta_info.filename }}</code> {% if not workspace.alta_info.exists %}(archivo no encontrado){% endif %}</p>
+      <div class="carrier-actions-row">
+        <a class="btn btn-secondary" href="{{ url_for('descargar', record_id=workspace.alta_info.id) }}">Descargar constancia</a>
+        <button type="button" class="btn btn-secondary" id="carrier-btn-vincular-modal">Vincular desde historial IMSS</button>
+        <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index', e=workspace.expediente.id, alta_form=1) }}">Generar nueva constancia</a>
+        <form method="post" action="{{ url_for('carrier_curso.expediente_edit', expediente_id=workspace.expediente.id) }}" onsubmit="return confirm('¿Quitar el vínculo con esta constancia?');">
+          <input type="hidden" name="action" value="clear_alta">
+          <button type="submit" class="btn btn-secondary danger-btn">Quitar vínculo</button>
+        </form>
+      </div>
+    </div>
+    {% if workspace.show_alta_formulario %}
+    <div class="carrier-alta-form-wrap carrier-alta-form-reveal">
+      {% set embed_movimiento_cursos = true %}
+      {% set current_time = workspace.movement_current_time %}
+      {% set current_date = workspace.movement_current_date %}
+      {% include '_movimiento_constancia_form.html' %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="carrier-alta-form-wrap">
+      {% set embed_movimiento_cursos = true %}
+      {% set current_time = workspace.movement_current_time %}
+      {% set current_date = workspace.movement_current_date %}
+      {% include '_movimiento_constancia_form.html' %}
+    </div>
+    <p class="helper">También puedes vincular una constancia ya generada en Movimientos IMSS.</p>
+    <button type="button" class="btn btn-secondary" id="carrier-btn-vincular-modal-2">Vincular desde historial IMSS</button>
+    {% endif %}
   {% endif %}
-  {% set embed_movimiento_cursos = true %}
-  {% set current_time = workspace.movement_current_time %}
-  {% set current_date = workspace.movement_current_date %}
-  {% include '_movimiento_constancia_form.html' %}
 </section>
+
+<dialog class="carrier-modal" id="carrier-vincular-imss-modal">
+  <div class="carrier-modal-form">
+    <button type="button" class="carrier-modal-close" data-vincular-close aria-label="Cerrar">&times;</button>
+    <h3 class="carrier-modal-title">Vincular desde historial de Movimientos IMSS</h3>
+    <p class="helper">Elige una constancia tuya. Si tiene varios movimientos, indica cuál persona usará este expediente.</p>
+    <div class="table-wrap carrier-vincular-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Archivo</th>
+            <th>Movimientos</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in workspace.historial_imss_rows %}
+          <tr>
+            <td>{{ h.created_at }}</td>
+            <td class="history-cell-wrap">{{ h.filename }}</td>
+            <td>{{ h.movement_count }}</td>
+            <td>
+              <form method="post" action="{{ url_for('carrier_curso.expediente_vincular_formato', expediente_id=workspace.expediente.id) }}" class="carrier-vincular-inline-form">
+                <input type="hidden" name="format_history_id" value="{{ h.id }}">
+                {% if h.nombres|length > 1 %}
+                <label class="carrier-inline-label">Persona
+                  <select name="movimiento_idx" required>
+                    {% for nombre in h.nombres %}
+                    <option value="{{ loop.index0 }}">{{ nombre }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                {% else %}
+                <input type="hidden" name="movimiento_idx" value="0">
+                {% endif %}
+                <button type="submit" class="btn btn-primary btn-sm">Vincular</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if not workspace.historial_imss_rows %}
+    <p class="empty-state">No hay constancias en tu historial de Movimientos IMSS. Genera una desde el formulario o desde Movimientos IMSS.</p>
+    {% endif %}
+    <div class="carrier-modal-footer">
+      <button type="button" class="btn btn-secondary" data-vincular-close>Cerrar</button>
+    </div>
+  </div>
+</dialog>
 
 <section class="panel" data-carrier-workspace data-expediente-id="{{ workspace.expediente.id }}" data-upload-prefix="{{ workspace.upload_prefix }}">
   <h3 class="panel-title">Anexos</h3>
-  <p class="helper">PDF o imagen. Puedes arrastrar, elegir archivo o pegar imagen (Ctrl+V) con el foco en esta sección.</p>
+  <p class="helper">PDF o imagen. Arrastra, elige archivo o pega imagen (Ctrl+V) con el foco en esta sección. En imágenes puedes recortar y ajustar escala antes de confirmar.</p>
 
   <dialog class="carrier-modal carrier-anexo-dialog" id="carrier-anexo-modal">
     <form method="post" enctype="multipart/form-data" class="carrier-modal-form" id="carrier-anexo-form">
@@ -70,8 +137,16 @@
         <p class="helper">También puedes pegar una imagen con Ctrl+V.</p>
       </div>
       <input type="hidden" name="crop_norm_json" id="carrier-anexo-crop-json" value="">
+      <input type="hidden" name="render_scale" id="carrier-anexo-render-scale" value="">
+      <div class="carrier-anexo-tools" id="carrier-anexo-tools" hidden>
+        <label class="carrier-zoom-label">
+          Escala en la página del expediente
+          <input type="range" id="carrier-render-scale-slider" min="70" max="130" value="100">
+          <span id="carrier-render-scale-val">100%</span>
+        </label>
+      </div>
       <div class="carrier-anexo-preview-wrap" id="carrier-anexo-preview-wrap" hidden>
-        <p class="helper">Vista previa (así se verá en la hoja; el recorte fino se puede ajustar después si hace falta):</p>
+        <p class="helper">Vista previa — ajusta recuadro y tamaño; al confirmar se guardará como en el PDF final.</p>
         <div id="carrier-anexo-preview" class="carrier-anexo-preview"></div>
       </div>
       <div class="carrier-modal-footer">
@@ -89,7 +164,7 @@
       {% if meta.get('rel') %}
       <a class="btn btn-secondary btn-sm" target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=workspace.expediente.id, slot='curso_evidencia') }}">Vista previa</a>
       {% endif %}
-      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="curso_evidencia">Subir</button>
+      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="curso_evidencia" data-slot-title="Subir evidencia del curso / Forms">Subir</button>
     </div>
     <div class="carrier-anexo-card">
       <h4>{{ slot_labels.foto_persona }}</h4>
@@ -98,7 +173,7 @@
       {% if meta.get('rel') %}
       <a class="btn btn-secondary btn-sm" target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=workspace.expediente.id, slot='foto_persona') }}">Vista previa</a>
       {% endif %}
-      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="foto_persona">Subir</button>
+      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="foto_persona" data-slot-title="Subir foto de la persona">Subir</button>
     </div>
     <div class="carrier-anexo-card carrier-anexo-card-ine">
       <h4>Identificación (INE)</h4>
@@ -110,8 +185,8 @@
         <li>Archivo 2 (opcional): {% if mr.get('rel') %}{{ mr.get('orig', 'listo') }}{% else %}—{% endif %}</li>
       </ul>
       <div class="carrier-ine-actions">
-        <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="ine_frente">Subir archivo 1</button>
-        <button type="button" class="btn btn-secondary btn-sm" data-open-anexo-modal data-slot="ine_reverso">Subir archivo 2</button>
+        <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="ine_frente" data-slot-title="Subir INE — primer archivo">Subir archivo 1</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-open-anexo-modal data-slot="ine_reverso" data-slot-title="Subir INE — segundo archivo">Subir archivo 2</button>
       </div>
     </div>
   </div>
@@ -120,7 +195,7 @@
 <section class="panel">
   <h3 class="panel-title">Exportar expediente (un solo PDF)</h3>
   <form method="post" action="{{ url_for('carrier_curso.expediente_export', expediente_id=workspace.expediente.id) }}">
-    {% if workspace.alta_pdf_page_count > 1 %}
+    {% if workspace.constancia_modo != 'renovacion' and workspace.alta_pdf_page_count > 1 %}
     <fieldset class="carrier-fieldset">
       <legend>Páginas de la constancia IMSS a incluir (vacío = todas)</legend>
       {% for i in range(workspace.alta_pdf_page_count) %}
@@ -133,5 +208,19 @@
     {% endif %}
     <button type="submit" class="btn btn-primary">Descargar PDF del expediente</button>
   </form>
-  <p class="helper">El nombre del archivo usa el trabajador del Alta cuando hay constancia vinculada.</p>
+  <p class="helper">El nombre del archivo prioriza el trabajador de la constancia vinculada (Alta nueva).</p>
 </section>
+
+<script>
+(function () {
+  var dlg = document.getElementById("carrier-vincular-imss-modal");
+  if (!dlg) return;
+  function openDlg() { if (dlg.showModal) dlg.showModal(); }
+  function closeDlg() { dlg.close(); }
+  var b1 = document.getElementById("carrier-btn-vincular-modal");
+  var b2 = document.getElementById("carrier-btn-vincular-modal-2");
+  if (b1) b1.addEventListener("click", openDlg);
+  if (b2) b2.addEventListener("click", openDlg);
+  dlg.querySelectorAll("[data-vincular-close]").forEach(function (x) { x.addEventListener("click", closeDlg); });
+})();
+</script>

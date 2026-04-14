@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import sqlite3
 import uuid
 from datetime import date
@@ -23,6 +22,7 @@ from flask import (
     current_app,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -37,7 +37,6 @@ from modules.carrier.db import (
     attach_alta_format_history,
     clear_alta_link,
     delete_carrier_curso_export_log,
-    delete_expediente_row,
     ensure_carrier_tables,
     get_carrier_curso_export_log,
     get_expediente,
@@ -45,17 +44,20 @@ from modules.carrier.db import (
     insert_carrier_curso_export_log,
     insert_expediente,
     list_carrier_curso_export_logs,
-    list_carrier_curso_export_logs_for_expediente,
-    list_expedientes,
+    list_format_history_for_carrier,
     list_monthly_bases,
     parse_slots,
     dumps_slots,
     sync_expediente_nombre_desde_alta,
+    update_expediente_constancia_modo,
     update_expediente_meta,
     update_expediente_slots_json,
     upsert_monthly_base,
 )
-from modules.carrier.export_naming import curso_export_pdf_display_name, first_worker_name_from_payload_json
+from modules.carrier.export_naming import (
+    curso_export_pdf_display_name,
+    worker_name_from_payload_json,
+)
 from modules.carrier.inhabiles import load_inhabile_dates
 from modules.carrier.integration import set_return_expediente_id
 from modules.carrier.paquete_mes import (
@@ -85,7 +87,10 @@ FORMS_CURSO_URL = (
     "https://forms.office.com/pages/responsepage.aspx?id=ZZqDNj9_rEuepPVx8QqaA6-8XBB8zdZGm_WELtsNqV5URTVLTFg0MFU0UEs4QVU3VjRDUTE2TjNENS4u&route=shorturl"
 )
 
-FILE_SLOTS = ("curso_evidencia", "foto_persona", "ine_frente", "ine_reverso")
+CORE_FILE_SLOTS = ("curso_evidencia", "foto_persona", "ine_frente", "ine_reverso")
+RENOVACION_SLOT = "renovacion_sua"
+# Subidas permitidas (incluye extracto SUA en modo renovación).
+ALL_UPLOAD_SLOTS = CORE_FILE_SLOTS + (RENOVACION_SLOT,)
 ALLOWED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".webp"})
 
 SLOT_LABELS = {
@@ -93,7 +98,11 @@ SLOT_LABELS = {
     "foto_persona": "Foto de la persona",
     "ine_frente": "INE — primer archivo",
     "ine_reverso": "INE — segundo archivo (opcional)",
+    RENOVACION_SLOT: "Renovación — extracto SUA (imagen o PDF)",
 }
+
+# Compatibilidad con nombres antiguos en rutas que iteran anexos estándar.
+FILE_SLOTS = CORE_FILE_SLOTS
 
 PENDIENTE_NOMBRE_ALTA = "(Pendiente de constancia IMSS)"
 
@@ -283,9 +292,28 @@ def _slot_meta(slots: dict[str, Any], slot: str) -> dict[str, Any]:
     return {}
 
 
+def _nombres_movimientos_desde_payload(payload_json: str | None) -> list[str]:
+    if not payload_json or not str(payload_json).strip():
+        return []
+    try:
+        data = json.loads(payload_json)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[str] = []
+    for i, item in enumerate(data):
+        if isinstance(item, dict):
+            n = (item.get("nombre") or "").strip()
+            out.append(n or f"Movimiento {i + 1}")
+        else:
+            out.append(f"Movimiento {i + 1}")
+    return out
+
+
 def _slot_to_source_tuple(
     meta: dict[str, Any],
-) -> tuple[str, Path, list[int] | None, tuple[float, float, float, float] | None] | None:
+) -> tuple[Any, ...] | None:
     rel = meta.get("rel")
     if not rel:
         return None
@@ -313,32 +341,42 @@ def _slot_to_source_tuple(
             cr = None
     else:
         cr = None
+    scale = 1.0
+    rs = meta.get("render_scale")
+    if rs is not None:
+        try:
+            scale = max(0.25, min(3.0, float(rs)))
+        except (TypeError, ValueError):
+            scale = 1.0
     kind = "pdf" if ext == ".pdf" else "image"
-    return (kind, path, plist, cr if kind == "image" else None)
+    if kind == "pdf":
+        return ("pdf", path, plist, None, scale)
+    return ("image", path, None, cr, scale)
 
 
 def _merge_sources_for_expediente(
     *,
     monthly: Any,
     slots: dict[str, Any],
+    constancia_modo: str,
     alta_path: Path | None,
     alta_pages: list[int] | None,
 ) -> list[tuple[Any, ...]]:
     """
-    Orden fijo del expediente: mensual, evidencia, foto, INE (dos imágenes = una hoja), constancia.
-    INE: si hay dos archivos de imagen (frente y reverso), se compone una sola página carta.
+    Orden fijo del expediente: mensual, evidencia, foto, INE (dos imágenes = una hoja),
+    luego constancia IMSS (alta) o extracto SUA (renovación).
     """
     sources: list[tuple[Any, ...]] = []
 
     if monthly and monthly.sipare_relpath:
         p = _storage_root() / monthly.sipare_relpath
-        sources.append(("pdf", p, None, None))
+        sources.append(("pdf", p, None, None, 1.0))
     if monthly and monthly.pago_imss_relpath:
         p = _storage_root() / monthly.pago_imss_relpath
-        sources.append(("pdf", p, None, None))
+        sources.append(("pdf", p, None, None, 1.0))
 
-    by_slot: dict[str, tuple[str, Path, list[int] | None, tuple[float, float, float, float] | None]] = {}
-    for slot in FILE_SLOTS:
+    by_slot: dict[str, tuple[Any, ...]] = {}
+    for slot in CORE_FILE_SLOTS:
         meta = _slot_meta(slots, slot)
         tup = _slot_to_source_tuple(meta)
         if tup:
@@ -357,8 +395,12 @@ def _merge_sources_for_expediente(
             if slot in by_slot:
                 sources.append(by_slot[slot])
 
-    if alta_path and alta_path.exists():
-        sources.append(("pdf", alta_path, alta_pages, None))
+    if constancia_modo == "renovacion":
+        rt = _slot_to_source_tuple(_slot_meta(slots, RENOVACION_SLOT))
+        if rt:
+            sources.append(rt)
+    elif alta_path and alta_path.exists():
+        sources.append(("pdf", alta_path, alta_pages, None, 1.0))
 
     return sources
 
@@ -397,8 +439,14 @@ def _workspace_context(
                 except Exception:
                     alta_pdf_page_count = 0
 
+    modo = getattr(row, "constancia_modo", "alta") or "alta"
+    if modo not in {"alta", "renovacion"}:
+        modo = "alta"
+
     pdf_page_counts: dict[str, int] = {}
-    for slot in FILE_SLOTS:
+    for slot in ALL_UPLOAD_SLOTS:
+        if modo != "renovacion" and slot == RENOVACION_SLOT:
+            continue
         meta = _slot_meta(slots, slot)
         rel = meta.get("rel")
         if not rel:
@@ -413,6 +461,20 @@ def _workspace_context(
                     doc.close()
             except Exception:
                 pdf_page_counts[slot] = 0
+
+    imss_rows: list[dict[str, Any]] = []
+    for rec in list_format_history_for_carrier(db_path, int(row.user_id), limit=50):
+        imss_rows.append(
+            {
+                "id": rec["id"],
+                "filename": rec["filename"],
+                "created_at": rec["created_at"],
+                "movement_count": int(rec["movement_count"] or 0),
+                "nombres": _nombres_movimientos_desde_payload(rec["payload_json"]),
+            }
+        )
+
+    show_alta_formulario = (request.args.get("alta_form") or "").strip() == "1"
 
     dt = now_in_app_tz()
     stem = url_for(
@@ -433,6 +495,10 @@ def _workspace_context(
         "movement_current_time": dt.strftime("%H:%M"),
         "movement_current_date": dt.strftime("%Y-%m-%d"),
         "upload_prefix": upload_prefix,
+        "constancia_modo": modo,
+        "alta_movimiento_idx": int(getattr(row, "alta_movimiento_idx", 0) or 0),
+        "historial_imss_rows": imss_rows,
+        "show_alta_formulario": show_alta_formulario,
     }
 
 
@@ -524,7 +590,6 @@ def index():
         workspace = _workspace_context(db_path, row, today_d=today_d, inhabiles=inhabiles, is_admin=is_admin)
 
     bases_filtradas = _filter_bases_expediente(all_bases, today_d=today_d)
-    recent_expedientes = list_expedientes(db_path, user_id=uid, limit=12)
 
     y0 = today_d.year
     year_options = list(range(y0 - 2, y0 + 4))
@@ -533,7 +598,6 @@ def index():
         "cursos_index.html",
         is_admin=is_admin,
         all_bases=bases_filtradas if is_admin else None,
-        recent_expedientes=recent_expedientes,
         active_ym=active_ym,
         active_base=active_base,
         operational_ym=operational_ym,
@@ -731,12 +795,16 @@ def expediente_edit(expediente_id: int):
 def expediente_upload_slot(expediente_id: int, slot: str):
     if (redir := _login_required()) is not None:
         return redir
-    if slot not in FILE_SLOTS:
+    if slot not in ALL_UPLOAD_SLOTS:
         abort(404)
     db_path = _db_path()
     row = get_expediente(db_path, expediente_id)
     if not row or int(row.user_id) != int(g.user["id"]):
         abort(404)
+    modo = getattr(row, "constancia_modo", "alta") or "alta"
+    if slot == RENOVACION_SLOT and modo != "renovacion":
+        flash("El extracto SUA solo aplica en modo Renovación.", "error")
+        return redirect(url_for("carrier_curso.index", e=expediente_id))
 
     f = request.files.get("file")
     if not f or not f.filename:
@@ -774,11 +842,19 @@ def expediente_upload_slot(expediente_id: int, slot: str):
                 crop_norm = [float(arr[0]), float(arr[1]), float(arr[2]), float(arr[3])]
         except (json.JSONDecodeError, TypeError, ValueError):
             crop_norm = None
+    render_scale: float | None = None
+    rs = (request.form.get("render_scale") or "").strip()
+    if rs:
+        try:
+            render_scale = max(0.25, min(3.0, float(rs)))
+        except (TypeError, ValueError):
+            render_scale = None
     slots[slot] = {
         "rel": rel,
         "orig": f.filename,
         "pdf_pages": None,
         "crop_norm": crop_norm,
+        "render_scale": render_scale,
     }
     update_expediente_slots_json(db_path, expediente_id, dumps_slots(slots), now_iso())
     flash(f"Archivo cargado: {SLOT_LABELS.get(slot, slot)}.", "success")
@@ -795,7 +871,7 @@ def expediente_slot_meta(expediente_id: int):
         abort(404)
 
     slot = (request.form.get("slot") or "").strip()
-    if slot not in FILE_SLOTS:
+    if slot not in ALL_UPLOAD_SLOTS:
         abort(400)
 
     slots = parse_slots(row.slots_json)
@@ -842,9 +918,75 @@ def expediente_slot_meta(expediente_id: int):
             else:
                 meta["crop_norm"] = None
 
+    if "render_scale" in request.form:
+        rsv = (request.form.get("render_scale") or "").strip()
+        if not rsv:
+            meta.pop("render_scale", None)
+        else:
+            try:
+                meta["render_scale"] = max(0.25, min(3.0, float(rsv)))
+            except (TypeError, ValueError):
+                pass
+
     slots[slot] = meta
     update_expediente_slots_json(db_path, expediente_id, dumps_slots(slots), now_iso())
     flash("Opciones de recorte / páginas guardadas (opcional).", "success")
+    return redirect(url_for("carrier_curso.index", e=expediente_id))
+
+
+@carrier_curso_bp.route("/expediente/<int:expediente_id>/constancia-modo", methods=["POST"])
+def expediente_constancia_modo(expediente_id: int):
+    if (redir := _login_required()) is not None:
+        return redir
+    db_path = _db_path()
+    row = get_expediente(db_path, expediente_id)
+    if not row or int(row.user_id) != int(g.user["id"]):
+        abort(404)
+    modo = (request.form.get("constancia_modo") or "").strip().lower()
+    if modo not in {"alta", "renovacion"}:
+        flash("Modo de constancia no válido.", "error")
+        return redirect(url_for("carrier_curso.index", e=expediente_id))
+    if update_expediente_constancia_modo(
+        db_path, expediente_id, int(g.user["id"]), modo, now_iso()
+    ):
+        flash("Modo de constancia actualizado.", "success")
+    return redirect(url_for("carrier_curso.index", e=expediente_id))
+
+
+@carrier_curso_bp.route("/expediente/<int:expediente_id>/vincular-formato", methods=["POST"])
+def expediente_vincular_formato(expediente_id: int):
+    if (redir := _login_required()) is not None:
+        return redir
+    db_path = _db_path()
+    row = get_expediente(db_path, expediente_id)
+    if not row or int(row.user_id) != int(g.user["id"]):
+        abort(404)
+    try:
+        fh_id = int((request.form.get("format_history_id") or "").strip())
+    except ValueError:
+        flash("Identificador de constancia no válido.", "error")
+        return redirect(url_for("carrier_curso.index", e=expediente_id))
+    try:
+        mov_idx = int((request.form.get("movimiento_idx") or "0").strip())
+    except ValueError:
+        mov_idx = 0
+    if mov_idx < 0:
+        mov_idx = 0
+    ok = attach_alta_format_history(
+        db_path,
+        expediente_id,
+        int(g.user["id"]),
+        fh_id,
+        now_iso(),
+        movimiento_idx=mov_idx,
+    )
+    if ok:
+        sync_expediente_nombre_desde_alta(
+            db_path, expediente_id, fh_id, now_iso(), movimiento_idx=mov_idx
+        )
+        flash("Constancia vinculada al expediente.", "success")
+    else:
+        flash("No se pudo vincular la constancia (revisa que sea tuya).", "error")
     return redirect(url_for("carrier_curso.index", e=expediente_id))
 
 
@@ -852,7 +994,7 @@ def expediente_slot_meta(expediente_id: int):
 def expediente_preview_slot(expediente_id: int, slot: str):
     if (redir := _login_required()) is not None:
         return redir
-    if slot not in FILE_SLOTS:
+    if slot not in ALL_UPLOAD_SLOTS:
         abort(404)
     row = get_expediente(_db_path(), expediente_id)
     if not row or int(row.user_id) != int(g.user["id"]):
@@ -896,14 +1038,18 @@ def expediente_export(expediente_id: int):
 
     monthly = get_monthly_base(db_path, row.base_year_month)
     slots = parse_slots(row.slots_json)
+    modo = getattr(row, "constancia_modo", "alta") or "alta"
+    if modo not in {"alta", "renovacion"}:
+        modo = "alta"
 
     alta_path: Path | None = None
     alta_pages: list[int] | None = None
     nombre_desde_alta: str | None = None
-    if row.alta_format_history_id:
+    if modo == "alta" and row.alta_format_history_id:
         hr = _get_format_history_row(db_path, int(row.alta_format_history_id))
         if hr and int(hr["user_id"]) == int(g.user["id"]):
-            nombre_desde_alta = first_worker_name_from_payload_json(hr["payload_json"])
+            m_idx = int(getattr(row, "alta_movimiento_idx", 0) or 0)
+            nombre_desde_alta = worker_name_from_payload_json(hr["payload_json"], m_idx)
             alta_path = Path(str(hr["pdf_path"]))
             if alta_path.suffix.lower() != ".pdf":
                 flash(
@@ -929,6 +1075,7 @@ def expediente_export(expediente_id: int):
     sources = _merge_sources_for_expediente(
         monthly=monthly,
         slots=slots,
+        constancia_modo=modo,
         alta_path=alta_path,
         alta_pages=alta_pages,
     )
@@ -972,12 +1119,10 @@ def historial_exportaciones():
     db_path = _db_path()
     uid = int(g.user["id"])
     is_admin = _is_admin_carrier()
-    rows = list_carrier_curso_export_logs(db_path, user_id=uid)
-    expedientes = list_expedientes(db_path, user_id=None if is_admin else uid, limit=200)
+    rows = list_carrier_curso_export_logs(db_path, user_id=None if is_admin else uid)
     return render_template(
         "cursos_historial.html",
         rows=rows,
-        expedientes=expedientes,
         is_admin=is_admin,
     )
 
@@ -1003,47 +1148,15 @@ def historial_borrar_export(log_id: int):
     return redirect(url_for("carrier_curso.historial_exportaciones"))
 
 
-@carrier_curso_bp.route("/historial/borrar-expediente/<int:expediente_id>", methods=["POST"])
-def historial_borrar_expediente(expediente_id: int):
-    if (redir := _login_required()) is not None:
-        return redir
-    if not _is_admin_carrier():
-        abort(403)
-    db_path = _db_path()
-    row = get_expediente(db_path, expediente_id)
-    if not row:
-        abort(404)
-    for lg in list_carrier_curso_export_logs_for_expediente(db_path, expediente_id):
-        p = _storage_root() / lg.pdf_stored_relpath
-        if p.is_file():
-            try:
-                p.unlink()
-            except OSError:
-                pass
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            "DELETE FROM carrier_curso_export_log WHERE expediente_id = ?",
-            (expediente_id,),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-    delete_expediente_row(db_path, expediente_id)
-    exp_dir = _storage_root() / "expedientes" / str(expediente_id)
-    if exp_dir.exists():
-        shutil.rmtree(exp_dir, ignore_errors=True)
-    flash("Expediente y sus exportaciones asociadas eliminados.", "success")
-    return redirect(url_for("carrier_curso.historial_exportaciones"))
-
-
 @carrier_curso_bp.route("/descargar/<int:log_id>")
 def descargar_export_log(log_id: int):
     if (redir := _login_required()) is not None:
         return redir
     log = get_carrier_curso_export_log(_db_path(), log_id)
-    if not log or int(log.user_id) != int(g.user["id"]):
+    if not log:
         abort(404)
+    if int(log.user_id) != int(g.user["id"]) and not _is_admin_carrier():
+        abort(403)
     path = _storage_root() / log.pdf_stored_relpath
     if not path.is_file():
         flash("El archivo ya no está disponible en el servidor.", "error")
@@ -1060,7 +1173,9 @@ def ir_al_generador_alta(expediente_id: int):
     if not row or int(row.user_id) != int(g.user["id"]):
         abort(404)
     set_return_expediente_id(session, expediente_id)
-    return redirect(url_for("carrier_curso.index", e=expediente_id) + "#carrier-alta-imss")
+    return redirect(
+        url_for("carrier_curso.index", e=expediente_id, alta_form=1) + "#carrier-alta-imss"
+    )
 
 
 def register_carrier(app):

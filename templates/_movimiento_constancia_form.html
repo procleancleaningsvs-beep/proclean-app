@@ -7,11 +7,6 @@
     <p>Constancia AFIL: captura hasta 4 movimientos por documento. El sistema elige la plantilla según la cantidad de personas.</p>
   </div>
 </section>
-{% else %}
-<p class="helper carrier-alta-embed-hint">
-  Mismo formulario y validaciones que <strong>Movimientos IMSS &gt; Nuevo movimiento</strong>.
-  Genera en <strong>PDF</strong> para vincularlo al expediente.
-</p>
 {% endif %}
 
 <form method="post" class="form-card movement-form {% if embed_movimiento_cursos %}movement-form--embed{% endif %}" id="movement-form" action="{{ url_for('nuevo_formato') }}">

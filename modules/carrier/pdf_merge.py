@@ -39,8 +39,12 @@ def append_pdf_pages(
     src_path: Path,
     page_indices: Iterable[int] | None,
     render_matrix: fitz.Matrix | None = None,
+    *,
+    scale_mult: float = 1.0,
 ) -> None:
-    mat = render_matrix or fitz.Matrix(2.0, 2.0)
+    base = render_matrix or fitz.Matrix(2.0, 2.0)
+    sm = max(0.2, min(3.0, float(scale_mult)))
+    mat = fitz.Matrix(base.a * sm, base.b, base.c, base.d * sm, base.e, base.f)
     src = fitz.open(str(src_path))
     try:
         n = src.page_count
@@ -107,8 +111,12 @@ def append_image_page(
     image_path: Path,
     crop_rect_norm: tuple[float, float, float, float] | None,
     render_matrix: fitz.Matrix | None = None,
+    *,
+    scale_mult: float = 1.0,
 ) -> None:
-    mat = render_matrix or fitz.Matrix(2.0, 2.0)
+    base = render_matrix or fitz.Matrix(2.0, 2.0)
+    sm = max(0.2, min(3.0, float(scale_mult)))
+    mat = fitz.Matrix(base.a * sm, base.b, base.c, base.d * sm, base.e, base.f)
     imgdoc = fitz.open(str(image_path))
     try:
         if imgdoc.page_count < 1:
@@ -149,12 +157,18 @@ def build_merged_pdf(
                     append_two_images_same_page(dst, pl, pr, crop_l, crop_r)
                 continue
             kind, path, pages, crop = item[0], item[1], item[2], item[3]
+            scale = 1.0
+            if len(item) >= 5 and item[4] is not None:
+                try:
+                    scale = max(0.2, min(3.0, float(item[4])))
+                except (TypeError, ValueError):
+                    scale = 1.0
             if not isinstance(path, Path) or not path.is_file():
                 continue
             if kind == "pdf":
-                append_pdf_pages(dst, path, pages)
+                append_pdf_pages(dst, path, pages, scale_mult=scale)
             elif kind == "image":
-                append_image_page(dst, path, crop)
+                append_image_page(dst, path, crop, scale_mult=scale)
         return dst
     except Exception:
         dst.close()

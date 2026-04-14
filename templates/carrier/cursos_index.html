@@ -1,5 +1,9 @@
 {% extends 'base.html' %}
 {% block extra_head %}
+{% if workspace %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+{% endif %}
 <script defer src="{{ url_for('static', filename='carrier_paquete.js') }}"></script>
 <script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
 {% endblock %}
@@ -12,17 +16,27 @@
   </div>
   <div class="page-head-actions">
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial de Cursos</a>
-    <a class="btn btn-primary" href="{{ url_for('carrier_curso.index', nuevo=1, mes=active_ym) if is_admin and active_ym else url_for('carrier_curso.index', nuevo=1) }}">Nuevo expediente</a>
   </div>
 </section>
 
-<section class="carrier-forms-hero" aria-label="Inicio del flujo de curso">
-  <div class="carrier-forms-hero-inner">
-    <div>
-      <h3 class="carrier-forms-hero-title">Ingreso al curso de seguridad</h3>
-      <p class="carrier-forms-hero-text">Abre el formulario oficial para registrar la evidencia de ingreso al curso.</p>
+<section class="carrier-cursos-hero-actions" aria-label="Acciones principales de Cursos">
+  <div class="carrier-forms-hero carrier-forms-hero--expediente">
+    <div class="carrier-forms-hero-inner">
+      <div>
+        <h3 class="carrier-forms-hero-title">Nuevo expediente</h3>
+        <p class="carrier-forms-hero-text">Abre un expediente con el paquete vigente: constancia o renovación, anexos y exportación en un solo PDF.</p>
+      </div>
+      <a class="btn btn-forms-hero btn-forms-hero--expediente" href="{{ url_for('carrier_curso.index', nuevo=1, mes=active_ym) if is_admin and active_ym else url_for('carrier_curso.index', nuevo=1) }}">Nuevo expediente</a>
     </div>
-    <a class="btn btn-forms-hero" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
+  </div>
+  <div class="carrier-forms-hero" aria-label="Forms de curso">
+    <div class="carrier-forms-hero-inner">
+      <div>
+        <h3 class="carrier-forms-hero-title">Ingreso al curso de seguridad</h3>
+        <p class="carrier-forms-hero-text">Abre el formulario oficial para registrar la evidencia de ingreso al curso.</p>
+      </div>
+      <a class="btn btn-forms-hero" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
+    </div>
   </div>
 </section>
 
@@ -153,37 +167,4 @@
 {% if workspace %}
 {% include 'carrier/_cursos_workspace.html' %}
 {% endif %}
-
-<section class="panel carrier-recent-panel">
-  <div class="panel-head">
-    <h3>Historial reciente de expedientes</h3>
-    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Ver historial completo</a>
-  </div>
-  {% if recent_expedientes %}
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Persona</th>
-          <th>Mes base</th>
-          <th>Actualizado</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for e in recent_expedientes %}
-        <tr>
-          <td>{{ e.nombre_persona }}</td>
-          <td>{{ e.base_year_month }}</td>
-          <td>{{ e.updated_at }}</td>
-          <td><a href="{{ url_for('carrier_curso.index', e=e.id, mes=active_ym) if is_admin and active_ym else url_for('carrier_curso.index', e=e.id) }}">Abrir</a></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-  {% else %}
-  <p class="empty-state">Aún no hay expedientes. Pulsa <strong>Nuevo expediente</strong> para abrir uno con el paquete vigente.</p>
-  {% endif %}
-</section>
 {% endblock %}

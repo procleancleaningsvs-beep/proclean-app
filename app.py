@@ -347,16 +347,11 @@ def create_app() -> Flask:
         )
         from modules.carrier.integration import (
             clear_return_expediente_id,
-            peek_return_expediente_id,
             pop_return_expediente_id,
             set_return_expediente_id,
         )
 
         if request.method == "GET":
-            if request.args.get("cancel_carrier_return") == "1":
-                clear_return_expediente_id(session)
-                flash("Se canceló el retorno al expediente de Cursos.", "success")
-                return redirect(url_for("nuevo_formato"))
             raw_eid = request.args.get("carrier_curso_expediente_id")
             if raw_eid is not None and str(raw_eid).strip() != "":
                 try:
@@ -427,7 +422,6 @@ def create_app() -> Flask:
             "new_format.html",
             current_time=dt.strftime("%H:%M"),
             current_date=dt.strftime("%Y-%m-%d"),
-            carrier_curso_return_eid=peek_return_expediente_id(session),
         )
 
     @app.route("/checkid")

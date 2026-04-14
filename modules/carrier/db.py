@@ -7,6 +7,21 @@ from pathlib import Path
 from typing import Any
 
 
+def _migrate_carrier_expediente_extra_columns(conn: sqlite3.Connection) -> None:
+    """SQLite: añade columnas nuevas en instalaciones ya existentes."""
+    cur = conn.execute("PRAGMA table_info(carrier_curso_expediente)")
+    cols = {row[1] for row in cur.fetchall()}
+    if "constancia_modo" not in cols:
+        conn.execute(
+            "ALTER TABLE carrier_curso_expediente ADD COLUMN constancia_modo TEXT NOT NULL DEFAULT 'alta'"
+        )
+    if "alta_movimiento_idx" not in cols:
+        conn.execute(
+            "ALTER TABLE carrier_curso_expediente ADD COLUMN alta_movimiento_idx INTEGER NOT NULL DEFAULT 0"
+        )
+    conn.commit()
+
+
 def ensure_carrier_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -31,6 +46,8 @@ def ensure_carrier_tables(conn: sqlite3.Connection) -> None:
             nombre_persona TEXT NOT NULL,
             base_year_month TEXT NOT NULL,
             alta_format_history_id INTEGER,
+            constancia_modo TEXT NOT NULL DEFAULT 'alta',
+            alta_movimiento_idx INTEGER NOT NULL DEFAULT 0,
             slots_json TEXT NOT NULL DEFAULT '{}',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -39,6 +56,7 @@ def ensure_carrier_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _migrate_carrier_expediente_extra_columns(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS carrier_curso_export_log (
@@ -78,6 +96,8 @@ class ExpedienteRow:
     nombre_persona: str
     base_year_month: str
     alta_format_history_id: int | None
+    constancia_modo: str
+    alta_movimiento_idx: int
     slots_json: str
     created_at: str
     updated_at: str
@@ -97,12 +117,18 @@ def _row_monthly(r: sqlite3.Row) -> MonthlyBaseRow:
 
 
 def _row_exp(r: sqlite3.Row) -> ExpedienteRow:
+    keys = set(r.keys())
+    modo = str(r["constancia_modo"]) if "constancia_modo" in keys else "alta"
+    idx_raw = r["alta_movimiento_idx"] if "alta_movimiento_idx" in keys else 0
+    idx = int(idx_raw) if idx_raw is not None else 0
     return ExpedienteRow(
         id=int(r["id"]),
         user_id=int(r["user_id"]),
         nombre_persona=str(r["nombre_persona"]),
         base_year_month=str(r["base_year_month"]),
         alta_format_history_id=int(r["alta_format_history_id"]) if r["alta_format_history_id"] is not None else None,
+        constancia_modo=modo if modo in {"alta", "renovacion"} else "alta",
+        alta_movimiento_idx=idx,
         slots_json=str(r["slots_json"] or "{}"),
         created_at=str(r["created_at"]),
         updated_at=str(r["updated_at"]),
@@ -209,8 +235,9 @@ def insert_expediente(
             """
             INSERT INTO carrier_curso_expediente (
                 user_id, nombre_persona, base_year_month, alta_format_history_id,
+                constancia_modo, alta_movimiento_idx,
                 slots_json, created_at, updated_at
-            ) VALUES (?, ?, ?, NULL, '{}', ?, ?)
+            ) VALUES (?, ?, ?, NULL, 'alta', 0, '{}', ?, ?)
             """,
             (user_id, nombre_persona, base_year_month, created_at, updated_at),
         )
@@ -311,6 +338,8 @@ def attach_alta_format_history(
     user_id: int,
     format_history_id: int,
     updated_at: str,
+    *,
+    movimiento_idx: int = 0,
 ) -> bool:
     """Vincula un registro de format_history como Alta del expediente. Valida propiedad."""
     conn = sqlite3.connect(db_path)
@@ -331,13 +360,85 @@ def attach_alta_format_history(
         conn.execute(
             """
             UPDATE carrier_curso_expediente
-            SET alta_format_history_id = ?, updated_at = ?
+            SET alta_format_history_id = ?, alta_movimiento_idx = ?,
+                constancia_modo = 'alta', updated_at = ?
             WHERE id = ?
             """,
-            (format_history_id, updated_at, expediente_id),
+            (format_history_id, int(movimiento_idx), updated_at, expediente_id),
         )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def update_expediente_constancia_modo(
+    db_path: str, expediente_id: int, user_id: int, modo: str, updated_at: str
+) -> bool:
+    """`alta` | `renovacion`. En renovación se limpia la constancia vinculada."""
+    if modo not in {"alta", "renovacion"}:
+        return False
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        exp = conn.execute(
+            "SELECT user_id FROM carrier_curso_expediente WHERE id = ?",
+            (expediente_id,),
+        ).fetchone()
+        if not exp or int(exp["user_id"]) != int(user_id):
+            return False
+        if modo == "renovacion":
+            conn.execute(
+                """
+                UPDATE carrier_curso_expediente
+                SET constancia_modo = ?, alta_format_history_id = NULL,
+                    alta_movimiento_idx = 0, updated_at = ?
+                WHERE id = ?
+                """,
+                (modo, updated_at, expediente_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE carrier_curso_expediente
+                SET constancia_modo = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (modo, updated_at, expediente_id),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def list_format_history_for_carrier(db_path: str, user_id: int, limit: int = 80) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, filename, pdf_path, movement_count, payload_json, created_at
+            FROM format_history
+            WHERE user_id = ?
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+            """,
+            (int(user_id), limit),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "id": int(r["id"]),
+                    "filename": str(r["filename"]),
+                    "pdf_path": str(r["pdf_path"]),
+                    "movement_count": int(r["movement_count"] or 0),
+                    "payload_json": str(r["payload_json"] or ""),
+                    "created_at": str(r["created_at"]),
+                }
+            )
+        return out
     finally:
         conn.close()
 
@@ -355,7 +456,7 @@ def clear_alta_link(db_path: str, expediente_id: int, user_id: int, updated_at: 
         conn.execute(
             """
             UPDATE carrier_curso_expediente
-            SET alta_format_history_id = NULL, updated_at = ?
+            SET alta_format_history_id = NULL, alta_movimiento_idx = 0, updated_at = ?
             WHERE id = ?
             """,
             (updated_at, expediente_id),
@@ -389,6 +490,7 @@ class ExportLogRow:
     pdf_display_name: str
     alta_format_history_id: int | None
     username: str | None = None
+    expediente_updated_at: str | None = None
 
 
 def _row_export(r: sqlite3.Row) -> ExportLogRow:
@@ -396,6 +498,9 @@ def _row_export(r: sqlite3.Row) -> ExportLogRow:
     username = None
     if "username" in keys and r["username"] is not None:
         username = str(r["username"])
+    exp_upd = None
+    if "expediente_updated_at" in keys and r["expediente_updated_at"] is not None:
+        exp_upd = str(r["expediente_updated_at"])
     return ExportLogRow(
         id=int(r["id"]),
         user_id=int(r["user_id"]),
@@ -406,6 +511,7 @@ def _row_export(r: sqlite3.Row) -> ExportLogRow:
         pdf_display_name=str(r["pdf_display_name"]),
         alta_format_history_id=int(r["alta_format_history_id"]) if r["alta_format_history_id"] is not None else None,
         username=username,
+        expediente_updated_at=exp_upd,
     )
 
 
@@ -458,21 +564,37 @@ def get_carrier_curso_export_log(db_path: str, log_id: int) -> ExportLogRow | No
         conn.close()
 
 
-def list_carrier_curso_export_logs(db_path: str, *, user_id: int, limit: int = 200) -> list[ExportLogRow]:
+def list_carrier_curso_export_logs(
+    db_path: str, *, user_id: int | None = None, limit: int = 200
+) -> list[ExportLogRow]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            """
-            SELECT l.*, u.username AS username
-            FROM carrier_curso_export_log l
-            JOIN users u ON u.id = l.user_id
-            WHERE l.user_id = ?
-            ORDER BY l.created_at DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        ).fetchall()
+        if user_id is not None:
+            rows = conn.execute(
+                """
+                SELECT l.*, u.username AS username, e.updated_at AS expediente_updated_at
+                FROM carrier_curso_export_log l
+                JOIN users u ON u.id = l.user_id
+                JOIN carrier_curso_expediente e ON e.id = l.expediente_id
+                WHERE l.user_id = ?
+                ORDER BY l.created_at DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT l.*, u.username AS username, e.updated_at AS expediente_updated_at
+                FROM carrier_curso_export_log l
+                JOIN users u ON u.id = l.user_id
+                JOIN carrier_curso_expediente e ON e.id = l.expediente_id
+                ORDER BY l.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
         return [_row_export(r) for r in rows]
     finally:
         conn.close()
@@ -500,10 +622,15 @@ def list_carrier_curso_export_logs_for_expediente(
 
 
 def sync_expediente_nombre_desde_alta(
-    db_path: str, expediente_id: int, format_history_id: int, updated_at: str
+    db_path: str,
+    expediente_id: int,
+    format_history_id: int,
+    updated_at: str,
+    *,
+    movimiento_idx: int = 0,
 ) -> bool:
-    """Copia el nombre del primer movimiento del Alta al expediente."""
-    from modules.carrier.export_naming import first_worker_name_from_payload_json
+    """Copia el nombre del movimiento elegido del Alta al expediente."""
+    from modules.carrier.export_naming import worker_name_from_payload_json
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -514,7 +641,7 @@ def sync_expediente_nombre_desde_alta(
         ).fetchone()
         if not r:
             return False
-        nombre = first_worker_name_from_payload_json(r["payload_json"])
+        nombre = worker_name_from_payload_json(r["payload_json"], int(movimiento_idx))
         if not nombre:
             return False
         conn.execute(
