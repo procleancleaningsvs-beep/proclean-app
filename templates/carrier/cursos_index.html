@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Carrier</span>
+    <h2>Cursos — expedientes</h2>
+    <p>Documentos base mensuales (SIPARE / cédula y Pago IMSS) y expedientes por persona para curso de seguridad. Exportación a un solo PDF.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
+    <a class="btn btn-primary" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) }}">Nuevo expediente</a>
+  </div>
+</section>
+
+{% if stale_warning and active_ym %}
+<div class="flash flash-warning" role="status">
+  Sigues utilizando el pago del mes <strong>{{ active_ym }}</strong>. Revisa si corresponde actualizar al mes actual.
+</div>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h3>Documentos base del mes</h3>
+  </div>
+  <p class="helper">Sube una vez por mes y reutiliza en todos los expedientes. Vigencia operativa: hasta el día 17 del mes siguiente (o siguiente día hábil si aplica), según calendario en <code>{{ inhabiles_path }}</code> para fines de semana e inhábiles adicionales.</p>
+
+  <form method="get" class="carrier-mes-row">
+    <label>Mes base activo (vista y carga)
+      <select name="mes" onchange="this.form.submit()">
+        <option value="">— Selecciona —</option>
+        {% for b in bases %}
+        <option value="{{ b.year_month }}" {% if b.year_month == active_ym %}selected{% endif %}>{{ b.year_month }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </form>
+
+  <form method="post" action="{{ url_for('carrier_curso.mensual_upload') }}" enctype="multipart/form-data" class="form-card carrier-base-form">
+    <input type="hidden" name="year_month" value="{{ active_ym }}">
+    <div class="grid-2">
+      <label>SIPARE / cédula (PDF o imagen)
+        <input type="file" name="sipare" accept=".pdf,.png,.jpg,.jpeg,.webp">
+      </label>
+      <label>Pago IMSS (PDF o imagen)
+        <input type="file" name="pago_imss" accept=".pdf,.png,.jpg,.jpeg,.webp">
+      </label>
+    </div>
+    {% if active_base %}
+      <p class="helper">Actual: SIPARE: {{ active_base.sipare_orig_name or '—' }} · Pago IMSS: {{ active_base.pago_imss_orig_name or '—' }}</p>
+    {% endif %}
+    <div class="form-footer">
+      <button type="submit" class="btn btn-primary" {% if not active_ym %}disabled{% endif %}>Guardar documentos del mes</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h3>Expedientes</h3>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) }}">Nuevo expediente</a>
+  </div>
+  {% if expedientes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Persona</th>
+          <th>Mes base</th>
+          <th>Actualizado</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expedientes %}
+        <tr>
+          <td>{{ e.nombre_persona }}</td>
+          <td>{{ e.base_year_month }}</td>
+          <td>{{ e.updated_at }}</td>
+          <td><a href="{{ url_for('carrier_curso.expediente_edit', expediente_id=e.id) }}">Abrir</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Aún no hay expedientes. Crea uno para componer anexos y exportar PDF.</p>
+  {% endif %}
+</section>
+{% endblock %}

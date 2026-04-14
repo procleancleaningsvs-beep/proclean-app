@@ -130,6 +130,15 @@ DB_PATH = INSTANCE_DIR / "proclean.db"
 APP_NAME = "ProClean App"
 
 
+def _max_content_bytes() -> int:
+    """Límite global de subida (MB). Para expedientes con PDF/imágenes, sube p. ej. PROCLEAN_MAX_CONTENT_MB=32."""
+    try:
+        mb = int(os.environ.get("PROCLEAN_MAX_CONTENT_MB", "4"))
+    except ValueError:
+        mb = 4
+    return max(1, mb) * 1024 * 1024
+
+
 def _checkid_payload_source(payload: dict) -> str:
     """Indica qué campo aportó el término (sin registrar el valor)."""
     if payload.get("termino"):
@@ -206,7 +215,7 @@ def create_app() -> Flask:
         GENERATED_DIR=str(GENERATED_DIR),
         DOCX_TEMPLATES_DIR=str(DOCX_TEMPLATES_DIR),
         SECRET_KEY=get_or_create_secret_key(),
-        MAX_CONTENT_LENGTH=4 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=_max_content_bytes(),
     )
 
     limiter.init_app(app)
@@ -331,6 +340,31 @@ def create_app() -> Flask:
     @app.route("/formatos/nuevo", methods=["GET", "POST"])
     @login_required
     def nuevo_formato():
+        from modules.carrier.db import attach_alta_format_history, get_expediente
+        from modules.carrier.integration import (
+            clear_return_expediente_id,
+            peek_return_expediente_id,
+            pop_return_expediente_id,
+            set_return_expediente_id,
+        )
+
+        if request.method == "GET":
+            if request.args.get("cancel_carrier_return") == "1":
+                clear_return_expediente_id(session)
+                flash("Se canceló el retorno al expediente de Cursos.", "success")
+                return redirect(url_for("nuevo_formato"))
+            raw_eid = request.args.get("carrier_curso_expediente_id")
+            if raw_eid is not None and str(raw_eid).strip() != "":
+                try:
+                    eid = int(str(raw_eid).strip())
+                except ValueError:
+                    eid = None
+                if eid is not None:
+                    row = get_expediente(str(DB_PATH), eid)
+                    if row is not None and int(row.user_id) == int(g.user["id"]):
+                        set_return_expediente_id(session, eid)
+                        return redirect(url_for("nuevo_formato"))
+
         if request.method == "POST":
             try:
                 movimientos, fecha_lote, hora_lote = movimientos_from_form(request.form)
@@ -359,7 +393,24 @@ def create_app() -> Flask:
                     movement_count=result["movimientos"],
                     payload_json=result["movimientos_data"],
                 )
-                flash("Constancia generada con éxito. El archivo ya quedó en el historial de movimientos.", "success")
+                popped = pop_return_expediente_id(session)
+                if popped is not None:
+                    ok = attach_alta_format_history(
+                        str(DB_PATH), int(popped), int(g.user["id"]), int(record_id), now_iso()
+                    )
+                    if ok:
+                        flash(
+                            "Constancia generada con éxito y vinculada al expediente de Cursos.",
+                            "success",
+                        )
+                        return redirect(url_for("carrier_curso.expediente_edit", expediente_id=popped))
+                    set_return_expediente_id(session, int(popped))
+                    flash(
+                        "No se pudo vincular al expediente de Cursos; el archivo quedó en el historial de movimientos.",
+                        "error",
+                    )
+                else:
+                    flash("Constancia generada con éxito. El archivo ya quedó en el historial de movimientos.", "success")
                 return redirect(url_for("descargar", record_id=record_id))
             except Exception as exc:
                 flash(str(exc), "error")
@@ -369,6 +420,7 @@ def create_app() -> Flask:
             "new_format.html",
             current_time=dt.strftime("%H:%M"),
             current_date=dt.strftime("%Y-%m-%d"),
+            carrier_curso_return_eid=peek_return_expediente_id(session),
         )
 
     @app.route("/checkid")
@@ -800,9 +852,11 @@ def create_app() -> Flask:
 
     from modules.vitroflex_docs.blueprint import register_vitroflex
     from modules.finiquitos.blueprint import register_finiquitos
+    from modules.carrier.blueprint import register_carrier
 
     register_vitroflex(app)
     register_finiquitos(app)
+    register_carrier(app)
 
     return app
 

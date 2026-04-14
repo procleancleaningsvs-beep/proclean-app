@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Carrier · Cursos</span>
+    <h2>Nuevo expediente</h2>
+    <p>Elige el mes base (debe tener SIPARE y Pago IMSS cargados) y el nombre de la persona.</p>
+  </div>
+  <a href="{{ url_for('carrier_curso.index', mes=default_ym) }}" class="btn btn-secondary">Volver</a>
+</section>
+
+<form method="post" class="form-card">
+  <label>Nombre de la persona
+    <input type="text" name="nombre_persona" required placeholder="APELLIDO1 APELLIDO2 NOMBRE">
+  </label>
+  <label>Mes base a usar
+    <select name="base_year_month" required>
+      {% for b in bases %}
+      <option value="{{ b.year_month }}" {% if b.year_month == default_ym %}selected{% endif %}>{{ b.year_month }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% if not bases %}
+  <p class="flash flash-error">Primero configura documentos base en la vista principal de Cursos.</p>
+  {% endif %}
+  <div class="form-footer">
+    <button type="submit" class="btn btn-primary" {% if not bases %}disabled{% endif %}>Crear expediente</button>
+  </div>
+</form>
+{% endblock %}

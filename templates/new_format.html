@@ -1,5 +1,14 @@
 {% extends 'base.html' %}
 {% block content %}
+{% if carrier_curso_return_eid %}
+<div class="flash flash-info" role="status">
+  Al generar la constancia volverás al <strong>expediente de Cursos</strong> y se vinculará el archivo generado.
+  <span class="carrier-banner-actions">
+    <a class="link-btn" href="{{ url_for('carrier_curso.expediente_edit', expediente_id=carrier_curso_return_eid) }}">Volver al expediente sin generar</a>
+    <a class="link-btn" href="{{ url_for('nuevo_formato', cancel_carrier_return='1') }}">Cancelar retorno a Cursos</a>
+  </span>
+</div>
+{% endif %}
 <section class="page-head">
   <div>
     <span class="eyebrow">Movimientos IMSS</span>

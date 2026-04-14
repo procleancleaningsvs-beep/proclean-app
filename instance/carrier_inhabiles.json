@@ -1,0 +1,4 @@
+{
+  "_doc": "Lista de fechas inhábiles (ISO YYYY-MM-DD) además de sábados y domingos. Actualizar cada año según calendario aplicable en la operación.",
+  "dates": []
+}

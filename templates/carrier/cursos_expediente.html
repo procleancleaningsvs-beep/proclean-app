@@ -1,0 +1,154 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Carrier · Cursos</span>
+    <h2>Expediente: {{ expediente.nombre_persona }}</h2>
+    <p>Mes base <strong>{{ expediente.base_year_month }}</strong>. Orden final del PDF: SIPARE, Pago IMSS, evidencia curso, foto, INE frente/reverso, constancia IMSS.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
+    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index', mes=expediente.base_year_month) }}">Volver al listado</a>
+  </div>
+</section>
+
+{% if stale_month_warning %}
+<div class="flash flash-warning" role="status">
+  Sigues utilizando el pago del mes anterior. Revisa si corresponde actualizar al mes actual.
+</div>
+{% endif %}
+
+<section class="panel">
+  <h3 class="panel-title">Datos generales</h3>
+  <form method="post" class="form-card compact-form">
+    <input type="hidden" name="action" value="save_meta">
+    <div class="grid-2">
+      <label>Nombre de la persona
+        <input type="text" name="nombre_persona" value="{{ expediente.nombre_persona }}" required>
+      </label>
+      <label>Mes base
+        <input type="month" name="base_year_month" value="{{ expediente.base_year_month }}" required>
+      </label>
+    </div>
+    <div class="form-footer">
+      <button type="submit" class="btn btn-secondary">Guardar datos</button>
+    </div>
+  </form>
+  <p class="helper">Documentos base del mes: SIPARE {% if monthly and monthly.sipare_relpath %}✓{% else %}falta{% endif %} · Pago IMSS {% if monthly and monthly.pago_imss_relpath %}✓{% else %}falta{% endif %}</p>
+</section>
+
+<section class="panel">
+  <h3 class="panel-title">Constancia IMSS (Alta)</h3>
+  <p class="helper">Se usa el mismo generador que <strong>Nuevo movimiento</strong>. Al guardar, regresarás aquí y el PDF quedará vinculado.</p>
+  {% if alta_info %}
+  <p>Vinculado: <code>{{ alta_info.filename }}</code> {% if not alta_info.exists %}(archivo no encontrado en disco){% endif %}</p>
+  <div class="carrier-actions-row">
+    <a class="btn btn-secondary" href="{{ url_for('descargar', record_id=alta_info.id) }}">Descargar constancia</a>
+    <a class="btn btn-primary" href="{{ url_for('carrier_curso.ir_al_generador_alta', expediente_id=expediente.id) }}">Regenerar / cambiar constancia</a>
+    <form method="post" onsubmit="return confirm('¿Quitar el vínculo con esta constancia?');">
+      <input type="hidden" name="action" value="clear_alta">
+      <button type="submit" class="btn btn-secondary danger-btn">Quitar vínculo</button>
+    </form>
+  </div>
+  {% else %}
+  <a class="btn btn-primary" href="{{ url_for('carrier_curso.ir_al_generador_alta', expediente_id=expediente.id) }}">Ir a generar Alta (movimiento IMSS)</a>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <h3 class="panel-title">Anexos del expediente</h3>
+  <p class="helper">Tipos permitidos: PDF, PNG, JPG, JPEG, WEBP. Puedes pegar imagen desde el portapapeles si el navegador lo permite (elige el apartado activo).</p>
+
+  <div class="carrier-paste-target" data-carrier-paste-wrap>
+    <p class="helper"><strong>Apartado para pegar desde portapapeles:</strong></p>
+    <div class="carrier-slot-pills">
+      {% for slot in file_slots %}
+      <label class="carrier-pill"><input type="radio" name="carrier_active_slot" value="{{ slot }}"> {{ slot_labels[slot] }}</label>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% for slot in file_slots %}
+  {% set meta = slots.get(slot, {}) %}
+  <div class="carrier-slot-block" id="slot-{{ slot }}">
+    <h4>{{ slot_labels[slot] }}</h4>
+    {% if meta.get('rel') %}
+    <p class="helper">Archivo: {{ meta.get('orig', '—') }}</p>
+    <div class="carrier-preview-row">
+      {% if slot in pdf_page_counts and pdf_page_counts[slot] > 0 %}
+        {% for i in range(pdf_page_counts[slot]) %}
+        <a target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=expediente.id, slot=slot, page=i) }}">Página {{ i + 1 }}</a>{% if not loop.last %} · {% endif %}
+        {% endfor %}
+      {% else %}
+      <a target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=expediente.id, slot=slot) }}">Vista previa</a>
+      {% endif %}
+    </div>
+
+    <form method="post" action="{{ url_for('carrier_curso.expediente_slot_meta', expediente_id=expediente.id) }}" class="carrier-meta-form">
+      <input type="hidden" name="slot" value="{{ slot }}">
+      {% if slot in pdf_page_counts and pdf_page_counts[slot] > 1 %}
+      <fieldset class="carrier-fieldset">
+        <legend>Páginas a incluir en el PDF final (opcional; vacío = todas)</legend>
+        {% for i in range(pdf_page_counts[slot]) %}
+        <label class="checkbox-line carrier-page-cb">
+          <input type="checkbox" name="pdf_pages" value="{{ i }}"
+            {% if meta.get('pdf_pages') and i in meta.get('pdf_pages', []) %}checked{% endif %}>
+          Página {{ i + 1 }}
+        </label>
+        {% endfor %}
+      </fieldset>
+      {% endif %}
+      {% set cr = meta.get('crop_norm') %}
+      {% set is_pdf_slot = slot in pdf_page_counts and pdf_page_counts[slot] > 0 %}
+      {% if not is_pdf_slot %}
+      <fieldset class="carrier-fieldset">
+        <legend>Recorte opcional (fracciones 0–1 respecto al ancho/alto de la imagen: origen x, y, ancho, alto)</legend>
+        <div class="grid-4">
+          <label>x <input type="text" name="crop_x" value="{{ cr[0] if cr and cr|length >= 4 else '' }}" placeholder="0"></label>
+          <label>y <input type="text" name="crop_y" value="{{ cr[1] if cr and cr|length >= 4 else '' }}" placeholder="0"></label>
+          <label>ancho <input type="text" name="crop_w" value="{{ (cr[2] - cr[0]) if cr and cr|length >= 4 else '' }}" placeholder="1"></label>
+          <label>alto <input type="text" name="crop_h" value="{{ (cr[3] - cr[1]) if cr and cr|length >= 4 else '' }}" placeholder="1"></label>
+        </div>
+      </fieldset>
+      {% endif %}
+      <button type="submit" class="btn btn-secondary btn-sm">Guardar opciones de este anexo</button>
+    </form>
+
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('carrier_curso.expediente_upload_slot', expediente_id=expediente.id, slot=slot) }}" class="carrier-upload-row">
+      <label>Reemplazar archivo
+        <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required>
+      </label>
+      <button type="submit" class="btn btn-secondary btn-sm">Subir</button>
+    </form>
+    {% else %}
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('carrier_curso.expediente_upload_slot', expediente_id=expediente.id, slot=slot) }}" class="carrier-upload-row">
+      <input type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp" required data-carrier-slot-input="{{ slot }}">
+      <button type="submit" class="btn btn-primary btn-sm">Subir</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h3 class="panel-title">Exportar expediente (un solo PDF)</h3>
+  <form method="post" action="{{ url_for('carrier_curso.expediente_export', expediente_id=expediente.id) }}">
+    {% if alta_pdf_page_count > 1 %}
+    <fieldset class="carrier-fieldset">
+      <legend>Páginas de la constancia IMSS a incluir (vacío = todas)</legend>
+      {% for i in range(alta_pdf_page_count) %}
+      <label class="checkbox-line carrier-page-cb">
+        <input type="checkbox" name="alta_pdf_pages" value="{{ i }}" checked>
+        Página {{ i + 1 }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Descargar PDF del expediente</button>
+  </form>
+  <p class="helper">Nombre sugerido del archivo: <code>ExpedienteCurso_…_{{ expediente.base_year_month }}_{{ expediente.id }}_…pdf</code></p>
+</section>
+{% endblock %}
