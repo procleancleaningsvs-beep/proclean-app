@@ -39,6 +39,23 @@ def ensure_carrier_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS carrier_curso_export_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            expediente_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            nombre_persona TEXT NOT NULL,
+            pdf_stored_relpath TEXT NOT NULL,
+            pdf_display_name TEXT NOT NULL,
+            alta_format_history_id INTEGER,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(expediente_id) REFERENCES carrier_curso_expediente(id),
+            FOREIGN KEY(alta_format_history_id) REFERENCES format_history(id)
+        )
+        """
+    )
     conn.commit()
 
 
@@ -359,3 +376,103 @@ def parse_slots(slots_json: str) -> dict[str, Any]:
 
 def dumps_slots(slots: dict[str, Any]) -> str:
     return json.dumps(slots, ensure_ascii=False)
+
+
+@dataclass
+class ExportLogRow:
+    id: int
+    user_id: int
+    expediente_id: int
+    created_at: str
+    nombre_persona: str
+    pdf_stored_relpath: str
+    pdf_display_name: str
+    alta_format_history_id: int | None
+    username: str | None = None
+
+
+def _row_export(r: sqlite3.Row) -> ExportLogRow:
+    keys = set(r.keys())
+    username = None
+    if "username" in keys and r["username"] is not None:
+        username = str(r["username"])
+    return ExportLogRow(
+        id=int(r["id"]),
+        user_id=int(r["user_id"]),
+        expediente_id=int(r["expediente_id"]),
+        created_at=str(r["created_at"]),
+        nombre_persona=str(r["nombre_persona"]),
+        pdf_stored_relpath=str(r["pdf_stored_relpath"]),
+        pdf_display_name=str(r["pdf_display_name"]),
+        alta_format_history_id=int(r["alta_format_history_id"]) if r["alta_format_history_id"] is not None else None,
+        username=username,
+    )
+
+
+def insert_carrier_curso_export_log(
+    db_path: str,
+    *,
+    user_id: int,
+    expediente_id: int,
+    created_at: str,
+    nombre_persona: str,
+    pdf_stored_relpath: str,
+    pdf_display_name: str,
+    alta_format_history_id: int | None,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO carrier_curso_export_log (
+                user_id, expediente_id, created_at, nombre_persona,
+                pdf_stored_relpath, pdf_display_name, alta_format_history_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                expediente_id,
+                created_at,
+                nombre_persona,
+                pdf_stored_relpath,
+                pdf_display_name,
+                alta_format_history_id,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def get_carrier_curso_export_log(db_path: str, log_id: int) -> ExportLogRow | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = conn.execute(
+            "SELECT * FROM carrier_curso_export_log WHERE id = ?",
+            (log_id,),
+        ).fetchone()
+        return _row_export(r) if r else None
+    finally:
+        conn.close()
+
+
+def list_carrier_curso_export_logs(db_path: str, *, user_id: int, limit: int = 200) -> list[ExportLogRow]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT l.*, u.username AS username
+            FROM carrier_curso_export_log l
+            JOIN users u ON u.id = l.user_id
+            WHERE l.user_id = ?
+            ORDER BY l.created_at DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+        return [_row_export(r) for r in rows]
+    finally:
+        conn.close()

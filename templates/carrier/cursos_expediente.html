@@ -149,6 +149,6 @@
     {% endif %}
     <button type="submit" class="btn btn-primary">Descargar PDF del expediente</button>
   </form>
-  <p class="helper">Nombre sugerido del archivo: <code>ExpedienteCurso_…_{{ expediente.base_year_month }}_{{ expediente.id }}_…pdf</code></p>
+  <p class="helper">El archivo se guarda y descarga con el <strong>nombre del trabajador del Alta</strong> (primer movimiento vinculado), solo <code>.pdf</code> y sin prefijos. Si aún no hay Alta vinculada, se usa el nombre del expediente.</p>
 </section>
 {% endblock %}

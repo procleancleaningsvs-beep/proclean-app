@@ -8,6 +8,7 @@
   </div>
   <div class="page-head-actions">
     <a class="btn btn-secondary" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
+    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial Cursos</a>
     <a class="btn btn-primary" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) }}">Nuevo expediente</a>
   </div>
 </section>

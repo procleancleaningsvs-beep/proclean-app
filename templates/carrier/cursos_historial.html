@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Carrier · Cursos</span>
+    <h2>Historial de exportaciones</h2>
+    <p>PDF finales generados desde expedientes. Cada exportación queda registrada aquí y en Movimientos IMSS sigue el alta como siempre.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index') }}">Volver a Cursos</a>
+  </div>
+</section>
+
+<section class="panel">
+  {% if rows %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha / hora</th>
+          <th>Usuario</th>
+          <th>Archivo PDF (nombre)</th>
+          <th>Nombre</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>{{ r.created_at }}</td>
+          <td>{{ r.username or '—' }}</td>
+          <td class="history-cell-wrap">{{ r.pdf_display_name }}</td>
+          <td class="history-cell-wrap">{{ r.nombre_persona }}</td>
+          <td>
+            <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.descargar_export_log', log_id=r.id) }}">Descargar PDF</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Aún no hay exportaciones registradas.</p>
+  {% endif %}
+</section>
+{% endblock %}

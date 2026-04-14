@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import uuid
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -34,9 +35,12 @@ from modules.carrier.db import (
     attach_alta_format_history,
     clear_alta_link,
     ensure_carrier_tables,
+    get_carrier_curso_export_log,
     get_expediente,
     get_monthly_base,
+    insert_carrier_curso_export_log,
     insert_expediente,
+    list_carrier_curso_export_logs,
     list_expedientes,
     list_monthly_bases,
     parse_slots,
@@ -45,6 +49,7 @@ from modules.carrier.db import (
     update_expediente_slots_json,
     upsert_monthly_base,
 )
+from modules.carrier.export_naming import curso_export_pdf_display_name, first_worker_name_from_payload_json
 from modules.carrier.inhabiles import load_inhabile_dates
 from modules.carrier.integration import set_return_expediente_id
 from modules.carrier.pdf_merge import write_merged_pdf
@@ -107,6 +112,12 @@ def _exp_dir(eid: int) -> Path:
     return p
 
 
+def _exports_dir() -> Path:
+    p = _storage_root() / "exports"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def _ext_from_filename(name: str) -> str:
     lower = (name or "").lower().strip()
     if "." not in lower:
@@ -139,22 +150,12 @@ def _parse_ym_to_date(ym: str) -> tuple[int, int] | None:
     return y, m
 
 
-def _slug_persona(nombre: str) -> str:
-    base = secure_filename(re.sub(r"\s+", "_", (nombre or "").strip())[:80])
-    return base or "expediente"
-
-
-def _export_filename(nombre: str, ym: str, eid: int) -> str:
-    d = today_in_app_tz().strftime("%Y%m%d")
-    return f"ExpedienteCurso_{_slug_persona(nombre)}_{ym}_{eid}_{d}.pdf"
-
-
 def _get_format_history_row(db_path: str, record_id: int) -> sqlite3.Row | None:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         return conn.execute(
-            "SELECT id, user_id, filename, pdf_path FROM format_history WHERE id = ?",
+            "SELECT id, user_id, filename, pdf_path, payload_json FROM format_history WHERE id = ?",
             (record_id,),
         ).fetchone()
     finally:
@@ -602,9 +603,11 @@ def expediente_export(expediente_id: int):
 
     alta_path: Path | None = None
     alta_pages: list[int] | None = None
+    nombre_desde_alta: str | None = None
     if row.alta_format_history_id:
         hr = _get_format_history_row(db_path, int(row.alta_format_history_id))
         if hr and int(hr["user_id"]) == int(g.user["id"]):
+            nombre_desde_alta = first_worker_name_from_payload_json(hr["payload_json"])
             alta_path = Path(str(hr["pdf_path"]))
             if alta_path.suffix.lower() != ".pdf":
                 flash(
@@ -637,17 +640,55 @@ def expediente_export(expediente_id: int):
         flash("No hay contenido para exportar. Revisa documentos base y archivos del expediente.", "error")
         return redirect(url_for("carrier_curso.expediente_edit", expediente_id=expediente_id))
 
-    out_dir = _exp_dir(expediente_id)
-    out_name = _export_filename(row.nombre_persona, row.base_year_month, expediente_id)
-    out_path = out_dir / out_name
+    pdf_display_name = curso_export_pdf_display_name(
+        worker_name_from_alta=nombre_desde_alta,
+        expediente_nombre=row.nombre_persona,
+    )
+    token = uuid.uuid4().hex
+    rel = f"exports/{token}.pdf"
+    out_path = _exports_dir() / f"{token}.pdf"
     try:
         write_merged_pdf(sources, out_path)
     except Exception as exc:
         flash(f"No se pudo generar el PDF: {exc}", "error")
         return redirect(url_for("carrier_curso.expediente_edit", expediente_id=expediente_id))
 
-    flash("PDF del expediente generado.", "success")
-    return send_file(out_path, as_attachment=True, download_name=out_name)
+    ts = now_iso()
+    insert_carrier_curso_export_log(
+        db_path,
+        user_id=int(g.user["id"]),
+        expediente_id=expediente_id,
+        created_at=ts,
+        nombre_persona=row.nombre_persona,
+        pdf_stored_relpath=rel,
+        pdf_display_name=pdf_display_name,
+        alta_format_history_id=row.alta_format_history_id,
+    )
+
+    flash("PDF del expediente generado y guardado en el historial de Cursos.", "success")
+    return send_file(out_path, as_attachment=True, download_name=pdf_display_name)
+
+
+@carrier_curso_bp.route("/historial")
+def historial_exportaciones():
+    if (redir := _login_required()) is not None:
+        return redir
+    rows = list_carrier_curso_export_logs(_db_path(), user_id=int(g.user["id"]))
+    return render_template("cursos_historial.html", rows=rows)
+
+
+@carrier_curso_bp.route("/descargar/<int:log_id>")
+def descargar_export_log(log_id: int):
+    if (redir := _login_required()) is not None:
+        return redir
+    log = get_carrier_curso_export_log(_db_path(), log_id)
+    if not log or int(log.user_id) != int(g.user["id"]):
+        abort(404)
+    path = _storage_root() / log.pdf_stored_relpath
+    if not path.is_file():
+        flash("El archivo ya no está disponible en el servidor.", "error")
+        return redirect(url_for("carrier_curso.historial_exportaciones"))
+    return send_file(path, as_attachment=True, download_name=log.pdf_display_name)
 
 
 @carrier_curso_bp.route("/expediente/<int:expediente_id>/ir-alta")
