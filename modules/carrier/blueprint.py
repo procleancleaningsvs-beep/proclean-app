@@ -101,7 +101,13 @@ MES_LABEL_ES = {
 
 
 def _is_admin_carrier() -> bool:
-    return bool(g.user and g.user.get("role") == "admin")
+    u = getattr(g, "user", None)
+    if not u:
+        return False
+    try:
+        return u["role"] == "admin"
+    except (TypeError, KeyError, IndexError):
+        return False
 
 
 def _label_paquete_mes(ym: str) -> str:
@@ -308,7 +314,7 @@ def index():
     all_bases = list_monthly_bases(db_path)
     expedientes = list_expedientes(db_path, user_id=int(g.user["id"]))
     inhabiles = load_inhabile_dates(_instance_dir())
-    today_d = today_in_app_tz().date()
+    today_d = today_in_app_tz()
     is_admin = _is_admin_carrier()
     operational_ym = _operational_package_ym(today_d, inhabiles)
     operational_label = _label_paquete_mes(operational_ym)
@@ -360,7 +366,7 @@ def index():
 def mensual_upload():
     if (redir := _login_required()) is not None:
         return redir
-    today_d = today_in_app_tz().date()
+    today_d = today_in_app_tz()
     inhabiles = load_inhabile_dates(_instance_dir())
     is_admin = _is_admin_carrier()
 
@@ -439,7 +445,7 @@ def mensual_descargar():
     ym = _parse_year_month(request.args.get("ym") or "")
     if kind not in {"sipare", "pago"} or not ym:
         abort(400)
-    today_d = today_in_app_tz().date()
+    today_d = today_in_app_tz()
     inhabiles = load_inhabile_dates(_instance_dir())
     is_admin = _is_admin_carrier()
     if not _user_may_access_mensual_download(ym, kind, is_admin=is_admin, today_d=today_d, inhabiles=inhabiles):
@@ -474,7 +480,7 @@ def expediente_nuevo():
     db_path = _db_path()
     all_bases = list_monthly_bases(db_path)
     inhabiles = load_inhabile_dates(_instance_dir())
-    today_d = today_in_app_tz().date()
+    today_d = today_in_app_tz()
     is_admin = _is_admin_carrier()
     bases = _filter_bases_expediente(all_bases, is_admin=is_admin, today_d=today_d, inhabiles=inhabiles)
     if request.method == "POST":
@@ -564,7 +570,7 @@ def expediente_edit(expediente_id: int):
     pm = _parse_ym_to_date(row.base_year_month)
     stale = False
     if pm:
-        stale = should_warn_stale_payment_month(pm[0], pm[1], today_in_app_tz().date(), inhabiles)
+        stale = should_warn_stale_payment_month(pm[0], pm[1], today_in_app_tz(), inhabiles)
 
     alta_info: dict[str, Any] | None = None
     alta_pdf_page_count = 0
