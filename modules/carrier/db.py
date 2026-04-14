@@ -476,3 +476,83 @@ def list_carrier_curso_export_logs(db_path: str, *, user_id: int, limit: int = 2
         return [_row_export(r) for r in rows]
     finally:
         conn.close()
+
+
+def list_carrier_curso_export_logs_for_expediente(
+    db_path: str, expediente_id: int
+) -> list[ExportLogRow]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT l.*, u.username AS username
+            FROM carrier_curso_export_log l
+            JOIN users u ON u.id = l.user_id
+            WHERE l.expediente_id = ?
+            ORDER BY l.created_at DESC
+            """,
+            (expediente_id,),
+        ).fetchall()
+        return [_row_export(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def sync_expediente_nombre_desde_alta(
+    db_path: str, expediente_id: int, format_history_id: int, updated_at: str
+) -> bool:
+    """Copia el nombre del primer movimiento del Alta al expediente."""
+    from modules.carrier.export_naming import first_worker_name_from_payload_json
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = conn.execute(
+            "SELECT payload_json FROM format_history WHERE id = ?",
+            (format_history_id,),
+        ).fetchone()
+        if not r:
+            return False
+        nombre = first_worker_name_from_payload_json(r["payload_json"])
+        if not nombre:
+            return False
+        conn.execute(
+            """
+            UPDATE carrier_curso_expediente
+            SET nombre_persona = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (nombre, updated_at, expediente_id),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_carrier_curso_export_log(db_path: str, log_id: int) -> bool:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        r = conn.execute(
+            "SELECT pdf_stored_relpath FROM carrier_curso_export_log WHERE id = ?",
+            (log_id,),
+        ).fetchone()
+        if not r:
+            return False
+        conn.execute("DELETE FROM carrier_curso_export_log WHERE id = ?", (log_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def delete_expediente_row(db_path: str, expediente_id: int) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute("DELETE FROM carrier_curso_expediente WHERE id = ?", (expediente_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()

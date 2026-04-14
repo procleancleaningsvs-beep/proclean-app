@@ -3,8 +3,8 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Carrier · Cursos</span>
-    <h2>Historial de exportaciones</h2>
-    <p>PDF finales generados desde expedientes. Cada exportación queda registrada aquí y en Movimientos IMSS sigue el alta como siempre.</p>
+    <h2>Historial de Cursos</h2>
+    <p>Expedientes y PDF exportados. Las descargas de movimientos IMSS siguen en su propio historial.</p>
   </div>
   <div class="page-head-actions">
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index') }}">Volver a Cursos</a>
@@ -12,6 +12,52 @@
 </section>
 
 <section class="panel">
+  <div class="panel-head">
+    <h3>Expedientes</h3>
+  </div>
+  {% if expedientes %}
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          {% if is_admin %}<th>Usuario</th>{% endif %}
+          <th>Persona</th>
+          <th>Mes base</th>
+          <th>Actualizado</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in expedientes %}
+        <tr>
+          <td>{{ e.id }}</td>
+          {% if is_admin %}<td>{{ e.user_id }}</td>{% endif %}
+          <td>{{ e.nombre_persona }}</td>
+          <td>{{ e.base_year_month }}</td>
+          <td>{{ e.updated_at }}</td>
+          <td>
+            <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.index', e=e.id) }}">Abrir</a>
+            {% if is_admin %}
+            <form method="post" action="{{ url_for('carrier_curso.historial_borrar_expediente', expediente_id=e.id) }}" style="display:inline" onsubmit="return confirm('¿Eliminar este expediente y sus exportaciones?');">
+              <button type="submit" class="btn btn-secondary btn-sm danger-btn">Eliminar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="empty-state">Sin expedientes registrados.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h3>Exportaciones PDF</h3>
+  </div>
   {% if rows %}
   <div class="table-wrap">
     <table>
@@ -33,6 +79,12 @@
           <td class="history-cell-wrap">{{ r.nombre_persona }}</td>
           <td>
             <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.descargar_export_log', log_id=r.id) }}">Descargar PDF</a>
+            <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.index', e=r.expediente_id) }}">Abrir expediente</a>
+            {% if is_admin %}
+            <form method="post" action="{{ url_for('carrier_curso.historial_borrar_export', log_id=r.id) }}" style="display:inline" onsubmit="return confirm('¿Eliminar este registro de exportación?');">
+              <button type="submit" class="btn btn-secondary btn-sm danger-btn">Eliminar</button>
+            </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

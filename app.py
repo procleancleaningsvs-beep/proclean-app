@@ -340,7 +340,11 @@ def create_app() -> Flask:
     @app.route("/formatos/nuevo", methods=["GET", "POST"])
     @login_required
     def nuevo_formato():
-        from modules.carrier.db import attach_alta_format_history, get_expediente
+        from modules.carrier.db import (
+            attach_alta_format_history,
+            get_expediente,
+            sync_expediente_nombre_desde_alta,
+        )
         from modules.carrier.integration import (
             clear_return_expediente_id,
             peek_return_expediente_id,
@@ -399,11 +403,14 @@ def create_app() -> Flask:
                         str(DB_PATH), int(popped), int(g.user["id"]), int(record_id), now_iso()
                     )
                     if ok:
+                        sync_expediente_nombre_desde_alta(
+                            str(DB_PATH), int(popped), int(record_id), now_iso()
+                        )
                         flash(
                             "Constancia generada con éxito y vinculada al expediente de Cursos.",
                             "success",
                         )
-                        return redirect(url_for("carrier_curso.expediente_edit", expediente_id=popped))
+                        return redirect(url_for("carrier_curso.index", e=popped))
                     set_return_expediente_id(session, int(popped))
                     flash(
                         "No se pudo vincular al expediente de Cursos; el archivo quedó en el historial de movimientos.",

@@ -11,6 +11,7 @@
   const selYear = document.getElementById("carrier-pkg-year");
   const isAdmin = dlg.getAttribute("data-is-admin") === "1";
   const operationalYm = (dlg.getAttribute("data-operational-ym") || "").trim();
+  const capYm = (dlg.getAttribute("data-cap-ym") || "").trim();
 
   function pad2(n) {
     return (n < 10 ? "0" : "") + n;
@@ -28,6 +29,12 @@
     const p = /^(\d{4})-(\d{2})$/.exec((s || "").trim());
     if (!p) return null;
     return { y: parseInt(p[1], 10), m: parseInt(p[2], 10) };
+  }
+
+  function ymKey(ym) {
+    const p = parseYm(ym);
+    if (!p) return null;
+    return p.y * 12 + (p.m - 1);
   }
 
   function applyDefaultYm(ym) {
@@ -64,8 +71,18 @@
   if (selYear) selYear.addEventListener("change", syncHiddenYmFromSelects);
 
   if (form) {
-    form.addEventListener("submit", function () {
+    form.addEventListener("submit", function (ev) {
       if (isAdmin) syncHiddenYmFromSelects();
+      if (isAdmin && capYm && hiddenYm) {
+        const k = ymKey(hiddenYm.value);
+        const ck = ymKey(capYm);
+        if (k != null && ck != null && k > ck) {
+          ev.preventDefault();
+          window.alert(
+            "Ese mes de pago aún no es utilizable como paquete (tope: mes calendario anterior al actual)."
+          );
+        }
+      }
     });
   }
 })();

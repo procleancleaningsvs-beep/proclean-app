@@ -1,0 +1,137 @@
+{# Área de trabajo del expediente dentro de Cursos (/?e=). `workspace` viene del blueprint. #}
+<section class="panel carrier-workspace-head" id="carrier-workspace-top">
+  <div class="panel-head">
+    <h3>Expediente en curso</h3>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.index') }}">Cerrar expediente</a>
+  </div>
+  <p class="helper">
+    Mes base (paquete de pago): <strong>{{ workspace.expediente.base_year_month }}</strong>.
+    Nombre en expediente: <strong>{{ workspace.expediente.nombre_persona }}</strong>
+    {% if workspace.expediente.nombre_persona == pendiente_nombre_alta %}— se completará al generar el Alta{% endif %}.
+  </p>
+</section>
+
+{% if workspace.stale_month_warning %}
+<div class="flash flash-warning" role="status">
+  El mes base de este expediente es anterior al <strong>paquete vigente</strong> actual. Revisa si debes abrir uno nuevo con el paquete vigente.
+</div>
+{% endif %}
+
+{% if current_user.role == 'admin' %}
+<section class="panel">
+  <h3 class="panel-title">Datos (administrador)</h3>
+  <form method="post" action="{{ url_for('carrier_curso.expediente_edit', expediente_id=workspace.expediente.id) }}" class="form-card compact-form">
+    <input type="hidden" name="action" value="save_meta">
+    <div class="grid-2">
+      <label>Nombre en expediente
+        <input type="text" name="nombre_persona" value="{{ workspace.expediente.nombre_persona }}" required>
+      </label>
+      <label>Mes base
+        <input type="month" name="base_year_month" value="{{ workspace.expediente.base_year_month }}" required>
+      </label>
+    </div>
+    <div class="form-footer">
+      <button type="submit" class="btn btn-secondary">Guardar</button>
+    </div>
+  </form>
+  <p class="helper">Documentos base del mes: SIPARE {% if workspace.monthly and workspace.monthly.sipare_relpath %}✓{% else %}falta{% endif %} · Pago IMSS {% if workspace.monthly and workspace.monthly.pago_imss_relpath %}✓{% else %}falta{% endif %}</p>
+</section>
+{% endif %}
+
+<section class="panel carrier-alta-panel" id="carrier-alta-imss">
+  <h3 class="panel-title">Constancia IMSS (Alta)</h3>
+  {% if workspace.alta_info %}
+  <p class="helper">Vinculado: <code>{{ workspace.alta_info.filename }}</code> {% if not workspace.alta_info.exists %}(archivo no encontrado){% endif %}</p>
+  <div class="carrier-actions-row">
+    <a class="btn btn-secondary" href="{{ url_for('descargar', record_id=workspace.alta_info.id) }}">Descargar constancia</a>
+    <form method="post" action="{{ url_for('carrier_curso.expediente_edit', expediente_id=workspace.expediente.id) }}" onsubmit="return confirm('¿Quitar el vínculo con esta constancia?');">
+      <input type="hidden" name="action" value="clear_alta">
+      <button type="submit" class="btn btn-secondary danger-btn">Quitar vínculo</button>
+    </form>
+  </div>
+  <p class="helper">Puedes generar otra constancia abajo; se reemplazará el vínculo.</p>
+  {% endif %}
+  {% set embed_movimiento_cursos = true %}
+  {% set current_time = workspace.movement_current_time %}
+  {% set current_date = workspace.movement_current_date %}
+  {% include '_movimiento_constancia_form.html' %}
+</section>
+
+<section class="panel" data-carrier-workspace data-expediente-id="{{ workspace.expediente.id }}" data-upload-prefix="{{ workspace.upload_prefix }}">
+  <h3 class="panel-title">Anexos</h3>
+  <p class="helper">PDF o imagen. Puedes arrastrar, elegir archivo o pegar imagen (Ctrl+V) con el foco en esta sección.</p>
+
+  <dialog class="carrier-modal carrier-anexo-dialog" id="carrier-anexo-modal">
+    <form method="post" enctype="multipart/form-data" class="carrier-modal-form" id="carrier-anexo-form">
+      <button type="button" class="carrier-modal-close" data-anexo-close aria-label="Cerrar">&times;</button>
+      <h3 class="carrier-modal-title" id="carrier-anexo-title">Subir anexo</h3>
+      <div class="carrier-anexo-dropzone" id="carrier-anexo-dropzone" tabindex="0">
+        <p>Arrastra aquí o <label class="carrier-anexo-file-label">elige archivo<input type="file" name="file" id="carrier-anexo-file" accept=".pdf,.png,.jpg,.jpeg,.webp" required class="carrier-anexo-file-input"></label></p>
+        <p class="helper">También puedes pegar una imagen con Ctrl+V.</p>
+      </div>
+      <input type="hidden" name="crop_norm_json" id="carrier-anexo-crop-json" value="">
+      <div class="carrier-anexo-preview-wrap" id="carrier-anexo-preview-wrap" hidden>
+        <p class="helper">Vista previa (así se verá en la hoja; el recorte fino se puede ajustar después si hace falta):</p>
+        <div id="carrier-anexo-preview" class="carrier-anexo-preview"></div>
+      </div>
+      <div class="carrier-modal-footer">
+        <button type="button" class="btn btn-secondary" data-anexo-close>Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="carrier-anexo-confirm">Confirmar y subir</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="carrier-anexo-groups">
+    <div class="carrier-anexo-card">
+      <h4>{{ slot_labels.curso_evidencia }}</h4>
+      {% set meta = workspace.slots.get('curso_evidencia', {}) %}
+      <p class="helper">{% if meta.get('rel') %}Archivo: {{ meta.get('orig', '—') }}{% else %}Sin archivo{% endif %}</p>
+      {% if meta.get('rel') %}
+      <a class="btn btn-secondary btn-sm" target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=workspace.expediente.id, slot='curso_evidencia') }}">Vista previa</a>
+      {% endif %}
+      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="curso_evidencia">Subir</button>
+    </div>
+    <div class="carrier-anexo-card">
+      <h4>{{ slot_labels.foto_persona }}</h4>
+      {% set meta = workspace.slots.get('foto_persona', {}) %}
+      <p class="helper">{% if meta.get('rel') %}Archivo: {{ meta.get('orig', '—') }}{% else %}Sin archivo{% endif %}</p>
+      {% if meta.get('rel') %}
+      <a class="btn btn-secondary btn-sm" target="_blank" href="{{ url_for('carrier_curso.expediente_preview_slot', expediente_id=workspace.expediente.id, slot='foto_persona') }}">Vista previa</a>
+      {% endif %}
+      <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="foto_persona">Subir</button>
+    </div>
+    <div class="carrier-anexo-card carrier-anexo-card-ine">
+      <h4>Identificación (INE)</h4>
+      <p class="helper">Uno o dos archivos. Si subes dos imágenes, el PDF final las pondrá en la misma hoja.</p>
+      {% set mf = workspace.slots.get('ine_frente', {}) %}
+      {% set mr = workspace.slots.get('ine_reverso', {}) %}
+      <ul class="carrier-ine-status">
+        <li>Archivo 1: {% if mf.get('rel') %}{{ mf.get('orig', 'listo') }}{% else %}pendiente{% endif %}</li>
+        <li>Archivo 2 (opcional): {% if mr.get('rel') %}{{ mr.get('orig', 'listo') }}{% else %}—{% endif %}</li>
+      </ul>
+      <div class="carrier-ine-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-open-anexo-modal data-slot="ine_frente">Subir archivo 1</button>
+        <button type="button" class="btn btn-secondary btn-sm" data-open-anexo-modal data-slot="ine_reverso">Subir archivo 2</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h3 class="panel-title">Exportar expediente (un solo PDF)</h3>
+  <form method="post" action="{{ url_for('carrier_curso.expediente_export', expediente_id=workspace.expediente.id) }}">
+    {% if workspace.alta_pdf_page_count > 1 %}
+    <fieldset class="carrier-fieldset">
+      <legend>Páginas de la constancia IMSS a incluir (vacío = todas)</legend>
+      {% for i in range(workspace.alta_pdf_page_count) %}
+      <label class="checkbox-line carrier-page-cb">
+        <input type="checkbox" name="alta_pdf_pages" value="{{ i }}" checked>
+        Página {{ i + 1 }}
+      </label>
+      {% endfor %}
+    </fieldset>
+    {% endif %}
+    <button type="submit" class="btn btn-primary">Descargar PDF del expediente</button>
+  </form>
+  <p class="helper">El nombre del archivo usa el trabajador del Alta cuando hay constancia vinculada.</p>
+</section>

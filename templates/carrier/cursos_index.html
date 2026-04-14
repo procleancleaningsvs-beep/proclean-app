@@ -1,17 +1,18 @@
 {% extends 'base.html' %}
 {% block extra_head %}
 <script defer src="{{ url_for('static', filename='carrier_paquete.js') }}"></script>
+<script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
 {% endblock %}
 {% block content %}
 <section class="page-head carrier-cursos-head">
   <div>
     <span class="eyebrow">Carrier</span>
     <h2>Cursos — expedientes</h2>
-    <p>Paquete mensual base (SIPARE / cédula + Pago IMSS) y expedientes por persona. Exportación a un solo PDF.</p>
+    <p>Paquete mensual base (SIPARE / cédula + Pago IMSS), constancia IMSS (Alta), anexos y un solo PDF de salida.</p>
   </div>
   <div class="page-head-actions">
-    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial Cursos</a>
-    <a class="btn btn-primary" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) if is_admin else url_for('carrier_curso.expediente_nuevo') }}">Nuevo expediente</a>
+    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial de Cursos</a>
+    <a class="btn btn-primary" href="{{ url_for('carrier_curso.index', nuevo=1, mes=active_ym) if is_admin and active_ym else url_for('carrier_curso.index', nuevo=1) }}">Nuevo expediente</a>
   </div>
 </section>
 
@@ -25,9 +26,15 @@
   </div>
 </section>
 
+{% if workspace is none %}
+<section class="panel carrier-intro-panel">
+  <p class="helper">Abre o crea un expediente para cargar la constancia IMSS, anexos y exportar el PDF. El <strong>mes base</strong> del expediente nuevo es siempre el <strong>paquete vigente</strong> (regla operativa día 17 hábil).</p>
+</section>
+{% endif %}
+
 {% if stale_warning and active_ym %}
 <div class="flash flash-warning" role="status">
-  Sigues utilizando el pago del mes <strong>{{ active_ym }}</strong>. Revisa si corresponde actualizar al mes actual.
+  Estás consultando el paquete de <strong>{{ active_ym }}</strong>, distinto del <strong>paquete vigente</strong> ({{ operational_ym }}). Úsalo solo si aplica a tu revisión administrativa.
 </div>
 {% endif %}
 
@@ -50,10 +57,17 @@
     {% endif %}
   </div>
 
-  <p class="helper">Vigencia operativa del pago: hasta el día 17 del mes siguiente (o siguiente hábil si aplica). El <strong>paquete utilizable</strong> para usuarios normales sigue esa regla (no solo el mes calendario). Inhábiles: <code>{{ inhabiles_path }}</code></p>
+  <p class="helper">
+    <strong>Paquete vigente</strong> (mes de pago utilizable por defecto): <code>{{ operational_ym }}</code> ({{ operational_label }}).
+    {% if siguiente_ym %}
+    <strong>Siguiente</strong> (también utilizable/descargable según rol): <code>{{ siguiente_ym }}</code> ({{ siguiente_label }}).
+    {% endif %}
+    El <strong>tope</strong> de mes de pago utilizable hoy es <code>{{ cap_ym }}</code> (no se ofrece el mes calendario actual como paquete de pago).
+    Corte: día <strong>17 hábil</strong> del mes calendario en curso; si cae en inhábil, el siguiente hábil. Inhábiles: <code>{{ inhabiles_path }}</code>
+  </p>
 
   {% if not is_admin %}
-  <p class="carrier-paquete-actual-line"><strong>Paquete operativo vigente:</strong> <span class="carrier-paquete-tag">{{ operational_label }} ({{ operational_ym }})</span></p>
+  <p class="carrier-paquete-actual-line"><strong>Paquete vigente:</strong> <span class="carrier-paquete-tag">{{ operational_label }} ({{ operational_ym }})</span></p>
   {% endif %}
 
   {% set card = active_base if is_admin else operational_base %}
@@ -64,7 +78,7 @@
   <div class="carrier-paquete-card">
     <div class="carrier-paquete-card-head">
       <div>
-        <span class="carrier-paquete-card-title">Paquete base{% if is_admin %} seleccionado{% else %} actual{% endif %}</span>
+        <span class="carrier-paquete-card-title">Paquete base{% if is_admin %} seleccionado{% else %} vigente{% endif %}</span>
         <strong class="carrier-paquete-card-mes">{{ card_label }}</strong>
         <span class="helper carrier-paquete-meta">Código {{ card_ym }} · Actualizado {{ card.updated_at or '—' }}</span>
       </div>
@@ -93,7 +107,7 @@
   {% endif %}
 </section>
 
-<dialog id="carrier-paquete-modal" class="carrier-modal" data-is-admin="{{ '1' if is_admin else '0' }}" data-operational-ym="{{ operational_ym }}">
+<dialog id="carrier-paquete-modal" class="carrier-modal" data-is-admin="{{ '1' if is_admin else '0' }}" data-operational-ym="{{ operational_ym }}" data-cap-ym="{{ cap_ym }}">
   <form method="post" action="{{ url_for('carrier_curso.mensual_upload') }}" enctype="multipart/form-data" class="carrier-modal-form" id="carrier-paquete-form">
     <button type="button" class="carrier-modal-close" data-close-paquete-modal aria-label="Cerrar">&times;</button>
     <h3 class="carrier-modal-title">Guardar paquete mensual</h3>
@@ -136,12 +150,16 @@
   </form>
 </dialog>
 
-<section class="panel">
+{% if workspace %}
+{% include 'carrier/_cursos_workspace.html' %}
+{% endif %}
+
+<section class="panel carrier-recent-panel">
   <div class="panel-head">
-    <h3>Expedientes</h3>
-    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) if is_admin else url_for('carrier_curso.expediente_nuevo') }}">Nuevo expediente</a>
+    <h3>Historial reciente de expedientes</h3>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Ver historial completo</a>
   </div>
-  {% if expedientes %}
+  {% if recent_expedientes %}
   <div class="table-wrap">
     <table>
       <thead>
@@ -153,19 +171,19 @@
         </tr>
       </thead>
       <tbody>
-        {% for e in expedientes %}
+        {% for e in recent_expedientes %}
         <tr>
           <td>{{ e.nombre_persona }}</td>
           <td>{{ e.base_year_month }}</td>
           <td>{{ e.updated_at }}</td>
-          <td><a href="{{ url_for('carrier_curso.expediente_edit', expediente_id=e.id) }}">Abrir</a></td>
+          <td><a href="{{ url_for('carrier_curso.index', e=e.id, mes=active_ym) if is_admin and active_ym else url_for('carrier_curso.index', e=e.id) }}">Abrir</a></td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% else %}
-  <p class="empty-state">Aún no hay expedientes. Crea uno para componer anexos y exportar PDF.</p>
+  <p class="empty-state">Aún no hay expedientes. Pulsa <strong>Nuevo expediente</strong> para abrir uno con el paquete vigente.</p>
   {% endif %}
 </section>
 {% endblock %}
