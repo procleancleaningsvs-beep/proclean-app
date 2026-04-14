@@ -1,0 +1,58 @@
+<div class="brand">
+  <a class="brand-link" href="{% if current_user.role == 'admin' %}{{ url_for('dashboard') }}{% else %}{{ url_for('home_usuario') }}{% endif %}">
+    <img class="brand-logo-icon" src="{{ url_for('static', filename='branding/proclean-isotype.png') }}" width="48" height="48" alt="">
+    <div class="brand-text">
+      <span class="brand-title">{{ app_name }}</span>
+      <p class="brand-tagline">Plataforma documental</p>
+    </div>
+  </a>
+</div>
+<nav class="nav" aria-label="Principal">
+  {% if current_user.role == 'admin' %}
+  <a href="{{ url_for('dashboard') }}" class="nav-link nav-link-home">Inicio</a>
+  {% else %}
+  <a href="{{ url_for('home_usuario') }}" class="nav-link nav-link-home">Inicio</a>
+  {% endif %}
+
+  <div class="nav-group">
+    <span class="nav-group-label">Movimientos IMSS</span>
+    <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo movimiento</a>
+    <a href="{{ url_for('historial') }}" class="nav-link">Historial de movimientos</a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Carrier</span>
+    <a href="{{ url_for('carrier_curso.index') }}" class="nav-link">Cursos</a>
+    <a href="{{ url_for('carrier_curso.historial_exportaciones') }}" class="nav-link">Historial Cursos</a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Vitroflex</span>
+    <a href="{{ url_for('vitroflex.memo_mensual') }}" class="nav-link">MEMO mensual</a>
+    <a href="{{ url_for('vitroflex.cr_mensual') }}" class="nav-link">CR mensual</a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Finiquitos</span>
+    <a href="{{ url_for('finiquitos.pagina_finiquito') }}" class="nav-link">Finiquito</a>
+    <a href="{{ url_for('finiquitos.pagina_historial') }}" class="nav-link">Historial finiquitos</a>
+  </div>
+
+  <div class="nav-group">
+    <span class="nav-group-label">Herramientas</span>
+    <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
+  </div>
+
+  {% if current_user.role == 'admin' %}
+  <div class="nav-group">
+    <span class="nav-group-label">Administración</span>
+    <a href="{{ url_for('admin_usuarios') }}" class="nav-link">Usuarios</a>
+  </div>
+  {% endif %}
+
+  <a href="{{ url_for('logout') }}" class="nav-link danger nav-link-logout">Cerrar sesión</a>
+</nav>
+<div class="user-box">
+  <strong>{{ current_user.username }}</strong>
+  <span>Rol: {{ current_user.role }}</span>
+</div>

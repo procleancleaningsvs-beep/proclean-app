@@ -44,7 +44,7 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos, replace_default_template
+from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
 from services.checkid_client import (
     CheckIDClient,
@@ -52,6 +52,7 @@ from services.checkid_client import (
     is_valid_checkid_term,
     normalize_termino_busqueda,
 )
+from services.app_activity import build_admin_dashboard, list_activity_feed, log_app_activity
 from services.checkid_history import (
     delete_checkid_query_by_id,
     find_checkid_history_match_by_rfc_curp,
@@ -175,6 +176,26 @@ def _safe_persist_checkid_history(termino_log: str, body: dict) -> None:
         persist_checkid_query(str(DB_PATH), g.user["id"], termino_log, body)
     except Exception:
         logger.exception("checkid_query_log persist failed")
+        return
+    try:
+        if body.get("ok"):
+            st = "ok"
+        elif body.get("internal"):
+            st = "fail"
+        else:
+            st = "error"
+        code = body.get("error_code")
+        ref = str(code) if code is not None else None
+        log_app_activity(
+            str(DB_PATH),
+            user_id=int(g.user["id"]),
+            module="checkid",
+            action="consulta",
+            status=st,
+            ref=ref,
+        )
+    except Exception:
+        logger.exception("activity log after checkid persist failed")
 
 
 def checkid_http_response(result: dict) -> tuple[dict, int]:
@@ -259,7 +280,7 @@ def create_app() -> Flask:
         if g.user:
             if g.user["role"] == "admin":
                 return redirect(url_for("dashboard"))
-            return redirect(url_for("nuevo_formato"))
+            return redirect(url_for("home_usuario"))
         return redirect(url_for("login"))
 
     @app.route("/login", methods=["GET", "POST"])
@@ -267,7 +288,7 @@ def create_app() -> Flask:
         if g.user:
             if g.user["role"] == "admin":
                 return redirect(url_for("dashboard"))
-            return redirect(url_for("nuevo_formato"))
+            return redirect(url_for("home_usuario"))
 
         if request.method == "POST":
             username = (request.form.get("username") or "").strip()
@@ -281,26 +302,64 @@ def create_app() -> Flask:
             session.clear()
             session["user_id"] = user["id"]
             flash(f"Bienvenido a {APP_NAME}, {user['username']}.", "success")
+            log_app_activity(
+                str(DB_PATH),
+                user_id=int(user["id"]),
+                module="auth",
+                action="login",
+                status="ok",
+                ref=None,
+                detail=None,
+            )
             if user["role"] == "admin":
                 return redirect(url_for("dashboard"))
-            return redirect(url_for("nuevo_formato"))
+            return redirect(url_for("home_usuario"))
 
         return render_template("login.html")
 
     @app.route("/logout")
     @login_required
     def logout():
+        uid = int(g.user["id"])
+        log_app_activity(str(DB_PATH), user_id=uid, module="auth", action="logout", status="ok")
         session.clear()
         flash("Sesión cerrada.", "success")
         return redirect(url_for("login"))
+
+    @app.route("/inicio")
+    @login_required
+    def home_usuario():
+        if g.user["role"] == "admin":
+            return redirect(url_for("dashboard"))
+        return render_template("home_usuario.html")
 
     @app.route("/dashboard")
     @login_required
     @role_required("admin")
     def dashboard():
-        stats = get_dashboard_stats()
-        recent_history = [_history_row_to_template_dict(r) for r in list_history(limit=5)]
-        return render_template("dashboard.html", stats=stats, recent_history=recent_history)
+        dash = build_admin_dashboard(str(DB_PATH))
+        recent_history = [_history_row_to_template_dict(r) for r in list_history(limit=8)]
+        desde = (request.args.get("desde") or "").strip()
+        hasta = (request.args.get("hasta") or "").strip()
+        modulo = (request.args.get("modulo") or "").strip()
+        usuario = (request.args.get("usuario") or "").strip()
+        since = f"{desde} 00:00:00" if desde else None
+        until = f"{hasta} 23:59:59" if hasta else None
+        activity_feed = list_activity_feed(
+            str(DB_PATH),
+            limit=150,
+            since=since,
+            until=until,
+            module=modulo or None,
+            username=usuario or None,
+        )
+        return render_template(
+            "dashboard.html",
+            dash=dash,
+            recent_history=recent_history,
+            activity_feed=activity_feed,
+            filtros={"desde": desde, "hasta": hasta, "modulo": modulo, "usuario": usuario},
+        )
 
     @app.route("/admin/diagnostico/persistencia", methods=["GET"])
     @login_required
@@ -391,6 +450,14 @@ def create_app() -> Flask:
                     lote=result["lote"],
                     movement_count=result["movimientos"],
                     payload_json=result["movimientos_data"],
+                )
+                log_app_activity(
+                    str(DB_PATH),
+                    user_id=int(g.user["id"]),
+                    module="movimientos_imss",
+                    action="generar_constancia",
+                    status="ok",
+                    ref=str(record_id),
                 )
                 popped = pop_return_expediente_id(session)
                 if popped is not None:
@@ -503,6 +570,14 @@ def create_app() -> Flask:
         if not removed:
             flash("Registro no encontrado.", "error")
         else:
+            log_app_activity(
+                str(DB_PATH),
+                user_id=int(g.user["id"]),
+                module="movimientos_imss",
+                action="eliminar_historial",
+                status="ok",
+                ref=str(record_id),
+            )
             flash("Registro eliminado del historial.", "success")
         return redirect(url_for("historial"))
 
@@ -539,6 +614,15 @@ def create_app() -> Flask:
                             role=role,
                             new_password=new_password if new_password.strip() else None,
                         )
+                        log_app_activity(
+                            str(DB_PATH),
+                            user_id=int(g.user["id"]),
+                            module="admin",
+                            action="actualizar_usuario",
+                            status="ok",
+                            ref=str(user_id),
+                            detail=username,
+                        )
                         flash(f"Usuario {username} actualizado.", "success")
                         return redirect(url_for("admin_usuarios"))
                     except sqlite3.IntegrityError:
@@ -558,6 +642,15 @@ def create_app() -> Flask:
                         generated_password = password
                     try:
                         create_user(username=username, password=password, role=role)
+                        log_app_activity(
+                            str(DB_PATH),
+                            user_id=int(g.user["id"]),
+                            module="admin",
+                            action="crear_usuario",
+                            status="ok",
+                            ref=username,
+                            detail=role,
+                        )
                         msg = f"Usuario {username} creado correctamente con rol {role}."
                         if generated_password:
                             msg += f" Contraseña generada: {generated_password}"
@@ -568,38 +661,6 @@ def create_app() -> Flask:
 
         users = list_users()
         return render_template("users.html", users=users)
-
-    @app.route("/admin/plantilla", methods=["GET", "POST"])
-    @login_required
-    @role_required("admin")
-    def admin_plantilla():
-        if request.method == "POST":
-            updated = []
-            for count, filename in TEMPLATE_FILENAMES.items():
-                incoming = request.files.get(f"template_docx_{count}")
-                if incoming and incoming.filename and incoming.filename.lower().endswith(".docx"):
-                    temp_path = INSTANCE_DIR / f"uploaded_template_{count}.docx"
-                    incoming.save(temp_path)
-                    replace_default_template(temp_path, DOCX_TEMPLATES_DIR / filename)
-                    temp_path.unlink(missing_ok=True)
-                    updated.append(filename)
-            if updated:
-                flash("Plantillas actualizadas: " + ", ".join(updated), "success")
-                return redirect(url_for("admin_plantilla"))
-            flash("Debes subir al menos una plantilla .docx válida.", "error")
-
-        template_info = []
-        for count, filename in TEMPLATE_FILENAMES.items():
-            path = DOCX_TEMPLATES_DIR / filename
-            template_info.append(
-                {
-                    "count": count,
-                    "filename": filename,
-                    "path": str(path),
-                    "modified": datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M") if path.exists() else "No disponible",
-                }
-            )
-        return render_template("template_admin.html", template_info=template_info)
 
     # --- Pruebas manuales CheckID (POST /api/checkid/buscar, sesión autenticada) ---
     # Sustituir HOST y COOKIE. No incluir ApiKey en el cuerpo; va por CHECKID_API_KEY.
@@ -648,6 +709,14 @@ def create_app() -> Flask:
         )
         termino_norm = normalize_termino_busqueda(termino)
         if not is_valid_checkid_term(termino_norm):
+            log_app_activity(
+                str(DB_PATH),
+                user_id=int(g.user["id"]),
+                module="checkid",
+                action="consulta",
+                status="fail",
+                ref="VALIDATION_VALUE",
+            )
             return jsonify(
                 {
                     "ok": False,
@@ -689,6 +758,15 @@ def create_app() -> Flask:
 
             hist_row_id = find_checkid_history_match_by_rfc_curp(str(DB_PATH), termino)
             if hist_row_id is not None:
+                log_app_activity(
+                    str(DB_PATH),
+                    user_id=int(g.user["id"]),
+                    module="checkid",
+                    action="consulta",
+                    status="ok",
+                    ref=f"history:{hist_row_id}",
+                    detail="cache_historial",
+                )
                 return jsonify(
                     {
                         "ok": True,
@@ -810,6 +888,14 @@ def create_app() -> Flask:
                 {"ok": False, "message": "No se pudo guardar la actualización en el historial."}
             ), 500
         updated = get_checkid_success_row_by_id(str(DB_PATH), int(entry_id))
+        log_app_activity(
+            str(DB_PATH),
+            user_id=int(g.user["id"]),
+            module="checkid",
+            action="actualizar_registro",
+            status="ok",
+            ref=str(entry_id),
+        )
         return jsonify(
             {
                 "ok": True,
@@ -824,6 +910,14 @@ def create_app() -> Flask:
     @role_required("admin")
     def api_checkid_historial_delete(entry_id: int):
         if delete_checkid_query_by_id(str(DB_PATH), entry_id):
+            log_app_activity(
+                str(DB_PATH),
+                user_id=int(g.user["id"]),
+                module="checkid",
+                action="eliminar_historial",
+                status="ok",
+                ref=str(entry_id),
+            )
             return jsonify({"ok": True}), 200
         return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
 
@@ -993,6 +1087,9 @@ def init_db() -> None:
             """
         )
         _migrate_checkid_query_log_schema(conn)
+        from services.app_activity import ensure_app_activity_schema
+
+        ensure_app_activity_schema(conn)
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
@@ -1214,24 +1311,6 @@ def get_history_record(record_id: int):
             """,
             (record_id,),
         ).fetchone()
-    finally:
-        conn.close()
-
-
-def get_dashboard_stats():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) AS total, COALESCE(SUM(movement_count), 0) AS movimientos FROM format_history"
-        ).fetchone()
-        users_total = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
-        return {
-            "formatos": row["total"],
-            "movimientos": row["movimientos"],
-            "usuarios": users_total,
-            "plantilla": "Set 1-4 movimientos",
-        }
     finally:
         conn.close()
 

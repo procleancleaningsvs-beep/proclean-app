@@ -1,10 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
 <section class="auth-card">
-  <div class="hero-copy">
+  <div class="hero-copy hero-copy-brand">
+    <img class="login-brand-logo" src="{{ url_for('static', filename='branding/proclean-logo-horizontal.png') }}" alt="ProClean Cleaning Services" width="280" height="auto" loading="lazy">
     <span class="eyebrow">Acceso seguro</span>
     <h2>Bienvenido a {{ app_name }}</h2>
-    <p>Constancias AFIL IMSS, herramientas (CheckID) e historial de movimientos en un solo lugar.</p>
+    <p>Constancias AFIL IMSS, herramientas (CheckID), finiquitos, Vitroflex y expedientes de Cursos en un solo lugar.</p>
   </div>
   <form method="post" class="form-card compact-form">
     <label>Usuario

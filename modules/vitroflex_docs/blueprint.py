@@ -12,6 +12,7 @@ from flask import (
     Blueprint,
     Response,
     abort,
+    current_app,
     g,
     jsonify,
     redirect,
@@ -26,6 +27,7 @@ from modules.vitroflex_docs.dates import default_fecha_linea, linea_fecha_docume
 from modules.vitroflex_docs.excel_import import parse_excel_bytes
 from modules.vitroflex_docs.libreoffice_pdf import docx_bytes_to_pdf_bytes, resolve_soffice_path
 from modules.vitroflex_docs.template_paths import CR_DOCX, MEMO_DOCX
+from services.app_activity import log_app_activity
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "vitroflex_docs"
@@ -247,10 +249,36 @@ def api_generate_pdf():
             out_bytes = docx_bytes
             mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except RuntimeError as exc:
+        log_app_activity(
+            str(current_app.config["DATABASE"]),
+            user_id=int(g.user["id"]),
+            module=f"vitroflex_{kind}",
+            action="generar_documento",
+            status="fail",
+            ref="RuntimeError",
+            detail=str(exc)[:500],
+        )
         return jsonify({"ok": False, "error": str(exc)}), 503
     except Exception as exc:
+        log_app_activity(
+            str(current_app.config["DATABASE"]),
+            user_id=int(g.user["id"]),
+            module=f"vitroflex_{kind}",
+            action="generar_documento",
+            status="error",
+            ref=type(exc).__name__,
+            detail=str(exc)[:500],
+        )
         return jsonify({"ok": False, "error": f"Error al generar documento: {exc}"}), 500
 
+    log_app_activity(
+        str(current_app.config["DATABASE"]),
+        user_id=int(g.user["id"]),
+        module=f"vitroflex_{kind}",
+        action="generar_documento",
+        status="ok",
+        ref=filename[:200],
+    )
     cd = f'{disp}; filename="{filename}"'
     return Response(
         out_bytes,

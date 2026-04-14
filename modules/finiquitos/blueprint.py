@@ -32,6 +32,7 @@ from modules.finiquitos.edicion_libre_finiquito import apply_desglose_manual, va
 from modules.finiquitos.excel_mirror_fecha_ingreso import buscar_fecha_ingreso_headcount_onedrive
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
+from services.app_activity import log_app_activity
 from services.finiquitos_history import (
     delete_finiquito_history,
     ensure_finiquitos_tables,
@@ -604,6 +605,14 @@ def api_pdf():
         pdf_path=pdf_path,
         pdf_filename=fname,
     )
+    log_app_activity(
+        str(current_app.config["DATABASE"]),
+        user_id=int(g.user["id"]),
+        module="finiquitos",
+        action="generar_pdf",
+        status="ok",
+        ref=str(rid),
+    )
     resp = Response(
         pdf_b,
         mimetype="application/pdf",
@@ -692,6 +701,14 @@ def api_historial_finiquito():
         pdf_path=pdf_path,
         pdf_filename=pdf_fn,
     )
+    log_app_activity(
+        str(current_app.config["DATABASE"]),
+        user_id=int(g.user["id"]),
+        module="finiquitos",
+        action="guardar_historial",
+        status="ok",
+        ref=str(rid),
+    )
     return jsonify({"ok": True, "id": rid})
 
 
@@ -740,6 +757,14 @@ def api_historial_registro(hid: int):
         pdf_p = _resolved_pdf_path_if_safe(row["pdf_path"], gen)
         if not delete_finiquito_history(str(current_app.config["DATABASE"]), hid):
             return jsonify({"ok": False, "error": "No se pudo eliminar."}), 500
+        log_app_activity(
+            str(current_app.config["DATABASE"]),
+            user_id=int(g.user["id"]),
+            module="finiquitos",
+            action="eliminar_historial",
+            status="ok",
+            ref=str(hid),
+        )
         if pdf_p and pdf_p.is_file():
             try:
                 pdf_p.unlink()

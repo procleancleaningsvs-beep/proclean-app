@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="welcome-hero panel">
+  <div class="welcome-hero-inner">
+    <img class="welcome-logo" src="{{ url_for('static', filename='branding/proclean-logo-horizontal.png') }}" alt="ProClean Cleaning Services" width="320" height="auto" loading="lazy">
+    <h2 class="welcome-title">Hola, {{ current_user.username }}</h2>
+    <p class="welcome-lead">Elige un módulo para continuar. Aquí tienes accesos directos a las herramientas que usas con más frecuencia.</p>
+  </div>
+</section>
+
+<section class="welcome-shortcuts">
+  <h3 class="welcome-shortcuts-title">Accesos rápidos</h3>
+  <div class="welcome-grid">
+    <a class="welcome-card" href="{{ url_for('nuevo_formato') }}">
+      <span class="welcome-card-label">Movimientos IMSS</span>
+      <span class="welcome-card-action">Nuevo movimiento</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('historial') }}">
+      <span class="welcome-card-label">Movimientos IMSS</span>
+      <span class="welcome-card-action">Historial</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('carrier_curso.index') }}">
+      <span class="welcome-card-label">Carrier</span>
+      <span class="welcome-card-action">Cursos</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('vitroflex.memo_mensual') }}">
+      <span class="welcome-card-label">Vitroflex</span>
+      <span class="welcome-card-action">MEMO mensual</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('vitroflex.cr_mensual') }}">
+      <span class="welcome-card-label">Vitroflex</span>
+      <span class="welcome-card-action">CR mensual</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('finiquitos.pagina_finiquito') }}">
+      <span class="welcome-card-label">Finiquitos</span>
+      <span class="welcome-card-action">Calcular finiquito</span>
+    </a>
+    <a class="welcome-card" href="{{ url_for('checkid_consulta') }}">
+      <span class="welcome-card-label">Herramientas</span>
+      <span class="welcome-card-action">CheckID</span>
+    </a>
+  </div>
+</section>
+{% endblock %}

@@ -72,6 +72,7 @@ from modules.carrier.paquete_mes import (
     ym_to_str as paquete_ym_to_str,
 )
 from modules.carrier.pdf_merge import write_merged_pdf
+from services.app_activity import log_app_activity
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "carrier"
@@ -1107,6 +1108,14 @@ def expediente_export(expediente_id: int):
         pdf_display_name=pdf_display_name,
         alta_format_history_id=row.alta_format_history_id,
     )
+    log_app_activity(
+        db_path,
+        user_id=int(g.user["id"]),
+        module="carrier_cursos",
+        action="exportar_pdf",
+        status="ok",
+        ref=f"exp:{expediente_id}",
+    )
 
     flash("PDF del expediente generado y guardado en el historial de Cursos.", "success")
     return send_file(out_path, as_attachment=True, download_name=pdf_display_name)
@@ -1139,6 +1148,14 @@ def historial_borrar_export(log_id: int):
         abort(404)
     path = _storage_root() / log.pdf_stored_relpath
     delete_carrier_curso_export_log(db_path, log_id)
+    log_app_activity(
+        db_path,
+        user_id=int(g.user["id"]),
+        module="carrier_cursos",
+        action="eliminar_export",
+        status="ok",
+        ref=str(log_id),
+    )
     if path.is_file():
         try:
             path.unlink()
