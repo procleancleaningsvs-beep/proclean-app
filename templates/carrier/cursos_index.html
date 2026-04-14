@@ -1,8 +1,8 @@
 {% extends 'base.html' %}
 {% block extra_head %}
 {% if workspace %}
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script defer src="{{ url_for('static', filename='carrier_sheet_editor.js') }}"></script>
 {% endif %}
 <script defer src="{{ url_for('static', filename='carrier_paquete.js') }}"></script>
 <script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>

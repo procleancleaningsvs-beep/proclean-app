@@ -895,7 +895,6 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   width: 100%;
   height: 100%;
   box-sizing: border-box;
-  transition: transform 0.1s ease;
 }
 .carrier-doc-sheet-inner--ine {
   display: flex;
@@ -906,7 +905,7 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
 .carrier-ine-canvas {
   flex: 1;
   min-width: 0;
-  min-height: 0;
+  min-height: 220px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -914,6 +913,37 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   border: 1px dashed #e2e8f0;
   border-radius: 8px;
   overflow: hidden;
+}
+.carrier-fabric-host {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+.carrier-fabric-host .canvas-container {
+  max-width: 100%;
+}
+.carrier-fabric-host canvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.carrier-sheet-crop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.carrier-imss-pick-inner {
+  max-width: 420px;
+}
+.carrier-imss-pick-form .carrier-imss-pick-select {
+  width: 100%;
+  margin-top: 6px;
+}
+.carrier-imss-pick-footer {
+  margin-top: 14px;
 }
 .carrier-doc-sheet-inner--single {
   display: flex;
@@ -945,9 +975,6 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   color: var(--muted);
   font-size: 0.9rem;
   text-align: center;
-}
-.carrier-doc-sheet .cropper-container {
-  max-height: 52vh;
 }
 .carrier-constancia-modo-row {
   display: flex;

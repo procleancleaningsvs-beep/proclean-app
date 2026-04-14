@@ -126,9 +126,10 @@
     });
   })();
 
-  /* ——— Historial IMSS ——— */
+  /* ——— Historial IMSS (misma fuente que Movimientos IMSS: sin filtro por usuario) ——— */
   (function imssModal() {
     const dlg = document.getElementById("carrier-vincular-imss-modal");
+    const pickDlg = document.getElementById("carrier-imss-pick-modal");
     if (!dlg || !imssJsonUrl) return;
 
     const tbody = document.getElementById("carrier-imss-tbody");
@@ -139,6 +140,9 @@
     const prevBtn = document.getElementById("carrier-imss-prev");
     const nextBtn = document.getElementById("carrier-imss-next");
     const pageLabel = document.getElementById("carrier-imss-page-label");
+    const pickForm = document.getElementById("carrier-imss-pick-form");
+    const pickFid = document.getElementById("carrier-imss-pick-fid");
+    const pickSelect = document.getElementById("carrier-imss-pick-select");
 
     let page = 1;
     let perPage = 12;
@@ -152,9 +156,33 @@
       return "/carrier/cursos/expediente/" + encodeURIComponent(expedienteId) + "/vincular-formato";
     }
 
+    function openPickModal(rec) {
+      if (!pickDlg || !pickForm || !pickFid || !pickSelect) return;
+      pickForm.action = vincUrl();
+      pickFid.value = String(rec.id);
+      pickSelect.innerHTML = "";
+      const names = rec.nombres && rec.nombres.length ? rec.nombres : [];
+      const n = Math.max(1, parseInt(rec.movement_count, 10) || 1);
+      for (let i = 0; i < n; i++) {
+        const opt = document.createElement("option");
+        opt.value = String(i);
+        opt.textContent = names[i] != null && String(names[i]).trim() ? String(names[i]) : "Movimiento " + (i + 1);
+        pickSelect.appendChild(opt);
+      }
+      if (pickDlg.showModal) pickDlg.showModal();
+    }
+
+    if (pickDlg) {
+      pickDlg.querySelectorAll("[data-imss-pick-close]").forEach(function (x) {
+        x.addEventListener("click", function () {
+          pickDlg.close();
+        });
+      });
+    }
+
     async function load() {
       if (!tbody) return;
-      tbody.innerHTML = '<tr><td colspan="4" class="carrier-imss-loading">Cargando…</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="5" class="carrier-imss-loading">Cargando…</td></tr>';
       const u = new URL(imssJsonUrl, window.location.origin);
       u.searchParams.set("page", String(page));
       u.searchParams.set("per_page", String(perPage));
@@ -189,76 +217,53 @@
           const tr = document.createElement("tr");
           const folioLote = [rec.folio, rec.lote].filter(Boolean).join(" · ");
           const sub = folioLote ? '<br><span class="helper">' + esc(folioLote) + "</span>" : "";
+          const can = rec.can_vincular !== false;
+          const multi = (parseInt(rec.movement_count, 10) || 0) > 1;
           tr.innerHTML =
             "<td>" +
             esc(rec.created_at) +
             '</td><td class="history-cell-wrap">' +
             esc(rec.filename) +
             sub +
+            '</td><td class="history-cell-wrap">' +
+            esc(rec.username || "") +
             "</td><td>" +
             esc(String(rec.movement_count)) +
             '</td><td class="carrier-imss-actions-cell"></td>';
           const cell = tr.querySelector(".carrier-imss-actions-cell");
-          if (rec.movement_count > 1) {
-            const b = document.createElement("button");
-            b.type = "button";
-            b.className = "btn btn-secondary btn-sm";
-            b.textContent = "Elegir persona…";
-            b.setAttribute("data-imss-expand", String(rec.id));
-            cell.appendChild(b);
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "btn btn-primary btn-sm";
+          b.textContent = "Vincular";
+          if (!can) {
+            b.disabled = true;
+            b.title = "Solo puedes vincular constancias generadas con tu usuario.";
+          } else if (multi) {
+            b.addEventListener("click", function () {
+              openPickModal(rec);
+            });
           } else {
-            const f = document.createElement("form");
-            f.method = "post";
-            f.action = vincUrl();
-            f.className = "carrier-vincular-inline-form";
-            f.innerHTML =
-              '<input type="hidden" name="format_history_id" value="' +
-              esc(String(rec.id)) +
-              '">' +
-              '<input type="hidden" name="movimiento_idx" value="0">' +
-              '<button type="submit" class="btn btn-primary btn-sm">Vincular</button>';
-            cell.appendChild(f);
+            b.addEventListener("click", function () {
+              const f = document.createElement("form");
+              f.method = "post";
+              f.action = vincUrl();
+              f.style.display = "none";
+              f.innerHTML =
+                '<input type="hidden" name="format_history_id" value="' +
+                esc(String(rec.id)) +
+                '"><input type="hidden" name="movimiento_idx" value="0">';
+              document.body.appendChild(f);
+              f.submit();
+            });
           }
+          cell.appendChild(b);
           tbody.appendChild(tr);
-
-          if (rec.movement_count > 1) {
-            const tr2 = document.createElement("tr");
-            tr2.className = "carrier-imss-detail";
-            tr2.hidden = true;
-            tr2.id = "carrier-imss-detail-" + rec.id;
-            const opts = (rec.nombres || [])
-              .map(function (n, i) {
-                return '<option value="' + i + '">' + esc(n) + "</option>";
-              })
-              .join("");
-            tr2.innerHTML =
-              '<td colspan="4"><form method="post" action="' +
-              vincUrl() +
-              '" class="carrier-imss-expand-form">' +
-              '<input type="hidden" name="format_history_id" value="' +
-              esc(String(rec.id)) +
-              '">' +
-              '<label class="carrier-inline-label">Persona para este expediente<select name="movimiento_idx" required>' +
-              opts +
-              "</select></label> " +
-              '<button type="submit" class="btn btn-primary btn-sm">Vincular esta persona</button></form></td>';
-            tbody.appendChild(tr2);
-          }
         });
       } catch (e) {
         tbody.innerHTML =
-          '<tr><td colspan="4" class="carrier-imss-err">No se pudo cargar el historial.</td></tr>';
+          '<tr><td colspan="5" class="carrier-imss-err">No se pudo cargar el historial.</td></tr>';
       }
     }
-
-    dlg.addEventListener("click", function (ev) {
-      const t = ev.target;
-      if (t && t.getAttribute && t.getAttribute("data-imss-expand")) {
-        const id = t.getAttribute("data-imss-expand");
-        const row = document.getElementById("carrier-imss-detail-" + id);
-        if (row) row.hidden = !row.hidden;
-      }
-    });
 
     function openDlg() {
       page = 1;
@@ -305,7 +310,7 @@
     }
   })();
 
-  /* ——— Hoja: edición guardada + subida nueva (misma UX) ——— */
+  /* ——— Hoja: Fabric.js (colocación con manijas; recorte en modo aparte) ——— */
   (function sheetStudio() {
     const modal = document.getElementById("carrier-sheet-modal");
     const sheet = document.getElementById("carrier-doc-sheet");
@@ -316,138 +321,130 @@
     const scaleVal = document.getElementById("carrier-sheet-scale-val");
     const saveBtn = document.getElementById("carrier-sheet-save");
     const uploadBtn = document.getElementById("carrier-sheet-confirm-upload");
+    const cropActions = document.getElementById("carrier-sheet-crop-actions");
+    const cropApply = document.getElementById("carrier-sheet-crop-apply");
+    const cropCancel = document.getElementById("carrier-sheet-crop-cancel");
     if (!modal || !sheet || !slotMetaUrl) return;
 
-    let croppers = {};
-    const cropperPhases = {};
-    const slotHosts = {};
-    const slotNormCache = {};
+    const fabricEditors = {};
     let activeSlots = [];
     let scaleWrapEl = null;
     let uploadState = null;
     let editMode = null;
     let uploadPdfOnly = false;
+    let ineSharedScale = 1;
+    let cropActiveEditor = null;
+    let cropBtnsWired = false;
 
-    function destroyAllCroppers() {
-      Object.keys(croppers).forEach(function (k) {
+    function clampScale(u) {
+      const x = Number(u) || 1;
+      return Math.max(0.25, Math.min(3, x));
+    }
+
+    function syncSliderLabel(u) {
+      if (scaleVal) scaleVal.textContent = Math.round(u * 100) + "%";
+    }
+
+    function updateCropUi() {
+      let any = false;
+      Object.keys(fabricEditors).forEach(function (k) {
+        if (fabricEditors[k] && fabricEditors[k].isCropMode()) any = true;
+      });
+      if (cropActions) cropActions.hidden = !any;
+      if (!modeBanner) return;
+      if (uploadPdfOnly) return;
+      if (any) {
+        modeBanner.hidden = false;
+        modeBanner.textContent =
+          "Modo recorte: el marco azul es independiente de la imagen. Ajusta y pulsa «Aplicar recorte», doble clic en la hoja, o ESC / «Cancelar».";
+      } else {
+        modeBanner.hidden = true;
+        modeBanner.textContent = "";
+      }
+    }
+
+    function destroyAllFabric() {
+      Object.keys(fabricEditors).forEach(function (k) {
         try {
-          croppers[k].destroy();
+          fabricEditors[k].dispose();
         } catch (e) {
           /* ignore */
         }
-        delete croppers[k];
-        delete cropperPhases[k];
-        delete slotHosts[k];
+        delete fabricEditors[k];
       });
-    }
-
-    function cropNormFromCropper(cp) {
-      if (!cp) return "[0,0,1,1]";
-      const d = cp.getData();
-      const imgData = cp.getImageData();
-      const nw = imgData.naturalWidth;
-      const nh = imgData.naturalHeight;
-      if (!(nw > 0 && nh > 0 && d && typeof d.x === "number")) return "[0,0,1,1]";
-      const x0 = Math.max(0, Math.min(1, d.x / nw));
-      const y0 = Math.max(0, Math.min(1, d.y / nh));
-      const x1 = Math.max(0, Math.min(1, (d.x + d.width) / nw));
-      const y1 = Math.max(0, Math.min(1, (d.y + d.height) / nh));
-      return JSON.stringify([x0, y0, x1, y1]);
-    }
-
-    function applyNormToCropper(cp, norm) {
-      if (!cp || !norm || norm.length !== 4) return;
-      const imgData = cp.getImageData();
-      const nw = imgData.naturalWidth;
-      const nh = imgData.naturalHeight;
-      if (!(nw > 0 && nh > 0)) return;
-      cp.setData({
-        x: norm[0] * nw,
-        y: norm[1] * nh,
-        width: (norm[2] - norm[0]) * nw,
-        height: (norm[3] - norm[1]) * nh,
-      });
-    }
-
-    function makeCropper(img, phase) {
-      const layout = phase === "layout";
-      return new window.Cropper(img, {
-        viewMode: 1,
-        dragMode: layout ? "move" : "crop",
-        autoCropArea: 1,
-        movable: true,
-        scalable: layout,
-        zoomable: true,
-        zoomOnWheel: true,
-        wheelZoomRatio: layout ? 0.12 : 0.08,
-        cropBoxMovable: !layout,
-        cropBoxResizable: !layout,
-        guides: true,
-        center: true,
-        background: true,
-        highlight: !layout,
-        toggleDragModeOnDblclick: false,
-      });
-    }
-
-    function updateModeBanner(slot) {
-      if (!modeBanner) return;
-      const ph = cropperPhases[slot] || "layout";
-      if (uploadPdfOnly || !croppers[slot]) {
+      cropActiveEditor = null;
+      if (cropActions) cropActions.hidden = true;
+      if (modeBanner && !uploadPdfOnly) {
         modeBanner.hidden = true;
         modeBanner.textContent = "";
-        return;
-      }
-      if (ph === "crop") {
-        modeBanner.hidden = false;
-        modeBanner.textContent =
-          "Modo recorte activo: ajusta el marco sobre la imagen. Doble clic de nuevo para volver a colocación (mover y escalar sin recortar píxeles).";
-      } else {
-        modeBanner.hidden = false;
-        modeBanner.textContent =
-          "Colocación: mueve la imagen y escálala (esquinas del lienzo o rueda). Doble clic para entrar al modo recorte de píxeles.";
       }
     }
 
-    function togglePhaseForSlot(slot) {
-      const cp = croppers[slot];
-      const host = slotHosts[slot];
-      if (!cp || !host || !window.Cropper) return;
-      const cur = cropperPhases[slot] || "layout";
-      try {
-        slotNormCache[slot] = JSON.parse(cropNormFromCropper(cp));
-      } catch (e) {
-        slotNormCache[slot] = [0, 0, 1, 1];
-      }
-      const next = cur === "layout" ? "crop" : "layout";
-      const img = cp.image;
-      cp.destroy();
-      delete croppers[slot];
-      croppers[slot] = makeCropper(img, next);
-      cropperPhases[slot] = next;
-      try {
-        applyNormToCropper(croppers[slot], slotNormCache[slot] || [0, 0, 1, 1]);
-      } catch (e) {
-        /* ignore */
-      }
-      updateModeBanner(slot);
-    }
-
-    function bindSlotInteractions(slot, img) {
-      img.addEventListener("dblclick", function (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        togglePhaseForSlot(slot);
+    function wireCropButtonsOnce() {
+      if (cropBtnsWired || !cropApply || !cropCancel) return;
+      cropBtnsWired = true;
+      cropApply.addEventListener("click", function () {
+        if (cropActiveEditor) cropActiveEditor.applyCrop();
+      });
+      cropCancel.addEventListener("click", function () {
+        if (cropActiveEditor) cropActiveEditor.cancelCrop();
       });
     }
+    wireCropButtonsOnce();
 
-    function updateScaleVisual() {
-      const v = scaleSlider ? (parseInt(scaleSlider.value, 10) || 100) / 100 : 1;
-      if (scaleVal) scaleVal.textContent = Math.round(v * 100) + "%";
-      if (scaleWrapEl) {
-        scaleWrapEl.style.transform = "scale(" + v + ")";
-        scaleWrapEl.style.transformOrigin = "center center";
+    function mountFabricInContainer(container, slot, imageUrl, meta) {
+      if (fabricEditors[slot]) {
+        try {
+          fabricEditors[slot].dispose();
+        } catch (e) {
+          /* ignore */
+        }
+        delete fabricEditors[slot];
       }
+      if (!window.CarrierFabricLetter) {
+        const ph = document.createElement("div");
+        ph.className = "carrier-ine-placeholder";
+        ph.textContent = "No se cargó Fabric.js; recarga la página.";
+        container.appendChild(ph);
+        return;
+      }
+      const host = document.createElement("div");
+      host.className = "carrier-fabric-host";
+      container.appendChild(host);
+      const ed = window.CarrierFabricLetter.create(host, {
+        onUserScale: function (u) {
+          const v = clampScale(u);
+          ineSharedScale = v;
+          if (editMode === "ine") {
+            activeSlots.forEach(function (s) {
+              if (fabricEditors[s] && s !== slot) fabricEditors[s].applyUserScale(ineSharedScale);
+            });
+          }
+          if (scaleSlider) scaleSlider.value = String(Math.round(ineSharedScale * 100));
+          syncSliderLabel(ineSharedScale);
+        },
+        onCropMode: function (on, _ed) {
+          cropActiveEditor = on ? fabricEditors[slot] : null;
+          updateCropUi();
+        },
+        onReady: function () {
+          if (editMode === "ine") {
+            const first = activeSlots[0];
+            if (first && fabricEditors[first]) {
+              ineSharedScale = fabricEditors[first].getUserScale();
+              activeSlots.forEach(function (s) {
+                if (fabricEditors[s]) fabricEditors[s].applyUserScale(ineSharedScale);
+              });
+            }
+          } else if (fabricEditors[slot]) {
+            ineSharedScale = fabricEditors[slot].getUserScale();
+          }
+          if (scaleSlider) scaleSlider.value = String(Math.round(ineSharedScale * 100));
+          syncSliderLabel(ineSharedScale);
+        },
+      });
+      fabricEditors[slot] = ed;
+      ed.mount(imageUrl, meta || {});
     }
 
     function initImageSlot(container, slot, st) {
@@ -458,50 +455,14 @@
         container.appendChild(ph);
         return;
       }
-      const wrap = document.createElement("div");
-      wrap.className = "carrier-slot-visual-wrap";
-      const img = document.createElement("img");
-      img.className = "carrier-sheet-slot-img";
-      img.alt = slot;
-      img.src = st.preview_url + "?t=" + Date.now();
-      wrap.appendChild(img);
-      container.appendChild(wrap);
-      slotHosts[slot] = container;
-
-      img.addEventListener("load", function () {
-        if (typeof window.Cropper !== "function") return;
-        croppers[slot] = makeCropper(img, "layout");
-        cropperPhases[slot] = "layout";
-        if (st.crop_norm && Array.isArray(st.crop_norm) && st.crop_norm.length === 4) {
-          try {
-            applyNormToCropper(croppers[slot], st.crop_norm.map(Number));
-            slotNormCache[slot] = st.crop_norm.map(Number);
-          } catch (e) {
-            /* ignore */
-          }
-        }
-        bindSlotInteractions(slot, img);
-        updateModeBanner(slot);
+      mountFabricInContainer(container, slot, st.preview_url + "?t=" + Date.now(), {
+        crop_norm: st.crop_norm,
+        render_scale: st.render_scale,
       });
     }
 
     function initUploadImageSlot(container, slot, blobUrl) {
-      const wrap = document.createElement("div");
-      wrap.className = "carrier-slot-visual-wrap";
-      const img = document.createElement("img");
-      img.className = "carrier-sheet-slot-img";
-      img.alt = slot;
-      img.src = blobUrl;
-      wrap.appendChild(img);
-      container.appendChild(wrap);
-      slotHosts[slot] = container;
-      img.addEventListener("load", function () {
-        if (typeof window.Cropper !== "function") return;
-        croppers[slot] = makeCropper(img, "layout");
-        cropperPhases[slot] = "layout";
-        bindSlotInteractions(slot, img);
-        updateModeBanner(slot);
-      });
+      mountFabricInContainer(container, slot, blobUrl, {});
     }
 
     function setFooterEdit() {
@@ -516,16 +477,36 @@
       if (uploadBtn) uploadBtn.hidden = false;
     }
 
+    function applyScaleSliderToFabric() {
+      const raw = scaleSlider ? parseInt(String(scaleSlider.value), 10) : 100;
+      const v = clampScale((raw || 100) / 100);
+      ineSharedScale = v;
+      syncSliderLabel(v);
+      if (editMode === "ine") {
+        activeSlots.forEach(function (s) {
+          if (fabricEditors[s]) fabricEditors[s].applyUserScale(ineSharedScale);
+        });
+      } else if (activeSlots.length === 1 && fabricEditors[activeSlots[0]]) {
+        fabricEditors[activeSlots[0]].applyUserScale(ineSharedScale);
+      }
+    }
+
+    function updatePdfScaleVisual() {
+      const v = scaleSlider ? (parseInt(scaleSlider.value, 10) || 100) / 100 : 1;
+      if (scaleVal) scaleVal.textContent = Math.round(v * 100) + "%";
+      if (scaleWrapEl) {
+        scaleWrapEl.style.transform = "scale(" + v + ")";
+        scaleWrapEl.style.transformOrigin = "center center";
+      }
+    }
+
     function openEditor(mode) {
       setFooterEdit();
       editMode = mode;
       const slotsState = readSlotsState();
-      destroyAllCroppers();
+      destroyAllFabric();
       sheet.innerHTML = "";
       activeSlots = [];
-      Object.keys(slotNormCache).forEach(function (k) {
-        delete slotNormCache[k];
-      });
 
       const inner = document.createElement("div");
       inner.className = "carrier-doc-sheet-inner";
@@ -536,7 +517,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — INE (misma hoja)";
         if (hintEl) {
           hintEl.textContent =
-            "Misma composición que el PDF final. Doble clic en cada imagen alterna colocación / recorte.";
+            "Misma composición que el PDF final. Cada lado se edita aparte; la escala del control aplica a ambos. Doble clic en una imagen entra al recorte (marco azul).";
         }
         inner.classList.add("carrier-doc-sheet-inner--ine");
         const L = document.createElement("div");
@@ -561,7 +542,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — " + (labels[mode] || mode);
         if (hintEl) {
           hintEl.textContent =
-            "Misma hoja que en el PDF. Colocación por defecto; doble clic en la imagen para modo recorte.";
+            "Hoja carta como en el PDF. Selecciona la imagen y usa las manijas; doble clic = modo recorte (marco aparte).";
         }
         inner.classList.add("carrier-doc-sheet-inner--single");
         const box = document.createElement("div");
@@ -582,8 +563,8 @@
           ? slotsState[mode].render_scale
           : null;
       const pct = rs0 ? Math.round(Number(rs0) * 100) : 100;
-      if (scaleSlider) scaleSlider.value = String(Math.max(70, Math.min(130, pct)));
-      updateScaleVisual();
+      if (scaleSlider) scaleSlider.value = String(Math.max(25, Math.min(300, pct)));
+      applyScaleSliderToFabric();
       modal.showModal();
     }
 
@@ -591,12 +572,9 @@
       setFooterUpload();
       editMode = null;
       uploadState = { slot: detail.slot, file: detail.file, uploadUrl: detail.uploadUrl };
-      destroyAllCroppers();
+      destroyAllFabric();
       sheet.innerHTML = "";
       activeSlots = [];
-      Object.keys(slotNormCache).forEach(function (k) {
-        delete slotNormCache[k];
-      });
 
       const inner = document.createElement("div");
       inner.className = "carrier-doc-sheet-inner carrier-doc-sheet-inner--single";
@@ -614,7 +592,8 @@
         if (hintEl) hintEl.textContent = "PDF: ajusta la escala con el control inferior. Se subirá el archivo completo.";
         if (modeBanner) {
           modeBanner.hidden = false;
-          modeBanner.textContent = "Vista previa del PDF en la hoja (primera página como referencia visual en exportación se aplica al rasterizar).";
+          modeBanner.textContent =
+            "Vista previa del PDF en la hoja (primera página como referencia visual en exportación se aplica al rasterizar).";
         }
         const url = URL.createObjectURL(f);
         const iframe = document.createElement("iframe");
@@ -627,7 +606,7 @@
         uploadPdfOnly = false;
         if (hintEl) {
           hintEl.textContent =
-            "Misma experiencia que “Vista previa / editar”: colocación (mover y escalar) por defecto; doble clic = recorte de píxeles.";
+            "Misma experiencia que «Vista previa / editar»: manijas para escalar, arrastre para mover; doble clic = recorte.";
         }
         const url = URL.createObjectURL(f);
         initUploadImageSlot(box, detail.slot, url);
@@ -635,7 +614,8 @@
       }
 
       if (scaleSlider) scaleSlider.value = "100";
-      updateScaleVisual();
+      if (uploadPdfOnly) updatePdfScaleVisual();
+      else applyScaleSliderToFabric();
       modal.showModal();
     }
 
@@ -646,7 +626,10 @@
     });
 
     if (scaleSlider) {
-      scaleSlider.addEventListener("input", updateScaleVisual);
+      scaleSlider.addEventListener("input", function () {
+        if (uploadPdfOnly) updatePdfScaleVisual();
+        else applyScaleSliderToFabric();
+      });
     }
 
     document.querySelectorAll("[data-open-sheet-editor]").forEach(function (btn) {
@@ -659,13 +642,14 @@
 
     function closeSheet() {
       modal.close();
-      destroyAllCroppers();
+      destroyAllFabric();
       sheet.innerHTML = "";
       scaleWrapEl = null;
       if (modeBanner) {
         modeBanner.hidden = true;
         modeBanner.textContent = "";
       }
+      if (cropActions) cropActions.hidden = true;
     }
 
     document.querySelectorAll("[data-sheet-close]").forEach(function (b) {
@@ -674,23 +658,27 @@
 
     if (saveBtn) {
       saveBtn.addEventListener("click", async function () {
-        const scaleV = scaleSlider ? parseInt(scaleSlider.value, 10) || 100 : 100;
-        const rs = scaleV === 100 ? "" : String(scaleV / 100);
         const headers = {
           "Content-Type": "application/x-www-form-urlencoded",
           "X-Carrier-Xhr": "1",
         };
         try {
+          const rsIne =
+            editMode === "ine" && activeSlots.length && fabricEditors[activeSlots[0]]
+              ? fabricEditors[activeSlots[0]].getRenderScaleForSave()
+              : null;
           for (let i = 0; i < activeSlots.length; i++) {
             const slot = activeSlots[i];
-            const cp = croppers[slot];
-            if (!cp) {
+            const ed = fabricEditors[slot];
+            if (!ed) {
               alert("Espera a que carguen las imágenes de la vista previa antes de guardar.");
               return;
             }
             const body = new URLSearchParams();
             body.set("slot", slot);
-            body.set("crop_norm_json", cropNormFromCropper(cp));
+            body.set("crop_norm_json", ed.getCropNormJson());
+            const rs =
+              editMode === "ine" && rsIne !== null && rsIne !== undefined ? rsIne : ed.getRenderScaleForSave();
             body.set("render_scale", rs);
             const res = await fetch(slotMetaUrl, { method: "POST", headers: headers, body: body.toString(), credentials: "same-origin" });
             const js = await res.json().catch(function () {
@@ -713,19 +701,19 @@
         const fileInput = document.getElementById("carrier-anexo-file");
         if (!form || !uploadState || !fileInput || !cropJson || !rsH) return;
 
-        const scaleV = scaleSlider ? parseInt(scaleSlider.value, 10) || 100 : 100;
-        rsH.value = scaleV === 100 ? "" : String(scaleV / 100);
-
         if (uploadPdfOnly) {
+          const scaleV = scaleSlider ? parseInt(scaleSlider.value, 10) || 100 : 100;
+          rsH.value = scaleV === 100 ? "" : String(scaleV / 100);
           cropJson.value = "";
         } else {
           const slot = uploadState.slot;
-          const cp = croppers[slot];
-          if (!cp) {
+          const ed = fabricEditors[slot];
+          if (!ed) {
             alert("Espera a que cargue la imagen.");
             return;
           }
-          cropJson.value = cropNormFromCropper(cp);
+          cropJson.value = ed.getCropNormJson();
+          rsH.value = ed.getRenderScaleForSave();
         }
 
         const dt = new DataTransfer();

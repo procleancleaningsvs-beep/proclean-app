@@ -3,6 +3,7 @@
   class="panel carrier-cursos-workspace-shell"
   id="carrier-workspace-root"
   data-carrier-workspace
+  {% if current_user %}data-current-user-id="{{ current_user.id }}"{% endif %}
   data-expediente-id="{{ workspace.expediente.id }}"
   data-upload-prefix="{{ workspace.upload_prefix }}"
   data-slot-meta-url="{{ url_for('carrier_curso.expediente_slot_meta', expediente_id=workspace.expediente.id) }}"
@@ -169,10 +170,10 @@
     <div class="carrier-modal-form carrier-imss-modal-inner">
       <button type="button" class="carrier-modal-close" data-vincular-close aria-label="Cerrar">&times;</button>
       <h3 class="carrier-modal-title">Vincular desde historial de Movimientos IMSS</h3>
-      <p class="helper">Mismo historial que en Movimientos IMSS, con búsqueda y paginación.</p>
+      <p class="helper">Mismo universo de registros que Movimientos IMSS (todos los usuarios). Solo puedes vincular constancias generadas con tu usuario.</p>
       <div class="carrier-imss-toolbar">
         <label class="carrier-imss-search-label">Buscar
-          <input type="search" id="carrier-imss-search" class="carrier-imss-search" placeholder="Nombre o archivo…" autocomplete="off">
+          <input type="search" id="carrier-imss-search" class="carrier-imss-search" placeholder="Nombre, NSS, archivo, folio, lote, usuario…" autocomplete="off">
         </label>
         <span class="helper" id="carrier-imss-count"></span>
       </div>
@@ -182,6 +183,7 @@
             <tr>
               <th>Fecha</th>
               <th>Archivo</th>
+              <th>Usuario</th>
               <th>Movimientos</th>
               <th>Acciones</th>
             </tr>
@@ -198,6 +200,24 @@
       <div class="carrier-modal-footer">
         <button type="button" class="btn btn-secondary" data-vincular-close>Cerrar</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog class="carrier-modal carrier-imss-pick-dialog" id="carrier-imss-pick-modal" aria-labelledby="carrier-imss-pick-title">
+    <div class="carrier-modal-form carrier-imss-pick-inner">
+      <button type="button" class="carrier-modal-close" data-imss-pick-close aria-label="Cerrar">&times;</button>
+      <h3 class="carrier-modal-title" id="carrier-imss-pick-title">Elegir persona / movimiento</h3>
+      <p class="helper" id="carrier-imss-pick-desc">Esta constancia incluye varios movimientos. Elige cuál vincular al expediente actual.</p>
+      <form method="post" id="carrier-imss-pick-form" class="carrier-imss-pick-form">
+        <input type="hidden" name="format_history_id" id="carrier-imss-pick-fid" value="">
+        <label class="carrier-inline-label">Persona / movimiento
+          <select name="movimiento_idx" id="carrier-imss-pick-select" required class="carrier-imss-pick-select"></select>
+        </label>
+        <div class="carrier-modal-footer carrier-imss-pick-footer">
+          <button type="button" class="btn btn-secondary" data-imss-pick-close>Cancelar</button>
+          <button type="submit" class="btn btn-primary">Vincular al expediente</button>
+        </div>
+      </form>
     </div>
   </dialog>
 
@@ -221,15 +241,19 @@
     <div class="carrier-modal-form carrier-sheet-modal-inner">
       <button type="button" class="carrier-modal-close" data-sheet-close aria-label="Cerrar">&times;</button>
       <h3 class="carrier-modal-title" id="carrier-sheet-title">Vista previa / editar</h3>
-      <p class="helper" id="carrier-sheet-hint">Colocación: mueve y escala la imagen (rueda o esquinas del lienzo). Doble clic en la imagen entra o sale del modo recorte.</p>
+      <p class="helper" id="carrier-sheet-hint">Colocación: selecciona la imagen y usa las manijas para escalar; arrastra para mover. Doble clic entra al modo recorte (marco aparte). El control de escala ajusta el mismo factor de exportación al PDF.</p>
       <p class="helper carrier-sheet-mode-banner" id="carrier-sheet-mode-banner" hidden></p>
+      <div class="carrier-sheet-crop-actions" id="carrier-sheet-crop-actions" hidden>
+        <button type="button" class="btn btn-secondary btn-sm" id="carrier-sheet-crop-apply">Aplicar recorte</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="carrier-sheet-crop-cancel">Cancelar recorte</button>
+      </div>
       <div class="carrier-doc-frame">
         <div class="carrier-doc-sheet" id="carrier-doc-sheet" aria-label="Hoja del expediente"></div>
       </div>
       <div class="carrier-anexo-tools carrier-sheet-tools">
         <label class="carrier-zoom-label">
           Escala en la página del expediente
-          <input type="range" id="carrier-sheet-scale-slider" min="70" max="130" value="100">
+          <input type="range" id="carrier-sheet-scale-slider" min="25" max="300" value="100">
           <span id="carrier-sheet-scale-val">100%</span>
         </label>
       </div>

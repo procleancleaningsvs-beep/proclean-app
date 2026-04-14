@@ -43,9 +43,9 @@ from modules.carrier.db import (
     get_monthly_base,
     insert_carrier_curso_export_log,
     insert_expediente,
-    count_format_history_for_carrier,
+    count_format_history_imss_list_like,
     list_carrier_curso_export_logs,
-    list_format_history_for_carrier_page,
+    list_format_history_imss_list_like_page,
     list_monthly_bases,
     parse_slots,
     dumps_slots,
@@ -1025,7 +1025,7 @@ def expediente_vincular_formato(expediente_id: int):
 
 @carrier_curso_bp.route("/expediente/<int:expediente_id>/formatos-imss.json")
 def formatos_imss_json(expediente_id: int):
-    """Historial IMSS paginado + búsqueda: misma tabla `format_history` + JOIN `users` que Movimientos IMSS (`list_history`), filtrado al usuario del expediente (vinculación solo constancias propias)."""
+    """Historial IMSS paginado + búsqueda: misma consulta base que Movimientos IMSS (`list_history`: `format_history` + `users`, sin filtro por usuario). La vinculación POST sigue validando propiedad en `attach_alta_format_history`."""
     if (redir := _login_required()) is not None:
         return redir
     db_path = _db_path()
@@ -1039,12 +1039,13 @@ def formatos_imss_json(expediente_id: int):
     page = max(1, page)
     per_page = max(5, min(40, per_page))
     offset = (page - 1) * per_page
-    total = count_format_history_for_carrier(db_path, uid, q)
-    raw = list_format_history_for_carrier_page(
-        db_path, uid, q=q or None, offset=offset, limit=per_page
+    total = count_format_history_imss_list_like(db_path, q or None)
+    raw = list_format_history_imss_list_like_page(
+        db_path, q=q or None, offset=offset, limit=per_page
     )
     rows_out: list[dict[str, Any]] = []
     for rec in raw:
+        oid = int(rec["owner_user_id"])
         rows_out.append(
             {
                 "id": rec["id"],
@@ -1055,6 +1056,8 @@ def formatos_imss_json(expediente_id: int):
                 "folio": str(rec.get("folio") or ""),
                 "lote": str(rec.get("lote") or ""),
                 "username": str(rec.get("username") or ""),
+                "owner_user_id": oid,
+                "can_vincular": oid == uid,
             }
         )
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
@@ -1066,6 +1069,7 @@ def formatos_imss_json(expediente_id: int):
             "total": total,
             "total_pages": total_pages,
             "rows": rows_out,
+            "current_user_id": uid,
         }
     )
 

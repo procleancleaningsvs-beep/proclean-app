@@ -421,6 +421,109 @@ def _like_escape(s: str) -> str:
     return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def count_format_history_imss_list_like(db_path: str, q: str | None) -> int:
+    """Cuenta filas del mismo universo que `list_history()` en Movimientos IMSS (sin filtrar por usuario)."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        needle = (q or "").strip()
+        if not needle:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                """
+            ).fetchone()
+        else:
+            pat = f"%{_like_escape(needle)}%"
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE (
+                    h.filename LIKE ? ESCAPE '\\'
+                    OR IFNULL(h.payload_json, '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.folio AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.lote AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(u.username, '') LIKE ? ESCAPE '\\'
+                )
+                """,
+                (pat, pat, pat, pat, pat),
+            ).fetchone()
+        return int(row["c"]) if row else 0
+    finally:
+        conn.close()
+
+
+def list_format_history_imss_list_like_page(
+    db_path: str,
+    *,
+    q: str | None,
+    offset: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Página del historial global IMSS: misma base que `list_history()` (JOIN users, orden por created_at)."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        off = max(0, int(offset))
+        lim = max(1, min(100, int(limit)))
+        needle = (q or "").strip()
+        if not needle:
+            rows = conn.execute(
+                """
+                SELECT h.id, h.user_id, h.filename, h.pdf_path, h.movement_count, h.payload_json, h.created_at,
+                       h.folio, h.lote, u.username
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                ORDER BY h.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (lim, off),
+            ).fetchall()
+        else:
+            pat = f"%{_like_escape(needle)}%"
+            rows = conn.execute(
+                """
+                SELECT h.id, h.user_id, h.filename, h.pdf_path, h.movement_count, h.payload_json, h.created_at,
+                       h.folio, h.lote, u.username
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE (
+                    h.filename LIKE ? ESCAPE '\\'
+                    OR IFNULL(h.payload_json, '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.folio AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.lote AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(u.username, '') LIKE ? ESCAPE '\\'
+                )
+                ORDER BY h.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (pat, pat, pat, pat, pat, lim, off),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "id": int(r["id"]),
+                    "owner_user_id": int(r["user_id"]),
+                    "filename": str(r["filename"]),
+                    "pdf_path": str(r["pdf_path"]),
+                    "movement_count": int(r["movement_count"] or 0),
+                    "payload_json": str(r["payload_json"] or ""),
+                    "created_at": str(r["created_at"]),
+                    "folio": str(r["folio"] or ""),
+                    "lote": str(r["lote"] or ""),
+                    "username": str(r["username"] or ""),
+                }
+            )
+        return out
+    finally:
+        conn.close()
+
+
 def count_format_history_for_carrier(db_path: str, user_id: int, q: str | None) -> int:
     """Misma tabla y JOIN que Movimientos IMSS (`list_history`), filtrado al usuario del expediente."""
     conn = sqlite3.connect(db_path)
