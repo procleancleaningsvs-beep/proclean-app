@@ -75,6 +75,31 @@ def payment_month_still_valid_today(
     return today <= deadline
 
 
+def ym_to_str(year: int, month: int) -> str:
+    return f"{year:04d}-{month:02d}"
+
+
+def max_still_valid_payment_month(
+    today: date, inhabiles: set[date], *, lookback_months: int = 48
+) -> tuple[int, int] | None:
+    """
+    Mes de pago «más reciente» (orden calendario) que sigue vigente operativamente en `today`.
+
+    Se revisan los últimos `lookback_months` meses contando desde el mes calendario de `today`.
+    Sirve para saber qué paquete mensual puede usar un usuario normal (no solo el mes calendario).
+    """
+    best_key: int | None = None
+    best: tuple[int, int] | None = None
+    for i in range(lookback_months):
+        y, mo = _add_months(today.year, today.month, -i)
+        if payment_month_still_valid_today(y, mo, today, inhabiles):
+            k = y * 12 + (mo - 1)
+            if best_key is None or k > best_key:
+                best_key = k
+                best = (y, mo)
+    return best
+
+
 def should_warn_stale_payment_month(
     payment_year: int, payment_month: int, today: date, inhabiles: set[date]
 ) -> bool:

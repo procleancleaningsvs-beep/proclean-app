@@ -11,7 +11,7 @@
   </div>
   <div class="page-head-actions">
     <a class="btn btn-secondary" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
-    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index', mes=expediente.base_year_month) }}">Volver al listado</a>
+    <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index', mes=expediente.base_year_month) if current_user.role == 'admin' else url_for('carrier_curso.index') }}">Volver al listado</a>
   </div>
 </section>
 
@@ -29,9 +29,14 @@
       <label>Nombre de la persona
         <input type="text" name="nombre_persona" value="{{ expediente.nombre_persona }}" required>
       </label>
+      {% if lock_mes_base %}
+      <input type="hidden" name="base_year_month" value="{{ expediente.base_year_month }}">
+      <p class="helper">Mes base del expediente: <strong>{{ expediente.base_year_month }}</strong> (solo administradores pueden cambiarlo; los demás usan el paquete operativo vigente al crear el expediente).</p>
+      {% else %}
       <label>Mes base
         <input type="month" name="base_year_month" value="{{ expediente.base_year_month }}" required>
       </label>
+      {% endif %}
     </div>
     <div class="form-footer">
       <button type="submit" class="btn btn-secondary">Guardar datos</button>

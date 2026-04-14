@@ -1,6 +1,7 @@
 from datetime import date
 
 from modules.carrier.vigencia import (
+    max_still_valid_payment_month,
     nominal_day_17_after_payment_month,
     operational_deadline_for_payment_month,
     should_warn_stale_payment_month,
@@ -19,6 +20,12 @@ def test_operational_deadline_weekend_roll_march_2021():
 def test_warn_after_deadline():
     assert not should_warn_stale_payment_month(2026, 3, date(2026, 4, 17), set())
     assert should_warn_stale_payment_month(2026, 3, date(2026, 4, 18), set())
+
+
+def test_max_still_valid_prefers_latest_valid_month():
+    inhab = set()
+    # 10 abr 2026: marzo y abril siguen vigentes como meses de pago; el más reciente es abril
+    assert max_still_valid_payment_month(date(2026, 4, 10), inhab) == (2026, 4)
 
 
 def test_inhabil_pushes_deadline():

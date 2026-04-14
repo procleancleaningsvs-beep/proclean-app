@@ -53,7 +53,12 @@ from modules.carrier.export_naming import curso_export_pdf_display_name, first_w
 from modules.carrier.inhabiles import load_inhabile_dates
 from modules.carrier.integration import set_return_expediente_id
 from modules.carrier.pdf_merge import write_merged_pdf
-from modules.carrier.vigencia import should_warn_stale_payment_month
+from modules.carrier.vigencia import (
+    max_still_valid_payment_month,
+    payment_month_still_valid_today,
+    should_warn_stale_payment_month,
+    ym_to_str,
+)
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "carrier"
@@ -78,6 +83,72 @@ SLOT_LABELS = {
     "ine_frente": "INE frente",
     "ine_reverso": "INE reverso",
 }
+
+MES_LABEL_ES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre",
+}
+
+
+def _is_admin_carrier() -> bool:
+    return bool(g.user and g.user.get("role") == "admin")
+
+
+def _label_paquete_mes(ym: str) -> str:
+    p = _parse_year_month(ym)
+    if not p:
+        return ym
+    y, m = map(int, p.split("-", 1))
+    return f"{MES_LABEL_ES.get(m, str(m))} {y}"
+
+
+def _filter_bases_expediente(all_bases: list[Any], *, is_admin: bool, today_d: date, inhabiles: set[date]) -> list[Any]:
+    out: list[Any] = []
+    for b in all_bases:
+        pym = _parse_year_month(b.year_month)
+        if not pym:
+            continue
+        y, m = map(int, b.year_month.split("-", 1))
+        if is_admin or payment_month_still_valid_today(y, m, today_d, inhabiles):
+            out.append(b)
+    return sorted(out, key=lambda x: x.year_month, reverse=True)
+
+
+def _operational_package_ym(today_d: date, inhabiles: set[date]) -> str:
+    op = max_still_valid_payment_month(today_d, inhabiles)
+    if op:
+        return ym_to_str(op[0], op[1])
+    return f"{today_d.year:04d}-{today_d.month:02d}"
+
+
+def _user_may_manage_mensual_ym(ym: str, *, is_admin: bool, today_d: date, inhabiles: set[date]) -> bool:
+    if not _parse_year_month(ym):
+        return False
+    if is_admin:
+        return True
+    allowed = _operational_package_ym(today_d, inhabiles)
+    return ym == allowed
+
+
+def _user_may_access_mensual_download(
+    ym: str, _kind: str, *, is_admin: bool, today_d: date, inhabiles: set[date]
+) -> bool:
+    """Admin: cualquier mes con paquete. Usuario: solo el paquete operativo vigente."""
+    if not _parse_year_month(ym):
+        return False
+    if is_admin:
+        return True
+    return _user_may_manage_mensual_ym(ym, is_admin=False, today_d=today_d, inhabiles=inhabiles)
 
 
 def _login_required():
@@ -234,31 +305,54 @@ def index():
     if (redir := _login_required()) is not None:
         return redir
     db_path = _db_path()
-    bases = list_monthly_bases(db_path)
+    all_bases = list_monthly_bases(db_path)
     expedientes = list_expedientes(db_path, user_id=int(g.user["id"]))
     inhabiles = load_inhabile_dates(_instance_dir())
-    today = today_in_app_tz()
-    active_ym = request.args.get("mes") or ""
-    if not active_ym and bases:
-        active_ym = bases[0].year_month
-    parsed = _parse_year_month(active_ym) if active_ym else None
-    stale_warning = False
+    today_d = today_in_app_tz().date()
+    is_admin = _is_admin_carrier()
+    operational_ym = _operational_package_ym(today_d, inhabiles)
+    operational_label = _label_paquete_mes(operational_ym)
+    operational_base = get_monthly_base(db_path, operational_ym)
+
+    active_ym = ""
     active_base = None
-    if parsed:
-        y, m = map(int, parsed.split("-", 1))
-        stale_warning = should_warn_stale_payment_month(y, m, today, inhabiles)
-        for b in bases:
-            if b.year_month == active_ym:
-                active_base = b
-                break
+    stale_warning = False
+
+    if is_admin:
+        active_ym = (request.args.get("mes") or "").strip()
+        if not active_ym:
+            active_ym = operational_ym
+        if not _parse_year_month(active_ym) and all_bases:
+            active_ym = all_bases[0].year_month
+        if _parse_year_month(active_ym):
+            active_base = get_monthly_base(db_path, active_ym)
+            y, m = map(int, active_ym.split("-", 1))
+            stale_warning = should_warn_stale_payment_month(y, m, today_d, inhabiles)
+    else:
+        active_ym = operational_ym
+        if _parse_year_month(active_ym):
+            active_base = operational_base
+            y, m = map(int, active_ym.split("-", 1))
+            stale_warning = should_warn_stale_payment_month(y, m, today_d, inhabiles)
+
+    y0 = today_d.year
+    year_options = list(range(y0 - 2, y0 + 4))
+
     return render_template(
         "cursos_index.html",
-        bases=bases,
+        is_admin=is_admin,
+        all_bases=all_bases if is_admin else None,
         expedientes=expedientes,
-        active_ym=active_ym if parsed else "",
+        active_ym=active_ym,
         active_base=active_base,
+        operational_ym=operational_ym,
+        operational_label=operational_label,
+        operational_base=operational_base,
+        active_label=_label_paquete_mes(active_ym) if active_ym else "",
         stale_warning=stale_warning,
         inhabiles_path=str(_instance_dir() / "carrier_inhabiles.json"),
+        mes_labels=MES_LABEL_ES,
+        year_options=year_options,
     )
 
 
@@ -266,9 +360,17 @@ def index():
 def mensual_upload():
     if (redir := _login_required()) is not None:
         return redir
+    today_d = today_in_app_tz().date()
+    inhabiles = load_inhabile_dates(_instance_dir())
+    is_admin = _is_admin_carrier()
+
     ym = _parse_year_month(request.form.get("year_month") or "")
     if not ym:
         flash("Mes base inválido. Usa formato AAAA-MM.", "error")
+        return redirect(url_for("carrier_curso.index"))
+
+    if not _user_may_manage_mensual_ym(ym, is_admin=is_admin, today_d=today_d, inhabiles=inhabiles):
+        flash("No tienes permiso para cargar o editar el paquete de ese mes.", "error")
         return redirect(url_for("carrier_curso.index"))
 
     row_existing = get_monthly_base(_db_path(), ym)
@@ -284,9 +386,13 @@ def mensual_upload():
     if not has_new_sip and not has_new_pago:
         if not row_existing:
             flash("Sube al menos un archivo (SIPARE / cédula o Pago IMSS).", "error")
-            return redirect(url_for("carrier_curso.index", mes=ym))
-        flash("Sin archivos nuevos; la configuración del mes no cambió.", "success")
-        return redirect(url_for("carrier_curso.index", mes=ym))
+            return redirect(url_for("carrier_curso.index", mes=ym) if is_admin else url_for("carrier_curso.index"))
+        flash("Sin archivos nuevos; el paquete no cambió.", "success")
+        return redirect(url_for("carrier_curso.index", mes=ym) if is_admin else url_for("carrier_curso.index"))
+
+    if not row_existing and (not has_new_sip or not has_new_pago):
+        flash("El paquete mensual nuevo debe incluir SIPARE/cédula y Pago IMSS (ambos archivos).", "error")
+        return redirect(url_for("carrier_curso.index", mes=ym) if is_admin else url_for("carrier_curso.index"))
 
     if has_new_sip:
         ext = _validate_upload_ext(f_sipare.filename)
@@ -320,8 +426,45 @@ def mensual_upload():
         updated_at=now_iso(),
         updated_by=int(g.user["id"]),
     )
-    flash("Documentos base del mes actualizados.", "success")
-    return redirect(url_for("carrier_curso.index", mes=ym))
+    flash("Paquete mensual base guardado.", "success")
+    return redirect(url_for("carrier_curso.index", mes=ym) if is_admin else url_for("carrier_curso.index"))
+
+
+@carrier_curso_bp.route("/mensual/descargar")
+def mensual_descargar():
+    """Descarga SIPARE o Pago IMSS del paquete mensual (permisos según rol)."""
+    if (redir := _login_required()) is not None:
+        return redir
+    kind = (request.args.get("kind") or "").strip().lower()
+    ym = _parse_year_month(request.args.get("ym") or "")
+    if kind not in {"sipare", "pago"} or not ym:
+        abort(400)
+    today_d = today_in_app_tz().date()
+    inhabiles = load_inhabile_dates(_instance_dir())
+    is_admin = _is_admin_carrier()
+    if not _user_may_access_mensual_download(ym, kind, is_admin=is_admin, today_d=today_d, inhabiles=inhabiles):
+        abort(403)
+
+    row = get_monthly_base(_db_path(), ym)
+    if not row:
+        abort(404)
+    rel = row.sipare_relpath if kind == "sipare" else row.pago_imss_relpath
+    orig = row.sipare_orig_name if kind == "sipare" else row.pago_imss_orig_name
+    if not rel:
+        abort(404)
+    path = _storage_root() / str(rel)
+    if not path.is_file():
+        abort(404)
+    dl = orig or path.name
+    inline = request.args.get("inline") == "1"
+    mt = None
+    suf = path.suffix.lower()
+    if inline:
+        if suf == ".pdf":
+            mt = "application/pdf"
+        elif suf in {".png", ".jpg", ".jpeg", ".webp"}:
+            mt = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}[suf]
+    return send_file(path, as_attachment=not inline, download_name=dl, mimetype=mt)
 
 
 @carrier_curso_bp.route("/expediente/nuevo", methods=["GET", "POST"])
@@ -329,7 +472,11 @@ def expediente_nuevo():
     if (redir := _login_required()) is not None:
         return redir
     db_path = _db_path()
-    bases = list_monthly_bases(db_path)
+    all_bases = list_monthly_bases(db_path)
+    inhabiles = load_inhabile_dates(_instance_dir())
+    today_d = today_in_app_tz().date()
+    is_admin = _is_admin_carrier()
+    bases = _filter_bases_expediente(all_bases, is_admin=is_admin, today_d=today_d, inhabiles=inhabiles)
     if request.method == "POST":
         nombre = (request.form.get("nombre_persona") or "").strip()
         ym = _parse_year_month(request.form.get("base_year_month") or "")
@@ -338,6 +485,10 @@ def expediente_nuevo():
             return redirect(url_for("carrier_curso.expediente_nuevo"))
         if not ym:
             flash("Selecciona un mes base válido.", "error")
+            return redirect(url_for("carrier_curso.expediente_nuevo"))
+        allowed_yms = {b.year_month for b in bases}
+        if ym not in allowed_yms:
+            flash("Ese mes base no está disponible para tu usuario.", "error")
             return redirect(url_for("carrier_curso.expediente_nuevo"))
         if not get_monthly_base(db_path, ym):
             flash("Ese mes base aún no tiene documentos cargados.", "error")
@@ -354,8 +505,11 @@ def expediente_nuevo():
         flash("Expediente creado. Sube los anexos y exporta el PDF cuando esté listo.", "success")
         return redirect(url_for("carrier_curso.expediente_edit", expediente_id=eid))
 
-    default_ym = request.args.get("mes") or ""
-    if not default_ym and bases:
+    default_ym = (request.args.get("mes") or "").strip() if is_admin else ""
+    if not default_ym:
+        op = _operational_package_ym(today_d, inhabiles)
+        default_ym = op
+    if is_admin and default_ym and default_ym not in {b.year_month for b in bases} and bases:
         default_ym = bases[0].year_month
     return render_template("cursos_expediente_nuevo.html", bases=bases, default_ym=default_ym)
 
@@ -373,8 +527,21 @@ def expediente_edit(expediente_id: int):
         action = (request.form.get("action") or "").strip()
         if action == "save_meta":
             nombre = (request.form.get("nombre_persona") or "").strip()
+            is_ad = _is_admin_carrier()
+            if not nombre:
+                flash("El nombre es obligatorio.", "error")
+                return redirect(url_for("carrier_curso.expediente_edit", expediente_id=expediente_id))
+            if not is_ad:
+                update_expediente_meta(
+                    db_path,
+                    expediente_id,
+                    nombre_persona=nombre,
+                    updated_at=now_iso(),
+                )
+                flash("Datos del expediente guardados.", "success")
+                return redirect(url_for("carrier_curso.expediente_edit", expediente_id=expediente_id))
             ym = _parse_year_month(request.form.get("base_year_month") or "")
-            if nombre and ym and get_monthly_base(db_path, ym):
+            if ym and get_monthly_base(db_path, ym):
                 update_expediente_meta(
                     db_path,
                     expediente_id,
@@ -384,7 +551,7 @@ def expediente_edit(expediente_id: int):
                 )
                 flash("Datos del expediente guardados.", "success")
             else:
-                flash("No se pudo guardar: revisa nombre y mes base.", "error")
+                flash("No se pudo guardar: revisa mes base y que exista paquete para ese mes.", "error")
             return redirect(url_for("carrier_curso.expediente_edit", expediente_id=expediente_id))
         if action == "clear_alta":
             if clear_alta_link(db_path, expediente_id, int(g.user["id"]), now_iso()):
@@ -397,7 +564,7 @@ def expediente_edit(expediente_id: int):
     pm = _parse_ym_to_date(row.base_year_month)
     stale = False
     if pm:
-        stale = should_warn_stale_payment_month(pm[0], pm[1], today_in_app_tz(), inhabiles)
+        stale = should_warn_stale_payment_month(pm[0], pm[1], today_in_app_tz().date(), inhabiles)
 
     alta_info: dict[str, Any] | None = None
     alta_pdf_page_count = 0
@@ -448,6 +615,7 @@ def expediente_edit(expediente_id: int):
         alta_info=alta_info,
         pdf_page_counts=pdf_page_counts,
         alta_pdf_page_count=alta_pdf_page_count,
+        lock_mes_base=not _is_admin_carrier(),
     )
 
 

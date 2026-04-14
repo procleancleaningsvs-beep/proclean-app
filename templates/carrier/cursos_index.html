@@ -1,15 +1,27 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<script defer src="{{ url_for('static', filename='carrier_paquete.js') }}"></script>
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head carrier-cursos-head">
   <div>
     <span class="eyebrow">Carrier</span>
     <h2>Cursos — expedientes</h2>
-    <p>Documentos base mensuales (SIPARE / cédula y Pago IMSS) y expedientes por persona para curso de seguridad. Exportación a un solo PDF.</p>
+    <p>Paquete mensual base (SIPARE / cédula + Pago IMSS) y expedientes por persona. Exportación a un solo PDF.</p>
   </div>
   <div class="page-head-actions">
-    <a class="btn btn-secondary" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial Cursos</a>
-    <a class="btn btn-primary" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) }}">Nuevo expediente</a>
+    <a class="btn btn-primary" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) if is_admin else url_for('carrier_curso.expediente_nuevo') }}">Nuevo expediente</a>
+  </div>
+</section>
+
+<section class="carrier-forms-hero" aria-label="Inicio del flujo de curso">
+  <div class="carrier-forms-hero-inner">
+    <div>
+      <h3 class="carrier-forms-hero-title">Ingreso al curso de seguridad</h3>
+      <p class="carrier-forms-hero-text">Abre el formulario oficial para registrar la evidencia de ingreso al curso.</p>
+    </div>
+    <a class="btn btn-forms-hero" href="{{ carrier_forms_curso_url }}" target="_blank" rel="noopener noreferrer">Forms de ingreso a curso</a>
   </div>
 </section>
 
@@ -19,46 +31,115 @@
 </div>
 {% endif %}
 
-<section class="panel">
+<section class="panel carrier-paquete-panel">
   <div class="panel-head">
-    <h3>Documentos base del mes</h3>
-  </div>
-  <p class="helper">Sube una vez por mes y reutiliza en todos los expedientes. Vigencia operativa: hasta el día 17 del mes siguiente (o siguiente día hábil si aplica), según calendario en <code>{{ inhabiles_path }}</code> para fines de semana e inhábiles adicionales.</p>
-
-  <form method="get" class="carrier-mes-row">
-    <label>Mes base activo (vista y carga)
-      <select name="mes" onchange="this.form.submit()">
-        <option value="">— Selecciona —</option>
-        {% for b in bases %}
-        <option value="{{ b.year_month }}" {% if b.year_month == active_ym %}selected{% endif %}>{{ b.year_month }}</option>
-        {% endfor %}
-      </select>
-    </label>
-  </form>
-
-  <form method="post" action="{{ url_for('carrier_curso.mensual_upload') }}" enctype="multipart/form-data" class="form-card carrier-base-form">
-    <input type="hidden" name="year_month" value="{{ active_ym }}">
-    <div class="grid-2">
-      <label>SIPARE / cédula (PDF o imagen)
-        <input type="file" name="sipare" accept=".pdf,.png,.jpg,.jpeg,.webp">
+    <h3>Paquete mensual base</h3>
+    {% if is_admin and all_bases is not none %}
+    <form method="get" class="carrier-admin-mes-form">
+      <label class="carrier-inline-label">Consultar / administrar mes
+        <select name="mes" onchange="this.form.submit()">
+          {% for b in all_bases %}
+          <option value="{{ b.year_month }}" {% if b.year_month == active_ym %}selected{% endif %}>{{ b.year_month }}</option>
+          {% endfor %}
+          {% if all_bases|length == 0 %}
+          <option value="">— Sin paquetes —</option>
+          {% endif %}
+        </select>
       </label>
-      <label>Pago IMSS (PDF o imagen)
-        <input type="file" name="pago_imss" accept=".pdf,.png,.jpg,.jpeg,.webp">
-      </label>
-    </div>
-    {% if active_base %}
-      <p class="helper">Actual: SIPARE: {{ active_base.sipare_orig_name or '—' }} · Pago IMSS: {{ active_base.pago_imss_orig_name or '—' }}</p>
+    </form>
     {% endif %}
-    <div class="form-footer">
-      <button type="submit" class="btn btn-primary" {% if not active_ym %}disabled{% endif %}>Guardar documentos del mes</button>
+  </div>
+
+  <p class="helper">Vigencia operativa del pago: hasta el día 17 del mes siguiente (o siguiente hábil si aplica). El <strong>paquete utilizable</strong> para usuarios normales sigue esa regla (no solo el mes calendario). Inhábiles: <code>{{ inhabiles_path }}</code></p>
+
+  {% if not is_admin %}
+  <p class="carrier-paquete-actual-line"><strong>Paquete operativo vigente:</strong> <span class="carrier-paquete-tag">{{ operational_label }} ({{ operational_ym }})</span></p>
+  {% endif %}
+
+  {% set card = active_base if is_admin else operational_base %}
+  {% set card_ym = active_ym if is_admin else operational_ym %}
+  {% set card_label = active_label if is_admin else operational_label %}
+
+  {% if card and (card.sipare_relpath or card.pago_imss_relpath) %}
+  <div class="carrier-paquete-card">
+    <div class="carrier-paquete-card-head">
+      <div>
+        <span class="carrier-paquete-card-title">Paquete base{% if is_admin %} seleccionado{% else %} actual{% endif %}</span>
+        <strong class="carrier-paquete-card-mes">{{ card_label }}</strong>
+        <span class="helper carrier-paquete-meta">Código {{ card_ym }} · Actualizado {{ card.updated_at or '—' }}</span>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" data-open-paquete-modal data-default-ym="{{ card_ym }}">Reemplazar / editar</button>
+    </div>
+    <ul class="carrier-paquete-status">
+      <li>SIPARE / cédula: {% if card.sipare_relpath %}<span class="ok">Listo</span> ({{ card.sipare_orig_name or 'archivo' }}){% else %}<span class="missing">Falta</span>{% endif %}</li>
+      <li>Pago IMSS: {% if card.pago_imss_relpath %}<span class="ok">Listo</span> ({{ card.pago_imss_orig_name or 'archivo' }}){% else %}<span class="missing">Falta</span>{% endif %}</li>
+    </ul>
+    <div class="carrier-paquete-actions">
+      {% if card.sipare_relpath %}
+      <a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="{{ url_for('carrier_curso.mensual_descargar', kind='sipare', ym=card_ym, inline='1') }}">Ver SIPARE</a>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.mensual_descargar', kind='sipare', ym=card_ym) }}">Descargar SIPARE</a>
+      {% endif %}
+      {% if card.pago_imss_relpath %}
+      <a class="btn btn-secondary btn-sm" target="_blank" rel="noopener" href="{{ url_for('carrier_curso.mensual_descargar', kind='pago', ym=card_ym, inline='1') }}">Ver Pago IMSS</a>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.mensual_descargar', kind='pago', ym=card_ym) }}">Descargar Pago IMSS</a>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="carrier-paquete-card carrier-paquete-card-empty">
+    <p><strong>No hay paquete guardado{% if not is_admin %} para {{ operational_label }}{% endif %}.</strong> Carga SIPARE/cédula y Pago IMSS juntos.</p>
+    <button type="button" class="btn btn-primary" data-open-paquete-modal data-default-ym="{{ card_ym }}">Cargar paquete mensual</button>
+  </div>
+  {% endif %}
+</section>
+
+<dialog id="carrier-paquete-modal" class="carrier-modal" data-is-admin="{{ '1' if is_admin else '0' }}" data-operational-ym="{{ operational_ym }}">
+  <form method="post" action="{{ url_for('carrier_curso.mensual_upload') }}" enctype="multipart/form-data" class="carrier-modal-form" id="carrier-paquete-form">
+    <button type="button" class="carrier-modal-close" data-close-paquete-modal aria-label="Cerrar">&times;</button>
+    <h3 class="carrier-modal-title">Guardar paquete mensual</h3>
+    <p class="helper">Se guardarán juntos SIPARE/cédula y Pago IMSS para el mes indicado. Un paquete nuevo exige <strong>ambos</strong> archivos.</p>
+
+    <input type="hidden" name="year_month" id="carrier-paquete-ym-hidden" value="{{ operational_ym if not is_admin else (active_ym or operational_ym) }}">
+
+    {% if is_admin %}
+    <div class="grid-2 carrier-modal-grid">
+      <label>Mes
+        <select id="carrier-pkg-month" required>
+          {% for num in range(1, 13) %}
+          <option value="{{ '%02d'|format(num) }}">{{ mes_labels[num] }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Año
+        <select id="carrier-pkg-year" required>
+          {% for y in year_options %}
+          <option value="{{ y }}">{{ y }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+    {% else %}
+    <p class="carrier-modal-locked-mes"><strong>Mes del paquete:</strong> {{ operational_label }} ({{ operational_ym }})</p>
+    {% endif %}
+
+    <label>SIPARE / cédula (PDF o imagen)
+      <input type="file" name="sipare" accept=".pdf,.png,.jpg,.jpeg,.webp" {% if not card or not card.sipare_relpath %}required{% endif %}>
+    </label>
+    <label>Pago IMSS (PDF o imagen)
+      <input type="file" name="pago_imss" accept=".pdf,.png,.jpg,.jpeg,.webp" {% if not card or not card.pago_imss_relpath %}required{% endif %}>
+    </label>
+
+    <div class="carrier-modal-footer">
+      <button type="button" class="btn btn-secondary" data-close-paquete-modal>Cancelar</button>
+      <button type="submit" class="btn btn-primary">Guardar paquete</button>
     </div>
   </form>
-</section>
+</dialog>
 
 <section class="panel">
   <div class="panel-head">
     <h3>Expedientes</h3>
-    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) }}">Nuevo expediente</a>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('carrier_curso.expediente_nuevo', mes=active_ym) if is_admin else url_for('carrier_curso.expediente_nuevo') }}">Nuevo expediente</a>
   </div>
   {% if expedientes %}
   <div class="table-wrap">
