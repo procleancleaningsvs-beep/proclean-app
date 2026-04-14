@@ -193,6 +193,171 @@ def empaquetar_filas_deduccion_para_docx_extras(
     return out
 
 
+# Capacidad plantilla v2 (edición libre): percepciones y deducciones compactas.
+MAX_V2_PERC_LINES = 8
+MAX_V2_DED_LINES = 6
+
+# Orden de triples en DOCX (percepciones): 5 base + n7 + np + p1.
+V2_PERC_PLACEHOLDER_TRIPLES: tuple[tuple[str, str, str], ...] = (
+    ("{r1n}", "{r1c}", "{t1}"),
+    ("{r2n}", "{r2c}", "{t2}"),
+    ("{r3n}", "{r3c}", "{t3}"),
+    ("{r4n}", "{r4c}", "{t5}"),
+    ("{r5n}", "{r5c}", "{t6}"),
+    ("{n7}", "{c_pant}", "{t7}"),
+    ("{np}", "{cp}", "{t11p}"),
+    ("{p1}", "{p_nuevo}", "{t12}"),
+)
+
+V2_DED_PLACEHOLDER_TRIPLES: tuple[tuple[str, str, str], ...] = (
+    ("{n8}", "{c_isa}", "{t8}"),
+    ("{n9}", "{c_i174}", "{t9}"),
+    ("{n10}", "{c_imes}", "{t10}"),
+    ("{nd}", "{cd}", "{t11d}"),
+    ("{d1}", "{d_nuevo}", "{t13}"),
+    ("{d2}", "{d_nuevo2}", "{t14}"),
+)
+
+
+def _v2_parse_num_sort_key(num: str) -> tuple[int, str]:
+    t = (num or "").strip()
+    if not t:
+        return (10**9, "")
+    try:
+        return (int(t, 10), t)
+    except ValueError:
+        return (10**9, t)
+
+
+def _v2_row_p_active(num: str, nom: str, m: Decimal) -> bool:
+    return bool((num or "").strip() or (nom or "").strip() or m != 0)
+
+
+def _v2_importe_percepcion_row(*, lab_key: str | None, slot: str, m: Decimal) -> str:
+    lk = (lab_key or "").strip()
+    sl = (slot or "").strip().lower()
+    if lk in ("sueldo", "septimo_dia") or sl in ("t1", "t2"):
+        return _importe_sueldo_o_septimo_docx(m)
+    return _importe_percepcion_docx(m)
+
+
+def _v2_collect_percepciones_sorted(calc: dict[str, Any]) -> list[dict[str, Any]]:
+    meta = calc.get("edicion_libre_desglose_meta") or {}
+    rows: list[dict[str, Any]] = []
+    combined_src: list[Any] = []
+    for key in ("percepciones", "percepciones_extra"):
+        part = meta.get(key) or []
+        if isinstance(part, list):
+            combined_src.extend(part)
+    for r in combined_src:
+        if not isinstance(r, dict):
+            continue
+        num = str(r.get("num") or "").strip()
+        nom = str(r.get("nom") or "").strip()
+        m = Decimal(str(r.get("monto") or 0))
+        if not _v2_row_p_active(num, nom, m):
+            continue
+        rows.append(
+            {
+                "num": num,
+                "nom": nom,
+                "monto": m,
+                "slot": str(r.get("slot") or "").strip().lower(),
+                "labKey": str(r.get("labKey") or "").strip() or None,
+                "fiscal": str(r.get("fiscal") or "gravable"),
+            }
+        )
+    tot = calc.get("totales") or {}
+    ajuste = Decimal(str(tot.get("ajuste_neto") or 0))
+    if ajuste < 0 and not any(str(x.get("num") or "").strip() == "99" for x in rows):
+        rows.append(
+            {
+                "num": "99",
+                "nom": "Ajuste al neto",
+                "monto": abs(ajuste),
+                "slot": "",
+                "labKey": None,
+                "fiscal": "gravable",
+            }
+        )
+    rows.sort(key=lambda x: (_v2_parse_num_sort_key(str(x.get("num") or ""))[0], str(x.get("slot") or "")))
+    return rows
+
+
+def _v2_collect_deducciones_sorted(calc: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Triples (num, concepto, importe_formateado positivo) para empaquetar."""
+    pdf = calc.get("pdf_filas") or {}
+    tot = calc.get("totales") or {}
+    meta = calc.get("edicion_libre_desglose_meta") or {}
+    ajuste = Decimal(str(tot.get("ajuste_neto") or 0))
+    orden: list[tuple[str, str, str, int]] = []
+
+    def add_row(num: str, conc: str, imp_fmt: str) -> None:
+        if not _fila_deduccion_docx_visible(num, conc, imp_fmt):
+            return
+        orden.append((num, conc, imp_fmt, _v2_parse_num_sort_key(num)[0]))
+
+    if _fila_deduccion_docx_visible(pdf.get("n8", ""), pdf.get("c_isa", ""), pdf.get("t8", "")):
+        add_row(str(pdf.get("n8", "")), str(pdf.get("c_isa", "")), str(pdf.get("t8", "")))
+    if _fila_deduccion_docx_visible(pdf.get("n9", ""), pdf.get("c_i174", ""), pdf.get("t9", "")):
+        add_row(str(pdf.get("n9", "")), str(pdf.get("c_i174", "")), str(pdf.get("t9", "")))
+    if _fila_deduccion_docx_visible(pdf.get("n10", ""), pdf.get("c_imes", ""), pdf.get("t10", "")):
+        add_row(str(pdf.get("n10", "")), str(pdf.get("c_imes", "")), str(pdf.get("t10", "")))
+    if _fila_deduccion_docx_visible(pdf.get("n_sep", ""), pdf.get("c_sep", ""), pdf.get("t_sep", "")):
+        add_row(str(pdf.get("n_sep", "")), str(pdf.get("c_sep", "")), str(pdf.get("t_sep", "")))
+
+    for d in sorted(meta.get("deducciones_extra") or [], key=lambda x: _v2_parse_num_sort_key(str(x.get("num") or ""))[0]):
+        if not isinstance(d, dict):
+            continue
+        nn = str(d.get("num") or "").strip()
+        cn = str(d.get("nom") or "").strip()
+        tv = Decimal(str(d.get("monto") or 0))
+        if not _v2_row_p_active(nn, cn, tv):
+            continue
+        add_row(nn, cn, format_importe(tv))
+
+    if ajuste > 0:
+        add_row("99", "Ajuste al neto", format_importe(abs(ajuste)))
+
+    orden.sort(key=lambda x: (x[3], x[0]))
+    return [(a[0], a[1], a[2]) for a in orden]
+
+
+def check_finiquito_v2_docx_capacity(calc: dict[str, Any]) -> str | None:
+    """Tras apply_desglose_manual v2: valida líneas finales para DOCX/PDF."""
+    meta = calc.get("edicion_libre_desglose_meta") or {}
+    if meta.get("v") != 2:
+        return None
+    np = len(_v2_collect_percepciones_sorted(calc))
+    nd = len(_v2_collect_deducciones_sorted(calc))
+    if np > MAX_V2_PERC_LINES:
+        return (
+            f"El desglose compactado tiene {np} percepciones; la plantilla solo admite {MAX_V2_PERC_LINES}. "
+            "Reduzca conceptos o combine filas."
+        )
+    if nd > MAX_V2_DED_LINES:
+        return (
+            f"El desglose compactado tiene {nd} deducciones visibles (ISR + adicionales + ajuste); "
+            f"la plantilla admite {MAX_V2_DED_LINES}. Reduzca deducciones adicionales."
+        )
+    return None
+
+
+def _v2_clear_all_template_slots(mapping: dict[str, str]) -> None:
+    """Vacía todos los slots de desglose v2 antes de rellenar (evita literales {d1}…)."""
+    for trio in V2_PERC_PLACEHOLDER_TRIPLES:
+        for k in trio:
+            mapping[k] = ""
+    for trio in V2_DED_PLACEHOLDER_TRIPLES:
+        for k in trio:
+            mapping[k] = ""
+    for i in range(1, 6):
+        mapping[f"{{p{i}_num}}"] = ""
+        mapping[f"{{p{i}_nom}}"] = ""
+    for slot in ("t1", "t2", "t3", "t5", "t6"):
+        mapping["{" + slot + "}"] = ""
+
+
 def _mapping_desglose_labels_canonical_base() -> dict[str, str]:
     """
     Modo normal (edición libre apagada): mapeo fijo explícito slot → número/concepto.
@@ -223,74 +388,46 @@ def _merge_desglose_v2_placeholders(mapping: dict[str, str], calc: dict[str, Any
     meta = calc.get("edicion_libre_desglose_meta") or {}
     if meta.get("v") != 2:
         return
-    rows_list = meta.get("percepciones") or []
-    by_slot = {str(r.get("slot") or ""): r for r in rows_list if isinstance(r, dict)}
-    slot_to_row_idx = (("t1", 1), ("t2", 2), ("t3", 3), ("t5", 4), ("t6", 5))
-    for slot, ri in slot_to_row_idx:
-        r = by_slot.get(slot) or {}
-        num = str(r.get("num") or "")
-        nom = str(r.get("nom") or "")
-        mapping[f"{{r{ri}n}}"] = num
-        mapping[f"{{r{ri}c}}"] = nom
-        mapping[f"{{p{ri}_num}}"] = num
-        mapping[f"{{p{ri}_nom}}"] = nom
-        m = Decimal(str(r.get("monto") or 0))
-        if slot in ("t1", "t2"):
-            mapping["{" + slot + "}"] = _importe_sueldo_o_septimo_docx(m)
+    _v2_clear_all_template_slots(mapping)
+
+    perc_rows = _v2_collect_percepciones_sorted(calc)
+    for i, trio in enumerate(V2_PERC_PLACEHOLDER_TRIPLES):
+        nk, ck, tk = trio
+        if i < len(perc_rows):
+            r = perc_rows[i]
+            num = str(r.get("num") or "")
+            nom = str(r.get("nom") or "")
+            m = Decimal(str(r.get("monto") or 0))
+            mapping[nk] = num
+            mapping[ck] = nom
+            imp = _v2_importe_percepcion_row(
+                lab_key=r.get("labKey"),
+                slot=str(r.get("slot") or ""),
+                m=m,
+            )
+            mapping[tk] = imp
+            if nk.startswith("{r") and nk.endswith("n}"):
+                try:
+                    ri = int(nk.replace("{r", "").replace("n}", ""))
+                    mapping[f"{{p{ri}_num}}"] = num
+                    mapping[f"{{p{ri}_nom}}"] = nom
+                except ValueError:
+                    pass
         else:
-            mapping["{" + slot + "}"] = _importe_percepcion_docx(m)
+            nk, ck, tk = trio
+            mapping[nk] = mapping[ck] = ""
+            mapping[tk] = ""
 
-    pex = meta.get("percepciones_extra") or []
-    mapping["{p1}"] = mapping["{p_nuevo}"] = mapping["{t12}"] = ""
-    if isinstance(pex, list) and len(pex) > 0 and isinstance(pex[0], dict):
-        e0 = pex[0]
-        mapping["{p1}"] = str(e0.get("num") or "").strip()
-        mapping["{p_nuevo}"] = str(e0.get("nom") or "").strip()
-        t12m = Decimal(str(e0.get("monto") or 0))
-        mapping["{t12}"] = _importe_percepcion_docx(t12m)
-
-    tot = calc["totales"]
-    pdf = calc["pdf_filas"]
-    ajuste = Decimal(str(tot.get("ajuste_neto") or 0))
-    n7 = by_slot.get("n7") or {}
-    np = by_slot.get("np") or {}
-
-    extras: list[tuple[str, str, str]] = []
-    for d in sorted(meta.get("deducciones_extra") or [], key=lambda x: int(str(x.get("num") or "999"))):
-        if not isinstance(d, dict):
-            continue
-        nn = str(d.get("num") or "").strip()
-        cn = str(d.get("nom") or "").strip()
-        tv = Decimal(str(d.get("monto") or 0))
-        if not nn and not cn and tv == 0:
-            continue
-        extras.append((nn, cn, format_importe(tv)))
-
-    nd, cd, t11d = "", "", ""
-    if ajuste > 0:
-        nd, cd, t11d = "99", "Ajuste al neto", format_importe(abs(ajuste))
-
-    ded_docx = empaquetar_filas_deduccion_para_docx_extras(pdf, extras, nd=nd, cd=cd, t11d=t11d)
-    for k, v in ded_docx.items():
-        if k in ("t8", "t9", "t10", "t11d"):
-            mapping["{" + k + "}"] = _as_positive_amount_str(v)
+    ded_triples = _v2_collect_deducciones_sorted(calc)
+    for i, trio in enumerate(V2_DED_PLACEHOLDER_TRIPLES):
+        nk, ck, tk = trio
+        if i < len(ded_triples):
+            num, conc, imp = ded_triples[i]
+            mapping[nk] = num
+            mapping[ck] = conc
+            mapping[tk] = _as_positive_amount_str(imp)
         else:
-            mapping["{" + k + "}"] = v
-
-    if ajuste < 0:
-        mapping["{np}"] = "99"
-        mapping["{cp}"] = "Ajuste al neto"
-        mapping["{t11p}"] = _as_positive_amount_str(format_importe(abs(ajuste)))
-    else:
-        mapping["{np}"] = str(np.get("num") or "")
-        mapping["{cp}"] = str(np.get("nom") or "")
-        tpm = Decimal(str(np.get("monto") or 0))
-        mapping["{t11p}"] = _as_positive_amount_str(format_importe(tpm)) if tpm > 0 else ""
-
-    mapping["{n7}"] = str(n7.get("num") or "")
-    mapping["{c_pant}"] = str(n7.get("nom") or "")
-    t7m = Decimal(str(n7.get("monto") or 0))
-    mapping["{t7}"] = _importe_percepcion_docx(t7m)
+            mapping[nk] = mapping[ck] = mapping[tk] = ""
 
 
 def build_finiquito_placeholders(
@@ -332,7 +469,8 @@ def build_finiquito_placeholders(
     ded_docx = empaquetar_filas_deduccion_para_docx(pdf, nd=nd, cd=cd, t11d=t11d)
     perc_docx = empaquetar_filas_percepcion_para_docx(n7, c_pant, t7, np, cp, t11p)
     suma_p_num = Decimal(str(tot["total_percepciones"]))
-    if ajuste < 0:
+    meta_dm = calc.get("edicion_libre_desglose_meta") or {}
+    if ajuste < 0 and meta_dm.get("v") != 2:
         suma_p_num = (suma_p_num + abs(ajuste)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     mapping: dict[str, str] = {
         "{lugar_emision}": lugar_emision or "",
@@ -377,6 +515,15 @@ def build_finiquito_placeholders(
     }
     mapping.update(_mapping_desglose_labels_canonical_base())
     _merge_desglose_v2_placeholders(mapping, calc)
+    for _k in (
+        "{d1}",
+        "{d_nuevo}",
+        "{t13}",
+        "{d2}",
+        "{d_nuevo2}",
+        "{t14}",
+    ):
+        mapping.setdefault(_k, "")
     return mapping
 
 

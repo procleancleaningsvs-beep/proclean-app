@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from modules.finiquitos.calc import calcular_finiquito
 from modules.finiquitos.edicion_libre_finiquito import apply_desglose_manual
+from modules.finiquitos.export_docx import build_finiquito_placeholders
 
 
 def _base_filas_from_calc(c: dict) -> list[dict]:
@@ -140,6 +141,63 @@ class TestDesgloseManual(unittest.TestCase):
         filas.append({"id": "extra-p:x1", "tipo": "P", "concepto": "Bono", "monto": 100.0})
         m = apply_desglose_manual(c, filas)
         self.assertAlmostEqual(m["totales"]["total_percepciones"], c["totales"]["total_percepciones"] + 100.0, delta=1.5)
+
+    def test_v2_export_ordena_por_numero_y_limpia_d_extension(self):
+        """DOCX v2: orden numérico al compactar; slots d1/d2 vacíos si no hay filas."""
+        c = calcular_finiquito(
+            ingreso=date(2024, 10, 15),
+            baja=date(2026, 3, 26),
+            fecha_emision=date(2026, 3, 26),
+            salario_diario=Decimal("315.04"),
+            zona="general",
+            periodicidad_isr="semanal_mensualizada",
+            modo="total_gravable",
+            dias_sueldo_pendientes=Decimal("6"),
+            septimos_pendientes=Decimal("1"),
+            dias_aguinaldo_politica=Decimal("15"),
+            prima_vacacional_pct=Decimal("25"),
+            vacaciones_ya_usadas=Decimal("0"),
+            aguinaldo_ya_pagado=Decimal("0"),
+            prima_vac_ya_pagada=Decimal("0"),
+            incluir_prima_antiguedad=False,
+            motivo_baja="despido",
+        )
+        sueldo = float(c["laboral"]["sueldo"])
+        dm = {
+            "v": 2,
+            "sin_isr": True,
+            "percepciones": [
+                {"slot": "t6", "num": "24", "nom": "Aguinaldo", "monto": float(c["laboral"]["aguinaldo"]), "fiscal": "gravable"},
+                {"slot": "t1", "num": "1", "nom": "Sueldo", "monto": sueldo, "fiscal": "gravable"},
+                {"slot": "t3", "num": "19", "nom": "Vacaciones a tiempo", "monto": float(c["laboral"]["vacaciones_a_tiempo"]), "fiscal": "gravable"},
+                {"slot": "t5", "num": "22", "nom": "Prima vacacional", "monto": float(c["laboral"]["prima_vacacional"]), "fiscal": "gravable"},
+                {"slot": "t2", "num": "3", "nom": "Séptimo día", "monto": float(c["laboral"]["septimo_dia"]), "fiscal": "gravable"},
+                {"slot": "", "num": "99", "nom": "Ajuste al neto", "monto": 50.0, "fiscal": "gravable"},
+                {"slot": "", "num": "13", "nom": "Compensación", "monto": 100.0, "fiscal": "gravable"},
+            ],
+            "percepciones_extra": [],
+            "deducciones_extra": [],
+        }
+        m = apply_desglose_manual(c, dm, entrada={"emision": date(2026, 3, 26), "salario_mensual_capturado": Decimal("10000")})
+        ph = build_finiquito_placeholders(
+            lugar_emision="X",
+            estado_emision="Y",
+            fecha_emision=date(2026, 3, 26),
+            fecha_baja=date(2026, 3, 26),
+            empleado_nombre="Test",
+            calc=m,
+            incluir_prima_antig=False,
+        )
+        self.assertEqual(ph["{r1n}"], "1")
+        self.assertEqual(ph["{r2n}"], "3")
+        self.assertEqual(ph["{r3n}"], "13")
+        self.assertEqual(ph["{r4n}"], "19")
+        self.assertEqual(ph["{r5n}"], "22")
+        self.assertEqual(ph["{n7}"], "24")
+        self.assertEqual(ph["{np}"], "99")
+        self.assertEqual(ph["{d1}"], "")
+        self.assertEqual(ph["{d_nuevo}"], "")
+        self.assertEqual(ph["{t13}"], "")
 
     def test_extra_deduccion_resta_neto(self):
         c = calcular_finiquito(

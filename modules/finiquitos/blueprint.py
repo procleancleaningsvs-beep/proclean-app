@@ -21,9 +21,14 @@ from modules.finiquitos.calc import (
     calcular_finiquito,
     prima_antiguedad_aplica_separacion_voluntaria,
 )
-from modules.finiquitos.export_docx import build_finiquito_placeholders, render_finiquito_docx, render_finiquito_final
+from modules.finiquitos.export_docx import (
+    build_finiquito_placeholders,
+    check_finiquito_v2_docx_capacity,
+    render_finiquito_docx,
+    render_finiquito_final,
+)
 from modules.finiquitos.nombre_archivo_finiquito import build_finiquito_pdf_filename
-from modules.finiquitos.edicion_libre_finiquito import apply_desglose_manual
+from modules.finiquitos.edicion_libre_finiquito import apply_desglose_manual, validate_desglose_manual_v2_dm
 from modules.finiquitos.excel_mirror_fecha_ingreso import buscar_fecha_ingreso_headcount_onedrive
 from modules.finiquitos.graph_excel import buscar_fecha_ingreso_excel
 from modules.finiquitos.numero_letra import importe_mxn_a_letra
@@ -125,6 +130,15 @@ def _modo_finiquito_etiqueta(modo: str | None) -> str:
         return ""
     key = _normalize_finiquito_modo(modo)
     return _MODO_FINIQUITO_ETIQUETA.get(key, key)
+
+
+def _validate_desglose_v2_payload(data: dict[str, Any]) -> str | None:
+    if not _bool_coerce_entrada(data.get("edicion_libre_desglose")):
+        return None
+    dm = data.get("desglose_manual")
+    if not isinstance(dm, dict) or dm.get("v") != 2:
+        return None
+    return validate_desglose_manual_v2_dm(dm)
 
 
 def _apply_desglose_manual_si_aplica(
@@ -471,6 +485,9 @@ def api_calcular():
     v = _validate_base(p)
     if v:
         return jsonify({"ok": False, "error": v}), 400
+    ve = _validate_desglose_v2_payload(data)
+    if ve:
+        return jsonify({"ok": False, "error": ve}), 400
     assert p["ingreso"] and p["baja"]
     _aplicar_tope_vacaciones_ya_usadas(p)
     prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
@@ -496,6 +513,9 @@ def api_calcular():
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
     calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
+    vcap = check_finiquito_v2_docx_capacity(calc)
+    if vcap:
+        return jsonify({"ok": False, "error": vcap}), 400
     return jsonify(
         {
             "ok": True,
@@ -520,6 +540,9 @@ def api_pdf():
     v = _validate_base(p)
     if v:
         return jsonify({"ok": False, "error": v}), 400
+    ve = _validate_desglose_v2_payload(data)
+    if ve:
+        return jsonify({"ok": False, "error": ve}), 400
     assert p["ingreso"] and p["baja"]
     _aplicar_tope_vacaciones_ya_usadas(p)
     prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
@@ -545,6 +568,9 @@ def api_pdf():
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
     calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
+    vcap = check_finiquito_v2_docx_capacity(calc)
+    if vcap:
+        return jsonify({"ok": False, "error": vcap}), 400
     tpl = template_finiquito_path()
     if not tpl.is_file():
         return jsonify({"ok": False, "error": f"No existe la plantilla DOCX en {tpl}"}), 400
@@ -599,6 +625,9 @@ def api_historial_finiquito():
     v = _validate_base(p)
     if v:
         return jsonify({"ok": False, "error": v}), 400
+    ve = _validate_desglose_v2_payload(data)
+    if ve:
+        return jsonify({"ok": False, "error": ve}), 400
     assert p["ingreso"] and p["baja"]
     _aplicar_tope_vacaciones_ya_usadas(p)
     prima_aplica, incluir_pa = _resolver_prima_antiguedad(p)
@@ -624,6 +653,9 @@ def api_historial_finiquito():
         salario_mensual_capturado=p["salario_mensual_capturado"],
     )
     calc = _apply_desglose_manual_si_aplica(data, calc, entrada=p)
+    vcap = check_finiquito_v2_docx_capacity(calc)
+    if vcap:
+        return jsonify({"ok": False, "error": vcap}), 400
     pdf_path = None
     pdf_fn = None
     if data.get("incluir_pdf_guardado"):
