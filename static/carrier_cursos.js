@@ -1,5 +1,5 @@
 /**
- * Carrier > Cursos: subida de anexos, modo constancia (segmented), historial IMSS, hoja vista previa/edición.
+ * Carrier > Cursos: hoja única (vista previa + subida + edición), historial IMSS, modo constancia.
  */
 (function () {
   function esc(s) {
@@ -18,7 +18,6 @@
     }
   }
 
-  /* ——— Modo constancia (segmented, no radios) ——— */
   (function modeSwitch() {
     const form = document.getElementById("carrier-mod-form");
     const hidden = document.getElementById("carrier-mod-hidden");
@@ -42,147 +41,40 @@
   const imssJsonUrl = root.getAttribute("data-imss-json-url") || "";
   const vincularPost = root.getAttribute("data-vincular-post") || "";
 
-  /* ——— Modal subida anexos ——— */
-  (function uploadModal() {
+  /* ——— Subir: solo elegir archivo → misma hoja que vista previa ——— */
+  (function uploadPicker() {
     const modal = document.getElementById("carrier-anexo-modal");
     const form = document.getElementById("carrier-anexo-form");
-    if (!modal || !form) return;
-
-    let cropperInstance = null;
-    let currentKind = null;
-
     const fileInput = document.getElementById("carrier-anexo-file");
-    const previewWrap = document.getElementById("carrier-anexo-preview-wrap");
-    const preview = document.getElementById("carrier-anexo-preview");
-    const cropJson = document.getElementById("carrier-anexo-crop-json");
-    const renderScaleHidden = document.getElementById("carrier-anexo-render-scale");
-    const scaleSlider = document.getElementById("carrier-render-scale-slider");
-    const scaleVal = document.getElementById("carrier-render-scale-val");
-    const tools = document.getElementById("carrier-anexo-tools");
     const titleEl = document.getElementById("carrier-anexo-title");
     const dz = document.getElementById("carrier-anexo-dropzone");
+    if (!modal || !form || !fileInput) return;
 
-    function destroyCropper() {
-      if (cropperInstance) {
-        try {
-          cropperInstance.destroy();
-        } catch (e) {
-          /* ignore */
-        }
-        cropperInstance = null;
-      }
-    }
+    let lastSlot = "";
 
-    function revokePreviewUrls() {
-      preview.querySelectorAll("img, iframe").forEach(function (el) {
-        const u = el.src;
-        if (u && u.indexOf("blob:") === 0) URL.revokeObjectURL(u);
-      });
-    }
-
-    function resetScaleUI() {
-      if (scaleSlider) scaleSlider.value = "100";
-      if (scaleVal) scaleVal.textContent = "100%";
-      if (renderScaleHidden) renderScaleHidden.value = "";
-    }
-
-    function updateRenderScaleFromSlider() {
-      const v = scaleSlider ? parseInt(scaleSlider.value, 10) || 100 : 100;
-      if (scaleVal) scaleVal.textContent = v + "%";
-      if (renderScaleHidden) {
-        if (v === 100) renderScaleHidden.value = "";
-        else renderScaleHidden.value = String(v / 100);
-      }
-    }
-
-    function resetModal() {
-      destroyCropper();
-      revokePreviewUrls();
-      preview.innerHTML = "";
-      previewWrap.hidden = true;
-      if (tools) tools.hidden = true;
-      cropJson.value = "";
-      resetScaleUI();
-      form.reset();
-      currentKind = null;
-    }
-
-    function showPreview(file) {
-      destroyCropper();
-      revokePreviewUrls();
-      preview.innerHTML = "";
-      resetScaleUI();
-      if (!file) {
-        previewWrap.hidden = true;
-        if (tools) tools.hidden = true;
-        currentKind = null;
-        return;
-      }
-      const type = file.type || "";
-      if (type === "application/pdf") {
-        currentKind = "pdf";
-        const url = URL.createObjectURL(file);
-        const iframe = document.createElement("iframe");
-        iframe.className = "carrier-anexo-preview-iframe";
-        iframe.src = url;
-        iframe.title = "Vista previa PDF";
-        preview.appendChild(iframe);
-        previewWrap.hidden = false;
-        if (tools) tools.hidden = false;
-        return;
-      }
-      if (type.indexOf("image/") === 0) {
-        currentKind = "image";
-        const url = URL.createObjectURL(file);
-        const img = document.createElement("img");
-        img.src = url;
-        img.alt = "Vista previa para recorte";
-        img.className = "carrier-anexo-crop-target";
-        preview.appendChild(img);
-        previewWrap.hidden = false;
-        if (tools) tools.hidden = false;
-        if (typeof window.Cropper === "function") {
-          cropperInstance = new window.Cropper(img, {
-            viewMode: 1,
-            dragMode: "move",
-            autoCropArea: 1,
-            restore: false,
-            guides: true,
-            center: true,
-            highlight: false,
-            background: true,
-            movable: true,
-            zoomable: true,
-            zoomOnTouch: true,
-            zoomOnWheel: true,
-            wheelZoomRatio: 0.12,
-            cropBoxMovable: true,
-            cropBoxResizable: true,
-            toggleDragModeOnDblclick: false,
-          });
-        }
-        return;
-      }
-      currentKind = null;
-      previewWrap.hidden = true;
-      if (tools) tools.hidden = true;
-    }
-
-    if (scaleSlider) {
-      scaleSlider.addEventListener("input", updateRenderScaleFromSlider);
+    function wireFile(f) {
+      if (!f || !lastSlot) return;
+      const action = uploadPrefix + encodeURIComponent(lastSlot);
+      modal.close();
+      document.dispatchEvent(
+        new CustomEvent("carrier-sheet-open", {
+          detail: { kind: "upload", slot: lastSlot, file: f, uploadUrl: action },
+        })
+      );
     }
 
     document.querySelectorAll("[data-open-anexo-modal]").forEach(function (btn) {
       btn.addEventListener("click", function () {
         const slot = btn.getAttribute("data-slot");
         if (!slot || !uploadPrefix || uploadPrefix === "/") return;
+        lastSlot = slot;
         form.action = uploadPrefix + encodeURIComponent(slot);
         const t = btn.getAttribute("data-slot-title");
         if (titleEl) titleEl.textContent = t && t.trim() ? t.trim() : "Subir anexo";
-        resetModal();
+        fileInput.value = "";
         modal.showModal();
         setTimeout(function () {
-          if (fileInput) fileInput.focus();
+          fileInput.focus();
         }, 50);
       });
     });
@@ -190,16 +82,14 @@
     document.querySelectorAll("[data-anexo-close]").forEach(function (b) {
       b.addEventListener("click", function () {
         modal.close();
-        resetModal();
+        fileInput.value = "";
       });
     });
 
-    if (fileInput) {
-      fileInput.addEventListener("change", function () {
-        const f = fileInput.files && fileInput.files[0];
-        showPreview(f || null);
-      });
-    }
+    fileInput.addEventListener("change", function () {
+      const f = fileInput.files && fileInput.files[0];
+      wireFile(f || null);
+    });
 
     if (dz) {
       dz.addEventListener("dragover", function (ev) {
@@ -212,7 +102,7 @@
         const dt = new DataTransfer();
         dt.items.add(f);
         fileInput.files = dt.files;
-        showPreview(f);
+        wireFile(f);
       });
     }
 
@@ -229,33 +119,14 @@
           const dt = new DataTransfer();
           dt.items.add(f);
           fileInput.files = dt.files;
-          showPreview(f);
+          wireFile(f);
           break;
         }
       }
     });
-
-    form.addEventListener("submit", function () {
-      if (currentKind === "image" && cropperInstance) {
-        const d = cropperInstance.getData();
-        const imgData = cropperInstance.getImageData();
-        const nw = imgData.naturalWidth;
-        const nh = imgData.naturalHeight;
-        if (nw > 0 && nh > 0 && d && typeof d.x === "number") {
-          const x0 = Math.max(0, Math.min(1, d.x / nw));
-          const y0 = Math.max(0, Math.min(1, d.y / nh));
-          const x1 = Math.max(0, Math.min(1, (d.x + d.width) / nw));
-          const y1 = Math.max(0, Math.min(1, (d.y + d.height) / nh));
-          cropJson.value = JSON.stringify([x0, y0, x1, y1]);
-        }
-      } else {
-        cropJson.value = "";
-      }
-      updateRenderScaleFromSlider();
-    });
   })();
 
-  /* ——— Modal historial IMSS ——— */
+  /* ——— Historial IMSS ——— */
   (function imssModal() {
     const dlg = document.getElementById("carrier-vincular-imss-modal");
     if (!dlg || !imssJsonUrl) return;
@@ -273,6 +144,7 @@
     let perPage = 12;
     let q = "";
     let debounceTimer = null;
+    let lastTotalPages = 1;
 
     function vincUrl() {
       if (vincularPost) return vincularPost;
@@ -309,22 +181,23 @@
         }
         if (empty) empty.hidden = true;
         if (pager) pager.hidden = lastTotalPages <= 1;
-        if (pageLabel) {
-          pageLabel.textContent = "Página " + data.page + " de " + lastTotalPages;
-        }
+        if (pageLabel) pageLabel.textContent = "Página " + data.page + " de " + lastTotalPages;
         if (prevBtn) prevBtn.disabled = data.page <= 1;
         if (nextBtn) nextBtn.disabled = data.page >= lastTotalPages;
 
         data.rows.forEach(function (rec) {
           const tr = document.createElement("tr");
+          const folioLote = [rec.folio, rec.lote].filter(Boolean).join(" · ");
+          const sub = folioLote ? '<br><span class="helper">' + esc(folioLote) + "</span>" : "";
           tr.innerHTML =
             "<td>" +
             esc(rec.created_at) +
-            "</td><td class=\"history-cell-wrap\">" +
+            '</td><td class="history-cell-wrap">' +
             esc(rec.filename) +
+            sub +
             "</td><td>" +
             esc(String(rec.movement_count)) +
-            "</td><td class=\"carrier-imss-actions-cell\"></td>";
+            '</td><td class="carrier-imss-actions-cell"></td>';
           const cell = tr.querySelector(".carrier-imss-actions-cell");
           if (rec.movement_count > 1) {
             const b = document.createElement("button");
@@ -394,16 +267,14 @@
       load();
     }
 
-    function closeDlg() {
-      dlg.close();
-    }
-
     document.getElementById("carrier-btn-vincular-modal") &&
       document.getElementById("carrier-btn-vincular-modal").addEventListener("click", openDlg);
     document.getElementById("carrier-btn-vincular-modal-2") &&
       document.getElementById("carrier-btn-vincular-modal-2").addEventListener("click", openDlg);
     dlg.querySelectorAll("[data-vincular-close]").forEach(function (x) {
-      x.addEventListener("click", closeDlg);
+      x.addEventListener("click", function () {
+        dlg.close();
+      });
     });
 
     if (search) {
@@ -434,20 +305,28 @@
     }
   })();
 
-  /* ——— Vista previa / edición hoja ——— */
-  (function sheetEditor() {
+  /* ——— Hoja: edición guardada + subida nueva (misma UX) ——— */
+  (function sheetStudio() {
     const modal = document.getElementById("carrier-sheet-modal");
     const sheet = document.getElementById("carrier-doc-sheet");
     const titleEl = document.getElementById("carrier-sheet-title");
     const hintEl = document.getElementById("carrier-sheet-hint");
+    const modeBanner = document.getElementById("carrier-sheet-mode-banner");
     const scaleSlider = document.getElementById("carrier-sheet-scale-slider");
     const scaleVal = document.getElementById("carrier-sheet-scale-val");
     const saveBtn = document.getElementById("carrier-sheet-save");
+    const uploadBtn = document.getElementById("carrier-sheet-confirm-upload");
     if (!modal || !sheet || !slotMetaUrl) return;
 
     let croppers = {};
+    const cropperPhases = {};
+    const slotHosts = {};
+    const slotNormCache = {};
     let activeSlots = [];
     let scaleWrapEl = null;
+    let uploadState = null;
+    let editMode = null;
+    let uploadPdfOnly = false;
 
     function destroyAllCroppers() {
       Object.keys(croppers).forEach(function (k) {
@@ -456,8 +335,10 @@
         } catch (e) {
           /* ignore */
         }
+        delete croppers[k];
+        delete cropperPhases[k];
+        delete slotHosts[k];
       });
-      croppers = {};
     }
 
     function cropNormFromCropper(cp) {
@@ -488,12 +369,75 @@
       });
     }
 
-    function bindDblToggle(img, cp) {
+    function makeCropper(img, phase) {
+      const layout = phase === "layout";
+      return new window.Cropper(img, {
+        viewMode: 1,
+        dragMode: layout ? "move" : "crop",
+        autoCropArea: 1,
+        movable: true,
+        scalable: layout,
+        zoomable: true,
+        zoomOnWheel: true,
+        wheelZoomRatio: layout ? 0.12 : 0.08,
+        cropBoxMovable: !layout,
+        cropBoxResizable: !layout,
+        guides: true,
+        center: true,
+        background: true,
+        highlight: !layout,
+        toggleDragModeOnDblclick: false,
+      });
+    }
+
+    function updateModeBanner(slot) {
+      if (!modeBanner) return;
+      const ph = cropperPhases[slot] || "layout";
+      if (uploadPdfOnly || !croppers[slot]) {
+        modeBanner.hidden = true;
+        modeBanner.textContent = "";
+        return;
+      }
+      if (ph === "crop") {
+        modeBanner.hidden = false;
+        modeBanner.textContent =
+          "Modo recorte activo: ajusta el marco sobre la imagen. Doble clic de nuevo para volver a colocación (mover y escalar sin recortar píxeles).";
+      } else {
+        modeBanner.hidden = false;
+        modeBanner.textContent =
+          "Colocación: mueve la imagen y escálala (esquinas del lienzo o rueda). Doble clic para entrar al modo recorte de píxeles.";
+      }
+    }
+
+    function togglePhaseForSlot(slot) {
+      const cp = croppers[slot];
+      const host = slotHosts[slot];
+      if (!cp || !host || !window.Cropper) return;
+      const cur = cropperPhases[slot] || "layout";
+      try {
+        slotNormCache[slot] = JSON.parse(cropNormFromCropper(cp));
+      } catch (e) {
+        slotNormCache[slot] = [0, 0, 1, 1];
+      }
+      const next = cur === "layout" ? "crop" : "layout";
+      const img = cp.image;
+      cp.destroy();
+      delete croppers[slot];
+      croppers[slot] = makeCropper(img, next);
+      cropperPhases[slot] = next;
+      try {
+        applyNormToCropper(croppers[slot], slotNormCache[slot] || [0, 0, 1, 1]);
+      } catch (e) {
+        /* ignore */
+      }
+      updateModeBanner(slot);
+    }
+
+    function bindSlotInteractions(slot, img) {
       img.addEventListener("dblclick", function (ev) {
         ev.preventDefault();
-        if (!cp) return;
-        const cur = cp.options.dragMode;
-        cp.setDragMode(cur === "move" ? "crop" : "move");
+        ev.stopPropagation();
+        togglePhaseForSlot(slot);
       });
     }
 
@@ -510,7 +454,7 @@
       if (!st || !st.has_file) {
         const ph = document.createElement("div");
         ph.className = "carrier-ine-placeholder";
-        ph.textContent = "Sin archivo";
+        ph.textContent = slot.indexOf("reverso") >= 0 ? "Sin segundo archivo" : "Sin archivo";
         container.appendChild(ph);
         return;
       }
@@ -522,38 +466,66 @@
       img.src = st.preview_url + "?t=" + Date.now();
       wrap.appendChild(img);
       container.appendChild(wrap);
+      slotHosts[slot] = container;
 
       img.addEventListener("load", function () {
         if (typeof window.Cropper !== "function") return;
-        const cp = new window.Cropper(img, {
-          viewMode: 1,
-          dragMode: "move",
-          autoCropArea: 1,
-          guides: true,
-          cropBoxMovable: true,
-          cropBoxResizable: true,
-          toggleDragModeOnDblclick: false,
-          zoomable: true,
-          zoomOnWheel: true,
-          wheelZoomRatio: 0.1,
-        });
-        croppers[slot] = cp;
+        croppers[slot] = makeCropper(img, "layout");
+        cropperPhases[slot] = "layout";
         if (st.crop_norm && Array.isArray(st.crop_norm) && st.crop_norm.length === 4) {
           try {
-            applyNormToCropper(cp, st.crop_norm.map(Number));
+            applyNormToCropper(croppers[slot], st.crop_norm.map(Number));
+            slotNormCache[slot] = st.crop_norm.map(Number);
           } catch (e) {
             /* ignore */
           }
         }
-        bindDblToggle(img, cp);
+        bindSlotInteractions(slot, img);
+        updateModeBanner(slot);
       });
     }
 
+    function initUploadImageSlot(container, slot, blobUrl) {
+      const wrap = document.createElement("div");
+      wrap.className = "carrier-slot-visual-wrap";
+      const img = document.createElement("img");
+      img.className = "carrier-sheet-slot-img";
+      img.alt = slot;
+      img.src = blobUrl;
+      wrap.appendChild(img);
+      container.appendChild(wrap);
+      slotHosts[slot] = container;
+      img.addEventListener("load", function () {
+        if (typeof window.Cropper !== "function") return;
+        croppers[slot] = makeCropper(img, "layout");
+        cropperPhases[slot] = "layout";
+        bindSlotInteractions(slot, img);
+        updateModeBanner(slot);
+      });
+    }
+
+    function setFooterEdit() {
+      uploadState = null;
+      uploadPdfOnly = false;
+      if (saveBtn) saveBtn.hidden = false;
+      if (uploadBtn) uploadBtn.hidden = true;
+    }
+
+    function setFooterUpload() {
+      if (saveBtn) saveBtn.hidden = true;
+      if (uploadBtn) uploadBtn.hidden = false;
+    }
+
     function openEditor(mode) {
+      setFooterEdit();
+      editMode = mode;
       const slotsState = readSlotsState();
       destroyAllCroppers();
       sheet.innerHTML = "";
       activeSlots = [];
+      Object.keys(slotNormCache).forEach(function (k) {
+        delete slotNormCache[k];
+      });
 
       const inner = document.createElement("div");
       inner.className = "carrier-doc-sheet-inner";
@@ -564,7 +536,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — INE (misma hoja)";
         if (hintEl) {
           hintEl.textContent =
-            "Vista acumulada como en el PDF: dos columnas. Clic / rueda en cada imagen; doble clic alterna recorte.";
+            "Misma composición que el PDF final. Doble clic en cada imagen alterna colocación / recorte.";
         }
         inner.classList.add("carrier-doc-sheet-inner--ine");
         const L = document.createElement("div");
@@ -589,7 +561,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — " + (labels[mode] || mode);
         if (hintEl) {
           hintEl.textContent =
-            "Hoja del expediente. Doble clic en la imagen alterna modo recorte; arrastra esquinas para encuadrar.";
+            "Misma hoja que en el PDF. Colocación por defecto; doble clic en la imagen para modo recorte.";
         }
         inner.classList.add("carrier-doc-sheet-inner--single");
         const box = document.createElement("div");
@@ -612,9 +584,66 @@
       const pct = rs0 ? Math.round(Number(rs0) * 100) : 100;
       if (scaleSlider) scaleSlider.value = String(Math.max(70, Math.min(130, pct)));
       updateScaleVisual();
-
       modal.showModal();
     }
+
+    function openUploadStudio(detail) {
+      setFooterUpload();
+      editMode = null;
+      uploadState = { slot: detail.slot, file: detail.file, uploadUrl: detail.uploadUrl };
+      destroyAllCroppers();
+      sheet.innerHTML = "";
+      activeSlots = [];
+      Object.keys(slotNormCache).forEach(function (k) {
+        delete slotNormCache[k];
+      });
+
+      const inner = document.createElement("div");
+      inner.className = "carrier-doc-sheet-inner carrier-doc-sheet-inner--single";
+      scaleWrapEl = inner;
+      sheet.appendChild(inner);
+      const box = document.createElement("div");
+      box.className = "carrier-single-canvas";
+      inner.appendChild(box);
+
+      const f = detail.file;
+      const type = f.type || "";
+      if (titleEl) titleEl.textContent = "Subir — vista en hoja";
+      if (type === "application/pdf") {
+        uploadPdfOnly = true;
+        if (hintEl) hintEl.textContent = "PDF: ajusta la escala con el control inferior. Se subirá el archivo completo.";
+        if (modeBanner) {
+          modeBanner.hidden = false;
+          modeBanner.textContent = "Vista previa del PDF en la hoja (primera página como referencia visual en exportación se aplica al rasterizar).";
+        }
+        const url = URL.createObjectURL(f);
+        const iframe = document.createElement("iframe");
+        iframe.className = "carrier-sheet-pdf-iframe";
+        iframe.src = url;
+        iframe.title = "Vista previa PDF";
+        box.appendChild(iframe);
+        activeSlots = [];
+      } else {
+        uploadPdfOnly = false;
+        if (hintEl) {
+          hintEl.textContent =
+            "Misma experiencia que “Vista previa / editar”: colocación (mover y escalar) por defecto; doble clic = recorte de píxeles.";
+        }
+        const url = URL.createObjectURL(f);
+        initUploadImageSlot(box, detail.slot, url);
+        activeSlots.push(detail.slot);
+      }
+
+      if (scaleSlider) scaleSlider.value = "100";
+      updateScaleVisual();
+      modal.showModal();
+    }
+
+    document.addEventListener("carrier-sheet-open", function (ev) {
+      const d = ev.detail;
+      if (!d || d.kind !== "upload") return;
+      openUploadStudio(d);
+    });
 
     if (scaleSlider) {
       scaleSlider.addEventListener("input", updateScaleVisual);
@@ -628,13 +657,19 @@
       });
     });
 
+    function closeSheet() {
+      modal.close();
+      destroyAllCroppers();
+      sheet.innerHTML = "";
+      scaleWrapEl = null;
+      if (modeBanner) {
+        modeBanner.hidden = true;
+        modeBanner.textContent = "";
+      }
+    }
+
     document.querySelectorAll("[data-sheet-close]").forEach(function (b) {
-      b.addEventListener("click", function () {
-        modal.close();
-        destroyAllCroppers();
-        sheet.innerHTML = "";
-        scaleWrapEl = null;
-      });
+      b.addEventListener("click", closeSheet);
     });
 
     if (saveBtn) {
@@ -665,8 +700,40 @@
           }
           window.location.reload();
         } catch (e) {
-          alert("No se pudieron guardar los cambios. Revisa la consola o inténtalo de nuevo.");
+          alert("No se pudieron guardar los cambios.");
         }
+      });
+    }
+
+    if (uploadBtn) {
+      uploadBtn.addEventListener("click", function () {
+        const form = document.getElementById("carrier-anexo-form");
+        const cropJson = document.getElementById("carrier-anexo-crop-json");
+        const rsH = document.getElementById("carrier-anexo-render-scale");
+        const fileInput = document.getElementById("carrier-anexo-file");
+        if (!form || !uploadState || !fileInput || !cropJson || !rsH) return;
+
+        const scaleV = scaleSlider ? parseInt(scaleSlider.value, 10) || 100 : 100;
+        rsH.value = scaleV === 100 ? "" : String(scaleV / 100);
+
+        if (uploadPdfOnly) {
+          cropJson.value = "";
+        } else {
+          const slot = uploadState.slot;
+          const cp = croppers[slot];
+          if (!cp) {
+            alert("Espera a que cargue la imagen.");
+            return;
+          }
+          cropJson.value = cropNormFromCropper(cp);
+        }
+
+        const dt = new DataTransfer();
+        dt.items.add(uploadState.file);
+        fileInput.files = dt.files;
+        form.action = uploadState.uploadUrl;
+        closeSheet();
+        form.submit();
       });
     }
   })();

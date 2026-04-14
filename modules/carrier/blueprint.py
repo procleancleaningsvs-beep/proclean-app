@@ -1025,7 +1025,7 @@ def expediente_vincular_formato(expediente_id: int):
 
 @carrier_curso_bp.route("/expediente/<int:expediente_id>/formatos-imss.json")
 def formatos_imss_json(expediente_id: int):
-    """Historial IMSS paginado + búsqueda para el modal de vinculación (solo titular del expediente)."""
+    """Historial IMSS paginado + búsqueda: misma tabla `format_history` + JOIN `users` que Movimientos IMSS (`list_history`), filtrado al usuario del expediente (vinculación solo constancias propias)."""
     if (redir := _login_required()) is not None:
         return redir
     db_path = _db_path()
@@ -1052,6 +1052,9 @@ def formatos_imss_json(expediente_id: int):
                 "created_at": rec["created_at"],
                 "movement_count": int(rec["movement_count"] or 0),
                 "nombres": _nombres_movimientos_desde_payload(rec["payload_json"]),
+                "folio": str(rec.get("folio") or ""),
+                "lote": str(rec.get("lote") or ""),
+                "username": str(rec.get("username") or ""),
             }
         )
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1

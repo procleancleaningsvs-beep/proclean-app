@@ -207,24 +207,12 @@
       <h3 class="carrier-modal-title" id="carrier-anexo-title">Subir anexo</h3>
       <div class="carrier-anexo-dropzone" id="carrier-anexo-dropzone" tabindex="0">
         <p>Arrastra aquí o <label class="carrier-anexo-file-label">elige archivo<input type="file" name="file" id="carrier-anexo-file" accept=".pdf,.png,.jpg,.jpeg,.webp" required class="carrier-anexo-file-input"></label></p>
-        <p class="helper">También puedes pegar una imagen con Ctrl+V.</p>
+        <p class="helper">Después de elegir archivo se abre la misma vista de <strong>hoja</strong> que en “Vista previa / editar” (colocación y recorte).</p>
       </div>
       <input type="hidden" name="crop_norm_json" id="carrier-anexo-crop-json" value="">
       <input type="hidden" name="render_scale" id="carrier-anexo-render-scale" value="">
-      <div class="carrier-anexo-tools" id="carrier-anexo-tools" hidden>
-        <label class="carrier-zoom-label">
-          Escala en la página del expediente
-          <input type="range" id="carrier-render-scale-slider" min="70" max="130" value="100">
-          <span id="carrier-render-scale-val">100%</span>
-        </label>
-      </div>
-      <div class="carrier-anexo-preview-wrap" id="carrier-anexo-preview-wrap" hidden>
-        <p class="helper">Vista previa — ajusta recuadro y tamaño; al confirmar se guardará como en el PDF final.</p>
-        <div id="carrier-anexo-preview" class="carrier-anexo-preview"></div>
-      </div>
       <div class="carrier-modal-footer">
         <button type="button" class="btn btn-secondary" data-anexo-close>Cancelar</button>
-        <button type="submit" class="btn btn-primary" id="carrier-anexo-confirm">Confirmar y subir</button>
       </div>
     </form>
   </dialog>
@@ -233,7 +221,8 @@
     <div class="carrier-modal-form carrier-sheet-modal-inner">
       <button type="button" class="carrier-modal-close" data-sheet-close aria-label="Cerrar">&times;</button>
       <h3 class="carrier-modal-title" id="carrier-sheet-title">Vista previa / editar</h3>
-      <p class="helper" id="carrier-sheet-hint">Clic en la imagen: mover contenido · Doble clic: alternar modo recorte (ajusta esquinas) · Rueda: zoom</p>
+      <p class="helper" id="carrier-sheet-hint">Colocación: mueve y escala la imagen (rueda o esquinas del lienzo). Doble clic en la imagen entra o sale del modo recorte.</p>
+      <p class="helper carrier-sheet-mode-banner" id="carrier-sheet-mode-banner" hidden></p>
       <div class="carrier-doc-frame">
         <div class="carrier-doc-sheet" id="carrier-doc-sheet" aria-label="Hoja del expediente"></div>
       </div>
@@ -246,6 +235,7 @@
       </div>
       <div class="carrier-modal-footer">
         <button type="button" class="btn btn-secondary" data-sheet-close>Cancelar</button>
+        <button type="button" class="btn btn-primary" id="carrier-sheet-confirm-upload" hidden>Confirmar y subir</button>
         <button type="button" class="btn btn-primary" id="carrier-sheet-save">Guardar cambios</button>
       </div>
     </div>

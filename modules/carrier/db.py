@@ -422,24 +422,37 @@ def _like_escape(s: str) -> str:
 
 
 def count_format_history_for_carrier(db_path: str, user_id: int, q: str | None) -> int:
+    """Misma tabla y JOIN que Movimientos IMSS (`list_history`), filtrado al usuario del expediente."""
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         needle = (q or "").strip()
         if not needle:
             row = conn.execute(
-                "SELECT COUNT(*) AS c FROM format_history WHERE user_id = ?",
+                """
+                SELECT COUNT(*) AS c
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE h.user_id = ?
+                """,
                 (int(user_id),),
             ).fetchone()
         else:
             pat = f"%{_like_escape(needle)}%"
             row = conn.execute(
                 """
-                SELECT COUNT(*) AS c FROM format_history
-                WHERE user_id = ?
-                  AND (filename LIKE ? ESCAPE '\\' OR IFNULL(payload_json, '') LIKE ? ESCAPE '\\')
+                SELECT COUNT(*) AS c
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE h.user_id = ?
+                  AND (
+                    h.filename LIKE ? ESCAPE '\\'
+                    OR IFNULL(h.payload_json, '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.folio AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.lote AS TEXT), '') LIKE ? ESCAPE '\\'
+                  )
                 """,
-                (int(user_id), pat, pat),
+                (int(user_id), pat, pat, pat, pat),
             ).fetchone()
         return int(row["c"]) if row else 0
     finally:
@@ -463,10 +476,12 @@ def list_format_history_for_carrier_page(
         if not needle:
             rows = conn.execute(
                 """
-                SELECT id, filename, pdf_path, movement_count, payload_json, created_at
-                FROM format_history
-                WHERE user_id = ?
-                ORDER BY datetime(created_at) DESC
+                SELECT h.id, h.filename, h.pdf_path, h.movement_count, h.payload_json, h.created_at,
+                       h.folio, h.lote, u.username
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE h.user_id = ?
+                ORDER BY datetime(h.created_at) DESC
                 LIMIT ? OFFSET ?
                 """,
                 (int(user_id), lim, off),
@@ -475,14 +490,21 @@ def list_format_history_for_carrier_page(
             pat = f"%{_like_escape(needle)}%"
             rows = conn.execute(
                 """
-                SELECT id, filename, pdf_path, movement_count, payload_json, created_at
-                FROM format_history
-                WHERE user_id = ?
-                  AND (filename LIKE ? ESCAPE '\\' OR IFNULL(payload_json, '') LIKE ? ESCAPE '\\')
-                ORDER BY datetime(created_at) DESC
+                SELECT h.id, h.filename, h.pdf_path, h.movement_count, h.payload_json, h.created_at,
+                       h.folio, h.lote, u.username
+                FROM format_history h
+                JOIN users u ON u.id = h.user_id
+                WHERE h.user_id = ?
+                  AND (
+                    h.filename LIKE ? ESCAPE '\\'
+                    OR IFNULL(h.payload_json, '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.folio AS TEXT), '') LIKE ? ESCAPE '\\'
+                    OR IFNULL(CAST(h.lote AS TEXT), '') LIKE ? ESCAPE '\\'
+                  )
+                ORDER BY datetime(h.created_at) DESC
                 LIMIT ? OFFSET ?
                 """,
-                (int(user_id), pat, pat, lim, off),
+                (int(user_id), pat, pat, pat, pat, lim, off),
             ).fetchall()
         out: list[dict[str, Any]] = []
         for r in rows:
@@ -494,6 +516,9 @@ def list_format_history_for_carrier_page(
                     "movement_count": int(r["movement_count"] or 0),
                     "payload_json": str(r["payload_json"] or ""),
                     "created_at": str(r["created_at"]),
+                    "folio": str(r["folio"] or ""),
+                    "lote": str(r["lote"] or ""),
+                    "username": str(r["username"] or ""),
                 }
             )
         return out
