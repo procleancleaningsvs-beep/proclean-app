@@ -965,6 +965,9 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   gap: 8px;
   margin: 8px 0 4px;
 }
+.carrier-sheet-crop-actions[hidden] {
+  display: none !important;
+}
 .carrier-sheet-mode-toggle {
   display: flex;
   flex-wrap: wrap;

@@ -227,8 +227,10 @@
   };
 
   FabricLetterEditor.prototype._createCropRect = function () {
-    return new fabric.Rect({
-      fill: "rgba(255,255,255,0.01)",
+    var r = new fabric.Rect({
+      originX: "left",
+      originY: "top",
+      fill: "rgba(14, 165, 233, 0.12)",
       stroke: "#0284c7",
       strokeWidth: 2,
       strokeUniform: true,
@@ -236,6 +238,8 @@
       evented: true,
       hasRotatingPoint: false,
       lockRotation: true,
+      lockUniScaling: false,
+      centeredScaling: false,
       transparentCorners: false,
       cornerColor: "#0076b8",
       borderColor: "#0076b8",
@@ -243,8 +247,23 @@
       borderScaleFactor: 2,
       excludeFromExport: true,
       hoverCursor: "move",
+      perPixelTargetFind: true,
       _isCarrierCropRect: true,
     });
+    if (typeof r.setControlsVisibility === "function") {
+      r.setControlsVisibility({
+        tl: true,
+        tr: true,
+        bl: true,
+        br: true,
+        ml: true,
+        mt: true,
+        mr: true,
+        mb: true,
+        mtr: false,
+      });
+    }
+    return r;
   };
 
   FabricLetterEditor.prototype._clearCropUiObjects = function () {
@@ -273,21 +292,25 @@
     r.setCoords();
   };
 
+  /** Mantiene el recuadro dentro del AABB de la imagen en canvas; preserva tamaño salvo si excede el área útil. */
   FabricLetterEditor.prototype._clampCropRectToImage = function () {
     if (!this.fabricImg || !this.cropRectObj) return;
     this._normalizeCropRectScale();
     var ibr = this.fabricImg.getBoundingRect(true);
     var bb = this.cropRectObj.getBoundingRect(true);
-    var inter = this._intersectCanvasRects(
-      { left: bb.left, top: bb.top, width: bb.width, height: bb.height },
-      { left: ibr.left, top: ibr.top, width: ibr.width, height: ibr.height }
-    );
-    if (!inter) return;
+    var ib = { left: ibr.left, top: ibr.top, width: ibr.width, height: ibr.height };
+    var w = Math.min(bb.width, ib.width);
+    var h = Math.min(bb.height, ib.height);
+    if (w < MIN_CROP_PX || h < MIN_CROP_PX) return;
+    var maxL = ib.left + ib.width - w;
+    var maxT = ib.top + ib.height - h;
+    var left = clamp(bb.left, ib.left, maxL);
+    var top = clamp(bb.top, ib.top, maxT);
     this.cropRectObj.set({
-      left: inter.left,
-      top: inter.top,
-      width: inter.width,
-      height: inter.height,
+      left: left,
+      top: top,
+      width: w,
+      height: h,
       scaleX: 1,
       scaleY: 1,
     });
@@ -338,10 +361,13 @@
       return;
     }
     if (evt.target !== this.cropRectObj) return;
-    if (evt.type === "object:modified") {
+    if (evt.type === "object:scaling") {
       this._normalizeCropRectScale();
     }
-    this._clampCropRectToImage();
+    if (evt.type === "object:modified") {
+      this._normalizeCropRectScale();
+      this._clampCropRectToImage();
+    }
     this._syncNormFromCropRect();
     this._updateShadowsFromCropRect();
     this.canvas.requestRenderAll();
