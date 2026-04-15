@@ -2828,3 +2828,325 @@ tbody tr:hover td {
     padding: 72px 16px 18px;
   }
 }
+
+/* ==========================================================
+   ProClean Visual Refinement v3 (global consistency pass)
+   ========================================================== */
+:root {
+  --pc-blue: #1A90C6;
+  --pc-blue-accent: #26B1E2;
+  --pc-green: #77BE3C;
+  --pc-green-accent: #9CD235;
+  --pc-bg: #FFFFFF;
+  --pc-bg-soft: #F5F7FA;
+  --pc-surface-blue: #F2F8FC;
+  --pc-surface-green: #F5FAF1;
+  --pc-border: #E5EAF0;
+  --pc-text: #1D1D1F;
+  --pc-text-muted: #6E6E73;
+
+  --surface-tint-blue: #F6FBFE;
+  --surface-tint-green: #F7FBF3;
+  --surface-tint-mix: #F6FAF7;
+}
+
+html {
+  font-size: 15px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  letter-spacing: 0;
+  line-height: 1.45;
+  background:
+    radial-gradient(1000px 420px at 100% -8%, rgba(38, 177, 226, 0.11), transparent 58%),
+    radial-gradient(900px 360px at -8% 15%, rgba(156, 210, 53, 0.09), transparent 60%),
+    linear-gradient(180deg, #FFFFFF, #F8FBFE 52%, #F7FBF8);
+}
+
+.main {
+  padding: 36px;
+}
+
+.main-auth {
+  background:
+    radial-gradient(840px 360px at 12% 8%, rgba(38, 177, 226, 0.11), transparent 62%),
+    radial-gradient(760px 340px at 88% 90%, rgba(119, 190, 60, 0.1), transparent 64%),
+    linear-gradient(180deg, #FFFFFF, #F8FCFF 55%, #F6FBF2);
+}
+
+/* Remove black-ish presence in login branding and keep transparent logo usage */
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-lockup-icon {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  background: transparent;
+}
+
+.brand-lockup-text {
+  display: grid;
+  gap: 2px;
+}
+
+.brand-lockup-name {
+  font-size: 1.28rem;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #166D99;
+}
+
+.brand-lockup-sub {
+  font-size: 0.82rem;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #5A8061;
+  font-weight: 600;
+}
+
+.brand-lockup-login {
+  margin-bottom: 2px;
+}
+
+.brand-lockup-home {
+  margin: 0 auto 8px;
+}
+
+.hero-copy-brand {
+  background: linear-gradient(145deg, #FFFFFF, var(--pc-surface-blue) 58%, var(--pc-surface-green) 100%);
+}
+
+.hero-copy-brand p {
+  max-width: 34ch;
+}
+
+.login-brand-logo,
+.welcome-logo {
+  display: none;
+}
+
+/* Sidebar identity without heavy darkness */
+.sidebar {
+  background:
+    radial-gradient(220px 120px at 8% 0%, rgba(38, 177, 226, 0.1), transparent 68%),
+    radial-gradient(260px 130px at 18% 100%, rgba(119, 190, 60, 0.09), transparent 70%),
+    linear-gradient(180deg, #FFFFFF, #F8FCFF 72%, #F7FBF6);
+}
+
+.nav-link {
+  color: #2B4055;
+  border-radius: 11px;
+}
+
+.nav-link:hover {
+  background: #F3F8FD;
+  border-color: #DDE9F5;
+  transform: none;
+}
+
+.nav-link-home {
+  color: #145F85;
+  border-color: rgba(26, 144, 198, 0.24);
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.14), rgba(119, 190, 60, 0.1));
+}
+
+/* Global surfaces */
+.panel,
+.form-card,
+.stat-card,
+.movement-row,
+.welcome-card {
+  background: linear-gradient(180deg, #FFFFFF, var(--surface-tint-blue));
+  border-color: var(--pc-border);
+}
+
+.panel:nth-of-type(2n),
+.form-card:nth-of-type(2n) {
+  background: linear-gradient(180deg, #FFFFFF, var(--surface-tint-mix));
+}
+
+.page-head .eyebrow,
+.hero-copy .eyebrow {
+  background: linear-gradient(90deg, rgba(38, 177, 226, 0.16), rgba(119, 190, 60, 0.14));
+  color: #185D7F;
+}
+
+/* Ensure contrast rules on stronger gradients */
+.carrier-forms-hero,
+.carrier-forms-hero--expediente,
+.carrier-forms-hero .carrier-forms-hero-title,
+.carrier-forms-hero .carrier-forms-hero-text,
+.carrier-forms-hero a {
+  color: #FDFEFE;
+}
+
+.carrier-forms-hero {
+  background: linear-gradient(140deg, #2098CB 0%, #1A90C6 48%, #1B7DAD 100%);
+}
+
+.carrier-forms-hero--expediente {
+  background: linear-gradient(140deg, #80C449 0%, #77BE3C 45%, #679F35 100%);
+}
+
+.btn-forms-hero {
+  background: rgba(255, 255, 255, 0.92);
+  color: #145E83 !important;
+}
+
+.btn-forms-hero--expediente {
+  color: #3D6A1A !important;
+}
+
+/* Buttons consistency pass */
+.btn-primary {
+  background: linear-gradient(180deg, #2AB5E3 0%, #1A90C6 100%);
+  border-color: #1C88B8;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(180deg, #2DBCEB 0%, #1991C8 100%);
+}
+
+.btn-secondary,
+.btn-ghost {
+  background: linear-gradient(180deg, #FFFFFF, #F6FBFF);
+  color: #2A4055;
+}
+
+.btn-success {
+  background: linear-gradient(180deg, #F8FCF2 0%, #ECF8DE 100%);
+  border-color: #CFE4B7;
+}
+
+/* Forms / tables / badges */
+label {
+  color: #304457;
+  font-weight: 560;
+}
+
+input, select, textarea {
+  background: linear-gradient(180deg, #FFFFFF, #FBFDFF);
+  color: var(--pc-text);
+}
+
+th {
+  color: #5E7286;
+}
+
+.table-wrap {
+  background: linear-gradient(180deg, #FFFFFF, #F8FBFF);
+}
+
+.checkid-recent-panel,
+.fin-hist-table-wrap,
+.carrier-paquete-panel {
+  background: linear-gradient(180deg, #FFFFFF, var(--pc-surface-blue));
+  border: 1px solid var(--pc-border);
+  border-radius: 16px;
+}
+
+.checkid-inline-notice,
+.hint-box,
+.carrier-banner {
+  background: linear-gradient(180deg, #FFFFFF, var(--pc-surface-green));
+  border-color: #DBEACD;
+}
+
+.badge,
+.checkid-badge {
+  border: 1px solid transparent;
+}
+
+.badge-ok,
+.checkid-badge--ok {
+  background: #EDF8E4;
+  color: #2E6115;
+  border-color: #D2E8BF;
+}
+
+.badge-error,
+.badge-fail,
+.checkid-badge--err {
+  background: #FCEEEE;
+  color: #A33E33;
+  border-color: #F4D0CD;
+}
+
+/* Typography sharpness and readability */
+p,
+li,
+td,
+th,
+label,
+input,
+select,
+textarea,
+.helper,
+.muted-cell,
+.panel-head-note {
+  opacity: 1;
+}
+
+.page-head h2,
+.welcome-title,
+.hero-copy h2,
+.panel-head h3 {
+  letter-spacing: -0.012em;
+}
+
+/* Avoid blur from broad GPU hints/transforms */
+.panel,
+.stat-card,
+.form-card,
+.welcome-card,
+.btn,
+.nav-link {
+  will-change: auto;
+  backface-visibility: visible;
+}
+
+.btn:hover,
+.welcome-card:hover {
+  transform: none;
+}
+
+.panel,
+.stat-card,
+.form-card,
+.welcome-card {
+  animation: pc-fade-in 240ms ease both;
+}
+
+@keyframes pc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Mobile balance */
+@media (max-width: 900px) {
+  .app-shell--session .app-mobile-header {
+    background: linear-gradient(180deg, #FFFFFF, #F4FAFE);
+  }
+
+  .sidebar {
+    box-shadow: 8px 0 24px rgba(28, 42, 60, 0.09);
+  }
+
+  .main {
+    padding: 70px 14px 18px;
+  }
+}

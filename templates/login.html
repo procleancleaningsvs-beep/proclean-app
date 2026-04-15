@@ -2,10 +2,16 @@
 {% block content %}
 <section class="auth-card">
   <div class="hero-copy hero-copy-brand">
-    <img class="login-brand-logo" src="{{ url_for('static', filename='branding/proclean-logo-horizontal.png') }}" alt="ProClean Cleaning Services" width="280" height="auto" loading="lazy">
+    <div class="brand-lockup brand-lockup-login" aria-label="ProClean Cleaning Services">
+      <img class="brand-lockup-icon" src="{{ url_for('static', filename='branding/proclean-isotype.png') }}" alt="" width="56" height="56" loading="lazy">
+      <div class="brand-lockup-text">
+        <span class="brand-lockup-name">PROCLEAN</span>
+        <span class="brand-lockup-sub">Cleaning Services</span>
+      </div>
+    </div>
     <span class="eyebrow">Acceso seguro</span>
     <h2>Bienvenido a {{ app_name }}</h2>
-    <p>Constancias AFIL IMSS, herramientas (CheckID), finiquitos, Vitroflex y expedientes de Cursos en un solo lugar.</p>
+    <p>Ingresa con tu cuenta para continuar.</p>
   </div>
   <form method="post" class="form-card compact-form">
     <label>Usuario

@@ -2,7 +2,13 @@
 {% block content %}
 <section class="welcome-hero panel">
   <div class="welcome-hero-inner">
-    <img class="welcome-logo" src="{{ url_for('static', filename='branding/proclean-logo-horizontal.png') }}" alt="ProClean Cleaning Services" width="320" height="auto" loading="lazy">
+    <div class="brand-lockup brand-lockup-home" aria-label="ProClean Cleaning Services">
+      <img class="brand-lockup-icon" src="{{ url_for('static', filename='branding/proclean-isotype.png') }}" alt="" width="58" height="58" loading="lazy">
+      <div class="brand-lockup-text">
+        <span class="brand-lockup-name">PROCLEAN</span>
+        <span class="brand-lockup-sub">Cleaning Services</span>
+      </div>
+    </div>
     <h2 class="welcome-title">Hola, {{ current_user.username }}</h2>
     <p class="welcome-lead">Elige un módulo para continuar. Aquí tienes accesos directos a las herramientas que usas con más frecuencia.</p>
   </div>
