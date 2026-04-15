@@ -850,6 +850,28 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   gap: 12px;
   margin-top: 10px;
 }
+.carrier-imss-pick-inline {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  border: 1px solid #bae6fd;
+  background: #f0f9ff;
+}
+.carrier-imss-pick-inline-title {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+.carrier-imss-pick-inline-form .carrier-imss-pick-select {
+  width: 100%;
+  margin-top: 6px;
+}
+.carrier-imss-pick-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
 
 .carrier-sheet-dialog {
   width: min(900px, 98vw);

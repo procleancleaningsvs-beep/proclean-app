@@ -143,6 +143,11 @@
     const pickForm = document.getElementById("carrier-imss-pick-form");
     const pickFid = document.getElementById("carrier-imss-pick-fid");
     const pickSelect = document.getElementById("carrier-imss-pick-select");
+    const pickInline = document.getElementById("carrier-imss-pick-inline");
+    const pickInlineForm = document.getElementById("carrier-imss-pick-inline-form");
+    const pickInlineFid = document.getElementById("carrier-imss-pick-inline-fid");
+    const pickInlineSelect = document.getElementById("carrier-imss-pick-inline-select");
+    const pickInlineCancel = document.getElementById("carrier-imss-pick-inline-cancel");
 
     let page = 1;
     let perPage = 12;
@@ -156,34 +161,33 @@
       return "/carrier/cursos/expediente/" + encodeURIComponent(expedienteId) + "/vincular-formato";
     }
 
+    function hidePickInline() {
+      if (pickInline) pickInline.hidden = true;
+    }
+
     function openPickModal(rec) {
-      if (!pickDlg || !pickForm || !pickFid || !pickSelect) return;
-      pickForm.action = vincUrl();
-      pickFid.value = String(rec.id);
-      pickSelect.innerHTML = "";
+      if (!pickInline || !pickInlineForm || !pickInlineFid || !pickInlineSelect) return;
+      pickInlineForm.action = vincUrl();
+      pickInlineFid.value = String(rec.id);
+      pickInlineSelect.innerHTML = "";
       const names = rec.nombres && rec.nombres.length ? rec.nombres : [];
       const n = Math.max(1, parseInt(rec.movement_count, 10) || 1);
       for (let i = 0; i < n; i++) {
         const opt = document.createElement("option");
         opt.value = String(i);
         opt.textContent = names[i] != null && String(names[i]).trim() ? String(names[i]) : "Movimiento " + (i + 1);
-        pickSelect.appendChild(opt);
+        pickInlineSelect.appendChild(opt);
       }
+      pickInline.hidden = false;
       try {
-        if (dlg && dlg.open) dlg.close();
+        pickInline.scrollIntoView({ block: "nearest", behavior: "smooth" });
       } catch (e) {
-        /* ignore */
+        pickInline.scrollIntoView();
       }
-      try {
-        if (pickDlg.showModal) pickDlg.showModal();
-        else pickDlg.show && pickDlg.show();
-      } catch (e) {
-        try {
-          pickDlg.show && pickDlg.show();
-        } catch (_err) {
-          alert("No se pudo abrir el selector de persona. Intenta de nuevo.");
-        }
-      }
+    }
+
+    if (pickInlineCancel) {
+      pickInlineCancel.addEventListener("click", hidePickInline);
     }
 
     if (pickDlg) {
@@ -282,6 +286,7 @@
     function openDlg() {
       page = 1;
       q = search ? search.value.trim() : "";
+      hidePickInline();
       if (dlg.showModal) dlg.showModal();
       load();
     }
@@ -292,9 +297,11 @@
       document.getElementById("carrier-btn-vincular-modal-2").addEventListener("click", openDlg);
     dlg.querySelectorAll("[data-vincular-close]").forEach(function (x) {
       x.addEventListener("click", function () {
+        hidePickInline();
         dlg.close();
       });
     });
+    dlg.addEventListener("close", hidePickInline);
 
     if (search) {
       search.addEventListener("input", function () {

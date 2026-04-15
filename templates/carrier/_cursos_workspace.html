@@ -197,6 +197,20 @@
         <button type="button" class="btn btn-secondary btn-sm" id="carrier-imss-next">Siguiente</button>
       </div>
       <p class="empty-state" id="carrier-imss-empty" hidden>No hay constancias que coincidan.</p>
+      <div id="carrier-imss-pick-inline" class="carrier-imss-pick-inline" hidden>
+        <h4 class="carrier-imss-pick-inline-title" id="carrier-imss-pick-inline-title">Elegir persona / movimiento</h4>
+        <p class="helper" id="carrier-imss-pick-inline-desc">Varias personas en esta constancia. Elige cuál vincular a este expediente.</p>
+        <form method="post" id="carrier-imss-pick-inline-form" class="carrier-imss-pick-inline-form">
+          <input type="hidden" name="format_history_id" id="carrier-imss-pick-inline-fid" value="">
+          <label class="carrier-inline-label">Persona / movimiento
+            <select name="movimiento_idx" id="carrier-imss-pick-inline-select" required class="carrier-imss-pick-select"></select>
+          </label>
+          <div class="carrier-imss-pick-inline-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="carrier-imss-pick-inline-cancel">Cancelar</button>
+            <button type="submit" class="btn btn-primary btn-sm">Vincular al expediente</button>
+          </div>
+        </form>
+      </div>
       <div class="carrier-modal-footer">
         <button type="button" class="btn btn-secondary" data-vincular-close>Cerrar</button>
       </div>
