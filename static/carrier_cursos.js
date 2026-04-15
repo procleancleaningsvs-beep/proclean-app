@@ -237,7 +237,6 @@
           const tr = document.createElement("tr");
           const folioLote = [rec.folio, rec.lote].filter(Boolean).join(" · ");
           const sub = folioLote ? '<br><span class="helper">' + esc(folioLote) + "</span>" : "";
-          const can = rec.can_vincular !== false;
           const multi = (parseInt(rec.movement_count, 10) || 0) > 1;
           tr.innerHTML =
             "<td>" +
@@ -255,10 +254,7 @@
           b.type = "button";
           b.className = "btn btn-primary btn-sm";
           b.textContent = "Vincular";
-          if (!can) {
-            b.disabled = true;
-            b.title = "Solo puedes vincular constancias generadas con tu usuario.";
-          } else if (multi) {
+          if (multi) {
             b.addEventListener("click", function () {
               openPickModal(rec);
             });

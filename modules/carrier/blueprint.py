@@ -1019,13 +1019,13 @@ def expediente_vincular_formato(expediente_id: int):
         )
         flash("Constancia vinculada al expediente.", "success")
     else:
-        flash("No se pudo vincular la constancia (revisa que sea tuya).", "error")
+        flash("No se pudo vincular la constancia al expediente.", "error")
     return redirect(url_for("carrier_curso.index", e=expediente_id))
 
 
 @carrier_curso_bp.route("/expediente/<int:expediente_id>/formatos-imss.json")
 def formatos_imss_json(expediente_id: int):
-    """Historial IMSS paginado + búsqueda: misma consulta base que Movimientos IMSS (`list_history`: `format_history` + `users`, sin filtro por usuario). La vinculación POST sigue validando propiedad en `attach_alta_format_history`."""
+    """Historial IMSS paginado + búsqueda: misma consulta base que Movimientos IMSS (`format_history` + `users`, sin filtro por usuario). La vinculación POST valida solo que el expediente sea del usuario; la constancia puede ser de cualquier autor."""
     if (redir := _login_required()) is not None:
         return redir
     db_path = _db_path()
@@ -1057,7 +1057,7 @@ def formatos_imss_json(expediente_id: int):
                 "lote": str(rec.get("lote") or ""),
                 "username": str(rec.get("username") or ""),
                 "owner_user_id": oid,
-                "can_vincular": oid == uid,
+                "can_vincular": True,
             }
         )
     total_pages = max(1, (total + per_page - 1) // per_page) if total else 1

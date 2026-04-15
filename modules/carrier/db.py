@@ -341,7 +341,12 @@ def attach_alta_format_history(
     *,
     movimiento_idx: int = 0,
 ) -> bool:
-    """Vincula un registro de format_history como Alta del expediente. Valida propiedad."""
+    """Vincula un registro de format_history como Alta del expediente.
+
+    Valida que el expediente pertenezca al usuario actual. Cualquier constancia
+    existente en `format_history` puede vincularse (mismo criterio que el historial
+    global de Movimientos IMSS).
+    """
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
@@ -352,10 +357,10 @@ def attach_alta_format_history(
         if not exp or int(exp["user_id"]) != int(user_id):
             return False
         hist = conn.execute(
-            "SELECT id, user_id FROM format_history WHERE id = ?",
+            "SELECT id FROM format_history WHERE id = ?",
             (format_history_id,),
         ).fetchone()
-        if not hist or int(hist["user_id"]) != int(user_id):
+        if not hist:
             return False
         conn.execute(
             """

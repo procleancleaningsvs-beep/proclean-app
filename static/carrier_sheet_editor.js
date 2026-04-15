@@ -31,6 +31,10 @@
     this._keydownHandler = null;
     this._onCropChangeBound = this._onCropChange.bind(this);
     this._bakedBeforeCropEdit = false;
+    this._cropLockedLeft = 0;
+    this._cropLockedTop = 0;
+    this._cropLockedScaleX = 1;
+    this._cropLockedScaleY = 1;
   }
 
   FabricLetterEditor.prototype.dispose = function () {
@@ -321,7 +325,19 @@
   };
 
   FabricLetterEditor.prototype._onCropChange = function (evt) {
-    if (!this.cropMode || !evt || !evt.target || evt.target !== this.cropRectObj) return;
+    if (!this.cropMode || !evt || !evt.target) return;
+    if (evt.target === this.fabricImg) {
+      this.fabricImg.set({
+        left: this._cropLockedLeft,
+        top: this._cropLockedTop,
+        scaleX: this._cropLockedScaleX,
+        scaleY: this._cropLockedScaleY,
+      });
+      this.fabricImg.setCoords();
+      this.canvas.requestRenderAll();
+      return;
+    }
+    if (evt.target !== this.cropRectObj) return;
     if (evt.type === "object:modified") {
       this._normalizeCropRectScale();
     }
@@ -366,7 +382,12 @@
       lockScalingX: true,
       lockScalingY: true,
       lockRotation: true,
+      hoverCursor: "default",
     });
+    this._cropLockedLeft = this.fabricImg.left;
+    this._cropLockedTop = this.fabricImg.top;
+    this._cropLockedScaleX = this.fabricImg.scaleX;
+    this._cropLockedScaleY = this.fabricImg.scaleY;
     this.canvas.discardActiveObject();
 
     this.cropShadows = [
