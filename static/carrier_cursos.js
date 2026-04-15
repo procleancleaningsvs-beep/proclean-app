@@ -148,6 +148,8 @@
     const pickInlineFid = document.getElementById("carrier-imss-pick-inline-fid");
     const pickInlineSelect = document.getElementById("carrier-imss-pick-inline-select");
     const pickInlineCancel = document.getElementById("carrier-imss-pick-inline-cancel");
+    const vincularSingleForm = document.getElementById("carrier-imss-vincular-single");
+    const vincularSingleFid = document.getElementById("carrier-imss-vincular-single-fid");
 
     let page = 1;
     let perPage = 12;
@@ -262,6 +264,12 @@
             });
           } else {
             b.addEventListener("click", function () {
+              if (vincularSingleForm && vincularSingleFid) {
+                vincularSingleForm.action = vincUrl();
+                vincularSingleFid.value = String(rec.id);
+                vincularSingleForm.submit();
+                return;
+              }
               const f = document.createElement("form");
               f.method = "post";
               f.action = vincUrl();

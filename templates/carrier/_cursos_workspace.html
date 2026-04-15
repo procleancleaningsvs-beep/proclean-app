@@ -217,6 +217,11 @@
     </div>
   </dialog>
 
+  <form id="carrier-imss-vincular-single" method="post" action="{{ url_for('carrier_curso.expediente_vincular_formato', expediente_id=workspace.expediente.id) }}" class="carrier-imss-vincular-single-form" aria-hidden="true" tabindex="-1">
+    <input type="hidden" name="format_history_id" id="carrier-imss-vincular-single-fid" value="">
+    <input type="hidden" name="movimiento_idx" value="0">
+  </form>
+
   <dialog class="carrier-modal carrier-imss-pick-dialog" id="carrier-imss-pick-modal" aria-labelledby="carrier-imss-pick-title">
     <div class="carrier-modal-form carrier-imss-pick-inner">
       <button type="button" class="carrier-modal-close" data-imss-pick-close aria-label="Cerrar">&times;</button>

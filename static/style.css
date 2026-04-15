@@ -872,6 +872,14 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   margin-top: 12px;
   justify-content: flex-end;
 }
+.carrier-imss-vincular-single-form {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
 
 .carrier-sheet-dialog {
   width: min(900px, 98vw);
