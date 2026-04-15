@@ -324,6 +324,8 @@
     const cropActions = document.getElementById("carrier-sheet-crop-actions");
     const cropApply = document.getElementById("carrier-sheet-crop-apply");
     const cropCancel = document.getElementById("carrier-sheet-crop-cancel");
+    const modeLayoutBtn = document.getElementById("carrier-sheet-mode-layout");
+    const modeCropBtn = document.getElementById("carrier-sheet-mode-crop");
     if (!modal || !sheet || !slotMetaUrl) return;
 
     const fabricEditors = {};
@@ -332,7 +334,7 @@
     let uploadState = null;
     let editMode = null;
     let uploadPdfOnly = false;
-    let ineSharedScale = 1;
+    let activeEditorSlot = null;
     let cropActiveEditor = null;
     let cropBtnsWired = false;
 
@@ -345,14 +347,41 @@
       if (scaleVal) scaleVal.textContent = Math.round(u * 100) + "%";
     }
 
+    function getActiveEditor() {
+      if (activeEditorSlot && fabricEditors[activeEditorSlot]) return fabricEditors[activeEditorSlot];
+      for (let i = 0; i < activeSlots.length; i++) {
+        const s = activeSlots[i];
+        if (fabricEditors[s]) {
+          activeEditorSlot = s;
+          return fabricEditors[s];
+        }
+      }
+      return null;
+    }
+
+    function refreshModeButtons() {
+      const ed = getActiveEditor();
+      const inCrop = !!(ed && ed.isCropMode && ed.isCropMode());
+      if (modeLayoutBtn) modeLayoutBtn.classList.toggle("is-active", !inCrop);
+      if (modeCropBtn) modeCropBtn.classList.toggle("is-active", inCrop);
+    }
+
     function updateCropUi() {
       let any = false;
       Object.keys(fabricEditors).forEach(function (k) {
         if (fabricEditors[k] && fabricEditors[k].isCropMode()) any = true;
       });
       if (cropActions) cropActions.hidden = !any;
-      if (!modeBanner) return;
-      if (uploadPdfOnly) return;
+      if (modeLayoutBtn) modeLayoutBtn.disabled = uploadPdfOnly;
+      if (modeCropBtn) modeCropBtn.disabled = uploadPdfOnly;
+      if (!modeBanner) {
+        refreshModeButtons();
+        return;
+      }
+      if (uploadPdfOnly) {
+        refreshModeButtons();
+        return;
+      }
       if (any) {
         modeBanner.hidden = false;
         modeBanner.textContent =
@@ -361,6 +390,7 @@
         modeBanner.hidden = true;
         modeBanner.textContent = "";
       }
+      refreshModeButtons();
     }
 
     function destroyAllFabric() {
@@ -373,6 +403,7 @@
         delete fabricEditors[k];
       });
       cropActiveEditor = null;
+      activeEditorSlot = null;
       if (cropActions) cropActions.hidden = true;
       if (modeBanner && !uploadPdfOnly) {
         modeBanner.hidden = true;
@@ -414,33 +445,32 @@
       const ed = window.CarrierFabricLetter.create(host, {
         onUserScale: function (u) {
           const v = clampScale(u);
-          ineSharedScale = v;
-          if (editMode === "ine") {
-            activeSlots.forEach(function (s) {
-              if (fabricEditors[s] && s !== slot) fabricEditors[s].applyUserScale(ineSharedScale);
-            });
-          }
-          if (scaleSlider) scaleSlider.value = String(Math.round(ineSharedScale * 100));
-          syncSliderLabel(ineSharedScale);
+          activeEditorSlot = slot;
+          if (scaleSlider) scaleSlider.value = String(Math.round(v * 100));
+          syncSliderLabel(v);
         },
         onCropMode: function (on, _ed) {
+          activeEditorSlot = slot;
           cropActiveEditor = on ? fabricEditors[slot] : null;
           updateCropUi();
         },
         onReady: function () {
-          if (editMode === "ine") {
-            const first = activeSlots[0];
-            if (first && fabricEditors[first]) {
-              ineSharedScale = fabricEditors[first].getUserScale();
-              activeSlots.forEach(function (s) {
-                if (fabricEditors[s]) fabricEditors[s].applyUserScale(ineSharedScale);
-              });
-            }
-          } else if (fabricEditors[slot]) {
-            ineSharedScale = fabricEditors[slot].getUserScale();
+          activeEditorSlot = slot;
+          if (fabricEditors[slot]) {
+            const v = fabricEditors[slot].getUserScale();
+            if (scaleSlider) scaleSlider.value = String(Math.round(v * 100));
+            syncSliderLabel(v);
           }
-          if (scaleSlider) scaleSlider.value = String(Math.round(ineSharedScale * 100));
-          syncSliderLabel(ineSharedScale);
+          refreshModeButtons();
+        },
+        onFocus: function () {
+          activeEditorSlot = slot;
+          if (fabricEditors[slot]) {
+            const v = fabricEditors[slot].getUserScale();
+            if (scaleSlider) scaleSlider.value = String(Math.round(v * 100));
+            syncSliderLabel(v);
+          }
+          refreshModeButtons();
         },
       });
       fabricEditors[slot] = ed;
@@ -480,15 +510,9 @@
     function applyScaleSliderToFabric() {
       const raw = scaleSlider ? parseInt(String(scaleSlider.value), 10) : 100;
       const v = clampScale((raw || 100) / 100);
-      ineSharedScale = v;
       syncSliderLabel(v);
-      if (editMode === "ine") {
-        activeSlots.forEach(function (s) {
-          if (fabricEditors[s]) fabricEditors[s].applyUserScale(ineSharedScale);
-        });
-      } else if (activeSlots.length === 1 && fabricEditors[activeSlots[0]]) {
-        fabricEditors[activeSlots[0]].applyUserScale(ineSharedScale);
-      }
+      const ed = getActiveEditor();
+      if (ed) ed.applyUserScale(v);
     }
 
     function updatePdfScaleVisual() {
@@ -517,7 +541,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — INE (misma hoja)";
         if (hintEl) {
           hintEl.textContent =
-            "Misma composición que el PDF final. Cada lado se edita aparte; la escala del control aplica a ambos. Doble clic en una imagen entra al recorte (marco azul).";
+            "Misma composición que el PDF final. Cada lado se edita aparte. Doble clic en una imagen entra al recorte (marco azul).";
         }
         inner.classList.add("carrier-doc-sheet-inner--ine");
         const L = document.createElement("div");
@@ -532,6 +556,7 @@
         initImageSlot(R, "ine_reverso", stR);
         if (stL && stL.has_file) activeSlots.push("ine_frente");
         if (stR && stR.has_file) activeSlots.push("ine_reverso");
+        activeEditorSlot = stL && stL.has_file ? "ine_frente" : stR && stR.has_file ? "ine_reverso" : null;
       } else {
         const st = slotsState[mode];
         const labels = {
@@ -550,21 +575,15 @@
         inner.appendChild(box);
         initImageSlot(box, mode, st);
         if (st && st.has_file) activeSlots.push(mode);
+        activeEditorSlot = st && st.has_file ? mode : null;
       }
 
-      const rs0 =
-        mode === "ine"
-          ? slotsState.ine_frente && slotsState.ine_frente.render_scale
-            ? slotsState.ine_frente.render_scale
-            : slotsState.ine_reverso && slotsState.ine_reverso.render_scale
-            ? slotsState.ine_reverso.render_scale
-            : null
-          : slotsState[mode] && slotsState[mode].render_scale
-          ? slotsState[mode].render_scale
-          : null;
+      const activeState = activeEditorSlot ? slotsState[activeEditorSlot] : null;
+      const rs0 = activeState && activeState.render_scale ? activeState.render_scale : null;
       const pct = rs0 ? Math.round(Number(rs0) * 100) : 100;
       if (scaleSlider) scaleSlider.value = String(Math.max(25, Math.min(300, pct)));
       applyScaleSliderToFabric();
+      updateCropUi();
       modal.showModal();
     }
 
@@ -589,6 +608,7 @@
       if (titleEl) titleEl.textContent = "Subir — vista en hoja";
       if (type === "application/pdf") {
         uploadPdfOnly = true;
+        activeEditorSlot = null;
         if (hintEl) hintEl.textContent = "PDF: ajusta la escala con el control inferior. Se subirá el archivo completo.";
         if (modeBanner) {
           modeBanner.hidden = false;
@@ -611,11 +631,13 @@
         const url = URL.createObjectURL(f);
         initUploadImageSlot(box, detail.slot, url);
         activeSlots.push(detail.slot);
+        activeEditorSlot = detail.slot;
       }
 
       if (scaleSlider) scaleSlider.value = "100";
       if (uploadPdfOnly) updatePdfScaleVisual();
       else applyScaleSliderToFabric();
+      updateCropUi();
       modal.showModal();
     }
 
@@ -629,6 +651,22 @@
       scaleSlider.addEventListener("input", function () {
         if (uploadPdfOnly) updatePdfScaleVisual();
         else applyScaleSliderToFabric();
+      });
+    }
+    if (modeLayoutBtn) {
+      modeLayoutBtn.addEventListener("click", function () {
+        const ed = getActiveEditor();
+        if (!ed) return;
+        if (ed.isCropMode && ed.isCropMode()) ed.applyCrop();
+        refreshModeButtons();
+      });
+    }
+    if (modeCropBtn) {
+      modeCropBtn.addEventListener("click", function () {
+        const ed = getActiveEditor();
+        if (!ed) return;
+        if (!ed.isCropMode || !ed.isCropMode()) ed.enterCropMode();
+        refreshModeButtons();
       });
     }
 
@@ -650,6 +688,7 @@
         modeBanner.textContent = "";
       }
       if (cropActions) cropActions.hidden = true;
+      updateCropUi();
     }
 
     document.querySelectorAll("[data-sheet-close]").forEach(function (b) {
@@ -663,10 +702,6 @@
           "X-Carrier-Xhr": "1",
         };
         try {
-          const rsIne =
-            editMode === "ine" && activeSlots.length && fabricEditors[activeSlots[0]]
-              ? fabricEditors[activeSlots[0]].getRenderScaleForSave()
-              : null;
           for (let i = 0; i < activeSlots.length; i++) {
             const slot = activeSlots[i];
             const ed = fabricEditors[slot];
@@ -677,9 +712,7 @@
             const body = new URLSearchParams();
             body.set("slot", slot);
             body.set("crop_norm_json", ed.getCropNormJson());
-            const rs =
-              editMode === "ine" && rsIne !== null && rsIne !== undefined ? rsIne : ed.getRenderScaleForSave();
-            body.set("render_scale", rs);
+            body.set("render_scale", ed.getRenderScaleForSave());
             const res = await fetch(slotMetaUrl, { method: "POST", headers: headers, body: body.toString(), credentials: "same-origin" });
             const js = await res.json().catch(function () {
               return {};

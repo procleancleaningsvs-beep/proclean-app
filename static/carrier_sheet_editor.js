@@ -1,10 +1,12 @@
 /**
- * Hoja carta (612×792) con Fabric.js: colocación con manijas, escala compartida vía callback,
+ * Hoja carta (612×792) con Fabric.js: colocación con manijas y recorte libre,
  * y modo recorte separado (marco independiente del selector de colocación).
  */
 (function (global) {
   var LW = 612;
   var LH = 792;
+  var MIN_CROP_PIXELS = 2;
+  var MIN_CROP_NORM = 0.001;
 
   function clamp(x, a, b) {
     return Math.max(a, Math.min(b, x));
@@ -83,8 +85,8 @@
     return {
       left: br.left + x0 * br.width,
       top: br.top + y0 * br.height,
-      width: Math.max(16, (x1 - x0) * br.width),
-      height: Math.max(16, (y1 - y0) * br.height),
+      width: Math.max(MIN_CROP_PIXELS, (x1 - x0) * br.width),
+      height: Math.max(MIN_CROP_PIXELS, (y1 - y0) * br.height),
     };
   };
 
@@ -93,8 +95,8 @@
     var br = this.fabricImg.getBoundingRect(true);
     var c = this.cropRect;
     c.set({ scaleX: 1, scaleY: 1 });
-    var w = Math.max(16, Math.min(c.width, br.width));
-    var h = Math.max(16, Math.min(c.height, br.height));
+    var w = Math.max(MIN_CROP_PIXELS, Math.min(c.width, br.width));
+    var h = Math.max(MIN_CROP_PIXELS, Math.min(c.height, br.height));
     var left = clamp(c.left, br.left, br.left + br.width - w);
     var top = clamp(c.top, br.top, br.top + br.height - h);
     c.set({ left: left, top: top, width: w, height: h });
@@ -131,6 +133,9 @@
     this.canvas.discardActiveObject();
     this.canvas.add(this.cropRect);
     this.canvas.setActiveObject(this.cropRect);
+    if (typeof this.options.onFocus === "function") {
+      this.options.onFocus(this);
+    }
     this._clampCropRectToImage();
     this.canvas.off("object:moving", this._onCropModifyBound);
     this.canvas.off("object:scaling", this._onCropModifyBound);
@@ -166,7 +171,7 @@
     var y0 = clamp((cbr.top - br.top) / br.height, 0, 1);
     var x1 = clamp((cbr.left + cbr.width - br.left) / br.width, 0, 1);
     var y1 = clamp((cbr.top + cbr.height - br.top) / br.height, 0, 1);
-    if (x1 - x0 < 0.02 || y1 - y0 < 0.02) {
+    if (x1 - x0 < MIN_CROP_NORM || y1 - y0 < MIN_CROP_NORM) {
       this.cancelCrop();
       return;
     }
@@ -261,9 +266,22 @@
         self.options.onUserScale(self.getUserScale());
       }
     });
+    img.on("selected", function () {
+      if (typeof self.options.onFocus === "function") {
+        self.options.onFocus(self);
+      }
+    });
+    img.on("mousedown", function () {
+      if (typeof self.options.onFocus === "function") {
+        self.options.onFocus(self);
+      }
+    });
     this._refreshClipPath();
     this.canvas.add(img);
     this.canvas.setActiveObject(img);
+    if (typeof this.options.onFocus === "function") {
+      this.options.onFocus(this);
+    }
     this._bindDblClick();
     this._bindEsc();
     this.canvas.renderAll();
