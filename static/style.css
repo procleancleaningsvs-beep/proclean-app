@@ -946,6 +946,13 @@ input:disabled, select:disabled { background: #f1f5f9; color: var(--muted); }
   color: #fff;
   border-color: #0076b8;
 }
+.carrier-sheet-mode-toggle .btn {
+  min-width: 42px;
+  padding: 6px 10px;
+  font-size: 1rem;
+  line-height: 1;
+  text-align: center;
+}
 @media (max-width: 640px) {
   .carrier-sheet-mode-toggle .btn,
   .carrier-sheet-crop-actions .btn {

@@ -169,7 +169,21 @@
         opt.textContent = names[i] != null && String(names[i]).trim() ? String(names[i]) : "Movimiento " + (i + 1);
         pickSelect.appendChild(opt);
       }
-      if (pickDlg.showModal) pickDlg.showModal();
+      try {
+        if (dlg && dlg.open) dlg.close();
+      } catch (e) {
+        /* ignore */
+      }
+      try {
+        if (pickDlg.showModal) pickDlg.showModal();
+        else pickDlg.show && pickDlg.show();
+      } catch (e) {
+        try {
+          pickDlg.show && pickDlg.show();
+        } catch (_err) {
+          alert("No se pudo abrir el selector de persona. Intenta de nuevo.");
+        }
+      }
     }
 
     if (pickDlg) {
@@ -385,7 +399,7 @@
       if (any) {
         modeBanner.hidden = false;
         modeBanner.textContent =
-          "Modo recorte: el marco azul es independiente de la imagen. Ajusta y pulsa «Aplicar recorte», doble clic en la hoja, o ESC / «Cancelar».";
+          "Modo recorte: ajusta los bordes de la imagen con las manijas laterales/esquinas. Pulsa «Aplicar recorte», doble clic, o ESC / «Cancelar».";
       } else {
         modeBanner.hidden = true;
         modeBanner.textContent = "";
@@ -541,7 +555,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — INE (misma hoja)";
         if (hintEl) {
           hintEl.textContent =
-            "Misma composición que el PDF final. Cada lado se edita aparte. Doble clic en una imagen entra al recorte (marco azul).";
+            "Misma composición que el PDF final. Cada lado se edita aparte. Doble clic en una imagen entra al recorte por bordes.";
         }
         inner.classList.add("carrier-doc-sheet-inner--ine");
         const L = document.createElement("div");
@@ -567,7 +581,7 @@
         if (titleEl) titleEl.textContent = "Vista previa / editar — " + (labels[mode] || mode);
         if (hintEl) {
           hintEl.textContent =
-            "Hoja carta como en el PDF. Selecciona la imagen y usa las manijas; doble clic = modo recorte (marco aparte).";
+            "Hoja carta como en el PDF. Selecciona la imagen y usa las manijas; doble clic = modo recorte por bordes.";
         }
         inner.classList.add("carrier-doc-sheet-inner--single");
         const box = document.createElement("div");

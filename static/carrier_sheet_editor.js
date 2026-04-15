@@ -1,11 +1,12 @@
 /**
- * Hoja carta (612×792) con Fabric.js: colocación con manijas y recorte libre,
- * y modo recorte separado (marco independiente del selector de colocación).
+ * Hoja carta (612×792) con Fabric.js:
+ * - Modo normal: mover + redimensionar con manijas.
+ * - Modo recorte: ajustar bordes efectivos de la imagen (tipo Word).
  */
 (function (global) {
   var LW = 612;
   var LH = 792;
-  var MIN_CROP_PIXELS = 2;
+  var HANDLE_RADIUS = 6;
   var MIN_CROP_NORM = 0.001;
 
   function clamp(x, a, b) {
@@ -17,7 +18,8 @@
     this.options = options || {};
     this.canvas = null;
     this.fabricImg = null;
-    this.cropRect = null;
+    this.cropGuides = [];
+    this.cropHandles = [];
     this.cropMode = false;
     this.baseFit = 1;
     this._appliedNorm = [0, 0, 1, 1];
@@ -25,7 +27,7 @@
     this._pendingMeta = null;
     this._dblHandler = null;
     this._keydownHandler = null;
-    this._onCropModifyBound = this._onCropModify.bind(this);
+    this._onObjectMovingBound = this._onObjectMoving.bind(this);
   }
 
   FabricLetterEditor.prototype.dispose = function () {
@@ -37,8 +39,7 @@
       this._keydownHandler = null;
     }
     if (this.canvas) {
-      this.canvas.off("object:moving", this._onCropModifyBound);
-      this.canvas.off("object:scaling", this._onCropModifyBound);
+      this.canvas.off("object:moving", this._onObjectMovingBound);
       try {
         this.canvas.dispose();
       } catch (e) {
@@ -47,7 +48,8 @@
       this.canvas = null;
     }
     this.fabricImg = null;
-    this.cropRect = null;
+    this.cropGuides = [];
+    this.cropHandles = [];
     this.cropMode = false;
     if (this.hostEl) this.hostEl.innerHTML = "";
   };
@@ -85,26 +87,124 @@
     return {
       left: br.left + x0 * br.width,
       top: br.top + y0 * br.height,
-      width: Math.max(MIN_CROP_PIXELS, (x1 - x0) * br.width),
-      height: Math.max(MIN_CROP_PIXELS, (y1 - y0) * br.height),
+      width: Math.max(1, (x1 - x0) * br.width),
+      height: Math.max(1, (y1 - y0) * br.height),
     };
   };
 
-  FabricLetterEditor.prototype._clampCropRectToImage = function () {
-    if (!this.cropRect || !this.fabricImg) return;
-    var br = this.fabricImg.getBoundingRect(true);
-    var c = this.cropRect;
-    c.set({ scaleX: 1, scaleY: 1 });
-    var w = Math.max(MIN_CROP_PIXELS, Math.min(c.width, br.width));
-    var h = Math.max(MIN_CROP_PIXELS, Math.min(c.height, br.height));
-    var left = clamp(c.left, br.left, br.left + br.width - w);
-    var top = clamp(c.top, br.top, br.top + br.height - h);
-    c.set({ left: left, top: top, width: w, height: h });
-    c.setCoords();
+  FabricLetterEditor.prototype._createGuideLine = function () {
+    return new fabric.Line([0, 0, 0, 0], {
+      stroke: "#0ea5e9",
+      strokeWidth: 1.2,
+      strokeDashArray: [5, 4],
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+    });
   };
 
-  FabricLetterEditor.prototype._onCropModify = function () {
-    this._clampCropRectToImage();
+  FabricLetterEditor.prototype._createHandle = function (role) {
+    return new fabric.Circle({
+      radius: HANDLE_RADIUS,
+      fill: "#ffffff",
+      stroke: "#0284c7",
+      strokeWidth: 2,
+      selectable: true,
+      evented: true,
+      hasControls: false,
+      hasBorders: false,
+      lockScalingX: true,
+      lockScalingY: true,
+      lockRotation: true,
+      originX: "center",
+      originY: "center",
+      excludeFromExport: true,
+      hoverCursor: "pointer",
+      _cropHandleRole: role,
+    });
+  };
+
+  FabricLetterEditor.prototype._clearCropUiObjects = function () {
+    var self = this;
+    if (this.canvas) {
+      this.canvas.off("object:moving", this._onObjectMovingBound);
+    }
+    this.cropGuides.forEach(function (o) {
+      if (self.canvas) self.canvas.remove(o);
+    });
+    this.cropHandles.forEach(function (o) {
+      if (self.canvas) self.canvas.remove(o);
+    });
+    this.cropGuides = [];
+    this.cropHandles = [];
+  };
+
+  FabricLetterEditor.prototype._updateCropUiPositions = function () {
+    if (!this.cropMode) return;
+    var rect = this._normToCropRectCanvas();
+    var x0 = rect.left;
+    var y0 = rect.top;
+    var x1 = rect.left + rect.width;
+    var y1 = rect.top + rect.height;
+    if (this.cropGuides.length === 4) {
+      this.cropGuides[0].set({ x1: x0, y1: y0, x2: x1, y2: y0 });
+      this.cropGuides[1].set({ x1: x1, y1: y0, x2: x1, y2: y1 });
+      this.cropGuides[2].set({ x1: x0, y1: y1, x2: x1, y2: y1 });
+      this.cropGuides[3].set({ x1: x0, y1: y0, x2: x0, y2: y1 });
+      this.cropGuides.forEach(function (g) {
+        g.setCoords();
+      });
+    }
+    var pts = {
+      t: { x: (x0 + x1) / 2, y: y0 },
+      r: { x: x1, y: (y0 + y1) / 2 },
+      b: { x: (x0 + x1) / 2, y: y1 },
+      l: { x: x0, y: (y0 + y1) / 2 },
+      tl: { x: x0, y: y0 },
+      tr: { x: x1, y: y0 },
+      br: { x: x1, y: y1 },
+      bl: { x: x0, y: y1 },
+    };
+    this.cropHandles.forEach(function (h) {
+      var p = pts[h._cropHandleRole];
+      if (!p) return;
+      h.set({ left: p.x, top: p.y });
+      h.setCoords();
+    });
+  };
+
+  FabricLetterEditor.prototype._setNormByHandle = function (role, px, py) {
+    var br = this.fabricImg.getBoundingRect(true);
+    var nx = clamp((px - br.left) / br.width, 0, 1);
+    var ny = clamp((py - br.top) / br.height, 0, 1);
+    var n = this._appliedNorm.slice();
+    var x0 = n[0];
+    var y0 = n[1];
+    var x1 = n[2];
+    var y1 = n[3];
+    if (role.indexOf("l") >= 0) x0 = clamp(nx, 0, x1 - MIN_CROP_NORM);
+    if (role.indexOf("r") >= 0) x1 = clamp(nx, x0 + MIN_CROP_NORM, 1);
+    if (role.indexOf("t") >= 0) y0 = clamp(ny, 0, y1 - MIN_CROP_NORM);
+    if (role.indexOf("b") >= 0) y1 = clamp(ny, y0 + MIN_CROP_NORM, 1);
+    if (role === "t" || role === "b") {
+      x0 = n[0];
+      x1 = n[2];
+    }
+    if (role === "l" || role === "r") {
+      y0 = n[1];
+      y1 = n[3];
+    }
+    this._appliedNorm = [x0, y0, x1, y1];
+  };
+
+  FabricLetterEditor.prototype._onObjectMoving = function (evt) {
+    if (!this.cropMode || !evt || !evt.target) return;
+    var t = evt.target;
+    var role = t._cropHandleRole;
+    if (!role) return;
+    this._setNormByHandle(role, t.left, t.top);
+    this._updateCropUiPositions();
+    this.canvas.requestRenderAll();
   };
 
   FabricLetterEditor.prototype.enterCropMode = function () {
@@ -112,35 +212,34 @@
     this.fabricImg.set("clipPath", null);
     this._normBeforeCrop = this._appliedNorm.slice();
     this.cropMode = true;
-    var r = this._normToCropRectCanvas();
-    this.cropRect = new fabric.Rect({
-      left: r.left,
-      top: r.top,
-      width: r.width,
-      height: r.height,
-      fill: "rgba(0, 100, 200, 0.14)",
-      stroke: "#006edc",
-      strokeWidth: 2,
-      cornerColor: "#ffffff",
-      cornerStrokeColor: "#006edc",
-      transparentCorners: false,
-      hasRotatingPoint: false,
-      lockRotation: true,
-      strokeUniform: true,
-    });
-    this.cropRect.setControlsVisibility({ mtr: false });
     this.fabricImg.selectable = false;
+    this.fabricImg.evented = false;
     this.canvas.discardActiveObject();
-    this.canvas.add(this.cropRect);
-    this.canvas.setActiveObject(this.cropRect);
+    this.cropGuides = [
+      this._createGuideLine(),
+      this._createGuideLine(),
+      this._createGuideLine(),
+      this._createGuideLine(),
+    ];
+    this.cropHandles = [
+      this._createHandle("t"),
+      this._createHandle("r"),
+      this._createHandle("b"),
+      this._createHandle("l"),
+      this._createHandle("tl"),
+      this._createHandle("tr"),
+      this._createHandle("br"),
+      this._createHandle("bl"),
+    ];
+    for (var i = 0; i < this.cropGuides.length; i++) this.canvas.add(this.cropGuides[i]);
+    for (var j = 0; j < this.cropHandles.length; j++) this.canvas.add(this.cropHandles[j]);
+    this._updateCropUiPositions();
+    if (this.cropHandles.length) this.canvas.setActiveObject(this.cropHandles[0]);
     if (typeof this.options.onFocus === "function") {
       this.options.onFocus(this);
     }
-    this._clampCropRectToImage();
-    this.canvas.off("object:moving", this._onCropModifyBound);
-    this.canvas.off("object:scaling", this._onCropModifyBound);
-    this.canvas.on("object:moving", this._onCropModifyBound);
-    this.canvas.on("object:scaling", this._onCropModifyBound);
+    this.canvas.off("object:moving", this._onObjectMovingBound);
+    this.canvas.on("object:moving", this._onObjectMovingBound);
     if (typeof this.options.onCropMode === "function") {
       this.options.onCropMode(true, this);
     }
@@ -148,14 +247,7 @@
   };
 
   FabricLetterEditor.prototype._teardownCropUI = function () {
-    if (this.canvas) {
-      this.canvas.off("object:moving", this._onCropModifyBound);
-      this.canvas.off("object:scaling", this._onCropModifyBound);
-    }
-    if (this.cropRect && this.canvas) {
-      this.canvas.remove(this.cropRect);
-    }
-    this.cropRect = null;
+    this._clearCropUiObjects();
     this.cropMode = false;
     if (this.fabricImg) {
       this.fabricImg.selectable = true;
@@ -164,18 +256,12 @@
   };
 
   FabricLetterEditor.prototype.applyCrop = function () {
-    if (!this.cropMode || !this.cropRect || !this.fabricImg) return;
-    var br = this.fabricImg.getBoundingRect(true);
-    var cbr = this.cropRect.getBoundingRect(true);
-    var x0 = clamp((cbr.left - br.left) / br.width, 0, 1);
-    var y0 = clamp((cbr.top - br.top) / br.height, 0, 1);
-    var x1 = clamp((cbr.left + cbr.width - br.left) / br.width, 0, 1);
-    var y1 = clamp((cbr.top + cbr.height - br.top) / br.height, 0, 1);
-    if (x1 - x0 < MIN_CROP_NORM || y1 - y0 < MIN_CROP_NORM) {
+    if (!this.cropMode || !this.fabricImg) return;
+    var n = this._appliedNorm;
+    if (n[2] - n[0] < MIN_CROP_NORM || n[3] - n[1] < MIN_CROP_NORM) {
       this.cancelCrop();
       return;
     }
-    this._appliedNorm = [x0, y0, x1, y1];
     this._teardownCropUI();
     this._refreshClipPath();
     this.canvas.setActiveObject(this.fabricImg);
@@ -296,7 +382,7 @@
       var t = opt.target;
       if (!t) return;
       if (self.cropMode) {
-        if (t === self.cropRect || t === self.fabricImg) {
+        if (t._cropHandleRole || t === self.fabricImg) {
           self.applyCrop();
         }
         return;
