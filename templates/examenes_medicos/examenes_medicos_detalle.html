@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
+<link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Vitroflex</span>
+    <h2>Detalle de examen</h2>
+    <p>Registro #{{ row.id }} · {{ row.created_at }} · {{ row.username }}</p>
+  </div>
+  <div class="page-head-actions">
+    <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
+    {% if row.exam_type in ('orina','sangre') and docx_ok %}
+    <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.download_historial_docx', rid=row.id) }}">DOCX</a>
+    {% endif %}
+    {% if row.exam_type in ('orina','sangre') and pdf_ok %}
+    <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_historial_pdf', rid=row.id) }}">PDF</a>
+    {% endif %}
+    {% if is_admin %}
+    <button type="button" class="btn btn-secondary danger-btn" id="em-del-btn" data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}">Eliminar</button>
+    {% endif %}
+  </div>
+</section>
+
+<section class="panel vf-panel">
+  <h3 class="panel-title">
+    {% if row.exam_type == 'orina' %}Examen de orina
+    {% elif row.exam_type == 'sangre' %}Examen de sangre
+    {% else %}IMC{% endif %}
+  </h3>
+
+  {% if row.exam_type == 'imc' and payload.get('valores') %}
+  <dl class="em-dl">
+    {% for k, v in payload['valores'].items() %}
+    <dt>{{ k }}</dt><dd>{{ v }}</dd>
+    {% endfor %}
+  </dl>
+  {% elif payload.get('formulario') %}
+  <dl class="em-dl">
+    {% for k, v in payload['formulario'].items() %}
+    <dt>{{ k }}</dt><dd>{{ v }}</dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="helper">Sin datos de formulario.</p>
+  {% endif %}
+
+  {% if row.exam_type in ('orina','sangre') and not docx_ok and not pdf_ok %}
+  <p class="helper em-error">Los archivos generados ya no están en el servidor.</p>
+  {% endif %}
+</section>
+
+{% if is_admin %}
+<script>
+document.getElementById("em-del-btn")?.addEventListener("click", function () {
+  if (!confirm("¿Eliminar este registro y sus archivos?")) return;
+  fetch(this.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (j.ok) window.location.href = {{ url_for('examenes_medicos.historial_page') | tojson }};
+      else alert(j.error || "No se pudo eliminar");
+    })
+    .catch(function () { alert("Error de red"); });
+});
+</script>
+{% endif %}
+{% endblock %}

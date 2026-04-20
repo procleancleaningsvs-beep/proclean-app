@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
+<link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Vitroflex</span>
+    <h2>Historial — Exámenes médicos</h2>
+    <p>{% if is_admin %}Todos los usuarios.{% else %}Solo tus registros.{% endif %}</p>
+  </div>
+  <a href="{{ url_for('examenes_medicos.index') }}" class="btn btn-secondary">Volver a Exámenes médicos</a>
+</section>
+
+<section class="panel vf-panel">
+  <div class="table-wrap">
+    <table class="vf-table">
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th>Paciente / descripción</th>
+          <th>Fecha</th>
+          <th>Usuario</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td>
+            {% if r.exam_type == 'orina' %}Orina
+            {% elif r.exam_type == 'sangre' %}Sangre
+            {% else %}IMC{% endif %}
+          </td>
+          <td>{{ r.patient_display_name }}</td>
+          <td>{{ r.created_at }}</td>
+          <td>{{ r.username or '—' }}</td>
+          <td>
+            <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}">Detalle</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5">Sin registros aún.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

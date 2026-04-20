@@ -948,10 +948,12 @@ def create_app() -> Flask:
     from modules.vitroflex_docs.blueprint import register_vitroflex
     from modules.finiquitos.blueprint import register_finiquitos
     from modules.carrier.blueprint import register_carrier
+    from modules.examenes_medicos.blueprint import register_examenes_medicos
 
     register_vitroflex(app)
     register_finiquitos(app)
     register_carrier(app)
+    register_examenes_medicos(app)
 
     return app
 
@@ -1090,6 +1092,9 @@ def init_db() -> None:
         from services.app_activity import ensure_app_activity_schema
 
         ensure_app_activity_schema(conn)
+        from modules.examenes_medicos.db import ensure_examenes_medicos_tables
+
+        ensure_examenes_medicos_tables(conn)
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
