@@ -34,6 +34,38 @@ _TEMPLATE_DIR = _BASE / "templates" / "vitroflex_docs"
 _STATIC_DIR = _BASE / "static" / "vitroflex_docs"
 _ASSETS_DIR = _STATIC_DIR / "assets"
 
+# Catálogo CR mensual — Planta (debe coincidir con templates/vitroflex_docs/cr.html)
+_CR_PLANTAS_VALIDAS: frozenset[str] = frozenset(
+    {
+        "Vitroflex",
+        "Flotado",
+        "Autotemplex",
+        "Mercado Moderno",
+        "Mercado Repuesto",
+        "Macro Norte",
+        "Vitro CEDIS",
+        "Vitro Museo",
+    }
+)
+# Valores antiguos del selector → forma canónica actual
+_CR_PLANTA_LEGACY: dict[str, str] = {
+    "Planta MacroNorte": "Macro Norte",
+    "VitroCedis": "Vitro CEDIS",
+}
+
+
+def _normalize_cr_planta(raw) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    s = _CR_PLANTA_LEGACY.get(s, s)
+    if s not in _CR_PLANTAS_VALIDAS:
+        raise ValueError(
+            "planta no válida para CR. Use una opción del catálogo (p. ej. Macro Norte, Vitro CEDIS, Vitro Museo)."
+        )
+    return s
+
+
 vitroflex_bp = Blueprint(
     "vitroflex",
     __name__,
@@ -233,9 +265,13 @@ def api_generate_pdf():
                     ),
                     400,
                 )
+            try:
+                planta_cr = _normalize_cr_planta(payload.get("planta"))
+            except ValueError as exc:
+                return jsonify({"ok": False, "error": str(exc)}), 400
             docx_bytes = build_cr_docx_bytes(
                 fecha_texto=fecha_texto,
-                planta=(payload.get("planta") or ""),
+                planta=planta_cr,
                 workers=workers_norm,
                 template_path=CR_DOCX,
             )
