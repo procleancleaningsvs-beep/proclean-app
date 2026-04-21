@@ -1,9 +1,9 @@
-"""Rutas Flask: Vitroflex > Exámenes médicos (orina, sangre, IMC)."""
+"""Rutas Flask: Vitroflex > Exámenes médicos (formulario maestro)."""
 
 from __future__ import annotations
 
 import json
-import re
+import random
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +25,7 @@ from flask import (
 )
 from functools import wraps
 
+from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.db import (
     delete_examen_historial,
     ensure_examenes_medicos_tables_path,
@@ -34,8 +35,10 @@ from modules.examenes_medicos.db import (
 )
 from modules.examenes_medicos.export_helpers import (
     app_mx_today,
+    build_orina_data_for_mapping,
     build_orina_mapping,
-    build_paciente_sangre,
+    build_paciente_orina,
+    build_sangre_data_for_mapping,
     build_sangre_mapping,
     default_hora_val_sugerida,
     default_yesterday_iso_mx,
@@ -100,141 +103,79 @@ def _is_admin() -> bool:
         return False
 
 
-def _validate_sexo_orina(value: Any) -> str | None:
-    s = str(value or "").strip()
-    if not s:
-        return "Sexo es obligatorio."
-    if s not in ("Masculino", "Femenino", "Otro"):
-        return "Sexo no válido."
-    return None
+def _normalize_master(data: dict[str, Any]) -> dict[str, Any]:
+    """Añade `edad` coherente con fecha de nacimiento."""
+    m = {k: data.get(k) for k in data}
+    fnac, _ = parse_date_iso(m.get("fecha_nacimiento"))
+    if fnac is not None:
+        m["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
+    return m
 
 
-def _validate_edad_corta(value: Any) -> str | None:
-    s = str(value or "").strip()
-    if not s:
-        return "Edad es obligatoria."
-    if not re.fullmatch(r"\d{1,3}", s):
-        return "Edad debe ser un número entero (1 a 3 dígitos)."
-    n = int(s)
-    if n < 0 or n > 120:
-        return "Edad fuera de rango."
-    return None
-
-
-def _errors_orina(data: dict[str, Any]) -> list[str]:
-    errs: list[str] = []
-    for label, key in (
-        ("Nombres", "nombres"),
-        ("Apellidos", "apellidos"),
-        ("Aspecto", "aspecto"),
-        ("Color", "color"),
-        ("Densidad", "densidad"),
-        ("pH orina", "ph_orina"),
-        ("Eritrocitos", "eritrocitos"),
-        ("Leucocitos", "leucocitos"),
-    ):
-        e = validate_required_non_empty(data.get(key), label)
-        if e:
-            errs.append(e)
-    for fn, key in (
-        (validate_folio_orina, "folio"),
-        (_validate_edad_corta, "edad"),
-        (_validate_sexo_orina, "sexo"),
-    ):
-        e = fn(data.get(key))
-        if e:
-            errs.append(e)
-    fe = str(data.get("fecha_estudio") or "").strip()
-    if not fe:
-        errs.append("Fecha del estudio es obligatoria.")
-    elif parse_date_iso(fe)[1]:
-        errs.append("Fecha del estudio inválida.")
-    return errs
-
-
-def _errors_sangre(data: dict[str, Any]) -> list[str]:
+def _errors_master(data: dict[str, Any], *, require_imc_body: bool) -> list[str]:
     errs: list[str] = []
     for label, key in (
         ("Nombres", "nombres"),
         ("Apellidos", "apellidos"),
     ):
         e = validate_required_non_empty(data.get(key), label)
-        if e:
-            errs.append(e)
-    for fn, key in (
-        (validate_folio_sangre, "folio"),
-        (validate_cliente_numero, "cliente_numero"),
-        (validate_codigo_barra, "codigo_barra"),
-        (validate_sexo, "sexo"),
-    ):
-        e = fn(data.get(key))
         if e:
             errs.append(e)
     fnac_raw = data.get("fecha_nacimiento")
     _fnac, ferr = parse_date_iso(fnac_raw)
     if ferr:
-        errs.append(ferr)
+        errs.append("Fecha de nacimiento: " + (ferr or "inválida."))
+
+    e = validate_sexo(data.get("sexo"))
+    if e:
+        errs.append(e)
+
+    med = str(data.get("medico") or "").strip()
+    if len(med) > 200:
+        errs.append("Médico: texto demasiado largo (máx. 200 caracteres).")
+
     for label, key in (
+        ("Fecha de estudio", "fecha_estudio"),
         ("Fecha de toma", "fecha_toma"),
         ("Fecha de validación", "fecha_val"),
+    ):
+        e = validate_required_non_empty(data.get(key), label)
+        if e:
+            errs.append(e)
+    for key in ("fecha_estudio", "fecha_toma", "fecha_val"):
+        if parse_date_iso(data.get(key))[1]:
+            errs.append(f"{key}: fecha inválida.")
+
+    for label, key in (
         ("Hora de toma", "hora_toma"),
         ("Hora de validación", "hora_val"),
     ):
         e = validate_required_non_empty(data.get(key), label)
         if e:
             errs.append(e)
-    if parse_date_iso(data.get("fecha_toma"))[1]:
-        errs.append("Fecha de toma inválida.")
-    if parse_date_iso(data.get("fecha_val"))[1]:
-        errs.append("Fecha de validación inválida.")
 
-    hemat_quim = [
-        "leucocitos",
-        "eritrocitos",
-        "hemoglobina",
-        "hematocrito",
-        "VCM",
-        "HCM",
-        "conc_media_hb_corp",
-        "AD_D.E.",
-        "AD_C.V.",
-        "plaquetas",
-        "V_plaquetario_medio",
-        "linfocitos_pct",
-        "neutrofilos_pct",
-        "monocitos_pct",
-        "eosinofilos_pct",
-        "basofilos_pct",
-        "linfocitos_abs",
-        "neutrofilos_abs",
-        "monocitos_abs",
-        "eosinofilos_abs",
-        "basofilos_abs",
-        "glucosa",
-        "urea",
-        "bun",
-        "creatinina",
-        "acido_urico",
-        "colesterol_total",
-        "trigliceridos",
-    ]
-    for k in hemat_quim:
-        e = validate_required_non_empty(data.get(k), k.replace("_", " ").title())
+    for fn, key in (
+        (validate_folio_orina, "folio_orina"),
+        (validate_folio_sangre, "folio_sangre"),
+        (validate_cliente_numero, "cliente_numero"),
+        (validate_codigo_barra, "codigo_barra"),
+    ):
+        e = fn(data.get(key))
         if e:
             errs.append(e)
+
+    if require_imc_body:
+        p1 = validate_positive_float(data.get("peso_kg"), "Peso (kg)")
+        p2 = validate_positive_float(data.get("estatura_m"), "Estatura (m)")
+        if p1[1]:
+            errs.append(p1[1])
+        if p2[1]:
+            errs.append(p2[1])
+        est = p2[0]
+        if est is not None and est > 2.6:
+            errs.append("Estatura fuera de rango razonable (metros).")
+
     return errs
-
-
-def _build_sangre_payload_for_mapping(data: dict[str, Any]) -> dict[str, Any]:
-    out = dict(data)
-    fnac, _ = parse_date_iso(data.get("fecha_nacimiento"))
-    if fnac is not None:
-        out["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
-    out["paciente_nombre_completo"] = build_paciente_sangre(
-        str(data.get("nombres") or ""),
-        str(data.get("apellidos") or ""),
-    )
-    return out
 
 
 def _persist_export(
@@ -341,38 +282,66 @@ def historial_detalle(rid: int):
     )
 
 
-@examenes_medicos_bp.route("/api/defaults", methods=["GET"])
-def api_defaults():
+@examenes_medicos_bp.route("/api/clinical-preview", methods=["GET"])
+def api_clinical_preview():
     err = _login_required_json()
     if err:
         return err
-    ht = str(request.args.get("hora_toma") or "08:30:00")
-    return jsonify(
-        {
-            "ok": True,
-            "fecha_ayer": default_yesterday_iso_mx(),
-            "hora_val_sugerida": default_hora_val_sugerida(ht),
-        }
-    )
+    sexo = str(request.args.get("sexo") or "Mujer").strip()
+    raw = request.args.get("seed")
+    seed: int | None
+    try:
+        seed = int(raw) if raw is not None and str(raw).strip() != "" else None
+    except ValueError:
+        seed = None
+    if seed is None:
+        seed = random.randrange(0, 2**31)
+    bundle = generate_clinical_bundle(sexo=sexo, seed=seed)
+    return jsonify({"ok": True, "seed": seed, "bundle": bundle})
 
 
-@examenes_medicos_bp.route("/api/orina/export", methods=["POST"])
-def api_orina_export():
+@examenes_medicos_bp.route("/api/master/export", methods=["POST"])
+def api_master_export():
     err = _login_required_json()
     if err:
         return err
     data = request.get_json(silent=True) or {}
-    errs = _errors_orina(data)
+    target = str(data.get("target") or "").strip().lower()
+    if target not in ("orina", "sangre"):
+        return jsonify({"ok": False, "error": "target debe ser orina o sangre."}), 400
+
+    errs = _errors_master(data, require_imc_body=False)
     if errs:
         return jsonify({"ok": False, "errors": errs}), 400
+
     want = str(data.get("format") or "pdf").lower().strip()
     if want not in ("docx", "pdf"):
         return jsonify({"ok": False, "error": "format debe ser docx o pdf."}), 400
 
-    mapping = build_orina_mapping(data)
+    master = _normalize_master(data)
+    raw_seed = data.get("seed_clinico")
     try:
-        docx_b = _orina_docx_bytes(mapping)
-        stem = safe_file_stem("Examen de Orina", str(data.get("nombres")), str(data.get("apellidos")))
+        clin_seed: int | None = int(raw_seed) if raw_seed is not None and str(raw_seed).strip() != "" else None
+    except (TypeError, ValueError):
+        clin_seed = None
+    if clin_seed is None:
+        clin_seed = random.randrange(0, 2**31)
+
+    bundle = generate_clinical_bundle(sexo=str(master.get("sexo") or ""), seed=clin_seed)
+
+    try:
+        if target == "orina":
+            odata = build_orina_data_for_mapping(master, bundle["orina"])
+            mapping = build_orina_mapping(odata)
+            docx_b = _orina_docx_bytes(mapping)
+            stem = safe_file_stem("Examen de Orina", str(master.get("nombres")), str(master.get("apellidos")))
+            exam_type = "orina"
+        else:
+            sdata = build_sangre_data_for_mapping(master, bundle["sangre"])
+            mapping = build_sangre_mapping(sdata)
+            docx_b = _sangre_docx_bytes(mapping)
+            stem = safe_file_stem("Examen de Sangre", str(master.get("nombres")), str(master.get("apellidos")))
+            exam_type = "sangre"
         pdf_b = docx_bytes_to_pdf_bytes(docx_b, pdf_stem=stem)
     except FileNotFoundError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
@@ -382,69 +351,24 @@ def api_orina_export():
     docx_fn = f"{stem}.docx"
     pdf_fn = f"{stem}.pdf"
     pac = mapping["{paciente_nombre_completo}"]
-    snap = {k: data.get(k) for k in data if k != "format"}
+    snap_master = {k: data.get(k) for k in data if k not in ("format", "target")}
+    payload = {
+        "tipo": exam_type,
+        "formulario_maestro": snap_master,
+        "seed_clinico": clin_seed,
+        "bundle_clinico": bundle,
+        "placeholders": mapping,
+    }
     rid = _persist_export(
-        exam_type="orina",
+        exam_type=exam_type,
         patient_display_name=pac,
-        payload={"tipo": "orina", "formulario": snap, "placeholders": mapping},
+        payload=payload,
         docx_bytes=docx_b,
         pdf_bytes=pdf_b,
         docx_download=docx_fn,
         pdf_download=pdf_fn,
     )
 
-    if want == "docx":
-        body, mime, fn = docx_b, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx_fn
-    else:
-        body, mime, fn = pdf_b, "application/pdf", pdf_fn
-    return Response(
-        body,
-        mimetype=mime,
-        headers={
-            "Content-Disposition": f'attachment; filename="{fn}"',
-            "X-Examenes-Historial-Id": str(rid),
-        },
-    )
-
-
-@examenes_medicos_bp.route("/api/sangre/export", methods=["POST"])
-def api_sangre_export():
-    err = _login_required_json()
-    if err:
-        return err
-    data = request.get_json(silent=True) or {}
-    errs = _errors_sangre(data)
-    if errs:
-        return jsonify({"ok": False, "errors": errs}), 400
-
-    payload_map = _build_sangre_payload_for_mapping(data)
-    mapping = build_sangre_mapping(payload_map)
-    try:
-        docx_b = _sangre_docx_bytes(mapping)
-        stem = safe_file_stem("Examen de Sangre", str(data.get("nombres")), str(data.get("apellidos")))
-        pdf_b = docx_bytes_to_pdf_bytes(docx_b, pdf_stem=stem)
-    except FileNotFoundError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-    except RuntimeError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 503
-
-    docx_fn = f"{stem}.docx"
-    pdf_fn = f"{stem}.pdf"
-    pac = mapping["{paciente_nombre_completo}"]
-    snap = {k: data.get(k) for k in data if k != "format"}
-    rid = _persist_export(
-        exam_type="sangre",
-        patient_display_name=pac,
-        payload={"tipo": "sangre", "formulario": snap, "placeholders": mapping},
-        docx_bytes=docx_b,
-        pdf_bytes=pdf_b,
-        docx_download=docx_fn,
-        pdf_download=pdf_fn,
-    )
-
-    want = str(data.get("format") or "pdf").lower().strip()
-    if want not in ("docx", "pdf"):
-        return jsonify({"ok": False, "error": "format debe ser docx o pdf."}), 400
     if want == "docx":
         body, mime, fn = docx_b, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", docx_fn
     else:
@@ -465,24 +389,29 @@ def api_imc_registro():
     if err:
         return err
     data = request.get_json(silent=True) or {}
-    peso, e1 = validate_positive_float(data.get("peso_kg"), "Peso (kg)")
-    est, e2 = validate_positive_float(data.get("estatura_m"), "Estatura (m)")
-    errs = [x for x in (e1, e2) if x]
-    if est is not None and est > 2.6:
-        errs.append("Estatura fuera de rango razonable (metros).")
+    errs = _errors_master(data, require_imc_body=True)
     if errs:
         return jsonify({"ok": False, "errors": errs}), 400
+
+    master = _normalize_master(data)
+    peso, _ = validate_positive_float(data.get("peso_kg"), "Peso (kg)")
+    est, _ = validate_positive_float(data.get("estatura_m"), "Estatura (m)")
     assert peso is not None and est is not None
     imc = peso / (est**2)
     clas = classify_imc(imc)
-    snap = {"peso_kg": peso, "estatura_m": est, "imc": round(imc, 2), "clasificacion": clas}
+    pac = build_paciente_orina(str(master.get("nombres") or ""), str(master.get("apellidos") or ""))
+    snap = {
+        "tipo": "imc",
+        "formulario_maestro": {k: data.get(k) for k in data},
+        "valores": {"peso_kg": peso, "estatura_m": est, "imc": round(imc, 2), "clasificacion": clas},
+    }
     rid = insert_examen_historial(
         str(current_app.config["DATABASE"]),
         user_id=int(g.user["id"]),
         created_at=_now_iso(),
         exam_type="imc",
-        patient_display_name="IMC",
-        payload={"tipo": "imc", "valores": snap},
+        patient_display_name=pac or "IMC",
+        payload=snap,
         docx_relpath=None,
         pdf_relpath=None,
         docx_download_name=None,
@@ -496,7 +425,7 @@ def api_imc_registro():
         status="ok",
         ref=str(rid),
     )
-    return jsonify({"ok": True, "id": rid, **snap})
+    return jsonify({"ok": True, "id": rid, "imc": round(imc, 2), "clasificacion": clas})
 
 
 @examenes_medicos_bp.route("/api/historial/<int:rid>", methods=["GET", "DELETE"])

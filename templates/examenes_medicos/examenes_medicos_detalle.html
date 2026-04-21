@@ -32,11 +32,31 @@
   </h3>
 
   {% if row.exam_type == 'imc' and payload.get('valores') %}
+  <h4 class="panel-title">IMC</h4>
   <dl class="em-dl">
     {% for k, v in payload['valores'].items() %}
     <dt>{{ k }}</dt><dd>{{ v }}</dd>
     {% endfor %}
   </dl>
+  {% if payload.get('formulario_maestro') %}
+  <h4 class="panel-title">Formulario maestro</h4>
+  <dl class="em-dl">
+    {% for k, v in payload['formulario_maestro'].items() %}
+    <dt>{{ k }}</dt><dd>{{ v }}</dd>
+    {% endfor %}
+  </dl>
+  {% endif %}
+  {% elif payload.get('formulario_maestro') %}
+  <h4 class="panel-title">Formulario maestro</h4>
+  <dl class="em-dl">
+    {% for k, v in payload['formulario_maestro'].items() %}
+    <dt>{{ k }}</dt><dd>{{ v }}</dd>
+    {% endfor %}
+  </dl>
+  {% if payload.get('bundle_clinico') %}
+  <h4 class="panel-title">Valores clínicos generados (réplica)</h4>
+  <pre class="em-preview-box">{{ payload['bundle_clinico'] | tojson(indent=2) }}</pre>
+  {% endif %}
   {% elif payload.get('formulario') %}
   <dl class="em-dl">
     {% for k, v in payload['formulario'].items() %}

@@ -51,6 +51,41 @@
   color: #b42318;
 }
 
+.em-readonly {
+  background: var(--surface-muted, #f6f8fa);
+  color: var(--muted, #57606a);
+}
+
+.em-span-2 {
+  grid-column: 1 / -1;
+}
+
+.em-master-form .em-fieldset {
+  margin-bottom: 1rem;
+}
+
+.em-clinical-note {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px dashed var(--border, #d0d7de);
+}
+
+.em-preview-box {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  font-size: 0.85rem;
+  background: var(--surface-muted, #f6f8fa);
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+
+.em-export-bar {
+  flex-wrap: wrap;
+}
+
 .em-dl {
   display: grid;
   grid-template-columns: minmax(10rem, 14rem) 1fr;

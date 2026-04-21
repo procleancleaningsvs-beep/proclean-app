@@ -8,7 +8,7 @@
   <div>
     <span class="eyebrow">Vitroflex</span>
     <h2>Exámenes médicos</h2>
-    <p>Examen de orina y de sangre con plantillas DOCX oficiales (solo placeholders). IMC con cálculo local.</p>
+    <p>Un solo formulario alimenta orina, sangre e IMC. Los resultados de laboratorio se generan automáticamente dentro de rangos de referencia típicos al exportar.</p>
   </div>
   <div class="page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
@@ -16,151 +16,68 @@
   </div>
 </section>
 
-<div class="em-tabs" role="tablist" aria-label="Tipo de examen">
-  <button type="button" class="em-tab em-tab-active" data-tab="orina" role="tab" aria-selected="true">Examen de orina</button>
-  <button type="button" class="em-tab" data-tab="sangre" role="tab" aria-selected="false">Examen de sangre</button>
-  <button type="button" class="em-tab" data-tab="imc" role="tab" aria-selected="false">IMC</button>
-</div>
+<form id="form-master" class="panel vf-panel em-master-form">
+  <h3 class="panel-title">Formulario general</h3>
 
-<section id="em-panel-orina" class="em-panel em-panel-active panel vf-panel" role="tabpanel">
-  <h3 class="panel-title">Examen de orina</h3>
-  <form id="form-orina" class="vf-grid vf-grid-2">
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Datos del paciente</legend>
-      <label>Nombres <input name="nombres" required autocomplete="given-name" /></label>
-      <label>Apellidos <input name="apellidos" required autocomplete="family-name" /></label>
-      <label>Edad <input name="edad" required inputmode="numeric" pattern="[0-9]{1,3}" /></label>
-      <label>Sexo
-        <select name="sexo" required>
-          <option value="">—</option>
-          <option>Masculino</option>
-          <option>Femenino</option>
-          <option>Otro</option>
-        </select>
-      </label>
-    </fieldset>
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Datos del estudio</legend>
-      <label>Folio (6 dígitos) <input name="folio" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" /></label>
-      <label>Fecha del estudio <input name="fecha_estudio" type="date" required value="{{ default_fecha }}" /></label>
-      <label>Aspecto
-        <select name="aspecto" required>
-          <option value="">—</option>
-          <option>Límpido</option>
-          <option>Turbio</option>
-          <option>Ligeramente turbio</option>
-        </select>
-      </label>
-      <label>Color
-        <select name="color" required>
-          <option value="">—</option>
-          <option>Amarillo</option>
-          <option>Ámbar</option>
-          <option>Incoloro</option>
-        </select>
-      </label>
-      <label>Densidad <input name="densidad" required /></label>
-      <label>pH orina <input name="ph_orina" required /></label>
-      <label>Eritrocitos <input name="eritrocitos" required /></label>
-      <label>Leucocitos <input name="leucocitos" required /></label>
-    </fieldset>
-    <div class="em-actions vf-toolbar">
-      <button type="submit" class="btn btn-primary" data-format="pdf">Descargar PDF</button>
-      <button type="submit" class="btn btn-secondary" data-format="docx">Descargar DOCX</button>
-    </div>
-    <p id="em-orina-msg" class="helper em-msg" hidden></p>
-  </form>
-</section>
+  <fieldset class="em-fieldset vf-grid vf-grid-2">
+    <legend>1. Datos del paciente</legend>
+    <label>Nombres <input name="nombres" id="em-nombres" required autocomplete="given-name" /></label>
+    <label>Apellidos <input name="apellidos" id="em-apellidos" required autocomplete="family-name" /></label>
+    <label>Nombre completo <input id="em-nombre-completo" type="text" readonly class="em-readonly" /></label>
+    <label>Fecha de nacimiento <input name="fecha_nacimiento" id="em-fnac" type="date" required /></label>
+    <label>Edad (calculada) <input id="em-edad" type="text" readonly class="em-readonly" /></label>
+    <label>Sexo
+      <select name="sexo" id="em-sexo" required>
+        <option value="">—</option>
+        <option>Mujer</option>
+        <option>Hombre</option>
+        <option>Otro</option>
+      </select>
+    </label>
+    <label class="em-span-2">Médico / solicitud <input name="medico" type="text" maxlength="200" placeholder="Opcional (no va al DOCX si no hay placeholder)" /></label>
+  </fieldset>
 
-<section id="em-panel-sangre" class="em-panel panel vf-panel" role="tabpanel" hidden>
-  <h3 class="panel-title">Examen de sangre</h3>
-  <form id="form-sangre" class="vf-grid vf-grid-2">
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Datos del paciente</legend>
-      <label>Nombres <input name="nombres" required /></label>
-      <label>Apellidos (paterno y materno) <input name="apellidos" required placeholder="Ej. Pérez López" /></label>
-      <label>Fecha de nacimiento <input name="fecha_nacimiento" type="date" required /></label>
-      <label>Sexo
-        <select name="sexo" required>
-          <option value="">—</option>
-          <option>Mujer</option>
-          <option>Hombre</option>
-          <option>Otro</option>
-        </select>
-      </label>
-    </fieldset>
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Datos administrativos</legend>
-      <label>Código de barras (3 letras + 10 dígitos) <input name="codigo_barra" required autocapitalize="characters" /></label>
-      <label>Número de cliente (8 dígitos) <input name="cliente_numero" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" /></label>
-      <label>Folio (12 dígitos) <input name="folio" required inputmode="numeric" pattern="[0-9]{12}" maxlength="12" /></label>
-      <label>Fecha de toma <input name="fecha_toma" type="date" required value="{{ default_fecha }}" /></label>
-      <label>Hora de toma <input name="hora_toma" type="time" step="1" value="{{ default_hora_toma }}" /></label>
-      <label>Fecha de validación <input name="fecha_val" type="date" required value="{{ default_fecha }}" /></label>
-      <label>Hora de validación <input name="hora_val" type="time" step="1" value="{{ default_hora_val }}" /></label>
-    </fieldset>
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Hematología</legend>
-      <label>Leucocitos <input name="leucocitos" required /></label>
-      <label>Eritrocitos <input name="eritrocitos" required /></label>
-      <label>Hemoglobina <input name="hemoglobina" required /></label>
-      <label>Hematocrito <input name="hematocrito" required /></label>
-      <label>VCM <input name="VCM" required /></label>
-      <label>HCM <input name="HCM" required /></label>
-      <label>Conc. media Hb. corp. <input name="conc_media_hb_corp" required /></label>
-      <label>AD D.E. <input name="AD_D.E." required /></label>
-      <label>AD C.V. <input name="AD_C.V." required /></label>
-      <label>Plaquetas <input name="plaquetas" required /></label>
-      <label>V. plaquetario medio <input name="V_plaquetario_medio" required /></label>
-      <label>Linfocitos % <input name="linfocitos_pct" required /></label>
-      <label>Neutrófilos % <input name="neutrofilos_pct" required /></label>
-      <label>Monocitos % <input name="monocitos_pct" required /></label>
-      <label>Eosinófilos % <input name="eosinofilos_pct" required /></label>
-      <label>Basófilos % <input name="basofilos_pct" required /></label>
-      <label>Linfocitos abs. <input name="linfocitos_abs" required /></label>
-      <label>Neutrófilos abs. <input name="neutrofilos_abs" required /></label>
-      <label>Monocitos abs. <input name="monocitos_abs" required /></label>
-      <label>Eosinófilos abs. <input name="eosinofilos_abs" required /></label>
-      <label>Basófilos abs. <input name="basofilos_abs" required /></label>
-    </fieldset>
-    <fieldset class="em-fieldset vf-grid vf-grid-2">
-      <legend>Química clínica</legend>
-      <label>Glucosa <input name="glucosa" required /></label>
-      <label>Urea <input name="urea" required /></label>
-      <label>BUN <input name="bun" required /></label>
-      <label>Creatinina <input name="creatinina" required /></label>
-      <label>Ácido úrico <input name="acido_urico" required /></label>
-      <label>Colesterol total <input name="colesterol_total" required /></label>
-      <label>Triglicéridos <input name="trigliceridos" required /></label>
-    </fieldset>
-    <div class="em-actions vf-toolbar">
-      <button type="submit" class="btn btn-primary" data-format="pdf">Descargar PDF</button>
-      <button type="submit" class="btn btn-secondary" data-format="docx">Descargar DOCX</button>
-    </div>
-    <p id="em-sangre-msg" class="helper em-msg" hidden></p>
-  </form>
-</section>
+  <fieldset class="em-fieldset vf-grid vf-grid-2">
+    <legend>2. Datos administrativos</legend>
+    <label>Fecha de estudio <input name="fecha_estudio" type="date" required value="{{ default_fecha }}" /></label>
+    <label>Fecha de toma <input name="fecha_toma" type="date" required value="{{ default_fecha }}" /></label>
+    <label>Hora de toma <input name="hora_toma" type="time" step="1" value="{{ default_hora_toma }}" /></label>
+    <label>Fecha de validación <input name="fecha_val" type="date" required value="{{ default_fecha }}" /></label>
+    <label>Hora de validación <input name="hora_val" type="time" step="1" value="{{ default_hora_val }}" /></label>
+    <label>Folio orina (6 dígitos) <input name="folio_orina" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" /></label>
+    <label>Folio sangre (12 dígitos) <input name="folio_sangre" required inputmode="numeric" pattern="[0-9]{12}" maxlength="12" /></label>
+    <label>Número de cliente (8 dígitos) <input name="cliente_numero" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" /></label>
+    <label>Código de barras (3 letras + 10 dígitos) <input name="codigo_barra" required autocapitalize="characters" placeholder="ABC1234567890" /></label>
+  </fieldset>
 
-<section id="em-panel-imc" class="em-panel panel vf-panel" role="tabpanel" hidden>
-  <h3 class="panel-title">IMC</h3>
-  <form id="form-imc" class="vf-grid vf-grid-2" style="max-width: 32rem;">
-    <label>Peso (kg) <input name="peso_kg" type="number" step="any" required min="0" /></label>
-    <label>Estatura (m) <input name="estatura_m" type="number" step="any" required min="0" max="3" placeholder="Ej. 1.70" /></label>
-    <div class="em-actions vf-toolbar">
-      <button type="submit" class="btn btn-primary">Calcular y guardar en historial</button>
-    </div>
-  </form>
-  <div id="em-imc-result" class="em-imc-result" hidden>
-    <p><strong>IMC:</strong> <span id="em-imc-valor"></span></p>
-    <p><strong>Clasificación:</strong> <span id="em-imc-clas"></span></p>
+  <fieldset class="em-fieldset vf-grid vf-grid-2">
+    <legend>3. IMC</legend>
+    <label>Peso (kg) <input name="peso_kg" id="em-peso" type="number" step="any" min="0" required /></label>
+    <label>Estatura (m) <input name="estatura_m" id="em-estatura" type="number" step="any" min="0" max="3" placeholder="Ej. 1.70" required /></label>
+    <label>IMC <input id="em-imc-val" type="text" readonly class="em-readonly" /></label>
+    <label>Clasificación <input id="em-imc-clas" type="text" readonly class="em-readonly" /></label>
+  </fieldset>
+
+  <section class="em-clinical-note">
+    <p class="helper">Los campos de resultados (hematología, química, orina) no se capturan: se rellenan automáticamente con valores sintéticos dentro de rangos de referencia al generar cada documento. Puede usar <strong>Vista previa clínica</strong> para ver un ejemplo.</p>
+    <button type="button" class="btn btn-secondary" id="em-btn-preview">Vista previa clínica</button>
+    <pre id="em-clinical-json" class="em-preview-box" hidden></pre>
+  </section>
+
+  <div class="em-actions vf-toolbar em-export-bar">
+    <button type="button" class="btn btn-primary" data-export="orina" data-format="pdf">Orina — PDF</button>
+    <button type="button" class="btn btn-secondary" data-export="orina" data-format="docx">Orina — DOCX</button>
+    <button type="button" class="btn btn-primary" data-export="sangre" data-format="pdf">Sangre — PDF</button>
+    <button type="button" class="btn btn-secondary" data-export="sangre" data-format="docx">Sangre — DOCX</button>
+    <button type="button" class="btn btn-secondary" id="em-btn-imc-save">Guardar IMC en historial</button>
   </div>
-  <p id="em-imc-msg" class="helper em-msg" hidden></p>
-</section>
+  <p id="em-msg" class="helper em-msg" hidden></p>
+</form>
 
 <script>
-  window.__emOrinaUrl = {{ url_for('examenes_medicos.api_orina_export') | tojson }};
-  window.__emSangreUrl = {{ url_for('examenes_medicos.api_sangre_export') | tojson }};
+  window.__emExportUrl = {{ url_for('examenes_medicos.api_master_export') | tojson }};
   window.__emImcUrl = {{ url_for('examenes_medicos.api_imc_registro') | tojson }};
+  window.__emClinicalPreviewUrl = {{ url_for('examenes_medicos.api_clinical_preview') | tojson }};
 </script>
 <script src="{{ url_for('examenes_medicos.static', filename='examenes_medicos.js') }}" defer></script>
 {% endblock %}

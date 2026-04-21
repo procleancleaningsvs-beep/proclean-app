@@ -3,12 +3,16 @@ from __future__ import annotations
 import unittest
 from datetime import date
 
+from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.export_helpers import (
+    build_orina_data_for_mapping,
     build_orina_mapping,
     build_paciente_sangre,
+    build_sangre_data_for_mapping,
     build_sangre_mapping,
     default_hora_val_sugerida,
     fecha_iso_a_dd_mm_yyyy,
+    sexo_para_orina,
 )
 from modules.examenes_medicos.validation import (
     classify_imc,
@@ -47,6 +51,10 @@ class TestExamenesMedicosValidation(unittest.TestCase):
             "HERNÁNDEZ MARTÍNEZ,DENISSE ARACELY",
         )
 
+    def test_sexo_para_orina(self):
+        self.assertEqual(sexo_para_orina("Mujer"), "Femenino")
+        self.assertEqual(sexo_para_orina("Hombre"), "Masculino")
+
     def test_fecha_iso_ddmmyyyy(self):
         self.assertEqual(fecha_iso_a_dd_mm_yyyy("1993-03-07"), "07/03/1993")
 
@@ -73,28 +81,47 @@ class TestExamenesMedicosValidation(unittest.TestCase):
         self.assertEqual(m["{fecha_estudio}"], "19/04/2026")
         self.assertEqual(m["{paciente_nombre_completo}"], "Juan Pérez")
 
-    def test_build_sangre_mapping_dates(self):
-        m = build_sangre_mapping(
-            {
-                "fecha_nacimiento": "1993-03-07",
-                "fecha_toma": "2026-04-18",
-                "fecha_val": "2026-04-18",
-                "hora_toma": "08:30",
-                "hora_val": "12:00",
-                "codigo_barra": "anc8349230417",
-                "nombres": "X",
-                "apellidos": "Y",
-                "edad": "1",
-                "sexo": "Mujer",
-                "paciente_nombre_completo": "Y,X",
-                "cliente_numero": "12345678",
-                "folio": "123456789012",
-            }
-            | {k: "0" for k in ("leucocitos", "eritrocitos", "hemoglobina", "hematocrito", "VCM", "HCM", "conc_media_hb_corp", "AD_D.E.", "AD_C.V.", "plaquetas", "V_plaquetario_medio", "linfocitos_pct", "neutrofilos_pct", "monocitos_pct", "eosinofilos_pct", "basofilos_pct", "linfocitos_abs", "neutrofilos_abs", "monocitos_abs", "eosinofilos_abs", "basofilos_abs", "glucosa", "urea", "bun", "creatinina", "acido_urico", "colesterol_total", "trigliceridos")}
-        )
-        self.assertEqual(m["{fecha_nacimiento}"], "07/03/1993")
-        self.assertEqual(m["{codigo_barra}"], "ANC8349230417")
-        self.assertEqual(m["{hora_toma}"], "08:30:00")
+    def test_master_orina_merge(self):
+        bundle = generate_clinical_bundle(sexo="Hombre", seed=42)
+        master = {
+            "nombres": "Juan",
+            "apellidos": "Pérez",
+            "edad": "40",
+            "sexo": "Hombre",
+            "folio_orina": "123456",
+            "fecha_estudio": "2026-04-19",
+        }
+        odata = build_orina_data_for_mapping(master, bundle["orina"])
+        self.assertEqual(odata["sexo"], "Masculino")
+        m = build_orina_mapping(odata)
+        self.assertIn("{aspecto}", m)
+        self.assertEqual(m["{folio}"], "123456")
+
+    def test_clinical_bundle_deterministic(self):
+        a = generate_clinical_bundle(sexo="Mujer", seed=99)
+        b = generate_clinical_bundle(sexo="Mujer", seed=99)
+        self.assertEqual(a["orina"]["aspecto"], b["orina"]["aspecto"])
+        self.assertEqual(a["sangre"]["glucosa"], b["sangre"]["glucosa"])
+
+    def test_sangre_master_merge(self):
+        bundle = generate_clinical_bundle(sexo="Mujer", seed=1)
+        master = {
+            "nombres": "Ana",
+            "apellidos": "López Ruiz",
+            "fecha_nacimiento": "1990-01-15",
+            "sexo": "Mujer",
+            "folio_sangre": "123456789012",
+            "cliente_numero": "12345678",
+            "codigo_barra": "abc1234567890",
+            "fecha_toma": "2026-04-18",
+            "fecha_val": "2026-04-18",
+            "hora_toma": "08:00",
+            "hora_val": "12:00",
+        }
+        sdata = build_sangre_data_for_mapping(master, bundle["sangre"])
+        m = build_sangre_mapping(sdata)
+        self.assertEqual(m["{folio}"], "123456789012")
+        self.assertEqual(m["{codigo_barra}"], "ABC1234567890")
 
 
 if __name__ == "__main__":

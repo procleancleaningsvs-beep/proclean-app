@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from modules.examenes_medicos.validation import _norm, parse_date_iso
+from modules.examenes_medicos.validation import _norm, edad_desde_fecha_nacimiento, parse_date_iso
 
 
 def app_mx_today() -> date:
@@ -49,6 +49,13 @@ def _mapping_val(d: dict[str, Any], key: str, default: str = "") -> str:
     return str(v).strip()
 
 
+def sexo_para_orina(sexo: str) -> str:
+    """Plantilla de orina usa Masculino / Femenino / Otro."""
+    return {"Mujer": "Femenino", "Hombre": "Masculino", "Otro": "Otro"}.get(
+        (sexo or "").strip(), (sexo or "").strip() or "Otro"
+    )
+
+
 def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     n = _mapping_val(data, "nombres")
     a = _mapping_val(data, "apellidos")
@@ -58,7 +65,7 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         fe = fecha_iso_a_dd_mm_yyyy(fe)
     return {
         "{edad}": _mapping_val(data, "edad"),
-        "{sexo}": _mapping_val(data, "sexo"),
+        "{sexo}": _mapping_val(data, "sexo"),  # ya viene mapeado si aplica
         "{folio}": _mapping_val(data, "folio"),
         "{paciente_nombre_completo}": pac,
         "{fecha_estudio}": fe,
@@ -129,6 +136,50 @@ def build_sangre_mapping(data: dict[str, Any]) -> dict[str, str]:
     for k in keys:
         out[f"{{{k}}}"] = _mapping_val(data, k)
     return out
+
+
+def build_orina_data_for_mapping(master: dict[str, Any], clinical_orina: dict[str, str]) -> dict[str, Any]:
+    """Fusiona formulario maestro + bundle clínico de orina."""
+    d: dict[str, Any] = {
+        "nombres": master.get("nombres"),
+        "apellidos": master.get("apellidos"),
+        "edad": master.get("edad"),
+        "sexo": sexo_para_orina(str(master.get("sexo") or "")),
+        "folio": master.get("folio_orina"),
+        "fecha_estudio": master.get("fecha_estudio"),
+    }
+    d.update(clinical_orina)
+    return d
+
+
+def build_sangre_data_for_mapping(master: dict[str, Any], clinical_sangre: dict[str, str]) -> dict[str, Any]:
+    """Fusiona formulario maestro + bundle clínico de sangre para `build_sangre_mapping`."""
+    base: dict[str, Any] = dict(clinical_sangre)
+    for k in (
+        "nombres",
+        "apellidos",
+        "fecha_nacimiento",
+        "sexo",
+        "fecha_toma",
+        "fecha_val",
+        "hora_toma",
+        "hora_val",
+        "cliente_numero",
+    ):
+        if k in master and master[k] is not None:
+            base[k] = master[k]
+    base["folio"] = str(master.get("folio_sangre") or "").strip()
+    cb = str(master.get("codigo_barra") or "").strip()
+    if cb:
+        base["codigo_barra"] = cb.upper()
+    fnac, _ = parse_date_iso(master.get("fecha_nacimiento"))
+    if fnac is not None:
+        base["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
+    base["paciente_nombre_completo"] = build_paciente_sangre(
+        str(master.get("nombres") or ""),
+        str(master.get("apellidos") or ""),
+    )
+    return base
 
 
 def fecha_iso_a_dd_mm_yyyy(iso: str) -> str:
