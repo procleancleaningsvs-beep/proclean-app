@@ -29,7 +29,7 @@ def _rand_digits(rng: random.Random, n: int) -> str:
     return str(rng.randint(lo, hi))
 
 
-def generate_unique_folio_orina(db_path: str, conn: sqlite3.Connection | None, rng: random.Random) -> str:
+def generate_unique_folio_orina(conn: sqlite3.Connection, rng: random.Random) -> str:
     for _ in range(40):
         cand = _rand_digits(rng, 6)
         row = conn.execute(

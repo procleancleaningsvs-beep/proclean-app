@@ -273,6 +273,18 @@ def _persist_export(
     return rid
 
 
+def _persist_export_safe(**kwargs) -> int | None:
+    """Intenta guardar historial sin bloquear la descarga si falla."""
+    try:
+        return _persist_export(**kwargs)
+    except Exception:
+        current_app.logger.exception(
+            "examenes_medicos: fallo guardando historial exam_type=%s",
+            kwargs.get("exam_type"),
+        )
+        return None
+
+
 def _orina_docx_bytes(mapping: dict[str, str]) -> bytes:
     if not ORINA_DOCX.is_file():
         raise FileNotFoundError(str(ORINA_DOCX))
@@ -406,6 +418,16 @@ def api_master_download():
         return jsonify({"ok": False, "error": "format debe ser docx o pdf."}), 400
 
     master_base = _normalize_master(raw)
+    try:
+        uid_log = g.user["id"] if g.user is not None else None
+    except Exception:
+        uid_log = None
+    current_app.logger.info(
+        "examenes_medicos.download start user_id=%s scope=%s format=%s",
+        uid_log,
+        scope,
+        want,
+    )
     raw_seed = data.get("seed_clinico")
     try:
         clin_seed: int | None = int(raw_seed) if raw_seed is not None and str(raw_seed).strip() != "" else None
@@ -458,12 +480,15 @@ def api_master_download():
             "identificadores": ident,
         }
 
+    rid_o: int | None = None
+    rid_s: int | None = None
+    rid: int | None = None
     try:
         if scope == "orina":
             docx_b, pdf_b, stem, mapping, _extra = build_one_orina()
             docx_fn = f"{stem}.docx"
             pdf_fn = f"{stem}.pdf"
-            rid = _persist_export(
+            rid = _persist_export_safe(
                 exam_type="orina",
                 patient_display_name=pac,
                 payload=hist_payload("orina", mapping),
@@ -483,7 +508,7 @@ def api_master_download():
             docx_b, pdf_b, stem, mapping, _extra = build_one_sangre()
             docx_fn = f"{stem}.docx"
             pdf_fn = f"{stem}.pdf"
-            rid = _persist_export(
+            rid = _persist_export_safe(
                 exam_type="sangre",
                 patient_display_name=mapping["{paciente_nombre_completo}"],
                 payload=hist_payload("sangre", mapping),
@@ -506,7 +531,7 @@ def api_master_download():
             pdf_fn_o = f"{stem_o}.pdf"
             docx_fn_s = f"{stem_s}.docx"
             pdf_fn_s = f"{stem_s}.pdf"
-            rid_o = _persist_export(
+            rid_o = _persist_export_safe(
                 exam_type="orina",
                 patient_display_name=pac,
                 payload=hist_payload("orina", map_o),
@@ -515,7 +540,7 @@ def api_master_download():
                 docx_download=docx_fn_o,
                 pdf_download=pdf_fn_o,
             )
-            rid_s = _persist_export(
+            rid_s = _persist_export_safe(
                 exam_type="sangre",
                 patient_display_name=map_s["{paciente_nombre_completo}"],
                 payload=hist_payload("sangre", map_s),
@@ -541,12 +566,26 @@ def api_master_download():
         return jsonify({"ok": False, "error": str(exc)}), 500
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
+    except Exception:
+        current_app.logger.exception(
+            "examenes_medicos.download fallo inesperado scope=%s format=%s payload_keys=%s",
+            scope,
+            want,
+            sorted(list(raw.keys())),
+        )
+        return jsonify({"ok": False, "error": "Error interno al generar la descarga."}), 500
 
-    imc_rid = _maybe_insert_imc_historial(db_path, master, ident)
+    try:
+        imc_rid = _maybe_insert_imc_historial(db_path, master, ident)
+    except Exception:
+        current_app.logger.exception("examenes_medicos: fallo guardando historial IMC post-descarga")
+        imc_rid = None
 
     headers: dict[str, str] = {"Content-Disposition": f'attachment; filename="{out_name}"'}
     if scope == "both":
-        headers["X-Examenes-Historial-Ids"] = f"{rid_o},{rid_s}"
+        ids = [str(x) for x in (rid_o, rid_s) if x]
+        if ids:
+            headers["X-Examenes-Historial-Ids"] = ",".join(ids)
     elif rid:
         headers["X-Examenes-Historial-Id"] = str(rid)
     if imc_rid:
