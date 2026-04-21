@@ -28,18 +28,11 @@ def build_paciente_orina(nombres: str, apellidos: str) -> str:
 
 
 def build_paciente_sangre(nombres: str, apellidos: str) -> str:
-    """Formato tipo laboratorio: APELLIDO1 APELLIDO2,NOMBRES en mayúsculas."""
+    """Formato tipo laboratorio: APELLIDOS NOMBRES en mayúsculas (sin coma)."""
     n = " ".join(_norm(nombres).split()).upper()
     ap_chunks = _norm(apellidos).split()
-    if len(ap_chunks) >= 2:
-        ap1 = ap_chunks[0].upper()
-        ap2 = " ".join(ap_chunks[1:]).upper()
-        body = f"{ap1} {ap2},{n}"
-    elif ap_chunks:
-        body = f"{ap_chunks[0].upper()},{n}"
-    else:
-        body = n
-    return body
+    ap = " ".join(ap_chunks).upper()
+    return " ".join(x for x in (ap, n) if x)
 
 
 def _mapping_val(d: dict[str, Any], key: str, default: str = "") -> str:
@@ -62,10 +55,14 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     pac = build_paciente_orina(n, a)
     fe = _mapping_val(data, "fecha_estudio")
     if fe and len(fe) == 10 and fe[4] == "-":
-        fe = fecha_iso_a_dd_mm_yyyy(fe)
+        fe = fecha_iso_a_larga_es(fe)
+    edad = _mapping_val(data, "edad")
+    if edad and not edad.lower().endswith("años"):
+        edad = f"{edad} años"
+    sexo = _mapping_val(data, "sexo").upper()
     return {
-        "{edad}": _mapping_val(data, "edad"),
-        "{sexo}": _mapping_val(data, "sexo"),  # ya viene mapeado si aplica
+        "{edad}": edad,
+        "{sexo}": sexo,  # ya viene mapeado si aplica
         "{folio}": _mapping_val(data, "folio"),
         "{paciente_nombre_completo}": pac,
         "{fecha_estudio}": fe,
@@ -159,7 +156,6 @@ def build_sangre_data_for_mapping(master: dict[str, Any], clinical_sangre: dict[
         "nombres",
         "apellidos",
         "fecha_nacimiento",
-        "sexo",
         "fecha_toma",
         "fecha_val",
         "hora_toma",
@@ -172,6 +168,11 @@ def build_sangre_data_for_mapping(master: dict[str, Any], clinical_sangre: dict[
     cb = str(master.get("codigo_barra") or "").strip()
     if cb:
         base["codigo_barra"] = cb.upper()
+    sx = _norm(master.get("sexo"))
+    if sx == "Hombre":
+        base["sexo"] = "Varon"
+    elif sx:
+        base["sexo"] = sx
     fnac, _ = parse_date_iso(master.get("fecha_nacimiento"))
     if fnac is not None:
         base["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
@@ -187,6 +188,27 @@ def fecha_iso_a_dd_mm_yyyy(iso: str) -> str:
     if d is None:
         return _norm(iso)
     return f"{d.day:02d}/{d.month:02d}/{d.year}"
+
+
+def fecha_iso_a_larga_es(iso: str) -> str:
+    d, _err = parse_date_iso(iso)
+    if d is None:
+        return _norm(iso)
+    meses = {
+        1: "Enero",
+        2: "Febrero",
+        3: "Marzo",
+        4: "Abril",
+        5: "Mayo",
+        6: "Junio",
+        7: "Julio",
+        8: "Agosto",
+        9: "Septiembre",
+        10: "Octubre",
+        11: "Noviembre",
+        12: "Diciembre",
+    }
+    return f"{d.day} de {meses[d.month]} del {d.year}"
 
 
 def normalizar_hora_hhmmss(hora: str) -> str:

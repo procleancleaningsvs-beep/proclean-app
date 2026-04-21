@@ -53,8 +53,8 @@ def generate_clinical_bundle(
     vcm = _r(rng, 80, 98, 1)
     hcm = _r(rng, 26, 34, 1)
     chcm = _r(rng, 31, 35, 1)
-    ad_de = _r(rng, 11.5, 14.5, 2)
-    ad_cv = _r(rng, 11.0, 15.0, 2)
+    ad_de = _r(rng, 35.5, 43.5, 1)
+    ad_cv = _r(rng, 11.6, 14.4, 1)
     plt = int(rng.randint(180, 380))
     vpm = _r(rng, 8.0, 12.0, 1)
 
@@ -75,8 +75,8 @@ def generate_clinical_bundle(
         "VCM": _fmt(vcm, 1),
         "HCM": _fmt(hcm, 1),
         "conc_media_hb_corp": _fmt(chcm, 1),
-        "AD_D.E.": _fmt(ad_de, 2),
-        "AD_C.V.": _fmt(ad_cv, 2),
+        "AD_D.E.": _fmt(ad_de, 1),
+        "AD_C.V.": _fmt(ad_cv, 1),
         "plaquetas": str(plt),
         "V_plaquetario_medio": _fmt(vpm, 1),
         "linfocitos_pct": _fmt(lymph_pct, 1),
@@ -87,8 +87,8 @@ def generate_clinical_bundle(
         "linfocitos_abs": _fmt(_r(rng, 1.0, 3.2, 2), 2),
         "neutrofilos_abs": _fmt(_r(rng, 2.5, 6.5, 2), 2),
         "monocitos_abs": _fmt(_r(rng, 0.15, 0.85, 2), 2),
-        "eosinofilos_abs": _fmt(_r(rng, 0.02, 0.35, 3), 3),
-        "basofilos_abs": _fmt(_r(rng, 0.01, 0.08, 3), 3),
+        "eosinofilos_abs": _fmt(_r(rng, 0.04, 0.54, 2), 2),
+        "basofilos_abs": _fmt(_r(rng, 0.01, 0.08, 2), 2),
         "glucosa": str(int(rng.randint(74, 99))),
         "urea": str(int(rng.randint(15, 38))),
         "bun": str(int(rng.randint(8, 22))),

@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
+from pypdf import PdfReader, PdfWriter
 
 from flask import (
     Blueprint,
@@ -299,6 +300,44 @@ def _sangre_docx_bytes(mapping: dict[str, str]) -> bytes:
     return replace_placeholders_in_docx_bytes(raw, mapping)
 
 
+def _sangre_pdf_fix_pagination(pdf_bytes: bytes) -> bytes:
+    """
+    Corrige caso observado de página intermedia casi vacía en salida de sangre.
+    Si detecta patrón de 4 páginas con la 2 sin bloque analítico, descarta esa página.
+    """
+    try:
+        rd = PdfReader(io.BytesIO(pdf_bytes))
+    except Exception:
+        return pdf_bytes
+    if len(rd.pages) != 4:
+        return pdf_bytes
+    p2 = (rd.pages[1].extract_text() or "").lower()
+    has_content = any(
+        k in p2
+        for k in (
+            "neutrófilos",
+            "neutrofilos",
+            "monocitos",
+            "química clínica",
+            "quimica clinica",
+            "glucosa",
+            "urea",
+        )
+    )
+    looks_orphan = ("acreditaci" in p2 and "marcados con el signo" in p2) or ("resultados" in p2 and not has_content)
+    if has_content or not looks_orphan:
+        return pdf_bytes
+
+    wr = PdfWriter()
+    wr.add_page(rd.pages[0])
+    wr.add_page(rd.pages[2])
+    wr.add_page(rd.pages[3])
+    out = io.BytesIO()
+    wr.write(out)
+    current_app.logger.info("examenes_medicos.sangre_pdf_fix: 4->3 páginas (removida página 2 huérfana)")
+    return out.getvalue()
+
+
 @examenes_medicos_bp.route("/", methods=["GET"])
 @_login_required_page
 def index():
@@ -465,7 +504,7 @@ def api_master_download():
         mapping = build_sangre_mapping(sdata)
         dx = _sangre_docx_bytes(mapping)
         stem_s = safe_file_stem("Examen de Sangre", str(master.get("nombres")), str(master.get("apellidos")))
-        pdf_b = docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s)
+        pdf_b = _sangre_pdf_fix_pagination(docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s))
         return dx, pdf_b, stem_s, mapping, sdata
 
     def hist_payload(exam_k: str, mapping: dict[str, str]) -> dict[str, Any]:

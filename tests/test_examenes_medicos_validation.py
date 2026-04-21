@@ -48,7 +48,7 @@ class TestExamenesMedicosValidation(unittest.TestCase):
     def test_paciente_sangre_format(self):
         self.assertEqual(
             build_paciente_sangre("Denisse Aracely", "Hernández Martínez"),
-            "HERNÁNDEZ MARTÍNEZ,DENISSE ARACELY",
+            "HERNÁNDEZ MARTÍNEZ DENISSE ARACELY",
         )
 
     def test_sexo_para_orina(self):
@@ -78,7 +78,7 @@ class TestExamenesMedicosValidation(unittest.TestCase):
                 "leucocitos": "0",
             }
         )
-        self.assertEqual(m["{fecha_estudio}"], "19/04/2026")
+        self.assertEqual(m["{fecha_estudio}"], "19 de Abril del 2026")
         self.assertEqual(m["{paciente_nombre_completo}"], "Juan Pérez")
 
     def test_master_orina_merge(self):
