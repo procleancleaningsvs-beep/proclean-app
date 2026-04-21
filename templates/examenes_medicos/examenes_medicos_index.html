@@ -8,7 +8,7 @@
   <div>
     <span class="eyebrow">Vitroflex</span>
     <h2>Exámenes médicos</h2>
-    <p>Un solo formulario alimenta orina, sangre e IMC. Los resultados de laboratorio se generan automáticamente dentro de rangos de referencia típicos al exportar.</p>
+    <p>Formulario único: identificadores administrativos se generan al descargar. Los resultados de laboratorio son sintéticos dentro de rangos típicos.</p>
   </div>
   <div class="page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
@@ -23,7 +23,6 @@
     <legend>1. Datos del paciente</legend>
     <label>Nombres <input name="nombres" id="em-nombres" required autocomplete="given-name" /></label>
     <label>Apellidos <input name="apellidos" id="em-apellidos" required autocomplete="family-name" /></label>
-    <label>Nombre completo <input id="em-nombre-completo" type="text" readonly class="em-readonly" /></label>
     <label>Fecha de nacimiento <input name="fecha_nacimiento" id="em-fnac" type="date" required /></label>
     <label>Edad (calculada) <input id="em-edad" type="text" readonly class="em-readonly" /></label>
     <label>Sexo
@@ -34,20 +33,16 @@
         <option>Otro</option>
       </select>
     </label>
-    <label class="em-span-2">Médico / solicitud <input name="medico" type="text" maxlength="200" placeholder="Opcional (no va al DOCX si no hay placeholder)" /></label>
+    <label class="em-span-2">Médico / solicitud <input name="medico" type="text" maxlength="200" placeholder="Opcional" /></label>
   </fieldset>
 
   <fieldset class="em-fieldset vf-grid vf-grid-2">
-    <legend>2. Datos administrativos</legend>
+    <legend>2. Fechas y horas del estudio</legend>
     <label>Fecha de estudio <input name="fecha_estudio" type="date" required value="{{ default_fecha }}" /></label>
     <label>Fecha de toma <input name="fecha_toma" type="date" required value="{{ default_fecha }}" /></label>
     <label>Hora de toma <input name="hora_toma" type="time" step="1" value="{{ default_hora_toma }}" /></label>
     <label>Fecha de validación <input name="fecha_val" type="date" required value="{{ default_fecha }}" /></label>
     <label>Hora de validación <input name="hora_val" type="time" step="1" value="{{ default_hora_val }}" /></label>
-    <label>Folio orina (6 dígitos) <input name="folio_orina" required inputmode="numeric" pattern="[0-9]{6}" maxlength="6" /></label>
-    <label>Folio sangre (12 dígitos) <input name="folio_sangre" required inputmode="numeric" pattern="[0-9]{12}" maxlength="12" /></label>
-    <label>Número de cliente (8 dígitos) <input name="cliente_numero" required inputmode="numeric" pattern="[0-9]{8}" maxlength="8" /></label>
-    <label>Código de barras (3 letras + 10 dígitos) <input name="codigo_barra" required autocapitalize="characters" placeholder="ABC1234567890" /></label>
   </fieldset>
 
   <fieldset class="em-fieldset vf-grid vf-grid-2">
@@ -58,25 +53,51 @@
     <label>Clasificación <input id="em-imc-clas" type="text" readonly class="em-readonly" /></label>
   </fieldset>
 
+  <details class="em-id-preview">
+    <summary>Vista previa de identificadores (sin folios)</summary>
+    <p class="helper">El código de barras es estable por paciente. El número de cliente se reutiliza si ya existe en historial. Los folios se asignan al confirmar la descarga.</p>
+    <button type="button" class="btn btn-secondary" id="em-btn-preview-ids">Actualizar vista previa</button>
+    <dl id="em-id-dl" class="em-dl em-id-dl"></dl>
+  </details>
+
   <section class="em-clinical-note">
-    <p class="helper">Los campos de resultados (hematología, química, orina) no se capturan: se rellenan automáticamente con valores sintéticos dentro de rangos de referencia al generar cada documento. Puede usar <strong>Vista previa clínica</strong> para ver un ejemplo.</p>
+    <p class="helper">Los resultados de laboratorio (hematología, química, orina) se generan automáticamente al descargar. Puede usar <strong>Vista previa clínica</strong> para ver un ejemplo.</p>
     <button type="button" class="btn btn-secondary" id="em-btn-preview">Vista previa clínica</button>
     <pre id="em-clinical-json" class="em-preview-box" hidden></pre>
   </section>
 
-  <div class="em-actions vf-toolbar em-export-bar">
-    <button type="button" class="btn btn-primary" data-export="orina" data-format="pdf">Orina — PDF</button>
-    <button type="button" class="btn btn-secondary" data-export="orina" data-format="docx">Orina — DOCX</button>
-    <button type="button" class="btn btn-primary" data-export="sangre" data-format="pdf">Sangre — PDF</button>
-    <button type="button" class="btn btn-secondary" data-export="sangre" data-format="docx">Sangre — DOCX</button>
-    <button type="button" class="btn btn-secondary" id="em-btn-imc-save">Guardar IMC en historial</button>
+  <div class="em-actions vf-toolbar">
+    <button type="button" class="btn btn-primary" id="em-open-modal">Descargar documentos</button>
   </div>
   <p id="em-msg" class="helper em-msg" hidden></p>
 </form>
 
+<div id="em-modal-backdrop" class="em-modal-backdrop" hidden aria-hidden="true"></div>
+<div id="em-modal" class="em-modal" role="dialog" aria-modal="true" aria-labelledby="em-modal-title" hidden>
+  <div class="em-modal-inner panel vf-panel">
+    <h3 id="em-modal-title" class="panel-title">Descarga general</h3>
+    <p class="helper">Elija qué generar y en qué formato. Se guardará automáticamente en el historial (un registro por examen; si elige ambos, dos registros + IMC si aplica).</p>
+    <fieldset class="em-modal-fieldset">
+      <legend>Qué descargar</legend>
+      <label class="em-radio"><input type="radio" name="em_scope" value="both" checked /> Ambos exámenes (archivo ZIP)</label>
+      <label class="em-radio"><input type="radio" name="em_scope" value="orina" /> Solo examen de orina</label>
+      <label class="em-radio"><input type="radio" name="em_scope" value="sangre" /> Solo examen de sangre</label>
+    </fieldset>
+    <fieldset class="em-modal-fieldset">
+      <legend>Formato</legend>
+      <label class="em-radio"><input type="radio" name="em_format" value="pdf" checked /> PDF</label>
+      <label class="em-radio"><input type="radio" name="em_format" value="docx" /> DOCX</label>
+    </fieldset>
+    <div class="em-modal-actions">
+      <button type="button" class="btn btn-secondary" id="em-modal-cancel">Cancelar</button>
+      <button type="button" class="btn btn-primary" id="em-modal-confirm">Descargar</button>
+    </div>
+  </div>
+</div>
+
 <script>
-  window.__emExportUrl = {{ url_for('examenes_medicos.api_master_export') | tojson }};
-  window.__emImcUrl = {{ url_for('examenes_medicos.api_imc_registro') | tojson }};
+  window.__emDownloadUrl = {{ url_for('examenes_medicos.api_master_download') | tojson }};
+  window.__emPreviewIdsUrl = {{ url_for('examenes_medicos.api_preview_identificadores') | tojson }};
   window.__emClinicalPreviewUrl = {{ url_for('examenes_medicos.api_clinical_preview') | tojson }};
 </script>
 <script src="{{ url_for('examenes_medicos.static', filename='examenes_medicos.js') }}" defer></script>

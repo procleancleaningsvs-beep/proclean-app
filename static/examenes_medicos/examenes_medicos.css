@@ -86,6 +86,69 @@
   flex-wrap: wrap;
 }
 
+.em-id-preview {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border, #d0d7de);
+  border-radius: 8px;
+}
+
+.em-id-dl {
+  margin-top: 0.75rem;
+}
+
+.em-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  z-index: 1000;
+}
+
+.em-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.em-modal[hidden] {
+  display: none !important;
+}
+
+.em-modal-inner {
+  max-width: 26rem;
+  width: 100%;
+  margin: 0;
+}
+
+.em-modal-fieldset {
+  border: none;
+  padding: 0;
+  margin: 0.75rem 0;
+}
+
+.em-modal-fieldset legend {
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+}
+
+.em-radio {
+  display: block;
+  margin: 0.35rem 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.em-modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 1rem;
+}
+
 .em-dl {
   display: grid;
   grid-template-columns: minmax(10rem, 14rem) 1fr;

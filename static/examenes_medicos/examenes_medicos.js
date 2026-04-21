@@ -50,7 +50,7 @@
     return "Obesidad";
   }
 
-  function postBlob(url, body, fallbackName) {
+  function postDownload(url, body, fallbackName) {
     return fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "application/octet-stream" },
@@ -92,9 +92,6 @@
   document.addEventListener("DOMContentLoaded", function () {
     var form = document.getElementById("form-master");
     var msg = document.getElementById("em-msg");
-    var nombres = document.getElementById("em-nombres");
-    var apellidos = document.getElementById("em-apellidos");
-    var nombreCompleto = document.getElementById("em-nombre-completo");
     var fnac = document.getElementById("em-fnac");
     var edadEl = document.getElementById("em-edad");
     var peso = document.getElementById("em-peso");
@@ -104,9 +101,6 @@
     var horaToma = form.querySelector('input[name="hora_toma"]');
     var horaVal = form.querySelector('input[name="hora_val"]');
 
-    function syncNombre() {
-      nombreCompleto.value = [nombres.value, apellidos.value].filter(Boolean).join(" ").trim();
-    }
     function syncEdad() {
       edadEl.value = edadDesdeFnac(fnac.value);
     }
@@ -124,13 +118,10 @@
     }
 
     ["input", "change"].forEach(function (ev) {
-      nombres.addEventListener(ev, syncNombre);
-      apellidos.addEventListener(ev, syncNombre);
       fnac.addEventListener(ev, syncEdad);
       peso.addEventListener(ev, syncImc);
       est.addEventListener(ev, syncImc);
     });
-    syncNombre();
     syncEdad();
     syncImc();
 
@@ -139,59 +130,6 @@
         horaVal.value = addHoursToTimeStr(horaToma.value, 4);
       });
     }
-
-    document.querySelectorAll("[data-export]").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var target = btn.getAttribute("data-export");
-        var format = btn.getAttribute("data-format") || "pdf";
-        var data = formDataObject(form);
-        data.target = target;
-        data.format = format;
-        if (data.codigo_barra) data.codigo_barra = String(data.codigo_barra).toUpperCase();
-        showMsg(msg, "Generando…", false);
-        var ext = format === "docx" ? ".docx" : ".pdf";
-        postBlob(window.__emExportUrl, data, "examen" + ext)
-          .then(function () {
-            showMsg(msg, "Descarga iniciada.", false);
-          })
-          .catch(function (err) {
-            var t =
-              err && err.errors && err.errors.length
-                ? err.errors.join(" ")
-                : (err && err.error) || "No se pudo generar.";
-            showMsg(msg, t, true);
-          });
-      });
-    });
-
-    document.getElementById("em-btn-imc-save")?.addEventListener("click", function () {
-      var data = formDataObject(form);
-      if (data.codigo_barra) data.codigo_barra = String(data.codigo_barra).toUpperCase();
-      showMsg(msg, "Guardando IMC…", false);
-      fetch(window.__emImcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "same-origin",
-      })
-        .then(function (r) {
-          return r.json().then(function (j) {
-            return { ok: r.ok, j: j };
-          });
-        })
-        .then(function (x) {
-          if (!x.j.ok) {
-            var t =
-              x.j.errors && x.j.errors.length ? x.j.errors.join(" ") : x.j.error || "Error";
-            showMsg(msg, t, true);
-            return;
-          }
-          showMsg(msg, "IMC guardado en historial (#" + x.j.id + ").", false);
-        })
-        .catch(function () {
-          showMsg(msg, "Error de red.", true);
-        });
-    });
 
     document.getElementById("em-btn-preview")?.addEventListener("click", function () {
       var sexoEl = document.getElementById("em-sexo");
@@ -208,7 +146,90 @@
           pre.textContent = JSON.stringify(j.bundle, null, 2);
         })
         .catch(function () {
-          showMsg(msg, "No se pudo cargar la vista previa.", true);
+          showMsg(msg, "No se pudo cargar la vista previa clínica.", true);
+        });
+    });
+
+    function fillIdPreview() {
+      var data = formDataObject(form);
+      var n = data.nombres;
+      var a = data.apellidos;
+      var dl = document.getElementById("em-id-dl");
+      if (!dl) return;
+      if (!n || !a) {
+        dl.innerHTML = "";
+        return;
+      }
+      fetch(window.__emPreviewIdsUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombres: n, apellidos: a }),
+        credentials: "same-origin",
+      })
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j.ok) {
+            dl.innerHTML = "";
+            return;
+          }
+          var rows = [
+            ["Código de barras (estable)", j.codigo_barra],
+            ["Número de cliente (si ya existe)", j.cliente_numero_existente || "— (nuevo al descargar)"],
+            ["Folios", j.nota_folios || ""],
+          ];
+          dl.innerHTML = rows
+            .map(function (r) {
+              return "<dt>" + r[0] + "</dt><dd>" + String(r[1]) + "</dd>";
+            })
+            .join("");
+        })
+        .catch(function () {
+          showMsg(msg, "No se pudo cargar la vista previa de IDs.", true);
+        });
+    }
+
+    document.getElementById("em-btn-preview-ids")?.addEventListener("click", fillIdPreview);
+
+    var backdrop = document.getElementById("em-modal-backdrop");
+    var modal = document.getElementById("em-modal");
+    function openModal() {
+      if (backdrop) backdrop.hidden = false;
+      if (modal) {
+        modal.hidden = false;
+      }
+    }
+    function closeModal() {
+      if (backdrop) backdrop.hidden = true;
+      if (modal) modal.hidden = true;
+    }
+
+    document.getElementById("em-open-modal")?.addEventListener("click", openModal);
+    document.getElementById("em-modal-cancel")?.addEventListener("click", closeModal);
+    backdrop?.addEventListener("click", closeModal);
+
+    document.getElementById("em-modal-confirm")?.addEventListener("click", function () {
+      var scopeEl = document.querySelector('input[name="em_scope"]:checked');
+      var fmtEl = document.querySelector('input[name="em_format"]:checked');
+      var scope = (scopeEl && scopeEl.value) || "both";
+      var format = (fmtEl && fmtEl.value) || "pdf";
+      var data = formDataObject(form);
+      data.scope = scope;
+      data.format = format;
+      showMsg(msg, "Generando…", false);
+      closeModal();
+      var ext = format === "docx" ? ".docx" : scope === "both" ? ".zip" : ".pdf";
+      postDownload(window.__emDownloadUrl, data, "examenes" + ext)
+        .then(function () {
+          showMsg(msg, "Descarga iniciada. Revise el historial para los registros guardados.", false);
+        })
+        .catch(function (err) {
+          var t =
+            err && err.errors && err.errors.length
+              ? err.errors.join(" ")
+              : (err && err.error) || "No se pudo generar.";
+          showMsg(msg, t, true);
         });
     });
   });

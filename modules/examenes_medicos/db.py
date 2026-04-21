@@ -7,6 +7,8 @@ from typing import Any
 
 
 def ensure_examenes_medicos_tables(conn: sqlite3.Connection) -> None:
+    from modules.examenes_medicos.identifiers import migrate_examenes_medicos_identifier_tables
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS examenes_medicos_historial (
@@ -30,6 +32,7 @@ def ensure_examenes_medicos_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_examenes_hist_user ON examenes_medicos_historial (user_id, created_at DESC)"
     )
+    migrate_examenes_medicos_identifier_tables(conn)
 
 
 def ensure_examenes_medicos_tables_path(db_path: str) -> None:
