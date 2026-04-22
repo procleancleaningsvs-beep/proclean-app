@@ -66,17 +66,46 @@ def main() -> None:
         raw_by_name = {zi.filename: zin.read(zi.filename) for zi in infos}
 
     any_change = False
+    patched_footer2: bytes | None = None
     buf = io.BytesIO()
+    seen_names: set[str] = set()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in infos:
             data = raw_by_name[item.filename]
+            seen_names.add(item.filename)
             if item.filename in targets:
                 text = data.decode("utf-8")
                 text2, changed = patch_footer_xml(text)
                 if changed:
                     any_change = True
                     data = text2.encode("utf-8")
+                if item.filename == "word/footer2.xml":
+                    patched_footer2 = data
+            elif item.filename in {"word/footer1.xml", "word/footer3.xml"} and patched_footer2 is not None:
+                if data != patched_footer2:
+                    data = patched_footer2
+                    any_change = True
+            elif (
+                item.filename in {"word/_rels/footer1.xml.rels", "word/_rels/footer3.xml.rels"}
+                and "word/_rels/footer2.xml.rels" in raw_by_name
+            ):
+                rel2 = raw_by_name["word/_rels/footer2.xml.rels"]
+                if data != rel2:
+                    data = rel2
+                    any_change = True
             zout.writestr(item, data)
+
+        if patched_footer2 is not None:
+            for missing in ("word/footer1.xml", "word/footer3.xml"):
+                if missing not in seen_names:
+                    zout.writestr(missing, patched_footer2)
+                    any_change = True
+            rel2 = raw_by_name.get("word/_rels/footer2.xml.rels")
+            if rel2 is not None:
+                for missing_rel in ("word/_rels/footer1.xml.rels", "word/_rels/footer3.xml.rels"):
+                    if missing_rel not in seen_names:
+                        zout.writestr(missing_rel, rel2)
+                        any_change = True
 
     if not any_change:
         print(f"Sin cambios (ya aplicado o sin coincidencias): {DOCX.name}")
