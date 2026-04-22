@@ -3,11 +3,37 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 from modules.examenes_medicos.identifiers import normalize_nombre_key
+
+_log = logging.getLogger(__name__)
+
+
+def _first_int(row: Sequence[Any] | None) -> int:
+    """Primer valor de fetchone()/fetchall() sin asumir sqlite3.Row (init_db usa tuplas)."""
+    if row is None:
+        return 0
+    try:
+        v = row[0]
+    except (TypeError, IndexError, KeyError):
+        return 0
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _row_as_dict(row: Sequence[Any] | sqlite3.Row | None, columns: list[str]) -> dict[str, Any]:
+    """Convierte una fila (tupla o Row) en dict usando el orden de columnas del SELECT."""
+    if row is None:
+        return {}
+    if isinstance(row, sqlite3.Row):
+        return {k: row[k] for k in columns}
+    return {columns[i]: row[i] for i in range(min(len(columns), len(row)))}
 
 
 def ensure_examenes_expediente_table(conn: sqlite3.Connection) -> None:
@@ -90,10 +116,12 @@ def upsert_examenes_expediente_merge(
     ).strip() or None
     imc_lab = _imc_label_from_master(master)
 
-    row = conn.execute(
+    cur_sel = conn.execute(
         "SELECT * FROM examenes_medicos_expediente WHERE user_id = ? AND patient_key = ?",
         (user_id, patient_key),
-    ).fetchone()
+    )
+    exp_cols = [d[0] for d in (cur_sel.description or ())]
+    row = cur_sel.fetchone()
 
     def pick_pdf_docx() -> tuple[str | None, str | None, str | None, str | None]:
         if last_format == "pdf":
@@ -139,8 +167,8 @@ def upsert_examenes_expediente_merge(
         cur = conn.execute(f"INSERT INTO examenes_medicos_expediente ({cols}) VALUES ({qs})", tuple(od.values()))
         return int(cur.lastrowid)
 
-    rid = int(row["id"])
-    upd = {k: row[k] for k in row.keys()}
+    upd = _row_as_dict(row, exp_cols)
+    rid = int(upd["id"])
     if cliente:
         upd["cliente_numero"] = cliente
     upd["patient_display_name"] = display
@@ -198,18 +226,37 @@ def upsert_examenes_expediente_merge(
 
 
 def migrate_legacy_historial_to_expediente(conn: sqlite3.Connection) -> None:
-    """Una sola pasada: fusiona filas viejas de examenes_medicos_historial en expedientes."""
-    n = conn.execute("SELECT COUNT(*) AS c FROM examenes_medicos_expediente").fetchone()["c"]
-    if int(n) > 0:
+    """Una sola pasada: fusiona filas viejas de examenes_medicos_historial en expedientes.
+
+    Compatible con conexiones sin ``row_factory`` (tuplas). Errores por fila se omiten;
+    errores globales deben manejarse en el llamador si se desea no bloquear el arranque.
+    """
+    cnt_row = conn.execute("SELECT COUNT(*) FROM examenes_medicos_expediente").fetchone()
+    if _first_int(cnt_row) > 0:
         return
-    rows = conn.execute(
-        "SELECT id, user_id, created_at, exam_type, patient_display_name, payload_json, "
-        "docx_relpath, pdf_relpath, docx_download_name, pdf_download_name "
-        "FROM examenes_medicos_historial ORDER BY id ASC"
-    ).fetchall()
+
+    hist_cols = [
+        "id",
+        "user_id",
+        "created_at",
+        "exam_type",
+        "patient_display_name",
+        "payload_json",
+        "docx_relpath",
+        "pdf_relpath",
+        "docx_download_name",
+        "pdf_download_name",
+    ]
+    cur = conn.execute(
+        "SELECT "
+        + ", ".join(hist_cols)
+        + " FROM examenes_medicos_historial ORDER BY id ASC"
+    )
+    rows = cur.fetchall()
     for r in rows:
+        d = _row_as_dict(r, hist_cols)
         try:
-            payload = json.loads(str(r["payload_json"] or "{}"))
+            payload = json.loads(str(d.get("payload_json") or "{}"))
         except (json.JSONDecodeError, TypeError):
             payload = {}
         fm = payload.get("formulario_maestro") if isinstance(payload, dict) else None
@@ -220,13 +267,13 @@ def migrate_legacy_historial_to_expediente(conn: sqlite3.Connection) -> None:
         if nombres.strip() or apellidos.strip():
             key = normalize_nombre_key(nombres, apellidos)
         else:
-            key = normalize_nombre_key("", str(r["patient_display_name"] or "").strip())
-        ident = {}
+            key = normalize_nombre_key("", str(d.get("patient_display_name") or "").strip())
+        ident: dict[str, Any] = {}
         if isinstance(payload.get("identificadores"), dict):
             ident = payload["identificadores"]
         elif fm.get("cliente_numero"):
             ident = {"cliente_numero": str(fm.get("cliente_numero"))}
-        exam_t = str(r["exam_type"])
+        exam_t = str(d.get("exam_type") or "")
         if exam_t == "imc":
             vals = payload.get("valores") if isinstance(payload, dict) else None
             if isinstance(vals, dict):
@@ -235,18 +282,18 @@ def migrate_legacy_historial_to_expediente(conn: sqlite3.Connection) -> None:
                 imc_lab = f"{imc} ({clas})" if imc is not None and clas else None
             else:
                 imc_lab = None
-            row = conn.execute(
+            ex_row = conn.execute(
                 "SELECT id FROM examenes_medicos_expediente WHERE user_id = ? AND patient_key = ?",
-                (int(r["user_id"]), key),
+                (int(d["user_id"]), key),
             ).fetchone()
-            if row:
+            if ex_row is not None:
                 conn.execute(
                     "UPDATE examenes_medicos_expediente SET imc_label = COALESCE(?, imc_label), "
                     "updated_at = ? WHERE id = ?",
-                    (imc_lab, str(r["created_at"]), int(row["id"])),
+                    (imc_lab, str(d["created_at"]), int(ex_row[0])),
                 )
             else:
-                disp = str(r["patient_display_name"] or _canonical_display_name(fm))
+                disp = str(d.get("patient_display_name") or _canonical_display_name(fm))
                 conn.execute(
                     """
                     INSERT INTO examenes_medicos_expediente (
@@ -255,35 +302,42 @@ def migrate_legacy_historial_to_expediente(conn: sqlite3.Connection) -> None:
                     ) VALUES (?, ?, ?, ?, ?, 'imc', '—', ?, ?, ?, ?)
                     """,
                     (
-                        int(r["user_id"]),
+                        int(d["user_id"]),
                         key,
                         str(ident.get("cliente_numero") or "").strip() or None,
                         disp,
                         imc_lab,
-                        str(r["created_at"]),
-                        int(r["user_id"]),
-                        str(r["created_at"]),
-                        str(r["created_at"]),
+                        str(d["created_at"]),
+                        int(d["user_id"]),
+                        str(d["created_at"]),
+                        str(d["created_at"]),
                     ),
                 )
             continue
 
         want = str(payload.get("formato_descarga") or "pdf")
         scope = str(payload.get("alcance") or "orina")
-        upsert_examenes_expediente_merge(
-            conn,
-            user_id=int(r["user_id"]),
-            master=fm if fm else {"nombres": nombres, "apellidos": apellidos},
-            ident=ident,
-            exam_type=exam_t,
-            last_scope=scope,
-            last_format=want,
-            docx_relpath=str(r["docx_relpath"]) if r["docx_relpath"] else None,
-            pdf_relpath=str(r["pdf_relpath"]) if r["pdf_relpath"] else None,
-            docx_download_name=str(r["docx_download_name"]) if r["docx_download_name"] else None,
-            pdf_download_name=str(r["pdf_download_name"]) if r["pdf_download_name"] else None,
-            when_iso=str(r["created_at"]),
-        )
+        try:
+            upsert_examenes_expediente_merge(
+                conn,
+                user_id=int(d["user_id"]),
+                master=fm if fm else {"nombres": nombres, "apellidos": apellidos},
+                ident=ident,
+                exam_type=exam_t,
+                last_scope=scope,
+                last_format=want,
+                docx_relpath=str(d["docx_relpath"]) if d.get("docx_relpath") else None,
+                pdf_relpath=str(d["pdf_relpath"]) if d.get("pdf_relpath") else None,
+                docx_download_name=str(d["docx_download_name"]) if d.get("docx_download_name") else None,
+                pdf_download_name=str(d["pdf_download_name"]) if d.get("pdf_download_name") else None,
+                when_iso=str(d["created_at"]),
+            )
+        except Exception:
+            _log.warning(
+                "examenes_medicos: omitiendo fila historial id=%s en migración legacy (error al fusionar)",
+                d.get("id"),
+                exc_info=True,
+            )
 
 
 @dataclass

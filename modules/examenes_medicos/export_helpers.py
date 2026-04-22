@@ -59,10 +59,12 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     edad = _mapping_val(data, "edad")
     if edad and not edad.lower().endswith("años"):
         edad = f"{edad} años"
-    sexo = _mapping_val(data, "sexo").upper()
+    # Plantilla en mayúsculas (MASCULINO / FEMENINO / OTRO) según referencia PDF.
+    sexo_raw = _mapping_val(data, "sexo")
+    sexo = sexo_raw.upper() if sexo_raw else ""
     return {
         "{edad}": edad,
-        "{sexo}": sexo,  # ya viene mapeado si aplica
+        "{sexo}": sexo,
         "{folio}": _mapping_val(data, "folio"),
         "{paciente_nombre_completo}": pac,
         "{fecha_estudio}": fe,
@@ -136,16 +138,18 @@ def build_sangre_mapping(data: dict[str, Any]) -> dict[str, str]:
 
 
 def build_orina_data_for_mapping(master: dict[str, Any], clinical_orina: dict[str, str]) -> dict[str, Any]:
-    """Fusiona formulario maestro + bundle clínico de orina."""
-    d: dict[str, Any] = {
-        "nombres": master.get("nombres"),
-        "apellidos": master.get("apellidos"),
-        "edad": master.get("edad"),
-        "sexo": sexo_para_orina(str(master.get("sexo") or "")),
-        "folio": master.get("folio_orina"),
-        "fecha_estudio": master.get("fecha_estudio"),
-    }
-    d.update(clinical_orina)
+    """Fusiona formulario maestro + bundle clínico de orina.
+
+    Los datos del paciente y encabezado vienen siempre del maestro; el bundle clínico
+    solo aporta parámetros de laboratorio (nunca debe pisar sexo, edad, folio, etc.).
+    """
+    d: dict[str, Any] = dict(clinical_orina)
+    d["nombres"] = master.get("nombres")
+    d["apellidos"] = master.get("apellidos")
+    d["edad"] = master.get("edad")
+    d["sexo"] = sexo_para_orina(str(master.get("sexo") or ""))
+    d["folio"] = master.get("folio_orina")
+    d["fecha_estudio"] = master.get("fecha_estudio")
     return d
 
 

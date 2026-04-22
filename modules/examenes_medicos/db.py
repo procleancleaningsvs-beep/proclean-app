@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 
 def ensure_examenes_medicos_tables(conn: sqlite3.Connection) -> None:
@@ -38,7 +41,13 @@ def ensure_examenes_medicos_tables(conn: sqlite3.Connection) -> None:
     )
     migrate_examenes_medicos_identifier_tables(conn)
     ensure_examenes_expediente_table(conn)
-    migrate_legacy_historial_to_expediente(conn)
+    try:
+        migrate_legacy_historial_to_expediente(conn)
+    except Exception:
+        _log.exception(
+            "examenes_medicos: migración legacy historial -> expediente falló; "
+            "la app continúa (expedientes vacíos o parciales hasta corregir datos)."
+        )
 
 
 def ensure_examenes_medicos_tables_path(db_path: str) -> None:
