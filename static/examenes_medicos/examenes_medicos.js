@@ -3,18 +3,35 @@
     return String(n).padStart(2, "0");
   }
 
-  function addHoursToTimeStr(s, hoursToAdd) {
-    if (!s) return "";
-    var parts = s.split(":");
+  /** Segundos desde medianoche, entre 06:20:00 y 09:40:59 inclusive. */
+  function randomTomaSeconds() {
+    var start = 6 * 3600 + 20 * 60;
+    var end = 9 * 3600 + 40 * 60 + 59;
+    return start + Math.floor(Math.random() * (end - start + 1));
+  }
+
+  function secondsToTimeStr(sec) {
+    sec = ((sec % 86400) + 86400) % 86400;
+    var h = Math.floor(sec / 3600);
+    var m = Math.floor((sec % 3600) / 60);
+    var s = sec % 60;
+    return pad2(h) + ":" + pad2(m) + ":" + pad2(s);
+  }
+
+  /** Aprox. 6 u 7 horas después con minutos y segundos aleatorios (no fijo). */
+  function randomValidationAfterToma(tomaStr) {
+    if (!tomaStr) return "";
+    var parts = tomaStr.split(":");
     var h = parseInt(parts[0], 10) || 0;
     var m = parseInt(parts[1], 10) || 0;
     var sec = parseInt(parts[2], 10) || 0;
-    var t = h * 3600 + m * 60 + sec + hoursToAdd * 3600;
-    t = ((t % 86400) + 86400) % 86400;
-    var nh = Math.floor(t / 3600);
-    var nm = Math.floor((t % 3600) / 60);
-    var ns = t % 60;
-    return pad2(nh) + ":" + pad2(nm) + ":" + pad2(ns);
+    var tomaSec = h * 3600 + m * 60 + sec;
+    var baseH = 6 + Math.floor(Math.random() * 2);
+    var extraMin = Math.floor(Math.random() * 38);
+    var extraSec = Math.floor(Math.random() * 60);
+    var delta = baseH * 3600 + extraMin * 60 + extraSec;
+    if (delta < 3600) delta += 3600;
+    return secondsToTimeStr(tomaSec + delta);
   }
 
   function formDataObject(form) {
@@ -91,6 +108,8 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     var form = document.getElementById("form-master");
+    if (!form) return;
+
     var msg = document.getElementById("em-msg");
     var fnac = document.getElementById("em-fnac");
     var edadEl = document.getElementById("em-edad");
@@ -117,6 +136,14 @@
       imcClas.value = clasificarImc(imc);
     }
 
+    function applyDefaultHoras() {
+      if (!horaToma || !horaVal) return;
+      horaToma.value = secondsToTimeStr(randomTomaSeconds());
+      horaVal.dataset.manual = "";
+      horaVal.value = randomValidationAfterToma(horaToma.value);
+    }
+    applyDefaultHoras();
+
     ["input", "change"].forEach(function (ev) {
       fnac.addEventListener(ev, syncEdad);
       peso.addEventListener(ev, syncImc);
@@ -126,79 +153,55 @@
     syncImc();
 
     if (horaToma && horaVal) {
+      horaVal.addEventListener("input", function () {
+        horaVal.dataset.manual = "1";
+      });
       horaToma.addEventListener("change", function () {
-        horaVal.value = addHoursToTimeStr(horaToma.value, 4);
+        if (horaVal.dataset.manual === "1") return;
+        horaVal.value = randomValidationAfterToma(horaToma.value);
       });
     }
 
-    document.getElementById("em-btn-preview")?.addEventListener("click", function () {
-      var sexoEl = document.getElementById("em-sexo");
-      var sexo = sexoEl ? sexoEl.value : "Mujer";
-      var u = window.__emClinicalPreviewUrl + "?sexo=" + encodeURIComponent(sexo || "Mujer");
-      fetch(u, { credentials: "same-origin" })
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (j) {
-          var pre = document.getElementById("em-clinical-json");
-          if (!pre) return;
-          pre.hidden = false;
-          pre.textContent = JSON.stringify(j.bundle, null, 2);
-        })
-        .catch(function () {
-          showMsg(msg, "No se pudo cargar la vista previa clínica.", true);
-        });
-    });
-
-    function fillIdPreview() {
-      var data = formDataObject(form);
-      var n = data.nombres;
-      var a = data.apellidos;
-      var dl = document.getElementById("em-id-dl");
-      if (!dl) return;
-      if (!n || !a) {
-        dl.innerHTML = "";
-        return;
-      }
-      fetch(window.__emPreviewIdsUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nombres: n, apellidos: a }),
-        credentials: "same-origin",
-      })
-        .then(function (r) {
-          return r.json();
-        })
-        .then(function (j) {
-          if (!j.ok) {
-            dl.innerHTML = "";
-            return;
-          }
-          var rows = [
-            ["Código de barras (estable)", j.codigo_barra],
-            ["Número de cliente (si ya existe)", j.cliente_numero_existente || "— (nuevo al descargar)"],
-            ["Folios", j.nota_folios || ""],
-          ];
-          dl.innerHTML = rows
-            .map(function (r) {
-              return "<dt>" + r[0] + "</dt><dd>" + String(r[1]) + "</dd>";
-            })
-            .join("");
-        })
-        .catch(function () {
-          showMsg(msg, "No se pudo cargar la vista previa de IDs.", true);
-        });
-    }
-
-    document.getElementById("em-btn-preview-ids")?.addEventListener("click", fillIdPreview);
-
     var backdrop = document.getElementById("em-modal-backdrop");
     var modal = document.getElementById("em-modal");
+    var scopeState = "both";
+    var formatState = "pdf";
+
+    function syncSegActive(container, attr, value) {
+      if (!container) return;
+      var btns = container.querySelectorAll(".em-seg-btn");
+      btns.forEach(function (b) {
+        var on = b.getAttribute(attr) === value;
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+        b.classList.toggle("is-active", on);
+      });
+    }
+
+    function wireSeg(container, attr, initial, onPick) {
+      if (!container) return;
+      syncSegActive(container, attr, initial);
+      container.addEventListener("click", function (e) {
+        var t = e.target.closest(".em-seg-btn");
+        if (!t || !container.contains(t)) return;
+        var v = t.getAttribute(attr);
+        if (!v) return;
+        onPick(v);
+        syncSegActive(container, attr, v);
+      });
+    }
+
+    var seg3 = modal && modal.querySelector(".em-seg-3");
+    var seg2 = modal && modal.querySelector(".em-seg-2");
+    wireSeg(seg3, "data-em-scope", scopeState, function (v) {
+      scopeState = v;
+    });
+    wireSeg(seg2, "data-em-format", formatState, function (v) {
+      formatState = v;
+    });
+
     function openModal() {
       if (backdrop) backdrop.hidden = false;
-      if (modal) {
-        modal.hidden = false;
-      }
+      if (modal) modal.hidden = false;
     }
     function closeModal() {
       if (backdrop) backdrop.hidden = true;
@@ -210,19 +213,15 @@
     backdrop?.addEventListener("click", closeModal);
 
     document.getElementById("em-modal-confirm")?.addEventListener("click", function () {
-      var scopeEl = document.querySelector('input[name="em_scope"]:checked');
-      var fmtEl = document.querySelector('input[name="em_format"]:checked');
-      var scope = (scopeEl && scopeEl.value) || "both";
-      var format = (fmtEl && fmtEl.value) || "pdf";
       var data = formDataObject(form);
-      data.scope = scope;
-      data.format = format;
+      data.scope = scopeState;
+      data.format = formatState;
       showMsg(msg, "Generando…", false);
       closeModal();
-      var ext = format === "docx" ? ".docx" : scope === "both" ? ".zip" : ".pdf";
+      var ext = formatState === "docx" ? ".docx" : scopeState === "both" ? ".zip" : ".pdf";
       postDownload(window.__emDownloadUrl, data, "examenes" + ext)
         .then(function () {
-          showMsg(msg, "Descarga iniciada. Revise el historial para los registros guardados.", false);
+          showMsg(msg, "Descarga iniciada. El historial del paciente se actualizó automáticamente.", false);
         })
         .catch(function (err) {
           var t =

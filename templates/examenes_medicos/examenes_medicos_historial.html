@@ -8,40 +8,56 @@
   <div>
     <span class="eyebrow">Vitroflex</span>
     <h2>Historial — Exámenes médicos</h2>
-    <p>{% if is_admin %}Todos los usuarios.{% else %}Solo tus registros.{% endif %}</p>
+    <p class="em-historial-sub">Un expediente por paciente. {% if is_admin %}Todos los usuarios.{% else %}Solo tus registros.{% endif %}</p>
   </div>
   <a href="{{ url_for('examenes_medicos.index') }}" class="btn btn-secondary">Volver a Exámenes médicos</a>
 </section>
 
-<section class="panel vf-panel">
-  <div class="table-wrap">
-    <table class="vf-table">
+<section class="panel vf-panel em-historial-panel">
+  <div class="em-historial-wrap">
+    <table class="vf-table em-historial-table">
       <thead>
         <tr>
-          <th>Tipo</th>
-          <th>Paciente / descripción</th>
-          <th>Fecha</th>
+          <th>No. Cliente</th>
+          <th>Paciente</th>
+          <th>IMC</th>
+          <th>Archivos / última exportación</th>
+          <th>Última fecha</th>
           <th>Usuario</th>
-          <th>Acciones</th>
+          <th class="em-th-actions">Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for r in rows %}
         <tr>
-          <td>
-            {% if r.exam_type == 'orina' %}Orina
-            {% elif r.exam_type == 'sangre' %}Sangre
-            {% else %}IMC{% endif %}
+          <td class="em-mono">{{ r.cliente_numero or '—' }}</td>
+          <td class="em-patient-cell">{{ r.patient_display_name }}</td>
+          <td class="em-imc-cell">{{ r.imc_label or '—' }}</td>
+          <td class="em-chip-cell">
+            <div class="em-chip-row">
+              {% if r.orina_pdf_relpath %}<span class="em-chip">Orina PDF</span>{% endif %}
+              {% if r.orina_docx_relpath %}<span class="em-chip em-chip-muted">Orina DOCX</span>{% endif %}
+              {% if r.sangre_pdf_relpath %}<span class="em-chip">Sangre PDF</span>{% endif %}
+              {% if r.sangre_docx_relpath %}<span class="em-chip em-chip-muted">Sangre DOCX</span>{% endif %}
+              {% if not (r.orina_pdf_relpath or r.orina_docx_relpath or r.sangre_pdf_relpath or r.sangre_docx_relpath) %}
+              <span class="em-chip em-chip-muted">Sin archivos</span>
+              {% endif %}
+            </div>
+            {% if r.last_scope and r.last_format and r.last_format != '—' %}
+            <div class="em-last-dl">Última descarga:
+              {% if r.last_scope == 'both' %}Ambos{% elif r.last_scope == 'orina' %}Orina{% elif r.last_scope == 'sangre' %}Sangre{% else %}{{ r.last_scope }}{% endif %}
+              · {{ (r.last_format or '')|upper }}
+            </div>
+            {% endif %}
           </td>
-          <td>{{ r.patient_display_name }}</td>
-          <td>{{ r.created_at }}</td>
+          <td class="em-date-cell">{{ r.last_export_at }}</td>
           <td>{{ r.username or '—' }}</td>
-          <td>
-            <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}">Detalle</a>
+          <td class="em-actions-cell">
+            <a class="btn btn-secondary em-btn-compact" href="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}">Detalle</a>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5">Sin registros aún.</td></tr>
+        <tr><td colspan="7" class="em-empty-row">Sin registros aún.</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -7,75 +7,51 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Vitroflex</span>
-    <h2>Detalle de examen</h2>
-    <p>Registro #{{ row.id }} · {{ row.created_at }} · {{ row.username }}</p>
+    <h2>Expediente del paciente</h2>
+    <p class="em-detalle-meta">Registro #{{ row.id }} · Actualizado {{ row.last_export_at }} · {{ row.username or '—' }}</p>
   </div>
   <div class="page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
-    {% if row.exam_type in ('orina','sangre') and docx_ok %}
-    <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.download_historial_docx', rid=row.id) }}">DOCX</a>
-    {% endif %}
-    {% if row.exam_type in ('orina','sangre') and pdf_ok %}
-    <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_historial_pdf', rid=row.id) }}">PDF</a>
-    {% endif %}
     {% if is_admin %}
-    <button type="button" class="btn btn-secondary danger-btn" id="em-del-btn" data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}">Eliminar</button>
+    <button type="button" class="btn btn-secondary danger-btn" id="em-del-btn" data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}">Eliminar expediente</button>
     {% endif %}
   </div>
 </section>
 
-<section class="panel vf-panel">
-  <h3 class="panel-title">
-    {% if row.exam_type == 'orina' %}Examen de orina
-    {% elif row.exam_type == 'sangre' %}Examen de sangre
-    {% else %}IMC{% endif %}
-  </h3>
+<section class="panel vf-panel em-detalle-panel">
+  <div class="em-detalle-head">
+    <div>
+      <h3 class="panel-title em-detalle-name">{{ row.patient_display_name }}</h3>
+      <p class="helper em-detalle-sub">No. cliente: <span class="em-mono">{{ row.cliente_numero or '—' }}</span>
+        {% if row.imc_label %}· IMC: {{ row.imc_label }}{% endif %}
+      </p>
+    </div>
+  </div>
 
-  {% if row.exam_type == 'imc' and payload.get('valores') %}
-  <h4 class="panel-title">IMC</h4>
-  <dl class="em-dl">
-    {% for k, v in payload['valores'].items() %}
-    <dt>{{ k }}</dt><dd>{{ v }}</dd>
-    {% endfor %}
-  </dl>
-  {% if payload.get('formulario_maestro') %}
-  <h4 class="panel-title">Formulario maestro</h4>
-  <dl class="em-dl">
-    {% for k, v in payload['formulario_maestro'].items() %}
-    <dt>{{ k }}</dt><dd>{{ v }}</dd>
-    {% endfor %}
-  </dl>
-  {% endif %}
-  {% elif payload.get('formulario_maestro') %}
-  <h4 class="panel-title">Formulario maestro</h4>
-  <dl class="em-dl">
-    {% for k, v in payload['formulario_maestro'].items() %}
-    <dt>{{ k }}</dt><dd>{{ v }}</dd>
-    {% endfor %}
-  </dl>
-  {% if payload.get('bundle_clinico') %}
-  <h4 class="panel-title">Valores clínicos generados (réplica)</h4>
-  <pre class="em-preview-box">{{ payload['bundle_clinico'] | tojson(indent=2) }}</pre>
-  {% endif %}
-  {% elif payload.get('formulario') %}
-  <dl class="em-dl">
-    {% for k, v in payload['formulario'].items() %}
-    <dt>{{ k }}</dt><dd>{{ v }}</dd>
-    {% endfor %}
-  </dl>
-  {% else %}
-  <p class="helper">Sin datos de formulario.</p>
-  {% endif %}
-
-  {% if row.exam_type in ('orina','sangre') and not docx_ok and not pdf_ok %}
-  <p class="helper em-error">Los archivos generados ya no están en el servidor.</p>
-  {% endif %}
+  <div class="em-pdf-actions">
+    <p class="em-pdf-title">Descargar PDF</p>
+    <div class="em-pdf-btn-row">
+      {% if pdf_orina_ok %}
+      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='orina') }}">PDF orina</a>
+      {% else %}
+      <span class="em-pdf-missing">PDF orina no disponible</span>
+      {% endif %}
+      {% if pdf_sangre_ok %}
+      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='sangre') }}">PDF sangre</a>
+      {% else %}
+      <span class="em-pdf-missing">PDF sangre no disponible</span>
+      {% endif %}
+    </div>
+    {% if not pdf_orina_ok and not pdf_sangre_ok %}
+    <p class="helper em-error">No hay PDFs guardados en el servidor para este expediente.</p>
+    {% endif %}
+  </div>
 </section>
 
 {% if is_admin %}
 <script>
 document.getElementById("em-del-btn")?.addEventListener("click", function () {
-  if (!confirm("¿Eliminar este registro y sus archivos?")) return;
+  if (!confirm("¿Eliminar este expediente del paciente y todos los archivos asociados?")) return;
   fetch(this.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
     .then(function (r) { return r.json(); })
     .then(function (j) {

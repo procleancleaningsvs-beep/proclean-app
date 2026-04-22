@@ -30,21 +30,20 @@ from flask import (
 from functools import wraps
 
 from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
-from modules.examenes_medicos.db import (
-    delete_examen_historial,
-    ensure_examenes_medicos_tables_path,
-    get_examen_historial,
-    insert_examen_historial,
-    list_examen_historial,
+from modules.examenes_medicos.db import ensure_examenes_medicos_tables_path
+from modules.examenes_medicos.expediente_db import (
+    delete_examenes_expediente,
+    ensure_examenes_expediente_table,
+    get_examenes_expediente,
+    list_examenes_expedientes,
+    upsert_examenes_expediente_merge,
 )
 from modules.examenes_medicos.export_helpers import (
     app_mx_today,
     build_orina_data_for_mapping,
     build_orina_mapping,
-    build_paciente_orina,
     build_sangre_data_for_mapping,
     build_sangre_mapping,
-    default_hora_val_sugerida,
     default_yesterday_iso_mx,
     resolve_generated_artifact,
     safe_file_stem,
@@ -58,7 +57,6 @@ from modules.examenes_medicos.identifiers import (
 )
 from modules.examenes_medicos.paths import ORINA_DOCX, SANGRE_DOCX
 from modules.examenes_medicos.validation import (
-    classify_imc,
     edad_desde_fecha_nacimiento,
     parse_date_iso,
     validate_positive_float,
@@ -137,10 +135,6 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
     if e:
         errs.append(e)
 
-    med = str(data.get("medico") or "").strip()
-    if len(med) > 200:
-        errs.append("Médico: texto demasiado largo (máx. 200 caracteres).")
-
     for label, key in (
         ("Fecha de estudio", "fecha_estudio"),
         ("Fecha de toma", "fecha_toma"),
@@ -192,54 +186,15 @@ def _assign_admin_ids(conn: sqlite3.Connection, master: dict[str, Any], rng: ran
     }
 
 
-def _maybe_insert_imc_historial(db_path: str, master: dict[str, Any], ident: dict[str, str]) -> int | None:
-    p1 = validate_positive_float(master.get("peso_kg"), "Peso (kg)")
-    p2 = validate_positive_float(master.get("estatura_m"), "Estatura (m)")
-    peso, est = p1[0], p2[0]
-    errs = [x for x in (p1[1], p2[1]) if x]
-    if errs or peso is None or est is None or est > 2.6:
-        return None
-    imc = peso / (est**2)
-    clas = classify_imc(imc)
-    pac = build_paciente_orina(str(master.get("nombres") or ""), str(master.get("apellidos") or ""))
-    snap = {
-        "tipo": "imc",
-        "formulario_maestro": {**master, **ident},
-        "valores": {"peso_kg": peso, "estatura_m": est, "imc": round(imc, 2), "clasificacion": clas},
-    }
-    rid = insert_examen_historial(
-        db_path,
-        user_id=int(g.user["id"]),
-        created_at=_now_iso(),
-        exam_type="imc",
-        patient_display_name=pac or "IMC",
-        payload=snap,
-        docx_relpath=None,
-        pdf_relpath=None,
-        docx_download_name=None,
-        pdf_download_name=None,
-    )
-    log_app_activity(
-        db_path,
-        user_id=int(g.user["id"]),
-        module="examenes_medicos",
-        action="imc_auto",
-        status="ok",
-        ref=str(rid),
-        detail="post_descarga",
-    )
-    return rid
-
-
 def _persist_export(
     *,
     exam_type: str,
-    patient_display_name: str,
     payload: dict[str, Any],
     docx_bytes: bytes,
     pdf_bytes: bytes,
     docx_download: str,
     pdf_download: str,
+    when_iso: str | None = None,
 ) -> int:
     gen = Path(current_app.config["GENERATED_DIR"])
     gen.mkdir(parents=True, exist_ok=True)
@@ -250,28 +205,40 @@ def _persist_export(
     pdf_name = "examen.pdf"
     (folder / docx_name).write_bytes(docx_bytes)
     (folder / pdf_name).write_bytes(pdf_bytes)
-    rid = insert_examen_historial(
-        str(current_app.config["DATABASE"]),
-        user_id=int(g.user["id"]),
-        created_at=_now_iso(),
-        exam_type=exam_type,
-        patient_display_name=patient_display_name,
-        payload=payload,
-        docx_relpath=f"{rel_dir}/{docx_name}",
-        pdf_relpath=f"{rel_dir}/{pdf_name}",
-        docx_download_name=docx_download,
-        pdf_download_name=pdf_download,
-    )
+    db_path = str(current_app.config["DATABASE"])
+    when = when_iso or _now_iso()
+    fm = payload.get("formulario_maestro") if isinstance(payload.get("formulario_maestro"), dict) else {}
+    ident = payload.get("identificadores") if isinstance(payload.get("identificadores"), dict) else {}
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_examenes_expediente_table(conn)
+        eid = upsert_examenes_expediente_merge(
+            conn,
+            user_id=int(g.user["id"]),
+            master=fm,
+            ident=ident,
+            exam_type=exam_type,
+            last_scope=str(payload.get("alcance") or "orina"),
+            last_format=str(payload.get("formato_descarga") or "pdf"),
+            docx_relpath=f"{rel_dir}/{docx_name}",
+            pdf_relpath=f"{rel_dir}/{pdf_name}",
+            docx_download_name=docx_download,
+            pdf_download_name=pdf_download,
+            when_iso=when,
+        )
+        conn.commit()
+    finally:
+        conn.close()
     log_app_activity(
-        str(current_app.config["DATABASE"]),
+        db_path,
         user_id=int(g.user["id"]),
         module="examenes_medicos",
         action="exportar",
         status="ok",
-        ref=str(rid),
+        ref=str(eid),
         detail=exam_type,
     )
-    return rid
+    return eid
 
 
 def _persist_export_safe(**kwargs) -> int | None:
@@ -342,18 +309,13 @@ def _sangre_pdf_fix_pagination(pdf_bytes: bytes) -> bytes:
 @_login_required_page
 def index():
     y = default_yesterday_iso_mx()
-    return render_template(
-        "examenes_medicos_index.html",
-        default_fecha=y,
-        default_hora_toma="08:30:00",
-        default_hora_val=default_hora_val_sugerida("08:30:00"),
-    )
+    return render_template("examenes_medicos_index.html", default_fecha=y)
 
 
 @examenes_medicos_bp.route("/historial", methods=["GET"])
 @_login_required_page
 def historial_page():
-    rows = list_examen_historial(
+    rows = list_examenes_expedientes(
         str(current_app.config["DATABASE"]),
         user_id=None if _is_admin() else int(g.user["id"]),
     )
@@ -363,24 +325,19 @@ def historial_page():
 @examenes_medicos_bp.route("/historial/<int:rid>", methods=["GET"])
 @_login_required_page
 def historial_detalle(rid: int):
-    row = get_examen_historial(str(current_app.config["DATABASE"]), rid)
+    row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
     if not row:
         abort(404)
     if not _is_admin() and int(row.user_id) != int(g.user["id"]):
         abort(404)
-    try:
-        payload = json.loads(row.payload_json)
-    except (json.JSONDecodeError, TypeError):
-        payload = {}
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-    docx_p = resolve_generated_artifact(gen, row.docx_relpath)
-    pdf_p = resolve_generated_artifact(gen, row.pdf_relpath)
+    pdf_orina = resolve_generated_artifact(gen, row.orina_pdf_relpath)
+    pdf_sangre = resolve_generated_artifact(gen, row.sangre_pdf_relpath)
     return render_template(
         "examenes_medicos_detalle.html",
         row=row,
-        payload=payload,
-        docx_ok=docx_p is not None,
-        pdf_ok=pdf_p is not None,
+        pdf_orina_ok=pdf_orina is not None,
+        pdf_sangre_ok=pdf_sangre is not None,
         is_admin=_is_admin(),
     )
 
@@ -489,7 +446,6 @@ def api_master_download():
 
     master = {**master_base, **ident}
     bundle = generate_clinical_bundle(sexo=str(master.get("sexo") or ""), seed=clin_seed)
-    pac = build_paciente_orina(str(master.get("nombres") or ""), str(master.get("apellidos") or ""))
 
     def build_one_orina() -> tuple[bytes, bytes, str, dict[str, str], dict[str, Any]]:
         odata = build_orina_data_for_mapping(master, bundle["orina"])
@@ -522,6 +478,7 @@ def api_master_download():
     rid_o: int | None = None
     rid_s: int | None = None
     rid: int | None = None
+    export_ts = _now_iso()
     try:
         if scope == "orina":
             docx_b, pdf_b, stem, mapping, _extra = build_one_orina()
@@ -529,12 +486,12 @@ def api_master_download():
             pdf_fn = f"{stem}.pdf"
             rid = _persist_export_safe(
                 exam_type="orina",
-                patient_display_name=pac,
                 payload=hist_payload("orina", mapping),
                 docx_bytes=docx_b,
                 pdf_bytes=pdf_b,
                 docx_download=docx_fn,
                 pdf_download=pdf_fn,
+                when_iso=export_ts,
             )
             artifact = docx_b if want == "docx" else pdf_b
             out_name = docx_fn if want == "docx" else pdf_fn
@@ -549,12 +506,12 @@ def api_master_download():
             pdf_fn = f"{stem}.pdf"
             rid = _persist_export_safe(
                 exam_type="sangre",
-                patient_display_name=mapping["{paciente_nombre_completo}"],
                 payload=hist_payload("sangre", mapping),
                 docx_bytes=docx_b,
                 pdf_bytes=pdf_b,
                 docx_download=docx_fn,
                 pdf_download=pdf_fn,
+                when_iso=export_ts,
             )
             artifact = docx_b if want == "docx" else pdf_b
             out_name = docx_fn if want == "docx" else pdf_fn
@@ -572,21 +529,21 @@ def api_master_download():
             pdf_fn_s = f"{stem_s}.pdf"
             rid_o = _persist_export_safe(
                 exam_type="orina",
-                patient_display_name=pac,
                 payload=hist_payload("orina", map_o),
                 docx_bytes=dx_o,
                 pdf_bytes=pdf_o,
                 docx_download=docx_fn_o,
                 pdf_download=pdf_fn_o,
+                when_iso=export_ts,
             )
             rid_s = _persist_export_safe(
                 exam_type="sangre",
-                patient_display_name=map_s["{paciente_nombre_completo}"],
                 payload=hist_payload("sangre", map_s),
                 docx_bytes=dx_s,
                 pdf_bytes=pdf_s,
                 docx_download=docx_fn_s,
                 pdf_download=pdf_fn_s,
+                when_iso=export_ts,
             )
             zstem = safe_file_stem("Examenes medicos", str(master.get("nombres")), str(master.get("apellidos")))
             zbuf = io.BytesIO()
@@ -600,7 +557,7 @@ def api_master_download():
             artifact = zbuf.getvalue()
             out_name = f"{zstem}.zip"
             mime = "application/zip"
-            rid = rid_o
+            rid = rid_s or rid_o
     except FileNotFoundError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     except RuntimeError as exc:
@@ -614,21 +571,11 @@ def api_master_download():
         )
         return jsonify({"ok": False, "error": "Error interno al generar la descarga."}), 500
 
-    try:
-        imc_rid = _maybe_insert_imc_historial(db_path, master, ident)
-    except Exception:
-        current_app.logger.exception("examenes_medicos: fallo guardando historial IMC post-descarga")
-        imc_rid = None
-
     headers: dict[str, str] = {"Content-Disposition": f'attachment; filename="{out_name}"'}
-    if scope == "both":
-        ids = [str(x) for x in (rid_o, rid_s) if x]
-        if ids:
-            headers["X-Examenes-Historial-Ids"] = ",".join(ids)
-    elif rid:
-        headers["X-Examenes-Historial-Id"] = str(rid)
-    if imc_rid:
-        headers["X-Examenes-Imc-Historial-Id"] = str(imc_rid)
+    exp_id = rid_s or rid_o or rid
+    if exp_id:
+        headers["X-Examenes-Expediente-Id"] = str(exp_id)
+        headers["X-Examenes-Historial-Id"] = str(exp_id)
     return Response(artifact, mimetype=mime, headers=headers)
 
 
@@ -637,7 +584,8 @@ def api_historial_item(rid: int):
     err = _login_required_json()
     if err:
         return err
-    row = get_examen_historial(str(current_app.config["DATABASE"]), rid)
+    db_path = str(current_app.config["DATABASE"])
+    row = get_examenes_expediente(db_path, rid)
     if not row:
         return jsonify({"ok": False, "error": "No encontrado."}), 404
     if not _is_admin() and int(row.user_id) != int(g.user["id"]):
@@ -647,75 +595,78 @@ def api_historial_item(rid: int):
         if not _is_admin():
             return jsonify({"ok": False, "error": "Solo administradores pueden eliminar registros."}), 403
         gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-        for rel in (row.docx_relpath, row.pdf_relpath):
+        for rel in (
+            row.orina_pdf_relpath,
+            row.orina_docx_relpath,
+            row.sangre_pdf_relpath,
+            row.sangre_docx_relpath,
+        ):
+            if not rel:
+                continue
             p = resolve_generated_artifact(gen, rel)
             if p and p.is_file():
                 try:
                     p.unlink()
                 except OSError:
                     pass
-        if not delete_examen_historial(str(current_app.config["DATABASE"]), rid):
+        conn = sqlite3.connect(db_path)
+        try:
+            ensure_examenes_expediente_table(conn)
+            ok = delete_examenes_expediente(conn, rid)
+            conn.commit()
+        finally:
+            conn.close()
+        if not ok:
             return jsonify({"ok": False, "error": "No se pudo eliminar."}), 500
         log_app_activity(
-            str(current_app.config["DATABASE"]),
+            db_path,
             user_id=int(g.user["id"]),
             module="examenes_medicos",
-            action="eliminar_historial",
+            action="eliminar_expediente",
             status="ok",
             ref=str(rid),
         )
         return jsonify({"ok": True})
 
-    try:
-        payload = json.loads(row.payload_json)
-    except (json.JSONDecodeError, TypeError):
-        payload = {}
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
     return jsonify(
         {
             "ok": True,
             "id": row.id,
-            "created_at": row.created_at,
-            "exam_type": row.exam_type,
+            "last_export_at": row.last_export_at,
             "patient_display_name": row.patient_display_name,
+            "cliente_numero": row.cliente_numero,
+            "imc_label": row.imc_label,
             "username": row.username,
-            "docx_disponible": resolve_generated_artifact(gen, row.docx_relpath) is not None,
-            "pdf_disponible": resolve_generated_artifact(gen, row.pdf_relpath) is not None,
-            "payload": payload,
+            "pdf_orina_disponible": resolve_generated_artifact(gen, row.orina_pdf_relpath) is not None,
+            "pdf_sangre_disponible": resolve_generated_artifact(gen, row.sangre_pdf_relpath) is not None,
+            "last_scope": row.last_scope,
+            "last_format": row.last_format,
         }
     )
 
 
-@examenes_medicos_bp.route("/api/historial/<int:rid>/docx", methods=["GET"])
+@examenes_medicos_bp.route("/api/historial/<int:rid>/pdf/<kind>", methods=["GET"])
 @_login_required_page
-def download_historial_docx(rid: int):
-    row = get_examen_historial(str(current_app.config["DATABASE"]), rid)
+def download_expediente_pdf(rid: int, kind: str):
+    k = str(kind or "").lower().strip()
+    if k not in ("orina", "sangre"):
+        abort(404)
+    row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
     if not row:
         abort(404)
     if not _is_admin() and int(row.user_id) != int(g.user["id"]):
         abort(404)
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-    p = resolve_generated_artifact(gen, row.docx_relpath)
+    if k == "orina":
+        rel, name = row.orina_pdf_relpath, row.orina_pdf_download_name
+    else:
+        rel, name = row.sangre_pdf_relpath, row.sangre_pdf_download_name
+    p = resolve_generated_artifact(gen, rel)
     if not p:
         abort(404)
-    name = row.docx_download_name or p.name
-    return send_file(p, as_attachment=True, download_name=name)
-
-
-@examenes_medicos_bp.route("/api/historial/<int:rid>/pdf", methods=["GET"])
-@_login_required_page
-def download_historial_pdf(rid: int):
-    row = get_examen_historial(str(current_app.config["DATABASE"]), rid)
-    if not row:
-        abort(404)
-    if not _is_admin() and int(row.user_id) != int(g.user["id"]):
-        abort(404)
-    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-    p = resolve_generated_artifact(gen, row.pdf_relpath)
-    if not p:
-        abort(404)
-    name = row.pdf_download_name or p.name
-    return send_file(p, as_attachment=True, download_name=name)
+    dl = name or p.name
+    return send_file(p, as_attachment=True, download_name=dl)
 
 
 def register_examenes_medicos(app):

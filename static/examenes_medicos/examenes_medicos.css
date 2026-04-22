@@ -119,34 +119,79 @@
 }
 
 .em-modal-inner {
-  max-width: 26rem;
+  max-width: 28rem;
   width: 100%;
   margin: 0;
 }
 
-.em-modal-fieldset {
-  border: none;
-  padding: 0;
-  margin: 0.75rem 0;
+.em-modal-lead {
+  margin: 0 0 1rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--muted, #57606a);
 }
 
-.em-modal-fieldset legend {
+.em-modal-block {
+  margin-bottom: 1.1rem;
+}
+
+.em-modal-label {
   font-weight: 600;
-  margin-bottom: 0.35rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--muted, #57606a);
+  margin-bottom: 0.45rem;
 }
 
-.em-radio {
-  display: block;
-  margin: 0.35rem 0;
-  font-weight: normal;
+.em-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: var(--surface-muted, #f6f8fa);
+  border: 1px solid var(--border, #d0d7de);
+}
+
+.em-seg-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  color: var(--muted, #57606a);
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.em-seg-btn:hover {
+  color: var(--text, #24292f);
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.em-seg-btn.is-active {
+  background: var(--surface, #fff);
+  color: var(--text, #24292f);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
 
 .em-modal-actions {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
-  margin-top: 1rem;
+  margin-top: 1.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border, #d0d7de);
+}
+
+.em-modal-primary {
+  min-width: 9rem;
+  font-weight: 600;
 }
 
 .em-dl {
@@ -169,4 +214,143 @@
   border-radius: 8px;
   border: 1px solid var(--border, #d0d7de);
   background: var(--surface-muted, #f6f8fa);
+}
+
+.em-historial-sub {
+  margin: 0.25rem 0 0;
+  color: var(--muted, #57606a);
+}
+
+.em-historial-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.em-historial-wrap {
+  overflow-x: auto;
+}
+
+.em-historial-table {
+  margin: 0;
+  min-width: 52rem;
+}
+
+.em-historial-table th,
+.em-historial-table td {
+  vertical-align: top;
+  padding: 0.65rem 0.75rem;
+}
+
+.em-th-actions {
+  text-align: right;
+  width: 7rem;
+}
+
+.em-mono {
+  font-family: ui-monospace, monospace;
+  font-size: 0.88rem;
+}
+
+.em-patient-cell {
+  font-weight: 600;
+}
+
+.em-imc-cell {
+  white-space: nowrap;
+  font-size: 0.9rem;
+}
+
+.em-chip-cell {
+  min-width: 12rem;
+}
+
+.em-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.em-chip {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--surface-muted, #f6f8fa);
+  border: 1px solid var(--border, #d0d7de);
+}
+
+.em-chip-muted {
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.em-last-dl {
+  margin-top: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--muted, #57606a);
+}
+
+.em-date-cell {
+  white-space: nowrap;
+  font-size: 0.88rem;
+}
+
+.em-actions-cell {
+  text-align: right;
+}
+
+.em-btn-compact {
+  padding: 0.35rem 0.65rem;
+  font-size: 0.85rem;
+}
+
+.em-empty-row {
+  text-align: center;
+  padding: 2rem 1rem !important;
+  color: var(--muted, #57606a);
+}
+
+.em-detalle-panel {
+  max-width: 40rem;
+}
+
+.em-detalle-meta {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted, #57606a);
+}
+
+.em-detalle-head {
+  margin-bottom: 1.25rem;
+}
+
+.em-detalle-name {
+  margin-bottom: 0.25rem;
+}
+
+.em-detalle-sub {
+  margin: 0;
+}
+
+.em-pdf-actions {
+  padding: 1rem 0 0;
+  border-top: 1px solid var(--border, #d0d7de);
+}
+
+.em-pdf-title {
+  margin: 0 0 0.65rem;
+  font-weight: 600;
+}
+
+.em-pdf-btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.em-pdf-missing {
+  font-size: 0.88rem;
+  color: var(--muted, #57606a);
 }

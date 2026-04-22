@@ -33,16 +33,15 @@
         <option>Otro</option>
       </select>
     </label>
-    <label class="em-span-2">Médico / solicitud <input name="medico" type="text" maxlength="200" placeholder="Opcional" /></label>
   </fieldset>
 
   <fieldset class="em-fieldset vf-grid vf-grid-2">
     <legend>2. Fechas y horas del estudio</legend>
     <label>Fecha de estudio <input name="fecha_estudio" type="date" required value="{{ default_fecha }}" /></label>
     <label>Fecha de toma <input name="fecha_toma" type="date" required value="{{ default_fecha }}" /></label>
-    <label>Hora de toma <input name="hora_toma" type="time" step="1" value="{{ default_hora_toma }}" /></label>
+    <label>Hora de toma <input name="hora_toma" type="time" step="1" required /></label>
     <label>Fecha de validación <input name="fecha_val" type="date" required value="{{ default_fecha }}" /></label>
-    <label>Hora de validación <input name="hora_val" type="time" step="1" value="{{ default_hora_val }}" /></label>
+    <label>Hora de validación <input name="hora_val" type="time" step="1" required /></label>
   </fieldset>
 
   <fieldset class="em-fieldset vf-grid vf-grid-2">
@@ -53,19 +52,6 @@
     <label>Clasificación <input id="em-imc-clas" type="text" readonly class="em-readonly" /></label>
   </fieldset>
 
-  <details class="em-id-preview">
-    <summary>Vista previa de identificadores (sin folios)</summary>
-    <p class="helper">El código de barras es estable por paciente. El número de cliente se reutiliza si ya existe en historial. Los folios se asignan al confirmar la descarga.</p>
-    <button type="button" class="btn btn-secondary" id="em-btn-preview-ids">Actualizar vista previa</button>
-    <dl id="em-id-dl" class="em-dl em-id-dl"></dl>
-  </details>
-
-  <section class="em-clinical-note">
-    <p class="helper">Los resultados de laboratorio (hematología, química, orina) se generan automáticamente al descargar. Puede usar <strong>Vista previa clínica</strong> para ver un ejemplo.</p>
-    <button type="button" class="btn btn-secondary" id="em-btn-preview">Vista previa clínica</button>
-    <pre id="em-clinical-json" class="em-preview-box" hidden></pre>
-  </section>
-
   <div class="em-actions vf-toolbar">
     <button type="button" class="btn btn-primary" id="em-open-modal">Descargar documentos</button>
   </div>
@@ -75,30 +61,35 @@
 <div id="em-modal-backdrop" class="em-modal-backdrop" hidden aria-hidden="true"></div>
 <div id="em-modal" class="em-modal" role="dialog" aria-modal="true" aria-labelledby="em-modal-title" hidden>
   <div class="em-modal-inner panel vf-panel">
-    <h3 id="em-modal-title" class="panel-title">Descarga general</h3>
-    <p class="helper">Elija qué generar y en qué formato. Se guardará automáticamente en el historial (un registro por examen; si elige ambos, dos registros + IMC si aplica).</p>
-    <fieldset class="em-modal-fieldset">
-      <legend>Qué descargar</legend>
-      <label class="em-radio"><input type="radio" name="em_scope" value="both" checked /> Ambos exámenes (archivo ZIP)</label>
-      <label class="em-radio"><input type="radio" name="em_scope" value="orina" /> Solo examen de orina</label>
-      <label class="em-radio"><input type="radio" name="em_scope" value="sangre" /> Solo examen de sangre</label>
-    </fieldset>
-    <fieldset class="em-modal-fieldset">
-      <legend>Formato</legend>
-      <label class="em-radio"><input type="radio" name="em_format" value="pdf" checked /> PDF</label>
-      <label class="em-radio"><input type="radio" name="em_format" value="docx" /> DOCX</label>
-    </fieldset>
+    <h3 id="em-modal-title" class="panel-title">Descargar documentos</h3>
+    <p class="em-modal-lead">Al confirmar se guarda automáticamente en el historial del paciente. Si elige ambos exámenes, recibirá un ZIP con los dos archivos en el formato seleccionado.</p>
+
+    <div class="em-modal-block">
+      <div class="em-modal-label">Qué descargar</div>
+      <div class="em-seg em-seg-3" role="group" aria-label="Alcance de descarga">
+        <button type="button" class="em-seg-btn" data-em-scope="both" aria-pressed="true">Ambos</button>
+        <button type="button" class="em-seg-btn" data-em-scope="orina" aria-pressed="false">Solo orina</button>
+        <button type="button" class="em-seg-btn" data-em-scope="sangre" aria-pressed="false">Solo sangre</button>
+      </div>
+    </div>
+
+    <div class="em-modal-block">
+      <div class="em-modal-label">Formato</div>
+      <div class="em-seg em-seg-2" role="group" aria-label="Formato de archivo">
+        <button type="button" class="em-seg-btn" data-em-format="pdf" aria-pressed="true">PDF</button>
+        <button type="button" class="em-seg-btn" data-em-format="docx" aria-pressed="false">DOCX</button>
+      </div>
+    </div>
+
     <div class="em-modal-actions">
       <button type="button" class="btn btn-secondary" id="em-modal-cancel">Cancelar</button>
-      <button type="button" class="btn btn-primary" id="em-modal-confirm">Descargar</button>
+      <button type="button" class="btn btn-primary em-modal-primary" id="em-modal-confirm">Descargar</button>
     </div>
   </div>
 </div>
 
 <script>
   window.__emDownloadUrl = {{ url_for('examenes_medicos.api_master_download') | tojson }};
-  window.__emPreviewIdsUrl = {{ url_for('examenes_medicos.api_preview_identificadores') | tojson }};
-  window.__emClinicalPreviewUrl = {{ url_for('examenes_medicos.api_clinical_preview') | tojson }};
 </script>
 <script src="{{ url_for('examenes_medicos.static', filename='examenes_medicos.js') }}" defer></script>
 {% endblock %}
