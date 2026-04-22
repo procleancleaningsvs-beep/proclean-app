@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ArrayObject, DecodedStreamObject, DictionaryObject, NameObject
 
 from flask import (
     Blueprint,
@@ -333,67 +332,9 @@ def _sangre_pdf_fix_pagination(pdf_bytes: bytes) -> bytes:
     wr.add_page(rd.pages[0])
     wr.add_page(rd.pages[2])
     wr.add_page(rd.pages[3])
-
-    # Al remover la página 2, LibreOffice deja impreso "1 de 4 / 3 de 4 / 4 de 4".
-    # Este overlay corrige únicamente el contador visible en el bloque inferior.
-    for idx, page in enumerate(wr.pages, start=1):
-        resources = page.get("/Resources")
-        if resources is None:
-            resources = DictionaryObject()
-            page[NameObject("/Resources")] = resources
-        else:
-            resources = resources.get_object()
-
-        fonts = resources.get("/Font")
-        if fonts is None:
-            fonts = DictionaryObject()
-            resources[NameObject("/Font")] = fonts
-        else:
-            fonts = fonts.get_object()
-
-        font_key = NameObject("/FEMNum")
-        if font_key not in fonts:
-            font_obj = DictionaryObject(
-                {
-                    NameObject("/Type"): NameObject("/Font"),
-                    NameObject("/Subtype"): NameObject("/Type1"),
-                    NameObject("/BaseFont"): NameObject("/Helvetica"),
-                }
-            )
-            fonts[font_key] = wr._add_object(font_obj)  # noqa: SLF001
-
-        label = f"{idx} de  3"
-        # Zona del contador en el bloque inferior izquierdo.
-        overlay = (
-            "q\n"
-            "1 1 1 rg\n"
-            "200 126 56 10 re\n"
-            "f\n"
-            "BT\n"
-            "/FEMNum 7.2 Tf\n"
-            "0 g\n"
-            "202 128 Td\n"
-            f"({label}) Tj\n"
-            "ET\n"
-            "Q\n"
-        )
-        stream = DecodedStreamObject()
-        stream.set_data(overlay.encode("ascii"))
-        stream_ref = wr._add_object(stream)  # noqa: SLF001
-
-        existing = page.get("/Contents")
-        if existing is None:
-            page[NameObject("/Contents")] = stream_ref
-        elif isinstance(existing, ArrayObject):
-            existing.append(stream_ref)
-        else:
-            page[NameObject("/Contents")] = ArrayObject([existing, stream_ref])
-
     out = io.BytesIO()
     wr.write(out)
-    current_app.logger.info(
-        "examenes_medicos.sangre_pdf_fix: 4->3 páginas (removida página 2 huérfana, numeración corregida)"
-    )
+    current_app.logger.info("examenes_medicos.sangre_pdf_fix: 4->3 páginas (removida página 2 huérfana)")
     return out.getvalue()
 
 
@@ -563,7 +504,7 @@ def api_master_download():
         mapping = build_sangre_mapping(sdata)
         dx = _sangre_docx_bytes(mapping)
         stem_s = safe_file_stem("Examen de Sangre", str(master.get("nombres")), str(master.get("apellidos")))
-        pdf_b = _sangre_pdf_fix_pagination(docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s))
+        pdf_b = docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s)
         return dx, pdf_b, stem_s, mapping, sdata
 
     def hist_payload(exam_k: str, mapping: dict[str, str]) -> dict[str, Any]:
