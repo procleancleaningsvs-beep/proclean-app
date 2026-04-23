@@ -80,6 +80,8 @@ class TestExamenesMedicosValidation(unittest.TestCase):
         )
         self.assertEqual(m["{fecha_estudio}"], "19 de Abril del 2026")
         self.assertEqual(m["{paciente_nombre_completo}"], "Juan Pérez")
+        self.assertEqual(m["{eritrocitos}"], "0/C")
+        self.assertEqual(m["{leucocitos}"], "0/C")
 
     def test_master_orina_merge(self):
         bundle = generate_clinical_bundle(sexo="Hombre", seed=42)

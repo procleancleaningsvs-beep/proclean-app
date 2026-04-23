@@ -111,6 +111,21 @@ def sexo_para_orina(sexo: str) -> str:
     )
 
 
+def _normalize_orina_count_cell(value: Any) -> str:
+    s = _norm(value)
+    if not s:
+        return s
+    low = s.casefold()
+    if low in {"negativo", "escasas"}:
+        return s.upper() if low == "escasas" else s
+    if re.fullmatch(r"\d+", s):
+        return f"{s}/C"
+    if re.fullmatch(r"\d+\s*-\s*\d+", s):
+        a, b = [p.strip() for p in s.split("-", 1)]
+        return f"{a}-{b}/C"
+    return s
+
+
 def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     n = _mapping_val(data, "nombres")
     a = _mapping_val(data, "apellidos")
@@ -124,6 +139,8 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     # Plantilla en mayúsculas (MASCULINO / FEMENINO / OTRO) según referencia PDF.
     sexo_raw = _mapping_val(data, "sexo")
     sexo = sexo_raw.upper() if sexo_raw else ""
+    erit = _normalize_orina_count_cell(data.get("eritrocitos"))
+    leuc = _normalize_orina_count_cell(data.get("leucocitos"))
     return {
         "{edad}": edad,
         "{sexo}": sexo,
@@ -134,8 +151,8 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         "{color}": _mapping_val(data, "color"),
         "{densidad}": _mapping_val(data, "densidad"),
         "{ph_orina}": _mapping_val(data, "ph_orina"),
-        "{eritrocitos}": _mapping_val(data, "eritrocitos"),
-        "{leucocitos}": _mapping_val(data, "leucocitos"),
+        "{eritrocitos}": erit,
+        "{leucocitos}": leuc,
     }
 
 
