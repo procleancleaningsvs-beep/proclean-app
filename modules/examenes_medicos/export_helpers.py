@@ -9,6 +9,68 @@ from zoneinfo import ZoneInfo
 from modules.examenes_medicos.validation import _norm, edad_desde_fecha_nacimiento, parse_date_iso
 
 
+_SANGRE_DECIMALS: dict[str, int] = {
+    # Biometria hematica
+    "leucocitos": 2,
+    "eritrocitos": 2,
+    "hemoglobina": 2,
+    "hematocrito": 2,
+    "VCM": 2,
+    "HCM": 2,
+    "conc_media_hb_corp": 1,
+    "AD_D.E.": 1,
+    "AD_C.V.": 1,
+    "plaquetas": 0,
+    "V_plaquetario_medio": 2,
+    "linfocitos_pct": 1,
+    # Diferenciales
+    "neutrofilos_pct": 1,
+    "monocitos_pct": 1,
+    "eosinofilos_pct": 1,
+    "basofilos_pct": 1,
+    "linfocitos_abs": 2,
+    "neutrofilos_abs": 2,
+    "monocitos_abs": 2,
+    "eosinofilos_abs": 2,
+    "basofilos_abs": 2,
+    # Quimica clinica
+    "glucosa": 1,
+    "urea": 1,
+    "bun": 1,
+    "creatinina": 2,
+    "acido_urico": 1,
+    "colesterol_total": 1,
+    "trigliceridos": 1,
+}
+
+
+def _normalize_sangre_sexo_for_export(value: Any) -> str:
+    sx = _norm(value).casefold()
+    if sx in {"hombre", "masculino", "varon", "varón"}:
+        return "Masculino"
+    if sx in {"mujer", "femenino"}:
+        return "Femenino"
+    return _norm(value)
+
+
+def _format_sangre_value_for_export(key: str, value: Any) -> Any:
+    if key == "sexo":
+        return _normalize_sangre_sexo_for_export(value)
+    nd = _SANGRE_DECIMALS.get(key)
+    if nd is None:
+        return value
+    s = _norm(value).replace(",", ".")
+    if not s:
+        return value
+    try:
+        n = float(s)
+    except ValueError:
+        return value
+    if nd == 0:
+        return str(int(round(n)))
+    return f"{n:.{nd}f}"
+
+
 def app_mx_today() -> date:
     return datetime.now(ZoneInfo("America/Mexico_City")).date()
 
@@ -80,6 +142,11 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
 def build_sangre_mapping(data: dict[str, Any]) -> dict[str, str]:
     """`data` debe traer fechas en ISO (AAAA-MM-DD) y horas; se formatean para el DOCX."""
     data = dict(data)
+    for k, nd in _SANGRE_DECIMALS.items():
+        if k in data:
+            data[k] = _format_sangre_value_for_export(k, data[k])
+    if "sexo" in data:
+        data["sexo"] = _format_sangre_value_for_export("sexo", data["sexo"])
     for fk in ("fecha_nacimiento", "fecha_toma", "fecha_val"):
         if fk in data and _norm(data.get(fk)):
             data[fk] = fecha_iso_a_dd_mm_yyyy(str(data[fk]))
@@ -173,10 +240,8 @@ def build_sangre_data_for_mapping(master: dict[str, Any], clinical_sangre: dict[
     if cb:
         base["codigo_barra"] = cb.upper()
     sx = _norm(master.get("sexo"))
-    if sx == "Hombre":
-        base["sexo"] = "Varon"
-    elif sx:
-        base["sexo"] = sx
+    if sx:
+        base["sexo"] = _normalize_sangre_sexo_for_export(sx)
     fnac, _ = parse_date_iso(master.get("fecha_nacimiento"))
     if fnac is not None:
         base["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))

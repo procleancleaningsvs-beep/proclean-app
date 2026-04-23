@@ -123,6 +123,51 @@ class TestExamenesMedicosValidation(unittest.TestCase):
         self.assertEqual(m["{folio}"], "123456789012")
         self.assertEqual(m["{codigo_barra}"], "ABC1234567890")
 
+    def test_sangre_decimals_export_format(self):
+        m = build_sangre_mapping(
+            {
+                "leucocitos": "7.2",
+                "eritrocitos": "5.5",
+                "hemoglobina": "11.5",
+                "hematocrito": "40",
+                "VCM": "86",
+                "HCM": "28",
+                "conc_media_hb_corp": "33",
+                "AD_D.E.": "42",
+                "AD_C.V.": "12",
+                "plaquetas": "301.0",
+                "V_plaquetario_medio": "9.5",
+                "linfocitos_pct": "22",
+                "neutrofilos_pct": "60",
+                "monocitos_pct": "7",
+                "eosinofilos_pct": "2",
+                "basofilos_pct": "1",
+                "linfocitos_abs": "1.2",
+                "neutrofilos_abs": "3.4",
+                "monocitos_abs": "0.6",
+                "eosinofilos_abs": "0.2",
+                "basofilos_abs": "0.05",
+                "glucosa": "86",
+                "urea": "21",
+                "bun": "9",
+                "creatinina": "0.6",
+                "acido_urico": "5",
+                "colesterol_total": "180",
+                "trigliceridos": "140",
+            }
+        )
+        self.assertEqual(m["{leucocitos}"], "7.20")
+        self.assertEqual(m["{conc_media_hb_corp}"], "33.0")
+        self.assertEqual(m["{plaquetas}"], "301")
+        self.assertEqual(m["{creatinina}"], "0.60")
+        self.assertEqual(m["{glucosa}"], "86.0")
+
+    def test_sangre_sexo_export_mapping(self):
+        d = build_sangre_data_for_mapping({"sexo": "Hombre"}, {})
+        self.assertEqual(d["sexo"], "Masculino")
+        d2 = build_sangre_data_for_mapping({"sexo": "Mujer"}, {})
+        self.assertEqual(d2["sexo"], "Femenino")
+
 
 if __name__ == "__main__":
     unittest.main()
