@@ -54,6 +54,15 @@
           <td>{{ r.username or '—' }}</td>
           <td class="em-actions-cell">
             <a class="btn btn-secondary em-btn-compact" href="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}">Detalle</a>
+            {% if is_admin %}
+            <button
+              type="button"
+              class="btn btn-secondary em-btn-compact danger-btn em-del-exp-btn"
+              data-url="{{ url_for('examenes_medicos.api_historial_item', rid=r.id) }}"
+            >
+              Eliminar
+            </button>
+            {% endif %}
           </td>
         </tr>
         {% else %}
@@ -63,4 +72,21 @@
     </table>
   </div>
 </section>
+
+{% if is_admin %}
+<script>
+document.querySelectorAll(".em-del-exp-btn").forEach(function (btn) {
+  btn.addEventListener("click", function () {
+    if (!confirm("¿Eliminar este expediente del historial? Esta acción no se puede deshacer.")) return;
+    fetch(btn.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j.ok) window.location.reload();
+        else alert(j.error || "No se pudo eliminar");
+      })
+      .catch(function () { alert("Error de red"); });
+  });
+});
+</script>
+{% endif %}
 {% endblock %}
