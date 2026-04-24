@@ -142,6 +142,8 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     erit = _normalize_orina_count_cell(data.get("eritrocitos"))
     leuc = _normalize_orina_count_cell(data.get("leucocitos"))
     return {
+        # Token heredado del DOCX original (Word); se limpia para no imprimirse literal.
+        "{28A0092B-C50C-407E-A947-70E740481C1C}": "",
         "{edad}": edad,
         "{sexo}": sexo,
         "{folio}": _mapping_val(data, "folio"),
