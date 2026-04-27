@@ -459,7 +459,8 @@ def api_master_download():
         sdata = build_sangre_data_for_mapping(master, bundle["sangre"])
         mapping = build_sangre_mapping(sdata)
         dx = _sangre_docx_bytes(mapping)
-        stem_s = safe_file_stem("Examen de Sangre", str(master.get("nombres")), str(master.get("apellidos")))
+        qr_code = str(sdata.get("codigo_barra") or mapping.get("{codigo_barra}") or "").strip().upper()
+        stem_s = safe_file_stem(qr_code or "SANGRE")
         pdf_b = docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s)
         return dx, pdf_b, stem_s, mapping, sdata
 
