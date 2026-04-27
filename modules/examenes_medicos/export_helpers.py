@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import random
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -117,13 +118,75 @@ def _normalize_orina_count_cell(value: Any) -> str:
         return s
     low = s.casefold()
     if low in {"negativo", "escasas"}:
-        return s.upper() if low == "escasas" else s
+        return s.upper()
     if re.fullmatch(r"\d+", s):
         return f"{s}/C"
     if re.fullmatch(r"\d+\s*-\s*\d+", s):
         a, b = [p.strip() for p in s.split("-", 1)]
         return f"{a}-{b}/C"
-    return s
+    return s.upper()
+
+
+def _orina_pick_aspecto(value: Any) -> str:
+    v = _norm(value).upper()
+    if not v:
+        return "TRANSPARENTE"
+    if "TURBIO" in v:
+        return "TURBIO"
+    if "TRANSP" in v or "LIMP" in v:
+        return "TRANSPARENTE"
+    return "TRANSPARENTE"
+
+
+def _orina_pick_color(value: Any) -> str:
+    v = _norm(value).upper()
+    if not v:
+        return "CLARO"
+    if "AMBAR" in v or "ÁMBAR" in v:
+        return "AMBAR"
+    if "CLAR" in v or "AMARIL" in v:
+        return "CLARO"
+    return "CLARO"
+
+
+def _orina_float_range(value: Any, lo: float, hi: float, nd: int, default: float) -> str:
+    s = _norm(value).replace(",", ".")
+    try:
+        n = float(s)
+    except ValueError:
+        n = default
+    if n < lo:
+        n = lo
+    if n > hi:
+        n = hi
+    return f"{n:.{nd}f}"
+
+
+def _orina_pick_eritrocitos(value: Any) -> str:
+    s = _normalize_orina_count_cell(value)
+    if not s:
+        return "0/C"
+    m = re.fullmatch(r"(\d+)(?:-(\d+))?/C", s)
+    if not m:
+        return "0/C"
+    a = int(m.group(1))
+    b = int(m.group(2) or a)
+    if a < 0:
+        a = 0
+    if b > 3:
+        b = 3
+    if a > b:
+        a = b
+    return f"{a}/C" if a == b else f"{a}-{b}/C"
+
+
+def _orina_pick_escasas_o_negativo(value: Any) -> str:
+    v = _norm(value).upper()
+    if "ESCAS" in v:
+        return "ESCASAS"
+    if "NEGAT" in v:
+        return "NEGATIVO"
+    return "ESCASAS"
 
 
 def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
@@ -139,8 +202,16 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     # Plantilla en mayúsculas (MASCULINO / FEMENINO / OTRO) según referencia PDF.
     sexo_raw = _mapping_val(data, "sexo")
     sexo = sexo_raw.upper() if sexo_raw else ""
-    erit = _normalize_orina_count_cell(data.get("eritrocitos"))
-    leuc = _normalize_orina_count_cell(data.get("leucocitos"))
+    aspecto_res = _orina_pick_aspecto(data.get("aspecto"))
+    color_res = _orina_pick_color(data.get("color"))
+    densidad_res = _orina_float_range(data.get("densidad"), 1.002, 1.030, 3, 1.018)
+    ph_res = _orina_float_range(data.get("ph_orina"), 4.5, 8.0, 1, 6.3)
+    erit = _orina_pick_eritrocitos(data.get("eritrocitos"))
+    leuc = _normalize_orina_count_cell(data.get("leucocitos")) or "0/C"
+    leuc_fijo = "5/C"
+    cel_epit_res = _orina_pick_escasas_o_negativo(data.get("cel_epit"))
+    cilindros_res = _orina_pick_escasas_o_negativo(data.get("cilindros"))
+    cristales_res = _orina_pick_escasas_o_negativo(data.get("cristales"))
     out = {
         # Token heredado del DOCX original (Word); se limpia para no imprimirse literal.
         "{28A0092B-C50C-407E-A947-70E740481C1C}": "",
@@ -149,18 +220,27 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         "{folio}": _mapping_val(data, "folio"),
         "{paciente_nombre_completo}": pac,
         "{fecha_estudio}": fe,
-        "{aspecto}": _mapping_val(data, "aspecto"),
-        "{color}": _mapping_val(data, "color"),
-        "{densidad}": _mapping_val(data, "densidad"),
-        "{ph_orina}": _mapping_val(data, "ph_orina"),
+        "{p_nombre_completo}": pac.upper(),
+        "{aspecto}": aspecto_res,
+        "{color}": color_res,
+        "{densidad}": densidad_res,
+        "{ph_orina}": ph_res,
         "{eritrocitos}": erit,
         "{leucocitos}": leuc,
+        "{aspecto_resultado}": aspecto_res,
+        "{color_resultado}": color_res,
+        "{densidad_resultado}": densidad_res,
+        "{ph_orina_resultado}": ph_res,
+        "{eritrocitos_resultado}": erit,
+        "{cel_epit_resultado}": cel_epit_res,
+        "{cilindros_resultado}": cilindros_res,
+        "{cristales_resultado}": cristales_res,
     }
     rows = {
-        "aspecto": (_mapping_val(data, "aspecto"), "CLARO"),
-        "color": (_mapping_val(data, "color"), ""),
-        "densidad": (_mapping_val(data, "densidad"), "1.002 a 1.030"),
-        "ph_orina": (_mapping_val(data, "ph_orina"), "ACIDO (4.5-8.0)"),
+        "aspecto": (aspecto_res, "CLARO"),
+        "color": (color_res, ""),
+        "densidad": (densidad_res, "1.002 a 1.030"),
+        "ph_orina": (ph_res, "ACIDO (4.5-8.0)"),
         "proteinas": ("NEGATIVO", "NEGATIVO"),
         "glucosa": ("NEGATIVO", "NEGATIVO"),
         "cetonas": ("NEGATIVO", "NEGATIVO"),
@@ -169,10 +249,10 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         "nitritos": ("NEGATIVO", "NEGATIVO"),
         "urobilinogeno": ("NEGATIVO", "NEGATIVO"),
         "eritrocitos": (erit, "0-3/C"),
-        "leucocitos": (leuc, "5/C"),
-        "cel_epiteliales": ("ESCASAS", ""),
-        "cilindros": ("ESCASAS", ""),
-        "cristales": ("ESCASAS", ""),
+        "leucocitos": (leuc_fijo, "5/C"),
+        "cel_epiteliales": (cel_epit_res, ""),
+        "cilindros": (cilindros_res, ""),
+        "cristales": (cristales_res, ""),
         "bacterias": ("NEGATIVO", "NEGATIVO"),
         "filamento_mucoso": ("NEGATIVO", "NEGATIVO"),
         "levaduras": ("NEGATIVO", "NEGATIVO"),
@@ -257,10 +337,23 @@ def build_orina_data_for_mapping(master: dict[str, Any], clinical_orina: dict[st
     d: dict[str, Any] = dict(clinical_orina)
     d["nombres"] = master.get("nombres")
     d["apellidos"] = master.get("apellidos")
-    d["edad"] = master.get("edad")
+    edad = master.get("edad")
+    if not _norm(edad):
+        fn, _err = parse_date_iso(master.get("fecha_nacimiento"))
+        if fn:
+            edad = str(edad_desde_fecha_nacimiento(fn, app_mx_today()))
+    if _norm(edad):
+        m = re.search(r"\d+", str(edad))
+        edad = m.group(0) if m else str(edad)
+    d["edad"] = edad
     d["sexo"] = sexo_para_orina(str(master.get("sexo") or ""))
-    d["folio"] = master.get("folio_orina")
-    d["fecha_estudio"] = master.get("fecha_estudio")
+    folio = _norm(master.get("folio_orina"))
+    if not folio:
+        folio = f"{random.randint(0, 999999):06d}"
+    if re.fullmatch(r"\d{1,6}", folio):
+        folio = folio.zfill(6)
+    d["folio"] = folio
+    d["fecha_estudio"] = master.get("fecha_estudio") or default_yesterday_iso_mx()
     return d
 
 
