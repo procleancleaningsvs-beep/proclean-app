@@ -141,7 +141,7 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     sexo = sexo_raw.upper() if sexo_raw else ""
     erit = _normalize_orina_count_cell(data.get("eritrocitos"))
     leuc = _normalize_orina_count_cell(data.get("leucocitos"))
-    return {
+    out = {
         # Token heredado del DOCX original (Word); se limpia para no imprimirse literal.
         "{28A0092B-C50C-407E-A947-70E740481C1C}": "",
         "{edad}": edad,
@@ -156,6 +156,31 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         "{eritrocitos}": erit,
         "{leucocitos}": leuc,
     }
+    rows = {
+        "aspecto": (_mapping_val(data, "aspecto"), "CLARO"),
+        "color": (_mapping_val(data, "color"), ""),
+        "densidad": (_mapping_val(data, "densidad"), "1.002 a 1.030"),
+        "ph_orina": (_mapping_val(data, "ph_orina"), "ACIDO (4.5-8.0)"),
+        "proteinas": ("NEGATIVO", "NEGATIVO"),
+        "glucosa": ("NEGATIVO", "NEGATIVO"),
+        "cetonas": ("NEGATIVO", "NEGATIVO"),
+        "bilirrubina": ("NEGATIVO", "NEGATIVO"),
+        "hemoglobina": ("NEGATIVO", "NEGATIVO"),
+        "nitritos": ("NEGATIVO", "NEGATIVO"),
+        "urobilinogeno": ("NEGATIVO", "NEGATIVO"),
+        "eritrocitos": (erit, "0-3/C"),
+        "leucocitos": (leuc, "5/C"),
+        "cel_epiteliales": ("ESCASAS", ""),
+        "cilindros": ("ESCASAS", ""),
+        "cristales": ("ESCASAS", ""),
+        "bacterias": ("NEGATIVO", "NEGATIVO"),
+        "filamento_mucoso": ("NEGATIVO", "NEGATIVO"),
+        "levaduras": ("NEGATIVO", "NEGATIVO"),
+    }
+    for key, (resultado, referencia) in rows.items():
+        out[f"{{{key}_resultado}}"] = resultado
+        out[f"{{{key}_referencia}}"] = referencia
+    return out
 
 
 def build_sangre_mapping(data: dict[str, Any]) -> dict[str, str]:
