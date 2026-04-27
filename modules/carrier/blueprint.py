@@ -608,7 +608,7 @@ def index():
     e_arg = request.args.get("e", type=int)
     if e_arg is not None:
         row = get_expediente(db_path, e_arg)
-        if not row or int(row.user_id) != uid:
+        if not row or (not is_admin and int(row.user_id) != uid):
             flash("Expediente no encontrado.", "error")
             return redirect(url_for("carrier_curso.index", mes=active_ym) if is_admin else url_for("carrier_curso.index"))
         set_return_expediente_id(session, e_arg)
