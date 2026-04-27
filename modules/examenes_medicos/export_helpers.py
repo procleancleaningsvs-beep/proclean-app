@@ -177,7 +177,8 @@ def _orina_pick_eritrocitos(value: Any) -> str:
         b = 3
     if a > b:
         a = b
-    return f"{a}/C" if a == b else f"{a}-{b}/C"
+    # Para impresión clínica de orina, el resultado debe ser individual (0/C..3/C), no rango.
+    return f"{a}/C"
 
 
 def _orina_pick_escasas_o_negativo(value: Any) -> str:
