@@ -78,8 +78,8 @@ class TestExamenesMedicosValidation(unittest.TestCase):
                 "leucocitos": "0",
             }
         )
-        self.assertEqual(m["{fecha_estudio}"], "19 de Abril del 2026")
-        self.assertEqual(m["{paciente_nombre_completo}"], "Juan Pérez")
+        self.assertEqual(m["{fecha_estudio}"], "19 DE ABRIL DEL 2026")
+        self.assertEqual(m["{paciente_nombre_completo}"], "JUAN PÉREZ")
         self.assertEqual(m["{eritrocitos}"], "0/C")
         self.assertEqual(m["{leucocitos}"], "0/C")
 

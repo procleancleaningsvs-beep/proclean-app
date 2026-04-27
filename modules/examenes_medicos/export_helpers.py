@@ -197,9 +197,11 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
     fe = _mapping_val(data, "fecha_estudio")
     if fe and len(fe) == 10 and fe[4] == "-":
         fe = fecha_iso_a_larga_es(fe)
+    fe = fe.upper() if fe else fe
     edad = _mapping_val(data, "edad")
     if edad and not edad.lower().endswith("años"):
         edad = f"{edad} años"
+    edad = edad.upper() if edad else edad
     # Plantilla en mayúsculas (MASCULINO / FEMENINO / OTRO) según referencia PDF.
     sexo_raw = _mapping_val(data, "sexo")
     sexo = sexo_raw.upper() if sexo_raw else ""
@@ -219,7 +221,7 @@ def build_orina_mapping(data: dict[str, Any]) -> dict[str, str]:
         "{edad}": edad,
         "{sexo}": sexo,
         "{folio}": _mapping_val(data, "folio"),
-        "{paciente_nombre_completo}": pac,
+        "{paciente_nombre_completo}": pac.upper(),
         "{fecha_estudio}": fe,
         "{p_nombre_completo}": pac.upper(),
         "{aspecto}": aspecto_res,
