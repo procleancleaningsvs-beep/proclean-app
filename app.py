@@ -949,11 +949,15 @@ def create_app() -> Flask:
     from modules.finiquitos.blueprint import register_finiquitos
     from modules.carrier.blueprint import register_carrier
     from modules.examenes_medicos.blueprint import register_examenes_medicos
+    from modules.comparativo.routes import comparativo_bp
+    from modules.exportacion_imss.routes import exportacion_imss_bp
 
     register_vitroflex(app)
     register_finiquitos(app)
     register_carrier(app)
     register_examenes_medicos(app)
+    app.register_blueprint(comparativo_bp)
+    app.register_blueprint(exportacion_imss_bp)
 
     return app
 

@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">IMSS</span>
+    <h2>Captura de movimiento</h2>
+    <p>Registro completo para generar archivos TXT compatibles con IDSE y SUA.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.index') }}">Volver</a>
+  </div>
+</section>
+
+<div class="form-card">
+  <form method="get" action="{{ url_for('exportacion_imss.nuevo_get') }}">
+    <label>Búsqueda por NSS
+      <input type="text" name="nss" placeholder="11 dígitos" value="{{ data.nss or '' }}">
+    </label>
+    <label>Tipo
+      <select name="tipo">
+        <option value="ALTA" {% if data.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option>
+        <option value="BAJA" {% if data.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option>
+        <option value="MODIFICACION" {% if data.tipo_movimiento == 'MODIFICACION' %}selected{% endif %}>MODIFICACION</option>
+      </select>
+    </label>
+    <button type="submit" class="btn btn-secondary">Buscar en headcount</button>
+  </form>
+</div>
+
+<div class="form-card">
+  <form method="post" action="{{ url_for('exportacion_imss.nuevo_post') }}">
+    <h3>Datos del movimiento</h3>
+    <label>Tipo de movimiento
+      <select name="tipo_movimiento" required>
+        <option value="ALTA" {% if data.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option>
+        <option value="BAJA" {% if data.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option>
+        <option value="MODIFICACION" {% if data.tipo_movimiento == 'MODIFICACION' %}selected{% endif %}>MODIFICACION</option>
+      </select>
+    </label>
+    <label>Cliente <input type="text" name="cliente" value="{{ data.cliente or '' }}"></label>
+    <label>RP (Registro Patronal) <input type="text" name="rp" maxlength="11" value="{{ data.rp or '' }}" required></label>
+    <label>Fecha movimiento <input type="date" name="fecha_movimiento" required></label>
+
+    <h3>Datos del trabajador</h3>
+    <label>NSS <input type="text" name="nss" maxlength="11" value="{{ data.nss or '' }}" required></label>
+    <label>RFC <input type="text" name="rfc" maxlength="13" value="{{ data.rfc or '' }}"></label>
+    <label>CURP <input type="text" name="curp" maxlength="18" value="{{ data.curp or '' }}"></label>
+    <label>Apellido paterno <input type="text" name="apellido_paterno" value="{{ data.apellido_paterno or '' }}" required></label>
+    <label>Apellido materno <input type="text" name="apellido_materno" value="{{ data.apellido_materno or '' }}" required></label>
+    <label>Nombres <input type="text" name="nombres" value="{{ data.nombres or '' }}" required></label>
+    <label>SBC <input type="number" step="0.01" name="sbc" value="{{ data.sbc or '' }}"></label>
+
+    <details>
+      <summary>Datos fijos (default)</summary>
+      <p>Tipo trabajador = 1 | Tipo salario = 0 | Jornada reducida = 0</p>
+    </details>
+
+    <details>
+      <summary>Datos INFONAVIT (opcional)</summary>
+      <label>Clave ubicación <input type="text" name="clave_ubicacion" maxlength="17"></label>
+      <label>Núm. crédito <input type="text" name="num_credito" maxlength="10"></label>
+      <label>Fecha inicio descuento <input type="date" name="fecha_inicio_descuento"></label>
+      <label>Tipo descuento <input type="text" name="tipo_descuento" maxlength="1"></label>
+      <label>Valor descuento <input type="text" name="valor_descuento"></label>
+    </details>
+
+    <button type="submit" class="btn btn-primary">Guardar movimiento</button>
+  </form>
+</div>
+{% endblock %}

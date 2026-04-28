@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nómina</span>
+    <h2>Comparativo de nómina</h2>
+    <p>Cruce semanal y consolidado mensual contra la base interna de personal activo.</p>
+  </div>
+</section>
+
+{% if not headcount.exists %}
+<div class="flash flash-error" style="margin-bottom:1rem;">
+  No existe base de headcount. Primero carga el archivo de personal activo para habilitar comparativos.
+</div>
+{% endif %}
+
+<div class="form-card">
+  <h3>Base de datos de personal</h3>
+  <p>
+    {% if headcount.exists %}
+      Última actualización: {{ headcount.fecha_actualizacion }} |
+      Total activos: {{ headcount.total_activos }} |
+      Clientes detectados: {{ headcount.clientes_detectados|length }}
+    {% else %}
+      Sin base cargada.
+    {% endif %}
+  </p>
+  <form method="post" action="{{ url_for('comparativo.actualizar_headcount_route') }}" enctype="multipart/form-data">
+    <label>Archivo Excel de headcount
+      <input type="file" name="headcount_file" accept=".xlsx,.xlsm,.xltx,.xltm" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Actualizar base</button>
+  </form>
+</div>
+
+<div class="form-card">
+  <h3>Comparativo semanal</h3>
+  <form method="post" action="{{ url_for('comparativo.comparativo_semanal') }}" enctype="multipart/form-data">
+    <label>Cliente
+      <select name="cliente" required>
+        <option value="">Selecciona cliente</option>
+        {% for cliente in clientes %}
+        <option value="{{ cliente }}">{{ cliente }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Periodo inicio
+      <input type="date" name="periodo_inicio" required>
+    </label>
+    <label>Periodo fin
+      <input type="date" name="periodo_fin" required>
+    </label>
+    <label>Archivo de nómina (Excel)
+      <input type="file" name="nomina_file" accept=".xlsx,.xlsm,.xltx,.xltm" required>
+    </label>
+    <button type="submit" class="btn btn-primary">Generar comparativo semanal</button>
+  </form>
+</div>
+
+<div class="form-card">
+  <h3>Reporte mensual</h3>
+  <form method="get" action="{{ url_for('comparativo.reporte_mensual') }}">
+    <label>Cliente
+      <select name="cliente" required>
+        <option value="">Selecciona cliente</option>
+        {% for cliente in clientes %}
+        <option value="{{ cliente }}">{{ cliente }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Mes
+      <select name="mes" required>
+        <option value="">Mes</option>
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Año
+      <select name="anio" required>
+        {% for y in range(2024, 2031) %}
+        <option value="{{ y }}">{{ y }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button type="submit" class="btn btn-secondary">Ver reporte mensual</button>
+  </form>
+</div>
+
+<div class="form-card">
+  <h3>Historial (últimos 10)</h3>
+  <div style="overflow:auto;">
+    <table>
+      <thead>
+        <tr>
+          <th>Cliente</th>
+          <th>Periodo</th>
+          <th>Altas</th>
+          <th>Bajas</th>
+          <th>Exportar</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for item in historial %}
+        <tr>
+          <td>{{ item.cliente }}</td>
+          <td>{{ item.periodo_inicio }} - {{ item.periodo_fin }}</td>
+          <td>{{ item.altas|length }}</td>
+          <td>{{ item.bajas|length }}</td>
+          <td><a class="btn btn-secondary" href="{{ url_for('comparativo.exportar_semanal', comparativo_id=item.id) }}">Excel</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">Sin comparativos generados todavía.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

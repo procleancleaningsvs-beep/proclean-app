@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Comparativo semanal</span>
+    <h2>Resultado semanal</h2>
+    <p>Cliente {{ comparativo.cliente }} | Periodo {{ comparativo.periodo_inicio }} - {{ comparativo.periodo_fin }}</p>
+  </div>
+</section>
+
+<div class="form-card">
+  <p>Fecha de generación: {{ comparativo.fecha_generacion }}</p>
+  <p>Total nómina: {{ comparativo.total_nomina }} | Total activos base: {{ comparativo.total_activos }}</p>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    <a class="btn btn-primary" href="{{ url_for('comparativo.exportar_semanal', comparativo_id=comparativo.id) }}">Exportar Excel</a>
+    <a class="btn btn-secondary" href="{{ url_for('comparativo.index') }}">Volver</a>
+  </div>
+</div>
+
+<div class="form-card">
+  <h3>ALTAS detectadas</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Fecha real (opcional)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for nombre in resultado.altas %}
+      <tr>
+        <td>{{ nombre }}</td>
+        <td><input type="text" placeholder="DD/MM/YYYY"></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2">Sin altas detectadas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="form-card">
+  <h3>BAJAS detectadas</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Fecha baja asumida</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for nombre in resultado.bajas %}
+      <tr>
+        <td>{{ nombre }}</td>
+        <td>{{ comparativo.fecha_baja_asumida }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="2">Sin bajas detectadas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

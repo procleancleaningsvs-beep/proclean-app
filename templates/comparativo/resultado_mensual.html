@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Comparativo mensual</span>
+    <h2>Reporte mensual</h2>
+    <p>{{ reporte.cliente }} | {{ reporte.mes }}/{{ reporte.anio }}</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-primary" href="{{ url_for('comparativo.exportar_mensual', cliente=reporte.cliente, mes=reporte.mes, anio=reporte.anio) }}">Exportar Excel</a>
+    <a class="btn btn-secondary" href="{{ url_for('comparativo.index') }}">Volver</a>
+  </div>
+</section>
+
+<div class="form-card">
+  <p>Total altas del mes: <strong>{{ reporte.altas_mes|length }}</strong></p>
+  <p>Total bajas del mes: <strong>{{ reporte.bajas_mes|length }}</strong></p>
+</div>
+
+<div class="form-card">
+  <h3>Semanas del mes</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Periodo</th>
+        <th>Altas</th>
+        <th>Bajas</th>
+        <th>Generado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for semana in reporte.semanas %}
+      <tr>
+        <td>{{ semana.periodo_inicio }} - {{ semana.periodo_fin }}</td>
+        <td>{{ semana.altas|length }}</td>
+        <td>{{ semana.bajas|length }}</td>
+        <td>{{ semana.fecha_generacion }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No hay semanas registradas para ese mes.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="form-card">
+  <h3>Altas consolidadas</h3>
+  <ul>
+    {% for item in reporte.altas_mes %}
+      <li>{{ item.nombre }} — {{ item.fecha_alta }}</li>
+    {% else %}
+      <li>Sin altas consolidadas.</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="form-card">
+  <h3>Bajas consolidadas</h3>
+  <ul>
+    {% for item in reporte.bajas_mes %}
+      <li>{{ item.nombre }} — {{ item.fecha_baja }}</li>
+    {% else %}
+      <li>Sin bajas consolidadas.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,121 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">IMSS</span>
+    <h2>Exportación IDSE / SUA</h2>
+    <p>Captura y exportación de movimientos IMSS compatibles con portales IDSE y SUA.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-primary" href="{{ url_for('exportacion_imss.nuevo_get', tipo='ALTA') }}">Nuevo movimiento</a>
+  </div>
+</section>
+
+<div class="form-card">
+  <form method="get" action="{{ url_for('exportacion_imss.index') }}">
+    <label>Tipo movimiento
+      <select name="tipo">
+        <option value="">Todos</option>
+        <option value="ALTA" {% if filtro_tipo == 'ALTA' %}selected{% endif %}>ALTA</option>
+        <option value="BAJA" {% if filtro_tipo == 'BAJA' %}selected{% endif %}>BAJA</option>
+        <option value="MODIFICACION" {% if filtro_tipo == 'MODIFICACION' %}selected{% endif %}>MODIFICACION</option>
+      </select>
+    </label>
+    <label>Cliente
+      <select name="cliente">
+        <option value="">Todos</option>
+        {% for c in clientes %}
+        <option value="{{ c }}" {% if filtro_cliente == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-secondary" type="submit">Aplicar filtros</button>
+  </form>
+</div>
+
+<div class="form-card">
+  <h3>Movimientos capturados</h3>
+  <div style="margin-bottom:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
+    <button class="btn btn-primary" type="button" id="btn-export-idse">Exportar IDSE seleccionados</button>
+    <button class="btn btn-secondary" type="button" id="btn-export-sua">Exportar SUA seleccionados</button>
+  </div>
+  <div style="overflow:auto;">
+    <table id="tabla-movs">
+      <thead>
+        <tr>
+          <th><input type="checkbox" id="check-all"></th>
+          <th>Tipo</th>
+          <th>Cliente</th>
+          <th>Nombre completo</th>
+          <th>NSS</th>
+          <th>Fecha mov</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for mov in movimientos %}
+        <tr>
+          <td><input type="checkbox" class="mov-check" value="{{ mov.id }}"></td>
+          <td>{{ mov.tipo_movimiento }}</td>
+          <td>{{ mov.cliente }}</td>
+          <td>{{ mov.apellido_paterno }} {{ mov.apellido_materno }} {{ mov.nombres }}</td>
+          <td>{{ mov.nss }}</td>
+          <td>{{ mov.fecha_movimiento }}</td>
+          <td>
+            <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.nuevo_get', tipo=mov.tipo_movimiento, cliente=mov.cliente, nss=mov.nss) }}">Duplicar</a>
+            <button class="btn btn-secondary btn-delete" data-id="{{ mov.id }}" type="button">Eliminar</button>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7">No hay movimientos capturados.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function(){
+  const checkAll = document.getElementById('check-all');
+  const getChecks = () => [...document.querySelectorAll('.mov-check')];
+  const selectedIds = () => getChecks().filter(c => c.checked).map(c => c.value);
+  if (checkAll) {
+    checkAll.addEventListener('change', () => {
+      getChecks().forEach(c => c.checked = checkAll.checked);
+    });
+  }
+
+  document.getElementById('btn-export-idse')?.addEventListener('click', () => {
+    const ids = selectedIds();
+    if (!ids.length) return window.alert('Selecciona al menos un movimiento.');
+    const tipo = '{{ filtro_tipo }}' || '';
+    const q = new URLSearchParams();
+    ids.forEach(i => q.append('ids', i));
+    if (tipo) q.set('tipo_movimiento', tipo);
+    window.location.href = '{{ url_for("exportacion_imss.exportar_idse") }}?' + q.toString();
+  });
+
+  document.getElementById('btn-export-sua')?.addEventListener('click', () => {
+    const ids = selectedIds();
+    if (!ids.length) return window.alert('Selecciona al menos un movimiento.');
+    const q = new URLSearchParams();
+    ids.forEach(i => q.append('ids', i));
+    window.location.href = '{{ url_for("exportacion_imss.exportar_sua") }}?' + q.toString();
+  });
+
+  document.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-id');
+      if (!id) return;
+      if (!window.confirm('¿Eliminar este movimiento?')) return;
+      const resp = await fetch('{{ url_for("exportacion_imss.eliminar_movimiento", movimiento_id="__id__") }}'.replace('__id__', id), {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      });
+      if (resp.ok) window.location.reload();
+      else window.alert('No se pudo eliminar el movimiento.');
+    });
+  });
+})();
+</script>
+{% endblock %}
