@@ -2,16 +2,21 @@
 {% block extra_head %}
 <style>
 .cmp-layout { display:grid; gap:1rem; }
-.cmp-row { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; }
+.cmp-row { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; align-items:stretch; }
 .cmp-top, .cmp-left, .cmp-right, .cmp-bottom { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
 .cmp-stats { display:grid; grid-template-columns: repeat(3,1fr); gap:.75rem; margin:.75rem 0; }
 .cmp-stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
 .cmp-stat strong { display:block; font-size:1.1rem; }
-.cmp-active-strip { font-size:.92rem; color:#334155; margin:.5rem 0 .75rem; }
+.cmp-active-scroll { display:flex; gap:.75rem; overflow-x:auto; overflow-y:hidden; padding:.25rem .1rem .5rem; margin:.5rem 0 .75rem; scrollbar-width:thin; }
+.cmp-active-scroll .cmp-stat { min-width:190px; flex:0 0 auto; }
+.cmp-active-scroll .cmp-stat small { display:block; color:#64748b; margin-top:.2rem; }
 .cmp-left label, .cmp-left input, .cmp-left select { display:block; width:100%; }
 .cmp-left label { margin-bottom:.6rem; font-weight:600; }
 .cmp-left input, .cmp-left select { margin-top:.3rem; }
-.cmp-preview-list { max-height:200px; overflow:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem; background:#f8fafc; margin:.5rem 0; }
+.cmp-left { display:flex; flex-direction:column; height:100%; min-height:620px; }
+.cmp-left-static { flex:0 0 auto; }
+.cmp-left-preview { flex:1; min-height:180px; display:flex; flex-direction:column; }
+.cmp-preview-list { flex:1; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem; background:#f8fafc; margin:.5rem 0; }
 .cmp-preview-list ul { margin:0; padding-left:1.2rem; }
 .cmp-placeholder { color:#64748b; border:1px dashed #cbd5e1; border-radius:10px; padding:1rem; text-align:center; }
 .cmp-result-cards { display:grid; grid-template-columns: repeat(3,1fr); gap:.5rem; margin-bottom:.8rem; }
@@ -51,7 +56,9 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       <div class="cmp-stat"><span>Última actualización</span><strong id="stat-fecha">{{ headcount.fecha_actualizacion or 'Pendiente' }}</strong></div>
       <div class="cmp-stat"><span>N clientes</span><strong id="stat-clientes">{{ headcount.clientes_detectados|length }}</strong></div>
     </div>
-    <div class="cmp-active-strip" id="activos-por-cliente">Cargando activos por cliente...</div>
+    <div class="cmp-active-scroll" id="activos-por-cliente">
+      <div class="cmp-stat"><span>Cargando...</span><small>0 activos</small></div>
+    </div>
     <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
     <button type="button" class="btn btn-primary" id="btn-forzar-sync">🔄 Forzar actualización desde OneDrive</button>
     <p id="sync-msg" class="cmp-inline-msg" hidden></p>
@@ -61,35 +68,36 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   <div class="cmp-row">
     <section class="cmp-left">
       <h3>Generar comparativo semanal</h3>
-      <label>Cliente
-        <select id="cliente-select">
-          <optgroup label="Clientes individuales" id="opt-clientes-individuales">
-            {% for cliente in clientes %}
-            <option value="{{ cliente }}">{{ cliente }}</option>
-            {% endfor %}
-          </optgroup>
-          <optgroup label="Agrupaciones guardadas" id="opt-agrupaciones"></optgroup>
-          <optgroup label="Otros">
-            <option value="__otro__">Otro (captura libre)</option>
-          </optgroup>
-        </select>
-      </label>
-      <label id="cliente-libre-wrap" hidden>Cliente libre
-        <input type="text" id="cliente-libre" placeholder="Nombre de cliente o agrupación">
-      </label>
-      <button type="button" class="btn btn-secondary" id="btn-agrupacion">+ Crear agrupación</button>
+      <div class="cmp-left-static">
+        <label>Cliente
+          <select id="cliente-select">
+            <optgroup label="Clientes individuales" id="opt-clientes-individuales">
+              {% for cliente in clientes %}
+              <option value="{{ cliente }}">{{ cliente }}</option>
+              {% endfor %}
+            </optgroup>
+            <optgroup label="Agrupaciones" id="opt-agrupaciones"></optgroup>
+            <optgroup label="Otro">
+              <option value="__nuevo__">+ Agregar cliente nuevo...</option>
+              <option value="__agrupacion__">+ Crear agrupación...</option>
+            </optgroup>
+          </select>
+        </label>
 
-      <label>Periodo inicio
-        <input type="date" id="periodo-inicio">
-      </label>
-      <label>Periodo fin
-        <input type="date" id="periodo-fin">
-      </label>
-      <label>Archivo de nómina (Excel)
-        <input type="file" id="nomina-file" accept=".xlsx,.xlsm,.xltx,.xltm">
-      </label>
-      <div id="preview-msg" class="cmp-inline-msg" hidden></div>
-      <div id="preview-list" class="cmp-preview-list" hidden></div>
+        <label>Periodo inicio
+          <input type="date" id="periodo-inicio">
+        </label>
+        <label>Periodo fin
+          <input type="date" id="periodo-fin">
+        </label>
+        <label>Archivo de nómina (Excel)
+          <input type="file" id="nomina-file" accept=".xlsx,.xlsm,.xltx,.xltm">
+        </label>
+      </div>
+      <div class="cmp-left-preview">
+        <div id="preview-msg" class="cmp-inline-msg" hidden></div>
+        <div id="preview-list" class="cmp-preview-list" hidden></div>
+      </div>
       <button type="button" class="btn btn-primary" id="btn-generar">Generar comparativo</button>
       <p id="left-error" class="cmp-inline-err" hidden></p>
     </section>
@@ -164,12 +172,37 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   </div>
 </dialog>
 
+<dialog id="modal-nuevo-cliente" class="cmp-modal">
+  <div class="cmp-modal-head"><h3>Agregar cliente nuevo</h3></div>
+  <div class="cmp-modal-body">
+    <label>Nombre de cliente
+      <input type="text" id="nuevo-cliente-input" placeholder="Ej. Cliente especial temporal">
+    </label>
+    <p id="nuevo-cliente-err" class="cmp-inline-err" hidden></p>
+  </div>
+  <div class="cmp-modal-foot">
+    <button type="button" class="btn btn-secondary" id="nuevo-cliente-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="nuevo-cliente-save">Usar este cliente</button>
+  </div>
+</dialog>
+
 <dialog id="modal-similitudes" class="cmp-modal">
   <div class="cmp-modal-head"><h3>Verificación de nombres</h3></div>
   <div class="cmp-modal-body">
     <p id="sim-progress">0 de 0 confirmadas</p>
     <div id="sim-list"></div>
     <p id="sim-err" class="cmp-inline-err" hidden></p>
+  </div>
+</dialog>
+
+<dialog id="modal-duplicado" class="cmp-modal">
+  <div class="cmp-modal-head"><h3>Periodo duplicado detectado</h3></div>
+  <div class="cmp-modal-body">
+    <p id="duplicado-msg">Ya existe un comparativo para este periodo.</p>
+  </div>
+  <div class="cmp-modal-foot">
+    <button type="button" class="btn btn-secondary" id="duplicado-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="duplicado-confirm">Sobreescribir</button>
   </div>
 </dialog>
 
@@ -184,18 +217,21 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     agrupaciones: {},
     similitudesPendientes: [],
     confirmaciones: [],
+    clienteTemporal: "",
+    clienteSeleccionAnterior: "",
+    payloadPendienteSemanal: null,
   };
 
   const $ = (id) => document.getElementById(id);
   const exportUrlTemplate = "{{ url_for('comparativo.exportar_semanal', comparativo_id='__ID__') }}";
   const clienteSelect = $("cliente-select");
-  const clienteLibreWrap = $("cliente-libre-wrap");
-  const clienteLibreInput = $("cliente-libre");
   const modalAgrup = $("modal-agrupacion");
   const modalSim = $("modal-similitudes");
+  const modalNuevoCliente = $("modal-nuevo-cliente");
+  const modalDuplicado = $("modal-duplicado");
 
   function selectedCliente() {
-    if (clienteSelect.value === "__otro__") return (clienteLibreInput.value || "").trim();
+    if (clienteSelect.value === "__nuevo__") return (state.clienteTemporal || "").trim();
     return (clienteSelect.value || "").trim();
   }
 
@@ -218,10 +254,17 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       $("stat-total").textContent = String(data.total_activos || 0);
       $("stat-fecha").textContent = data.fecha_actualizacion || "Pendiente";
       $("stat-clientes").textContent = String((data.clientes || []).length);
-      const items = Object.entries(data.activos_por_cliente || {}).map(([k, v]) => `${k} (${v})`);
-      $("activos-por-cliente").textContent = items.length ? items.join(" | ") : "Sin datos de activos por cliente.";
+      const items = Object.entries(data.activos_por_cliente || {});
+      const wrap = $("activos-por-cliente");
+      if (!items.length) {
+        wrap.innerHTML = '<div class="cmp-stat"><span>Sin datos</span><small>0 activos</small></div>';
+      } else {
+        wrap.innerHTML = items.map(([k, v]) => (
+          `<div class="cmp-stat"><span>${k}</span><small>${v} activos</small></div>`
+        )).join("");
+      }
     } catch (e) {
-      $("activos-por-cliente").textContent = "No se pudieron cargar los activos por cliente.";
+      $("activos-por-cliente").innerHTML = '<div class="cmp-stat"><span>Error</span><small>No se pudieron cargar activos</small></div>';
     }
   }
 
@@ -301,23 +344,39 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   }
 
   async function enviarSemanal() {
+    return enviarSemanalInterno(false);
+  }
+
+  async function enviarSemanalInterno(forzar) {
     const cliente = selectedCliente();
     const periodoInicio = $("periodo-inicio").value;
     const periodoFin = $("periodo-fin").value;
     if (!cliente || !periodoInicio || !periodoFin || !state.nombresPreview.length) {
       showErr("left-error", "Completa cliente, periodo y preview de nómina antes de generar.");
-      return;
+      return false;
     }
     showErr("left-error", "");
 
+    const payload = {
+      cliente,
+      periodo_inicio: fromInputDate(periodoInicio),
+      periodo_fin: fromInputDate(periodoFin),
+      nombres_json: JSON.stringify(state.nombresPreview),
+      forzar: forzar ? "true" : "false",
+    };
+    state.payloadPendienteSemanal = payload;
     const fd = new FormData();
-    fd.append("cliente", cliente);
-    fd.append("periodo_inicio", fromInputDate(periodoInicio));
-    fd.append("periodo_fin", fromInputDate(periodoFin));
-    fd.append("nombres_json", JSON.stringify(state.nombresPreview));
+    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
     const data = await fetchJson("{{ url_for('comparativo.comparativo_semanal') }}", { method: "POST", body: fd });
+    if (data.duplicado) {
+      const msg = `Ya existe un comparativo para ${cliente} del ${payload.periodo_inicio} al ${payload.periodo_fin}. ¿Deseas sobreescribir los datos?`;
+      $("duplicado-msg").textContent = msg;
+      modalDuplicado.showModal();
+      return false;
+    }
     renderResultado(data);
     await cargarHistorial(1);
+    return true;
   }
 
   function openSimilitudes(similitudes) {
@@ -452,8 +511,23 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   });
 
   clienteSelect.addEventListener("change", () => {
-    const isOtro = clienteSelect.value === "__otro__";
-    clienteLibreWrap.hidden = !isOtro;
+    const selected = clienteSelect.value;
+    if (selected === "__nuevo__") {
+      state.clienteSeleccionAnterior = state.clienteSeleccionAnterior || [...clienteSelect.options].find((o) => !o.value.startsWith("__"))?.value || "";
+      $("nuevo-cliente-input").value = state.clienteTemporal || "";
+      showErr("nuevo-cliente-err", "");
+      modalNuevoCliente.showModal();
+      return;
+    }
+    if (selected === "__agrupacion__") {
+      clienteSelect.value = state.clienteSeleccionAnterior || [...clienteSelect.options].find((o) => !o.value.startsWith("__"))?.value || "";
+      $("agrupacion-msg").hidden = true;
+      showErr("agrupacion-err", "");
+      renderAgrupacionChecks();
+      modalAgrup.showModal();
+      return;
+    }
+    state.clienteSeleccionAnterior = selected;
   });
 
   $("nomina-file").addEventListener("change", async (ev) => {
@@ -468,15 +542,24 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   });
 
   $("btn-generar").addEventListener("click", verificarYGenerar);
-  $("btn-agrupacion").addEventListener("click", () => {
-    $("agrupacion-msg").hidden = true;
-    showErr("agrupacion-err", "");
-    renderAgrupacionChecks();
-    modalAgrup.showModal();
-  });
   $("agrupacion-close").addEventListener("click", () => modalAgrup.close());
   $("agrupacion-save").addEventListener("click", guardarAgrupacion);
   $("agrupacion-delete").addEventListener("click", eliminarAgrupacion);
+  $("nuevo-cliente-cancel").addEventListener("click", () => {
+    modalNuevoCliente.close();
+    clienteSelect.value = state.clienteSeleccionAnterior || [...clienteSelect.options].find((o) => !o.value.startsWith("__"))?.value || "";
+  });
+  $("nuevo-cliente-save").addEventListener("click", () => {
+    const nombre = $("nuevo-cliente-input").value.trim();
+    if (!nombre) {
+      showErr("nuevo-cliente-err", "Escribe un nombre de cliente.");
+      return;
+    }
+    state.clienteTemporal = nombre;
+    clienteSelect.value = "__nuevo__";
+    state.clienteSeleccionAnterior = "__nuevo__";
+    modalNuevoCliente.close();
+  });
 
   $("sim-list").addEventListener("click", async (ev) => {
     const t = ev.target;
@@ -563,6 +646,16 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     if (!iniInput.value) iniInput.value = finInput.value;
   });
   modalSim.addEventListener("cancel", (ev) => ev.preventDefault());
+  modalDuplicado.addEventListener("cancel", (ev) => ev.preventDefault());
+  $("duplicado-cancel").addEventListener("click", () => modalDuplicado.close());
+  $("duplicado-confirm").addEventListener("click", async () => {
+    modalDuplicado.close();
+    try {
+      await enviarSemanalInterno(true);
+    } catch (e) {
+      showErr("left-error", e.message);
+    }
+  });
 
   cargarActivosPorCliente();
   cargarAgrupaciones();

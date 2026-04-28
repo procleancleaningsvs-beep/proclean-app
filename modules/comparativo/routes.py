@@ -75,6 +75,26 @@ def _resolver_activos_por_selector(cliente_selector: str) -> list[dict]:
     return obtener_activos(cliente=cliente_selector)
 
 
+def _buscar_comparativo_duplicado(cliente: str, periodo_inicio: str, periodo_fin: str) -> tuple[dict | None, str | None]:
+    for name in os.listdir(COMPARATIVOS_DIR):
+        if not name.lower().endswith(".json"):
+            continue
+        path = os.path.join(COMPARATIVOS_DIR, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                continue
+            same_cliente = str(data.get("cliente", "")).strip() == str(cliente).strip()
+            same_inicio = str(data.get("periodo_inicio", "")).strip() == str(periodo_inicio).strip()
+            same_fin = str(data.get("periodo_fin", "")).strip() == str(periodo_fin).strip()
+            if same_cliente and same_inicio and same_fin:
+                return data, path
+        except Exception:
+            continue
+    return None, None
+
+
 def _headcount_meta() -> dict:
     activos = obtener_activos()
     clientes = sorted({a.get("cliente", "") for a in activos if a.get("cliente")})
@@ -206,10 +226,26 @@ def comparativo_semanal():
     periodo_inicio = (request.form.get("periodo_inicio") or "").strip()
     periodo_fin = (request.form.get("periodo_fin") or "").strip()
     nombres_json = request.form.get("nombres_json") or "[]"
+    forzar = str(request.form.get("forzar") or "").strip().lower() in {"1", "true", "on", "yes", "si"}
     if not cliente or not periodo_inicio or not periodo_fin:
         return jsonify({"error": "Faltan datos para generar el comparativo semanal."}), 400
 
     try:
+        duplicado, duplicado_path = _buscar_comparativo_duplicado(cliente, periodo_inicio, periodo_fin)
+        if duplicado and not forzar:
+            return jsonify(
+                {
+                    "duplicado": True,
+                    "comparativo_id_existente": str(duplicado.get("id", "")),
+                    "mensaje": "Ya existe un comparativo para este periodo.",
+                }
+            )
+        if duplicado and forzar and duplicado_path:
+            try:
+                os.remove(duplicado_path)
+            except OSError:
+                pass
+
         lista_nomina_raw = json.loads(nombres_json)
         if not isinstance(lista_nomina_raw, list):
             return jsonify({"error": "nombres_json debe contener una lista JSON."}), 400
@@ -227,6 +263,7 @@ def comparativo_semanal():
         )
         return jsonify(
             {
+                "duplicado": False,
                 "comparativo_id": comparativo["id"],
                 "altas": [
                     {"nombre": nombre, "fecha_alta_sugerida": periodo_inicio}
