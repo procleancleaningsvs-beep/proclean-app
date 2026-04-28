@@ -1,117 +1,572 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.cmp-layout { display:grid; gap:1rem; }
+.cmp-row { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; }
+.cmp-top, .cmp-left, .cmp-right, .cmp-bottom { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.cmp-stats { display:grid; grid-template-columns: repeat(3,1fr); gap:.75rem; margin:.75rem 0; }
+.cmp-stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
+.cmp-stat strong { display:block; font-size:1.1rem; }
+.cmp-active-strip { font-size:.92rem; color:#334155; margin:.5rem 0 .75rem; }
+.cmp-left label, .cmp-left input, .cmp-left select { display:block; width:100%; }
+.cmp-left label { margin-bottom:.6rem; font-weight:600; }
+.cmp-left input, .cmp-left select { margin-top:.3rem; }
+.cmp-preview-list { max-height:200px; overflow:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem; background:#f8fafc; margin:.5rem 0; }
+.cmp-preview-list ul { margin:0; padding-left:1.2rem; }
+.cmp-placeholder { color:#64748b; border:1px dashed #cbd5e1; border-radius:10px; padding:1rem; text-align:center; }
+.cmp-result-cards { display:grid; grid-template-columns: repeat(3,1fr); gap:.5rem; margin-bottom:.8rem; }
+.cmp-card { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; text-align:center; }
+.cmp-table-wrap { overflow:auto; margin-bottom:.75rem; }
+.cmp-table { width:100%; border-collapse: collapse; }
+.cmp-table th, .cmp-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
+.cmp-history-tools { display:flex; gap:.5rem; align-items:center; margin-bottom:.75rem; }
+.cmp-pagination { display:flex; gap:.5rem; align-items:center; justify-content:flex-end; margin-top:.5rem; }
+dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw); }
+.cmp-modal-body { padding:1rem; }
+.cmp-modal-head, .cmp-modal-foot { padding:1rem; border-bottom:1px solid #e5e7eb; }
+.cmp-modal-foot { border-top:1px solid #e5e7eb; border-bottom:0; display:flex; justify-content:flex-end; gap:.5rem; }
+.cmp-sim-item { border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
+.cmp-inline-msg { margin:.5rem 0; font-size:.92rem; color:#0f766e; }
+.cmp-inline-err { margin:.5rem 0; font-size:.92rem; color:#b91c1c; }
+@media (max-width: 1024px) {
+  .cmp-row { grid-template-columns: 1fr; }
+  .cmp-stats, .cmp-result-cards { grid-template-columns: 1fr; }
+}
+</style>
+{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <span class="eyebrow">Nómina</span>
     <h2>Comparativo de nómina</h2>
-    <p>Cruce semanal y consolidado mensual contra la base interna de personal activo.</p>
+    <p>Detección de altas y bajas con verificación de similitudes y aliases.</p>
   </div>
 </section>
 
-{% if not headcount.exists %}
-<div class="flash flash-error" style="margin-bottom:1rem;">
-  No se pudo sincronizar headcount desde OneDrive. Verifica la conectividad y la variable HEADCOUNT_ONEDRIVE_URL.
-</div>
-{% endif %}
+<div class="cmp-layout">
+  <section class="cmp-top">
+    <h3>Base de datos de personal</h3>
+    <div class="cmp-stats">
+      <div class="cmp-stat"><span>Total activos</span><strong id="stat-total">{{ headcount.total_activos or 0 }}</strong></div>
+      <div class="cmp-stat"><span>Última actualización</span><strong id="stat-fecha">{{ headcount.fecha_actualizacion or 'Pendiente' }}</strong></div>
+      <div class="cmp-stat"><span>N clientes</span><strong id="stat-clientes">{{ headcount.clientes_detectados|length }}</strong></div>
+    </div>
+    <div class="cmp-active-strip" id="activos-por-cliente">Cargando activos por cliente...</div>
+    <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
+    <button type="button" class="btn btn-primary" id="btn-forzar-sync">🔄 Forzar actualización desde OneDrive</button>
+    <p id="sync-msg" class="cmp-inline-msg" hidden></p>
+    <p id="sync-err" class="cmp-inline-err" hidden></p>
+  </section>
 
-<div class="form-card">
-  <h3>Base de datos de personal</h3>
-  <p>
-    {% if headcount.exists %}
-      Última actualización: {{ headcount.fecha_actualizacion or 'Pendiente de primera consulta' }} |
-      Total activos: {{ headcount.total_activos }} |
-      Clientes detectados: {{ headcount.clientes_detectados|length }}
-    {% else %}
-      Sin sincronización disponible en este momento.
-    {% endif %}
-  </p>
-  <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
-  <form method="post" action="{{ url_for('comparativo.actualizar_headcount_route') }}">
-    <button type="submit" class="btn btn-primary">🔄 Forzar actualización desde OneDrive</button>
-  </form>
-</div>
+  <div class="cmp-row">
+    <section class="cmp-left">
+      <h3>Generar comparativo semanal</h3>
+      <label>Cliente
+        <select id="cliente-select">
+          <optgroup label="Clientes individuales" id="opt-clientes-individuales">
+            {% for cliente in clientes %}
+            <option value="{{ cliente }}">{{ cliente }}</option>
+            {% endfor %}
+          </optgroup>
+          <optgroup label="Agrupaciones guardadas" id="opt-agrupaciones"></optgroup>
+          <optgroup label="Otros">
+            <option value="__otro__">Otro (captura libre)</option>
+          </optgroup>
+        </select>
+      </label>
+      <label id="cliente-libre-wrap" hidden>Cliente libre
+        <input type="text" id="cliente-libre" placeholder="Nombre de cliente o agrupación">
+      </label>
+      <button type="button" class="btn btn-secondary" id="btn-agrupacion">+ Crear agrupación</button>
 
-<div class="form-card">
-  <h3>Comparativo semanal</h3>
-  <form method="post" action="{{ url_for('comparativo.comparativo_semanal') }}" enctype="multipart/form-data">
-    <label>Cliente
-      <select name="cliente" required>
-        <option value="">Selecciona cliente</option>
-        {% for cliente in clientes %}
-        <option value="{{ cliente }}">{{ cliente }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Periodo inicio
-      <input type="date" name="periodo_inicio" required>
-    </label>
-    <label>Periodo fin
-      <input type="date" name="periodo_fin" required>
-    </label>
-    <label>Archivo de nómina (Excel)
-      <input type="file" name="nomina_file" accept=".xlsx,.xlsm,.xltx,.xltm" required>
-    </label>
-    <button type="submit" class="btn btn-primary">Generar comparativo semanal</button>
-  </form>
-</div>
+      <label>Periodo inicio
+        <input type="date" id="periodo-inicio">
+      </label>
+      <label>Periodo fin
+        <input type="date" id="periodo-fin">
+      </label>
+      <label>Archivo de nómina (Excel)
+        <input type="file" id="nomina-file" accept=".xlsx,.xlsm,.xltx,.xltm">
+      </label>
+      <div id="preview-msg" class="cmp-inline-msg" hidden></div>
+      <div id="preview-list" class="cmp-preview-list" hidden></div>
+      <button type="button" class="btn btn-primary" id="btn-generar">Generar comparativo</button>
+      <p id="left-error" class="cmp-inline-err" hidden></p>
+    </section>
 
-<div class="form-card">
-  <h3>Reporte mensual</h3>
-  <form method="get" action="{{ url_for('comparativo.reporte_mensual') }}">
-    <label>Cliente
-      <select name="cliente" required>
-        <option value="">Selecciona cliente</option>
-        {% for cliente in clientes %}
-        <option value="{{ cliente }}">{{ cliente }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Mes
-      <select name="mes" required>
-        <option value="">Mes</option>
-        {% for m in range(1, 13) %}
-        <option value="{{ m }}">{{ m }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <label>Año
-      <select name="anio" required>
-        {% for y in range(2024, 2031) %}
-        <option value="{{ y }}">{{ y }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button type="submit" class="btn btn-secondary">Ver reporte mensual</button>
-  </form>
-</div>
-
-<div class="form-card">
-  <h3>Historial (últimos 10)</h3>
-  <div style="overflow:auto;">
-    <table>
-      <thead>
-        <tr>
-          <th>Cliente</th>
-          <th>Periodo</th>
-          <th>Altas</th>
-          <th>Bajas</th>
-          <th>Exportar</th>
-        </tr>
-      </thead>
-      <tbody>
-      {% for item in historial %}
-        <tr>
-          <td>{{ item.cliente }}</td>
-          <td>{{ item.periodo_inicio }} - {{ item.periodo_fin }}</td>
-          <td>{{ item.altas|length }}</td>
-          <td>{{ item.bajas|length }}</td>
-          <td><a class="btn btn-secondary" href="{{ url_for('comparativo.exportar_semanal', comparativo_id=item.id) }}">Excel</a></td>
-        </tr>
-      {% else %}
-        <tr><td colspan="5">Sin comparativos generados todavía.</td></tr>
-      {% endfor %}
-      </tbody>
-    </table>
+    <section class="cmp-right">
+      <h3>Resultado del comparativo</h3>
+      <div id="resultado-placeholder" class="cmp-placeholder">El resultado aparecerá aquí.</div>
+      <div id="resultado-wrap" hidden>
+        <div class="cmp-result-cards">
+          <div class="cmp-card">Altas<br><strong id="res-altas">0</strong></div>
+          <div class="cmp-card">Bajas<br><strong id="res-bajas">0</strong></div>
+          <div class="cmp-card">Sin cambio<br><strong id="res-perm">0</strong></div>
+        </div>
+        <div class="cmp-table-wrap">
+          <h4>ALTAS</h4>
+          <table class="cmp-table">
+            <thead><tr><th>Nombre</th><th>Fecha alta</th><th>Acciones</th></tr></thead>
+            <tbody id="tabla-altas"></tbody>
+          </table>
+        </div>
+        <div class="cmp-table-wrap">
+          <h4>BAJAS</h4>
+          <table class="cmp-table">
+            <thead><tr><th>Nombre</th><th>Fecha baja</th><th>Acciones</th></tr></thead>
+            <tbody id="tabla-bajas"></tbody>
+          </table>
+        </div>
+        <button type="button" class="btn btn-primary" id="btn-exportar">Guardar fechas y exportar Excel</button>
+      </div>
+    </section>
   </div>
+
+  <section class="cmp-bottom">
+    <h3>Historial</h3>
+    <div class="cmp-history-tools">
+      <input type="search" id="hist-search" placeholder="Buscar por cliente o periodo">
+      <button type="button" class="btn btn-secondary" id="hist-refresh">Actualizar</button>
+    </div>
+    <div class="cmp-table-wrap">
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th>Cliente</th><th>Periodo</th><th>Altas</th><th>Bajas</th><th>Generado</th><th>Exportar</th><th>Eliminar</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </div>
+    <div class="cmp-pagination">
+      <button type="button" class="btn btn-secondary" id="hist-prev">Anterior</button>
+      <span id="hist-page">1 / 1</span>
+      <button type="button" class="btn btn-secondary" id="hist-next">Siguiente</button>
+    </div>
+  </section>
 </div>
+
+<dialog id="modal-agrupacion" class="cmp-modal">
+  <div class="cmp-modal-head"><h3>Crear agrupación</h3></div>
+  <div class="cmp-modal-body">
+    <label>Nombre agrupación<input type="text" id="agrupacion-nombre"></label>
+    <div id="agrupacion-checks" class="cmp-preview-list"></div>
+    <label>Eliminar agrupación existente
+      <select id="agrupacion-delete-select"><option value="">Selecciona agrupación</option></select>
+    </label>
+    <p id="agrupacion-msg" class="cmp-inline-msg" hidden></p>
+    <p id="agrupacion-err" class="cmp-inline-err" hidden></p>
+  </div>
+  <div class="cmp-modal-foot">
+    <button type="button" class="btn btn-secondary" id="agrupacion-close">Cerrar</button>
+    <button type="button" class="btn btn-secondary" id="agrupacion-delete">Eliminar agrupación</button>
+    <button type="button" class="btn btn-primary" id="agrupacion-save">Guardar agrupación</button>
+  </div>
+</dialog>
+
+<dialog id="modal-similitudes" class="cmp-modal">
+  <div class="cmp-modal-head"><h3>Verificación de nombres</h3></div>
+  <div class="cmp-modal-body">
+    <p id="sim-progress">0 de 0 confirmadas</p>
+    <div id="sim-list"></div>
+    <p id="sim-err" class="cmp-inline-err" hidden></p>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  const state = {
+    nombresPreview: [],
+    comparativoId: null,
+    resultado: null,
+    historialPage: 1,
+    historialPages: 1,
+    agrupaciones: {},
+    similitudesPendientes: [],
+    confirmaciones: [],
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const exportUrlTemplate = "{{ url_for('comparativo.exportar_semanal', comparativo_id='__ID__') }}";
+  const clienteSelect = $("cliente-select");
+  const clienteLibreWrap = $("cliente-libre-wrap");
+  const clienteLibreInput = $("cliente-libre");
+  const modalAgrup = $("modal-agrupacion");
+  const modalSim = $("modal-similitudes");
+
+  function selectedCliente() {
+    if (clienteSelect.value === "__otro__") return (clienteLibreInput.value || "").trim();
+    return (clienteSelect.value || "").trim();
+  }
+
+  function showErr(id, msg) {
+    const el = $(id);
+    el.textContent = msg || "";
+    el.hidden = !msg;
+  }
+
+  async function fetchJson(url, opts) {
+    const r = await fetch(url, opts);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "Error de solicitud");
+    return j;
+  }
+
+  async function cargarActivosPorCliente() {
+    try {
+      const data = await fetchJson("{{ url_for('comparativo.activos_por_cliente') }}");
+      $("stat-total").textContent = String(data.total_activos || 0);
+      $("stat-fecha").textContent = data.fecha_actualizacion || "Pendiente";
+      $("stat-clientes").textContent = String((data.clientes || []).length);
+      const items = Object.entries(data.activos_por_cliente || {}).map(([k, v]) => `${k} (${v})`);
+      $("activos-por-cliente").textContent = items.length ? items.join(" | ") : "Sin datos de activos por cliente.";
+    } catch (e) {
+      $("activos-por-cliente").textContent = "No se pudieron cargar los activos por cliente.";
+    }
+  }
+
+  async function cargarAgrupaciones() {
+    try {
+      state.agrupaciones = await fetchJson("{{ url_for('comparativo.listar_agrupaciones_route') }}");
+    } catch (e) {
+      state.agrupaciones = {};
+    }
+    const opt = $("opt-agrupaciones");
+    opt.innerHTML = "";
+    const delSel = $("agrupacion-delete-select");
+    delSel.innerHTML = '<option value="">Selecciona agrupación</option>';
+    Object.entries(state.agrupaciones).forEach(([nombre, clientes]) => {
+      const o = document.createElement("option");
+      o.value = nombre;
+      o.textContent = `${nombre} (${(clientes || []).join(" + ")})`;
+      opt.appendChild(o);
+
+      const d = document.createElement("option");
+      d.value = nombre;
+      d.textContent = nombre;
+      delSel.appendChild(d);
+    });
+  }
+
+  function renderAgrupacionChecks() {
+    const wrap = $("agrupacion-checks");
+    const clientes = [...$("opt-clientes-individuales").querySelectorAll("option")].map((o) => o.value).filter(Boolean);
+    wrap.innerHTML = clientes.map((c, idx) => `<label><input type="checkbox" value="${c}" id="agr-cli-${idx}"> ${c}</label>`).join("");
+  }
+
+  async function previewNomina(file) {
+    const fd = new FormData();
+    fd.append("nomina_file", file);
+    const data = await fetchJson("{{ url_for('comparativo.preview_nomina') }}", { method: "POST", body: fd });
+    state.nombresPreview = data.nombres || [];
+    $("preview-msg").hidden = false;
+    $("preview-msg").textContent = `✅ Se detectaron ${data.total} empleados:`;
+    $("preview-list").hidden = false;
+    $("preview-list").innerHTML = `<ul>${state.nombresPreview.map((n) => `<li>${n}</li>`).join("")}</ul>`;
+  }
+
+  function renderResultado(data) {
+    state.comparativoId = data.comparativo_id;
+    state.resultado = data;
+    $("resultado-placeholder").hidden = true;
+    $("resultado-wrap").hidden = false;
+    $("res-altas").textContent = String((data.altas || []).length);
+    $("res-bajas").textContent = String((data.bajas || []).length);
+    $("res-perm").textContent = String((data.permanencias || []).length);
+
+    $("tabla-altas").innerHTML = (data.altas || []).map((r, idx) => (
+      `<tr><td>${r.nombre}</td><td><input type="date" data-tipo="alta" data-idx="${idx}" value="${toInputDate(r.fecha_alta_sugerida)}"></td><td><button type="button" class="btn btn-secondary btn-remove" data-tabla="alta" data-idx="${idx}">Quitar</button></td></tr>`
+    )).join("");
+    $("tabla-bajas").innerHTML = (data.bajas || []).map((r, idx) => (
+      `<tr><td>${r.nombre}</td><td><input type="date" data-tipo="baja" data-idx="${idx}" value="${toInputDate(r.fecha_baja_sugerida)}"></td><td><button type="button" class="btn btn-secondary btn-remove" data-tabla="baja" data-idx="${idx}">Quitar</button></td></tr>`
+    )).join("");
+  }
+
+  function toInputDate(v) {
+    if (!v) return "";
+    const s = String(v).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split("/");
+      return `${y}-${m}-${d}`;
+    }
+    return s.slice(0, 10);
+  }
+
+  function fromInputDate(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  async function enviarSemanal() {
+    const cliente = selectedCliente();
+    const periodoInicio = $("periodo-inicio").value;
+    const periodoFin = $("periodo-fin").value;
+    if (!cliente || !periodoInicio || !periodoFin || !state.nombresPreview.length) {
+      showErr("left-error", "Completa cliente, periodo y preview de nómina antes de generar.");
+      return;
+    }
+    showErr("left-error", "");
+
+    const fd = new FormData();
+    fd.append("cliente", cliente);
+    fd.append("periodo_inicio", fromInputDate(periodoInicio));
+    fd.append("periodo_fin", fromInputDate(periodoFin));
+    fd.append("nombres_json", JSON.stringify(state.nombresPreview));
+    const data = await fetchJson("{{ url_for('comparativo.comparativo_semanal') }}", { method: "POST", body: fd });
+    renderResultado(data);
+    await cargarHistorial(1);
+  }
+
+  function openSimilitudes(similitudes) {
+    state.similitudesPendientes = similitudes.slice();
+    state.confirmaciones = [];
+    renderSimilitudes();
+    modalSim.showModal();
+  }
+
+  function renderSimilitudes() {
+    const total = state.similitudesPendientes.length;
+    const done = state.confirmaciones.length;
+    $("sim-progress").textContent = `${done} de ${total} confirmadas`;
+    $("sim-list").innerHTML = state.similitudesPendientes.map((s, idx) => (
+      `<div class="cmp-sim-item">
+        <div>¿'${s.nomina}' es la misma persona que '${s.headcount}'?</div>
+        <div style="margin-top:.5rem;display:flex;gap:.4rem;">
+          <button type="button" class="btn btn-primary sim-yes" data-idx="${idx}">Sí, es la misma</button>
+          <button type="button" class="btn btn-secondary sim-no" data-idx="${idx}">No, son diferentes</button>
+        </div>
+      </div>`
+    )).join("");
+  }
+
+  async function verificarYGenerar() {
+    try {
+      const cliente = selectedCliente();
+      const data = await fetchJson("{{ url_for('comparativo.verificar_similitudes') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombres_nomina: state.nombresPreview, cliente }),
+      });
+      if (data.hay_similitudes) {
+        openSimilitudes(data.similitudes || []);
+        return;
+      }
+      await enviarSemanal();
+    } catch (e) {
+      showErr("left-error", e.message);
+    }
+  }
+
+  async function confirmarAliasesYContinuar() {
+    try {
+      await fetchJson("{{ url_for('comparativo.confirmar_alias') }}", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmaciones: state.confirmaciones }),
+      });
+      modalSim.close();
+      await enviarSemanal();
+    } catch (e) {
+      showErr("sim-err", e.message);
+    }
+  }
+
+  function filtrarHistorial(items, q) {
+    const s = (q || "").trim().toLowerCase();
+    if (!s) return items;
+    return items.filter((it) => {
+      const blob = `${it.cliente || ""} ${it.periodo_inicio || ""} ${it.periodo_fin || ""}`.toLowerCase();
+      return blob.includes(s);
+    });
+  }
+
+  async function cargarHistorial(page) {
+    const p = page || 1;
+    const perPage = 10;
+    const data = await fetchJson(`{{ url_for('comparativo.historial_paginado') }}?page=${p}&per_page=${perPage}`);
+    state.historialPage = data.current_page || 1;
+    state.historialPages = data.pages || 1;
+    const q = $("hist-search").value || "";
+    const view = filtrarHistorial(data.items || [], q);
+    $("hist-tbody").innerHTML = view.map((it) => (
+      `<tr>
+        <td>${it.cliente || ""}</td>
+        <td>${it.periodo_inicio || ""} - ${it.periodo_fin || ""}</td>
+        <td>${(it.altas || []).length}</td>
+        <td>${(it.bajas || []).length}</td>
+        <td>${it.fecha_generacion || ""}</td>
+        <td><a class="btn btn-secondary" href="${exportUrlTemplate.replace('__ID__', encodeURIComponent(it.id))}">Excel</a></td>
+        <td><button type="button" class="btn btn-secondary hist-del" data-id="${it.id}">Eliminar</button></td>
+      </tr>`
+    )).join("") || '<tr><td colspan="7">Sin registros.</td></tr>';
+    $("hist-page").textContent = `${state.historialPage} / ${state.historialPages}`;
+  }
+
+  async function eliminarHistorial(id) {
+    await fetchJson(`{{ url_for('comparativo.eliminar_historial_item', comparativo_id='__ID__') }}`.replace("__ID__", encodeURIComponent(id)), { method: "DELETE" });
+    await cargarHistorial(state.historialPage);
+  }
+
+  async function guardarAgrupacion() {
+    const nombre = $("agrupacion-nombre").value.trim();
+    const clientes = [...$("agrupacion-checks").querySelectorAll("input[type='checkbox']:checked")].map((c) => c.value);
+    if (!nombre || !clientes.length) {
+      showErr("agrupacion-err", "Nombre y al menos un cliente son obligatorios.");
+      return;
+    }
+    showErr("agrupacion-err", "");
+    await fetchJson("{{ url_for('comparativo.guardar_agrupacion_route') }}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nombre, clientes }),
+    });
+    $("agrupacion-msg").textContent = "Agrupación guardada.";
+    $("agrupacion-msg").hidden = false;
+    await cargarAgrupaciones();
+  }
+
+  async function eliminarAgrupacion() {
+    const nombre = $("agrupacion-delete-select").value;
+    if (!nombre) return;
+    await fetchJson(`{{ url_for('comparativo.eliminar_agrupacion_route', nombre='__N__') }}`.replace("__N__", encodeURIComponent(nombre)), { method: "DELETE" });
+    $("agrupacion-msg").textContent = "Agrupación eliminada.";
+    $("agrupacion-msg").hidden = false;
+    await cargarAgrupaciones();
+  }
+
+  $("btn-forzar-sync").addEventListener("click", async () => {
+    $("sync-msg").hidden = true;
+    $("sync-err").hidden = true;
+    try {
+      const data = await fetchJson("{{ url_for('comparativo.actualizar_headcount_route') }}", { method: "POST" });
+      $("sync-msg").textContent = data.message || "Actualización forzada.";
+      $("sync-msg").hidden = false;
+      await cargarActivosPorCliente();
+    } catch (e) {
+      $("sync-err").textContent = e.message;
+      $("sync-err").hidden = false;
+    }
+  });
+
+  clienteSelect.addEventListener("change", () => {
+    const isOtro = clienteSelect.value === "__otro__";
+    clienteLibreWrap.hidden = !isOtro;
+  });
+
+  $("nomina-file").addEventListener("change", async (ev) => {
+    const file = ev.target.files && ev.target.files[0];
+    if (!file) return;
+    showErr("left-error", "");
+    try {
+      await previewNomina(file);
+    } catch (e) {
+      showErr("left-error", e.message);
+    }
+  });
+
+  $("btn-generar").addEventListener("click", verificarYGenerar);
+  $("btn-agrupacion").addEventListener("click", () => {
+    $("agrupacion-msg").hidden = true;
+    showErr("agrupacion-err", "");
+    renderAgrupacionChecks();
+    modalAgrup.showModal();
+  });
+  $("agrupacion-close").addEventListener("click", () => modalAgrup.close());
+  $("agrupacion-save").addEventListener("click", guardarAgrupacion);
+  $("agrupacion-delete").addEventListener("click", eliminarAgrupacion);
+
+  $("sim-list").addEventListener("click", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const yes = t.closest(".sim-yes");
+    const no = t.closest(".sim-no");
+    if (!yes && !no) return;
+    const idx = parseInt((yes || no).getAttribute("data-idx") || "-1", 10);
+    if (idx < 0 || idx >= state.similitudesPendientes.length) return;
+    const item = state.similitudesPendientes[idx];
+    state.confirmaciones.push({
+      nomina: item.nomina,
+      headcount: item.headcount,
+      es_mismo: Boolean(yes),
+    });
+    state.similitudesPendientes.splice(idx, 1);
+    if (!state.similitudesPendientes.length) {
+      await confirmarAliasesYContinuar();
+      return;
+    }
+    renderSimilitudes();
+  });
+
+  $("tabla-altas").addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".btn-remove[data-tabla='alta']");
+    if (!btn) return;
+    const idx = parseInt(btn.getAttribute("data-idx") || "-1", 10);
+    if (idx < 0) return;
+    state.resultado.altas.splice(idx, 1);
+    renderResultado(state.resultado);
+  });
+  $("tabla-bajas").addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".btn-remove[data-tabla='baja']");
+    if (!btn) return;
+    const idx = parseInt(btn.getAttribute("data-idx") || "-1", 10);
+    if (idx < 0) return;
+    state.resultado.bajas.splice(idx, 1);
+    renderResultado(state.resultado);
+  });
+
+  $("btn-exportar").addEventListener("click", () => {
+    if (!state.comparativoId || !state.resultado) return;
+    const altasRows = state.resultado.altas.map((r, idx) => {
+      const input = document.querySelector(`input[data-tipo='alta'][data-idx='${idx}']`);
+      return { nombre: r.nombre, fecha: fromInputDate(input ? input.value : "") || r.fecha_alta_sugerida };
+    });
+    const bajasRows = state.resultado.bajas.map((r, idx) => {
+      const input = document.querySelector(`input[data-tipo='baja'][data-idx='${idx}']`);
+      return { nombre: r.nombre, fecha: fromInputDate(input ? input.value : "") || r.fecha_baja_sugerida };
+    });
+    const q = new URLSearchParams({
+      altas_json: JSON.stringify(altasRows),
+      bajas_json: JSON.stringify(bajasRows),
+    });
+    window.location.href = `{{ url_for('comparativo.exportar_semanal', comparativo_id='__ID__') }}`.replace("__ID__", encodeURIComponent(state.comparativoId)) + "?" + q.toString();
+  });
+
+  $("hist-refresh").addEventListener("click", () => cargarHistorial(state.historialPage));
+  $("hist-search").addEventListener("input", () => cargarHistorial(state.historialPage));
+  $("hist-prev").addEventListener("click", () => {
+    if (state.historialPage > 1) cargarHistorial(state.historialPage - 1);
+  });
+  $("hist-next").addEventListener("click", () => {
+    if (state.historialPage < state.historialPages) cargarHistorial(state.historialPage + 1);
+  });
+  $("hist-tbody").addEventListener("click", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".hist-del");
+    if (!btn) return;
+    const id = btn.getAttribute("data-id");
+    if (!id) return;
+    if (!window.confirm("¿Eliminar este comparativo del historial?")) return;
+    await eliminarHistorial(id);
+  });
+
+  const finInput = $("periodo-fin");
+  const iniInput = $("periodo-inicio");
+  finInput.addEventListener("change", () => {
+    if (!iniInput.value) iniInput.value = finInput.value;
+  });
+  modalSim.addEventListener("cancel", (ev) => ev.preventDefault());
+
+  cargarActivosPorCliente();
+  cargarAgrupaciones();
+  cargarHistorial(1);
+})();
+</script>
 {% endblock %}

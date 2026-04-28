@@ -18,6 +18,8 @@
     <span class="nav-group-label">Movimientos IMSS</span>
     <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo movimiento</a>
     <a href="{{ url_for('historial') }}" class="nav-link">Historial de movimientos</a>
+    <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link">Exportar IDSE/SUA</a>
+    <a href="{{ url_for('exportacion_imss.nuevo_get') }}" class="nav-link">Nuevo movimiento IMSS</a>
   </div>
 
   <div class="nav-group">
@@ -41,20 +43,10 @@
   </div>
 
   <div class="nav-group">
-    <span class="nav-group-label">COMPARATIVO</span>
-    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
-    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Reporte mensual</a>
-  </div>
-
-  <div class="nav-group">
-    <span class="nav-group-label">EXPORTACIÓN IMSS</span>
-    <a href="{{ url_for('exportacion_imss.nuevo_get') }}" class="nav-link">Nuevo movimiento</a>
-    <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link">Historial movimientos</a>
-  </div>
-
-  <div class="nav-group">
     <span class="nav-group-label">Herramientas</span>
     <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
+    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
+    <a href="{{ url_for('comparativo.index') }}#reporte-mensual" class="nav-link">Reporte mensual</a>
   </div>
 
   {% if current_user.role == 'admin' %}

@@ -1,0 +1,24 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Comparativo</span>
+    <h2>Reporte mensual</h2>
+    <p>Selecciona un cliente con datos para consultar el consolidado mensual.</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('comparativo.index') }}">Volver a comparativo</a>
+  </div>
+</section>
+
+<div class="form-card">
+  <h3>Clientes con datos</h3>
+  <ul>
+    {% for cliente in clientes_con_datos %}
+    <li>{{ cliente }}</li>
+    {% else %}
+    <li>No hay nóminas guardadas todavía.</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endblock %}

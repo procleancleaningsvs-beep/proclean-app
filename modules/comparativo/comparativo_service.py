@@ -7,11 +7,14 @@ from datetime import datetime
 from typing import Any
 
 from openpyxl import load_workbook
+from rapidfuzz import fuzz
 
+from modules.comparativo import alias_service
 from modules.comparativo.headcount_service import buscar_trabajador
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 COMPARATIVOS_DIR = os.path.join(DATA_DIR, "comparativos")
+NOMINAS_DIR = os.path.join(DATA_DIR, "nominas")
 
 
 def _normalize_spaces(value: str) -> str:
@@ -32,6 +35,13 @@ def _parse_ddmmyyyy(value: str) -> datetime | None:
         except ValueError:
             continue
     return None
+
+
+def _parse_period_sort_key(value: str) -> datetime:
+    parsed = _parse_ddmmyyyy(value)
+    if parsed is not None:
+        return parsed
+    return datetime.min
 
 
 def parsear_nomina(file) -> list[str]:
@@ -210,3 +220,117 @@ def generar_reporte_mensual(cliente: str, mes: int, anio: int) -> dict[str, Any]
         }
     except Exception as exc:
         raise ValueError(f"No se pudo generar reporte mensual: {exc}") from exc
+
+
+def detectar_similitudes(lista_nomina: list[str], lista_activos: list[str], umbral: int = 88) -> list[dict[str, Any]]:
+    try:
+        similitudes: list[dict[str, Any]] = []
+        activos_norm = [_normalize_name(n) for n in lista_activos if _normalize_name(n)]
+
+        for nombre_raw in lista_nomina:
+            nomina_norm = _normalize_name(nombre_raw)
+            if not nomina_norm:
+                continue
+
+            alias = alias_service.obtener_alias(nomina_norm)
+            if alias:
+                # Alias conocido: se toma como resuelto y se omite sugerencia.
+                continue
+
+            for activo in activos_norm:
+                if nomina_norm == activo:
+                    continue
+                score = float(fuzz.ratio(nomina_norm, activo))
+                if score >= float(umbral):
+                    similitudes.append(
+                        {
+                            "nomina": nomina_norm,
+                            "headcount": activo,
+                            "score": score,
+                        }
+                    )
+
+        similitudes.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+        return similitudes
+    except Exception as exc:
+        raise ValueError(f"No se pudo detectar similitudes: {exc}") from exc
+
+
+def aplicar_aliases_y_comparar(lista_nomina_raw: list[str], lista_activos: list[str]) -> dict[str, Any]:
+    try:
+        lista_resuelta: list[str] = []
+        aliases_aplicados: list[dict[str, str]] = []
+
+        for nombre_raw in lista_nomina_raw:
+            original = _normalize_name(nombre_raw)
+            if not original:
+                continue
+            alias = alias_service.obtener_alias(original)
+            resuelto = _normalize_name(alias) if alias else original
+            lista_resuelta.append(resuelto)
+            if resuelto != original:
+                aliases_aplicados.append({"original": original, "resuelto": resuelto})
+
+        resultado = comparar_listas(lista_resuelta, lista_activos)
+        resultado["aliases_aplicados"] = aliases_aplicados
+        return resultado
+    except Exception as exc:
+        raise ValueError(f"No se pudo aplicar aliases y comparar: {exc}") from exc
+
+
+def guardar_nomina_semana(
+    cliente: str,
+    periodo_inicio: str,
+    periodo_fin: str,
+    lista_nombres: list[str],
+) -> dict[str, Any]:
+    try:
+        os.makedirs(NOMINAS_DIR, exist_ok=True)
+        nombres_norm = sorted({_normalize_name(n) for n in lista_nombres if _normalize_name(n)})
+        payload: dict[str, Any] = {
+            "cliente": str(cliente or "").strip(),
+            "periodo_inicio": str(periodo_inicio or "").strip(),
+            "periodo_fin": str(periodo_fin or "").strip(),
+            "fecha_guardado": datetime.now().isoformat(),
+            "empleados": nombres_norm,
+        }
+
+        agrupaciones = alias_service.obtener_agrupaciones()
+        if payload["cliente"] in agrupaciones:
+            raw_clients = agrupaciones.get(payload["cliente"], [])
+            payload["clientes_agrupados"] = [str(c).strip() for c in raw_clients if str(c).strip()]
+
+        safe_cliente = _normalize_spaces(payload["cliente"] or "general").replace(" ", "_").replace("/", "-")
+        safe_inicio = payload["periodo_inicio"].replace("/", "-")
+        safe_fin = payload["periodo_fin"].replace("/", "-")
+        out_path = os.path.join(NOMINAS_DIR, f"{safe_cliente}_{safe_inicio}_{safe_fin}.json")
+        with open(out_path, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, ensure_ascii=False, indent=2)
+        return payload
+    except Exception as exc:
+        raise ValueError(f"No se pudo guardar nómina semanal: {exc}") from exc
+
+
+def obtener_nominas_guardadas(cliente: str | None = None) -> list[dict[str, Any]]:
+    try:
+        os.makedirs(NOMINAS_DIR, exist_ok=True)
+        items: list[dict[str, Any]] = []
+        for name in os.listdir(NOMINAS_DIR):
+            if not name.lower().endswith(".json"):
+                continue
+            path = os.path.join(NOMINAS_DIR, name)
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if not isinstance(data, dict):
+                continue
+            if cliente:
+                objetivo = str(cliente).strip().casefold()
+                cliente_nomina = str(data.get("cliente", "")).strip().casefold()
+                agrupados = [str(c).strip().casefold() for c in data.get("clientes_agrupados", []) if str(c).strip()]
+                if objetivo != cliente_nomina and objetivo not in agrupados:
+                    continue
+            items.append(data)
+        items.sort(key=lambda x: _parse_period_sort_key(str(x.get("periodo_inicio", ""))), reverse=True)
+        return items
+    except Exception as exc:
+        raise ValueError(f"No se pudo obtener nóminas guardadas: {exc}") from exc
