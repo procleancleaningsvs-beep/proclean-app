@@ -6,9 +6,10 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from modules.comparativo.headcount_service import obtener_activos
+
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 MOVIMIENTOS_DIR = os.path.join(DATA_DIR, "movimientos_imss")
-HEADCOUNT_PATH = os.path.join(DATA_DIR, "headcount.json")
 
 
 def _normalize_spaces(value: str) -> str:
@@ -225,17 +226,10 @@ def obtener_movimientos(tipo: str | None = None, cliente: str | None = None, fec
 
 def autocompletar_desde_headcount(nss: str | None = None, nombre_completo: str | None = None) -> dict[str, Any] | None:
     try:
-        if not os.path.exists(HEADCOUNT_PATH):
-            return None
-        with open(HEADCOUNT_PATH, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-        if not isinstance(data, list):
-            return None
+        data = obtener_activos()
         nss_objetivo = _normalize_spaces(str(nss or "").strip())
         nombre_objetivo = _normalize_name(nombre_completo)
         for row in data:
-            if not isinstance(row, dict):
-                continue
             row_nss = _normalize_spaces(str(row.get("nss", "")).strip())
             row_nombre = _normalize_name(row.get("nombre_completo", ""))
             if nss_objetivo and row_nss == nss_objetivo:

@@ -10,7 +10,7 @@
 
 {% if not headcount.exists %}
 <div class="flash flash-error" style="margin-bottom:1rem;">
-  No existe base de headcount. Primero carga el archivo de personal activo para habilitar comparativos.
+  No se pudo sincronizar headcount desde OneDrive. Verifica la conectividad y la variable HEADCOUNT_ONEDRIVE_URL.
 </div>
 {% endif %}
 
@@ -18,18 +18,16 @@
   <h3>Base de datos de personal</h3>
   <p>
     {% if headcount.exists %}
-      Última actualización: {{ headcount.fecha_actualizacion }} |
+      Última actualización: {{ headcount.fecha_actualizacion or 'Pendiente de primera consulta' }} |
       Total activos: {{ headcount.total_activos }} |
       Clientes detectados: {{ headcount.clientes_detectados|length }}
     {% else %}
-      Sin base cargada.
+      Sin sincronización disponible en este momento.
     {% endif %}
   </p>
-  <form method="post" action="{{ url_for('comparativo.actualizar_headcount_route') }}" enctype="multipart/form-data">
-    <label>Archivo Excel de headcount
-      <input type="file" name="headcount_file" accept=".xlsx,.xlsm,.xltx,.xltm" required>
-    </label>
-    <button type="submit" class="btn btn-primary">Actualizar base</button>
+  <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
+  <form method="post" action="{{ url_for('comparativo.actualizar_headcount_route') }}">
+    <button type="submit" class="btn btn-primary">🔄 Forzar actualización desde OneDrive</button>
   </form>
 </div>
 

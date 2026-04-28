@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import os
 from functools import wraps
-from datetime import datetime
 
 from flask import Blueprint, g, jsonify, redirect, render_template, request, send_file, flash, url_for
 from openpyxl import Workbook
@@ -15,10 +14,9 @@ from modules.comparativo.comparativo_service import (
     parsear_nomina,
     comparar_listas,
 )
-from modules.comparativo.headcount_service import actualizar_headcount, obtener_activos
+from modules.comparativo.headcount_service import actualizar_headcount, obtener_activos, obtener_metadata_headcount
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
-HEADCOUNT_PATH = os.path.join(DATA_DIR, "headcount.json")
 COMPARATIVOS_DIR = os.path.join(DATA_DIR, "comparativos")
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 _TEMPLATE_DIR = os.path.join(_BASE, "templates", "comparativo")
@@ -51,15 +49,13 @@ def _ensure_dirs() -> None:
 
 
 def _headcount_meta() -> dict:
-    if not os.path.exists(HEADCOUNT_PATH):
-        return {"exists": False, "total_activos": 0, "fecha_actualizacion": None, "clientes_detectados": []}
     activos = obtener_activos()
     clientes = sorted({a.get("cliente", "") for a in activos if a.get("cliente")})
-    ts = os.path.getmtime(HEADCOUNT_PATH)
+    meta = obtener_metadata_headcount()
     return {
-        "exists": True,
+        "exists": bool(meta.get("url_configurada")),
         "total_activos": len(activos),
-        "fecha_actualizacion": datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M:%S"),
+        "fecha_actualizacion": meta.get("fecha_actualizacion"),
         "clientes_detectados": clientes,
     }
 
@@ -68,7 +64,10 @@ def _headcount_meta() -> dict:
 @_login_required_page
 def index():
     _ensure_dirs()
-    meta = _headcount_meta()
+    try:
+        meta = _headcount_meta()
+    except Exception:
+        meta = {"exists": False, "total_activos": 0, "fecha_actualizacion": None, "clientes_detectados": []}
     historial = obtener_historial()[:10]
     clientes = meta["clientes_detectados"]
     return render_template(
@@ -83,16 +82,9 @@ def index():
 @_login_required_page
 def actualizar_headcount_route():
     _ensure_dirs()
-    file = request.files.get("headcount_file")
-    if not file:
-        flash("Debes subir un archivo de headcount.", "error")
-        return redirect(url_for("comparativo.index"))
     try:
-        result = actualizar_headcount(file)
-        flash(
-            f"Headcount actualizado. Activos: {result['total_activos']} | Clientes: {len(result['clientes_detectados'])}",
-            "success",
-        )
+        result = actualizar_headcount()
+        flash(result.get("message", "Caché de headcount invalidado."), "success")
     except Exception as exc:
         flash(str(exc), "error")
     return redirect(url_for("comparativo.index"))
