@@ -13,6 +13,11 @@ from openpyxl import Workbook
 from modules.comparativo import alias_service
 from modules.comparativo.comparativo_service import (
     aplicar_aliases_y_comparar,
+    guardar_reporte_mensual,
+    generar_reporte_mensual_v2,
+    obtener_historial_reportes,
+    obtener_resumen_nominas_por_cliente,
+    REPORTES_MENSUALES_DIR,
     detectar_similitudes,
     generar_reporte_mensual,
     guardar_comparativo_semanal,
@@ -50,6 +55,7 @@ def _ensure_dirs() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(COMPARATIVOS_DIR, exist_ok=True)
     os.makedirs(os.path.join(DATA_DIR, "nominas"), exist_ok=True)
+    os.makedirs(REPORTES_MENSUALES_DIR, exist_ok=True)
     try:
         os.makedirs("/app/data/comparativos", exist_ok=True)
     except OSError:
@@ -112,6 +118,25 @@ def _headcount_meta() -> dict:
         "clientes_detectados": clientes,
         "activos_por_cliente": por_cliente,
     }
+
+
+def _reporte_path(cliente: str, anio: int, mes: int) -> str:
+    safe = " ".join(str(cliente or "").split()).replace(" ", "_").replace("/", "-")
+    return os.path.join(REPORTES_MENSUALES_DIR, f"{safe}_{int(anio):04d}-{int(mes):02d}.json")
+
+
+def _load_reporte_guardado(cliente: str, anio: int, mes: int) -> dict | None:
+    path = _reporte_path(cliente, anio, mes)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
 
 
 @comparativo_bp.get("/")
@@ -357,9 +382,211 @@ def eliminar_historial_item(comparativo_id: str):
 @comparativo_bp.get("/reporte-mensual")
 @_login_required_page
 def reporte_mensual_index():
-    nominas = obtener_nominas_guardadas()
-    clientes_con_datos = sorted({str(n.get("cliente", "")).strip() for n in nominas if str(n.get("cliente", "")).strip()})
-    return render_template("comparativo/reporte_mensual.html", clientes_con_datos=clientes_con_datos)
+    return render_template("comparativo/reporte_mensual.html")
+
+
+@comparativo_bp.get("/reporte-mensual/resumen-clientes")
+@_login_required_page
+def reporte_mensual_resumen_clientes():
+    try:
+        resumen = obtener_resumen_nominas_por_cliente()
+        historial = obtener_historial_reportes()
+        return jsonify({"ok": True, "resumen": resumen, "historial_reportes": historial})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@comparativo_bp.post("/reporte-mensual/generar")
+@_login_required_page
+def reporte_mensual_generar():
+    data = request.get_json(silent=True) or {}
+    cliente = str(data.get("cliente") or "").strip()
+    mes = data.get("mes")
+    anio = data.get("anio")
+    if not cliente or mes is None or anio is None:
+        return jsonify({"ok": False, "error": "cliente, mes y anio son obligatorios."}), 400
+    try:
+        reporte = generar_reporte_mensual_v2(cliente, int(mes), int(anio))
+        guardar_reporte_mensual(reporte)
+        return jsonify({"ok": True, "reporte": reporte})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@comparativo_bp.post("/reporte-mensual/confirmar-similitudes")
+@_login_required_page
+def reporte_mensual_confirmar_similitudes():
+    data = request.get_json(silent=True) or {}
+    confirmaciones = data.get("confirmaciones") or []
+    cliente = str(data.get("cliente") or "").strip()
+    mes = data.get("mes")
+    anio = data.get("anio")
+    if not cliente or mes is None or anio is None:
+        return jsonify({"ok": False, "error": "cliente, mes y anio son obligatorios."}), 400
+    if not isinstance(confirmaciones, list):
+        return jsonify({"ok": False, "error": "confirmaciones debe ser lista."}), 400
+    guardados = 0
+    for item in confirmaciones:
+        if not isinstance(item, dict):
+            continue
+        es_mismo = bool(item.get("es_mismo"))
+        if not es_mismo:
+            continue
+        nombre_a = str(item.get("nombre_a") or item.get("nomina") or "").strip()
+        nombre_b = str(item.get("nombre_b") or item.get("headcount") or "").strip()
+        if nombre_a and nombre_b:
+            alias_service.guardar_alias(nombre_a, nombre_b)
+            guardados += 1
+    try:
+        reporte = generar_reporte_mensual_v2(cliente, int(mes), int(anio))
+        guardar_reporte_mensual(reporte)
+        return jsonify({"ok": True, "aliases_guardados": guardados, "reporte": reporte})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@comparativo_bp.post("/reporte-mensual/actualizar-fecha")
+@_login_required_page
+def reporte_mensual_actualizar_fecha():
+    data = request.get_json(silent=True) or {}
+    cliente = str(data.get("cliente") or "").strip()
+    mes = data.get("mes")
+    anio = data.get("anio")
+    nombre = str(data.get("nombre") or "").strip().upper()
+    tipo_fecha = str(data.get("tipo_fecha") or "").strip().lower()
+    nueva_fecha = str(data.get("nueva_fecha") or "").strip()
+    if not cliente or mes is None or anio is None or not nombre or tipo_fecha not in {"alta", "baja"}:
+        return jsonify({"ok": False, "error": "Datos incompletos para actualizar fecha."}), 400
+    path = _reporte_path(cliente, int(anio), int(mes))
+    if not os.path.exists(path):
+        return jsonify({"ok": False, "error": "Reporte no encontrado."}), 404
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            reporte = json.load(fh)
+        if not isinstance(reporte, dict):
+            return jsonify({"ok": False, "error": "Reporte inválido."}), 400
+        rotativos = reporte.get("rotativos")
+        if not isinstance(rotativos, list):
+            return jsonify({"ok": False, "error": "Estructura de rotativos inválida."}), 400
+        updated = False
+        for r in rotativos:
+            if not isinstance(r, dict):
+                continue
+            if str(r.get("nombre", "")).strip().upper() != nombre:
+                continue
+            key = f"fecha_{tipo_fecha}"
+            r[key] = nueva_fecha or None
+            alertas = r.get("alertas")
+            if not isinstance(alertas, list):
+                alertas = []
+            if tipo_fecha == "alta":
+                alertas = [a for a in alertas if "Sin fecha de alta" not in str(a)]
+            else:
+                alertas = [a for a in alertas if "Sin fecha de baja" not in str(a)]
+            r["alertas"] = alertas
+            updated = True
+            break
+        if not updated:
+            return jsonify({"ok": False, "error": "Empleado no encontrado en rotativos."}), 404
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(reporte, fh, ensure_ascii=False, indent=2)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@comparativo_bp.get("/reporte-mensual/exportar")
+@_login_required_page
+def reporte_mensual_exportar():
+    cliente = str(request.args.get("cliente") or "").strip()
+    mes_raw = str(request.args.get("mes") or "").strip()
+    anio_raw = str(request.args.get("anio") or "").strip()
+    if not cliente or not mes_raw or not anio_raw:
+        return jsonify({"ok": False, "error": "Parámetros cliente, mes y anio requeridos."}), 400
+    reporte = _load_reporte_guardado(cliente, int(anio_raw), int(mes_raw))
+    if not reporte:
+        return jsonify({"ok": False, "error": "Reporte mensual no encontrado."}), 404
+
+    wb = Workbook()
+    ws_all = wb.active
+    ws_all.title = "Personal del mes"
+    ws_all.append(["Nombre", "Tipo", "Fecha Alta", "Fecha Baja", "En Headcount", "Alertas"])
+    for f in reporte.get("fijos", []):
+        if not isinstance(f, dict):
+            continue
+        ws_all.append(
+            [
+                f.get("nombre", ""),
+                "Fijo",
+                "",
+                "",
+                "SI" if f.get("en_headcount") else "NO",
+                f.get("alerta") or "",
+            ]
+        )
+    for r in reporte.get("rotativos", []):
+        if not isinstance(r, dict):
+            continue
+        ws_all.append(
+            [
+                r.get("nombre", ""),
+                "Rotativo",
+                r.get("fecha_alta") or "",
+                r.get("fecha_baja") or "",
+                "SI" if r.get("en_headcount") else "NO",
+                " | ".join([str(a) for a in r.get("alertas", [])]),
+            ]
+        )
+
+    ws_fijos = wb.create_sheet("Fijos")
+    ws_fijos.append(["Nombre", "En Headcount", "Alerta"])
+    for f in reporte.get("fijos", []):
+        if not isinstance(f, dict):
+            continue
+        ws_fijos.append([f.get("nombre", ""), "SI" if f.get("en_headcount") else "NO", f.get("alerta") or ""])
+
+    ws_rot = wb.create_sheet("Rotativos")
+    ws_rot.append(["Nombre", "Fecha Alta", "Fecha Baja", "En Headcount", "Alertas", "Semanas"])
+    for r in reporte.get("rotativos", []):
+        if not isinstance(r, dict):
+            continue
+        ws_rot.append(
+            [
+                r.get("nombre", ""),
+                r.get("fecha_alta") or "",
+                r.get("fecha_baja") or "",
+                "SI" if r.get("en_headcount") else "NO",
+                " | ".join([str(a) for a in r.get("alertas", [])]),
+                " | ".join([str(s) for s in r.get("semanas_presente", [])]),
+            ]
+        )
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"reporte_mensual_{cliente}_{int(anio_raw):04d}-{int(mes_raw):02d}.xlsx"
+    return send_file(
+        output,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True,
+        download_name=filename,
+    )
+
+
+@comparativo_bp.delete("/reporte-mensual/<cliente>/<anio>/<mes>")
+@_login_required_page
+def reporte_mensual_eliminar(cliente: str, anio: str, mes: str):
+    try:
+        path = _reporte_path(unquote(cliente), int(anio), int(mes))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Parámetros inválidos."}), 400
+    if not os.path.exists(path):
+        return jsonify({"ok": False, "error": "Reporte no encontrado."}), 404
+    try:
+        os.remove(path)
+        return jsonify({"ok": True})
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
 
 
 @comparativo_bp.get("/mensual")

@@ -1,24 +1,463 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.rpt-layout { display:grid; gap:1rem; }
+.rpt-row { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; }
+.rpt-left, .rpt-right, .rpt-bottom { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.rpt-placeholder { color:#64748b; border:1px dashed #cbd5e1; border-radius:10px; padding:1rem; text-align:center; }
+.rpt-acc details { border:1px solid #e5e7eb; border-radius:10px; margin-bottom:.6rem; background:#f8fafc; }
+.rpt-acc summary { cursor:pointer; list-style:none; padding:.65rem .8rem; font-weight:700; }
+.rpt-acc summary::-webkit-details-marker { display:none; }
+.rpt-month { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.55rem .8rem; border-top:1px solid #e5e7eb; }
+.rpt-month-meta { font-size:.9rem; color:#475569; }
+.rpt-badge-ok { color:#166534; background:#dcfce7; border:1px solid #bbf7d0; border-radius:999px; padding:.2rem .55rem; font-size:.82rem; }
+.rpt-badge-warn { color:#9a3412; background:#ffedd5; border:1px solid #fed7aa; border-radius:999px; padding:.2rem .55rem; font-size:.82rem; }
+.rpt-head { display:flex; align-items:center; justify-content:space-between; gap:.8rem; flex-wrap:wrap; margin-bottom:.8rem; }
+.rpt-meta { display:flex; gap:.65rem; align-items:center; flex-wrap:wrap; color:#334155; }
+.rpt-table-wrap { overflow:auto; margin-bottom:.8rem; }
+.rpt-table { width:100%; border-collapse:collapse; }
+.rpt-table th, .rpt-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
+.rpt-input-date { width:100%; min-width:140px; }
+.rpt-input-date.rpt-empty { border:1px solid #dc2626; }
+.rpt-alert { color:#b45309; font-size:.88rem; }
+.rpt-tools { display:flex; gap:.6rem; align-items:center; margin-bottom:.7rem; }
+.rpt-pagination { display:flex; gap:.6rem; justify-content:flex-end; align-items:center; margin-top:.6rem; }
+.rpt-inline-err { color:#b91c1c; font-size:.9rem; margin:.45rem 0; }
+.rpt-inline-msg { color:#0f766e; font-size:.9rem; margin:.45rem 0; }
+dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw); }
+.rpt-modal-head, .rpt-modal-foot { padding:1rem; border-bottom:1px solid #e5e7eb; }
+.rpt-modal-foot { border-top:1px solid #e5e7eb; border-bottom:0; display:flex; justify-content:flex-end; gap:.5rem; }
+.rpt-modal-body { padding:1rem; }
+.rpt-sim-item { border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
+@media (max-width: 1024px) { .rpt-row { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
 {% block content %}
 <section class="page-head">
   <div>
     <span class="eyebrow">Comparativo</span>
     <h2>Reporte mensual</h2>
-    <p>Selecciona un cliente con datos para consultar el consolidado mensual.</p>
+    <p>Sección independiente para consolidar personal fijo y rotativo por mes.</p>
   </div>
   <div class="page-head-actions">
-    <a class="btn btn-secondary" href="{{ url_for('comparativo.index') }}">Volver a comparativo</a>
+    <a class="btn btn-secondary" href="{{ url_for('comparativo.index') }}">Volver a comparativo semanal</a>
   </div>
 </section>
 
-<div class="form-card">
-  <h3>Clientes con datos</h3>
-  <ul>
-    {% for cliente in clientes_con_datos %}
-    <li>{{ cliente }}</li>
-    {% else %}
-    <li>No hay nóminas guardadas todavía.</li>
-    {% endfor %}
-  </ul>
+<div class="rpt-layout">
+  <div class="rpt-row">
+    <section class="rpt-left">
+      <h3>Datos disponibles</h3>
+      <p id="datos-empty" hidden>No hay nóminas cargadas. Genera comparativos semanales primero.</p>
+      <div id="datos-accordion" class="rpt-acc"></div>
+      <p id="left-err" class="rpt-inline-err" hidden></p>
+    </section>
+
+    <section class="rpt-right">
+      <div id="resultado-placeholder" class="rpt-placeholder">El reporte aparecerá aquí.</div>
+      <div id="resultado-wrap" hidden>
+        <div class="rpt-head">
+          <div>
+            <h3 id="rep-title">Reporte mensual</h3>
+            <div id="rep-meta" class="rpt-meta"></div>
+          </div>
+          <button type="button" class="btn btn-primary" id="btn-exportar">Exportar Excel</button>
+        </div>
+
+        <details id="fijos-details">
+          <summary id="fijos-summary">Personal fijo (0)</summary>
+          <div class="rpt-table-wrap">
+            <table class="rpt-table">
+              <thead><tr><th>Nombre</th><th>En Headcount</th></tr></thead>
+              <tbody id="fijos-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+
+        <h4 style="margin-top:.8rem;">Personal rotativo (<span id="rot-count">0</span>)</h4>
+        <div class="rpt-table-wrap">
+          <table class="rpt-table">
+            <thead>
+              <tr><th>Nombre</th><th>Fecha alta</th><th>Fecha baja</th><th>Alertas</th></tr>
+            </thead>
+            <tbody id="rot-tbody"></tbody>
+          </table>
+        </div>
+        <p id="save-msg" class="rpt-inline-msg" hidden></p>
+        <p id="save-err" class="rpt-inline-err" hidden></p>
+      </div>
+    </section>
+  </div>
+
+  <section class="rpt-bottom">
+    <h3>Historial de reportes</h3>
+    <div class="rpt-tools">
+      <input type="search" id="hist-search" placeholder="Buscar por cliente o mes">
+      <button type="button" class="btn btn-secondary" id="hist-refresh">Actualizar</button>
+    </div>
+    <div class="rpt-table-wrap">
+      <table class="rpt-table">
+        <thead>
+          <tr><th>Cliente</th><th>Mes</th><th>Fijos</th><th>Rotativos</th><th>Completo</th><th>Exportar</th><th>Eliminar</th></tr>
+        </thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </div>
+    <div class="rpt-pagination">
+      <button type="button" class="btn btn-secondary" id="hist-prev">Anterior</button>
+      <span id="hist-page">1 / 1</span>
+      <button type="button" class="btn btn-secondary" id="hist-next">Siguiente</button>
+    </div>
+  </section>
 </div>
+
+<dialog id="sim-modal" class="rpt-modal">
+  <div class="rpt-modal-head"><h3>Verificación de nombres</h3></div>
+  <div class="rpt-modal-body">
+    <p id="sim-progress">0 de 0 confirmadas</p>
+    <div id="sim-list"></div>
+    <p id="sim-err" class="rpt-inline-err" hidden></p>
+  </div>
+</dialog>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    resumen: {},
+    historial: [],
+    reporte: null,
+    cliente: null,
+    mes: null,
+    anio: null,
+    simPendientes: [],
+    simConfirmaciones: [],
+    histPage: 1,
+    histPages: 1,
+  };
+
+  const resumenUrl = "{{ url_for('comparativo.reporte_mensual_resumen_clientes') }}";
+  const generarUrl = "{{ url_for('comparativo.reporte_mensual_generar') }}";
+  const confirmarUrl = "{{ url_for('comparativo.reporte_mensual_confirmar_similitudes') }}";
+  const actualizarFechaUrl = "{{ url_for('comparativo.reporte_mensual_actualizar_fecha') }}";
+  const exportarUrlBase = "{{ url_for('comparativo.reporte_mensual_exportar') }}";
+  const eliminarUrlTpl = "{{ url_for('comparativo.reporte_mensual_eliminar', cliente='__C__', anio='__A__', mes='__M__') }}";
+  const simModal = $("sim-modal");
+
+  async function fetchJson(url, opts) {
+    const r = await fetch(url, opts);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.error || "Error de solicitud");
+    return j;
+  }
+
+  function mesLabel(mes, anio) {
+    const dt = new Date(Number(anio), Number(mes) - 1, 1);
+    return dt.toLocaleDateString("es-MX", { month: "long", year: "numeric" }).replace(/^./, (m) => m.toUpperCase());
+  }
+
+  function toInputDate(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split("/");
+      return `${y}-${m}-${d}`;
+    }
+    return s.slice(0, 10);
+  }
+
+  function fromInputDate(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  function renderAccordion() {
+    const wrap = $("datos-accordion");
+    const clientes = Object.keys(state.resumen || {}).sort();
+    if (!clientes.length) {
+      $("datos-empty").hidden = false;
+      wrap.innerHTML = "";
+      return;
+    }
+    $("datos-empty").hidden = true;
+    wrap.innerHTML = clientes.map((cliente) => {
+      const meses = state.resumen[cliente]?.meses || {};
+      const keys = Object.keys(meses).sort().reverse();
+      const rows = keys.map((k) => {
+        const m = meses[k];
+        const badge = m.completo
+          ? '<span class="rpt-badge-ok">✅ Completo</span>'
+          : '<span class="rpt-badge-warn">⚠️ Incompleto</span>';
+        return `<div class="rpt-month">
+          <div>
+            <strong>${mesLabel(m.mes, m.anio)}</strong>
+            <div class="rpt-month-meta">${m.periodos_count} periodos · ${m.dias_cubiertos} días cubiertos</div>
+            <div class="rpt-month-meta">${m.semanas_faltantes || ""}</div>
+          </div>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            ${badge}
+            <button type="button" class="btn btn-primary btn-gen" data-cliente="${encodeURIComponent(cliente)}" data-mes="${m.mes}" data-anio="${m.anio}">Generar reporte</button>
+          </div>
+        </div>`;
+      }).join("");
+      return `<details><summary>${cliente}</summary>${rows || '<div class="rpt-month">Sin meses disponibles.</div>'}</details>`;
+    }).join("");
+  }
+
+  function renderReporte(rep) {
+    state.reporte = rep;
+    $("resultado-placeholder").hidden = true;
+    $("resultado-wrap").hidden = false;
+    const completoBadge = rep.completo
+      ? '<span class="rpt-badge-ok">✅ Mes completo</span>'
+      : `<span class="rpt-badge-warn">⚠️ Mes incompleto${rep.advertencia_completitud ? `: ${rep.advertencia_completitud}` : ""}</span>`;
+    $("rep-title").textContent = "Reporte mensual";
+    $("rep-meta").innerHTML = `
+      <span><strong>${rep.cliente}</strong></span>
+      <span>${mesLabel(rep.mes, rep.anio)}</span>
+      <span>Total personal: ${rep.total_personal_mes}</span>
+      ${completoBadge}
+    `;
+
+    const fijos = Array.isArray(rep.fijos) ? rep.fijos : [];
+    $("fijos-summary").textContent = `Personal fijo (${fijos.length})`;
+    $("fijos-details").open = fijos.length <= 20;
+    $("fijos-tbody").innerHTML = fijos.map((f) => (
+      `<tr>
+        <td>${f.nombre || ""}</td>
+        <td>${f.en_headcount ? "Sí" : `⚠️ ${f.alerta || "No"}`}</td>
+      </tr>`
+    )).join("") || '<tr><td colspan="2">Sin personal fijo.</td></tr>';
+
+    const rot = Array.isArray(rep.rotativos) ? rep.rotativos : [];
+    $("rot-count").textContent = String(rot.length);
+    $("rot-tbody").innerHTML = rot.map((r, idx) => {
+      const alertas = Array.isArray(r.alertas) ? r.alertas : [];
+      const altaVal = toInputDate(r.fecha_alta);
+      const bajaVal = toInputDate(r.fecha_baja);
+      const altaCls = altaVal ? "" : "rpt-empty";
+      const bajaCls = bajaVal ? "" : "rpt-empty";
+      return `<tr>
+        <td>${r.nombre || ""}</td>
+        <td><input type="date" class="rpt-input-date ${altaCls}" data-idx="${idx}" data-tipo="alta" value="${altaVal}" title="${alertas.join(" | ")}"></td>
+        <td><input type="date" class="rpt-input-date ${bajaCls}" data-idx="${idx}" data-tipo="baja" value="${bajaVal}" title="${alertas.join(" | ")}"></td>
+        <td>${alertas.length ? `<span class="rpt-alert" title="${alertas.join(" | ")}">⚠️ ${alertas.join(" | ")}</span>` : "—"}</td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="4">Sin personal rotativo.</td></tr>';
+  }
+
+  function openSimilitudes(list) {
+    state.simPendientes = list.slice();
+    state.simConfirmaciones = [];
+    renderSimModal();
+    simModal.showModal();
+  }
+
+  function renderSimModal() {
+    const total = state.simPendientes.length + state.simConfirmaciones.length;
+    const done = state.simConfirmaciones.length;
+    $("sim-progress").textContent = `${done} de ${total} confirmadas`;
+    $("sim-list").innerHTML = state.simPendientes.map((s, idx) => (
+      `<div class="rpt-sim-item">
+        <div>¿'${s.nombre_a}' es la misma persona que '${s.nombre_b}'?</div>
+        <div style="margin-top:.5rem;display:flex;gap:.4rem;">
+          <button type="button" class="btn btn-primary sim-yes" data-idx="${idx}">Sí, es la misma</button>
+          <button type="button" class="btn btn-secondary sim-no" data-idx="${idx}">No, son diferentes</button>
+        </div>
+      </div>`
+    )).join("");
+  }
+
+  async function cargarResumen() {
+    try {
+      const data = await fetchJson(resumenUrl);
+      state.resumen = data.resumen || {};
+      state.historial = Array.isArray(data.historial_reportes) ? data.historial_reportes : [];
+      renderAccordion();
+      renderHistorial(1);
+    } catch (e) {
+      $("left-err").textContent = e.message;
+      $("left-err").hidden = false;
+    }
+  }
+
+  async function generar(cliente, mes, anio) {
+    state.cliente = cliente;
+    state.mes = Number(mes);
+    state.anio = Number(anio);
+    const data = await fetchJson(generarUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cliente, mes: state.mes, anio: state.anio }),
+    });
+    const rep = data.reporte || {};
+    if (Array.isArray(rep.similitudes_detectadas) && rep.similitudes_detectadas.length) {
+      openSimilitudes(rep.similitudes_detectadas);
+      return;
+    }
+    renderReporte(rep);
+    await cargarResumen();
+  }
+
+  async function confirmarSimilitudes() {
+    const data = await fetchJson(confirmarUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmaciones: state.simConfirmaciones,
+        cliente: state.cliente,
+        mes: state.mes,
+        anio: state.anio,
+      }),
+    });
+    simModal.close();
+    renderReporte(data.reporte || {});
+    await cargarResumen();
+  }
+
+  function filtrarHistorial(items, q) {
+    const s = String(q || "").trim().toLowerCase();
+    if (!s) return items;
+    return items.filter((i) => `${i.cliente || ""} ${i.mes || ""}/${i.anio || ""}`.toLowerCase().includes(s));
+  }
+
+  function renderHistorial(page) {
+    const per = 10;
+    const filtered = filtrarHistorial(state.historial || [], $("hist-search").value || "");
+    const total = filtered.length;
+    state.histPages = total ? Math.ceil(total / per) : 1;
+    state.histPage = Math.min(Math.max(1, page), state.histPages);
+    const start = (state.histPage - 1) * per;
+    const rows = filtered.slice(start, start + per);
+    $("hist-tbody").innerHTML = rows.map((r) => {
+      const badge = r.completo ? '<span class="rpt-badge-ok">Sí</span>' : '<span class="rpt-badge-warn">No</span>';
+      const q = new URLSearchParams({ cliente: r.cliente, mes: String(r.mes), anio: String(r.anio) }).toString();
+      const delUrl = eliminarUrlTpl.replace("__C__", encodeURIComponent(r.cliente)).replace("__A__", encodeURIComponent(String(r.anio))).replace("__M__", encodeURIComponent(String(r.mes)));
+      return `<tr>
+        <td>${r.cliente}</td>
+        <td>${mesLabel(r.mes, r.anio)}</td>
+        <td>${r.fijos_count}</td>
+        <td>${r.rotativos_count}</td>
+        <td>${badge}</td>
+        <td><a class="btn btn-secondary" href="${exportarUrlBase}?${q}">Excel</a></td>
+        <td><button type="button" class="btn btn-secondary hist-del" data-url="${delUrl}">Eliminar</button></td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="7">Sin reportes guardados.</td></tr>';
+    $("hist-page").textContent = `${state.histPage} / ${state.histPages}`;
+  }
+
+  $("datos-accordion").addEventListener("click", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".btn-gen");
+    if (!btn) return;
+    const cliente = decodeURIComponent(btn.getAttribute("data-cliente") || "");
+    const mes = btn.getAttribute("data-mes");
+    const anio = btn.getAttribute("data-anio");
+    if (!cliente || !mes || !anio) return;
+    try {
+      await generar(cliente, Number(mes), Number(anio));
+    } catch (e) {
+      $("left-err").textContent = e.message;
+      $("left-err").hidden = false;
+    }
+  });
+
+  $("sim-list").addEventListener("click", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const yes = t.closest(".sim-yes");
+    const no = t.closest(".sim-no");
+    if (!yes && !no) return;
+    const idx = parseInt((yes || no).getAttribute("data-idx") || "-1", 10);
+    if (idx < 0 || idx >= state.simPendientes.length) return;
+    const s = state.simPendientes[idx];
+    state.simConfirmaciones.push({
+      nombre_a: s.nombre_a,
+      nombre_b: s.nombre_b,
+      es_mismo: Boolean(yes),
+    });
+    state.simPendientes.splice(idx, 1);
+    if (!state.simPendientes.length) {
+      try {
+        await confirmarSimilitudes();
+      } catch (e) {
+        $("sim-err").textContent = e.message;
+        $("sim-err").hidden = false;
+      }
+      return;
+    }
+    renderSimModal();
+  });
+  simModal.addEventListener("cancel", (ev) => ev.preventDefault());
+
+  $("rot-tbody").addEventListener("change", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLInputElement)) return;
+    if (!state.reporte || !t.matches("input[type='date'][data-idx][data-tipo]")) return;
+    const idx = parseInt(t.getAttribute("data-idx") || "-1", 10);
+    const tipo = t.getAttribute("data-tipo");
+    if (idx < 0 || !tipo) return;
+    const row = (state.reporte.rotativos || [])[idx];
+    if (!row) return;
+    $("save-msg").hidden = true;
+    $("save-err").hidden = true;
+    try {
+      await fetchJson(actualizarFechaUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          cliente: state.reporte.cliente,
+          mes: state.reporte.mes,
+          anio: state.reporte.anio,
+          nombre: row.nombre,
+          tipo_fecha: tipo,
+          nueva_fecha: fromInputDate(t.value),
+        }),
+      });
+      $("save-msg").textContent = "Fecha actualizada.";
+      $("save-msg").hidden = false;
+      await generar(state.reporte.cliente, state.reporte.mes, state.reporte.anio);
+    } catch (e) {
+      $("save-err").textContent = e.message;
+      $("save-err").hidden = false;
+    }
+  });
+
+  $("btn-exportar").addEventListener("click", () => {
+    if (!state.reporte) return;
+    const q = new URLSearchParams({
+      cliente: state.reporte.cliente,
+      mes: String(state.reporte.mes),
+      anio: String(state.reporte.anio),
+    }).toString();
+    window.location.href = `${exportarUrlBase}?${q}`;
+  });
+
+  $("hist-refresh").addEventListener("click", () => cargarResumen());
+  $("hist-search").addEventListener("input", () => renderHistorial(1));
+  $("hist-prev").addEventListener("click", () => { if (state.histPage > 1) renderHistorial(state.histPage - 1); });
+  $("hist-next").addEventListener("click", () => { if (state.histPage < state.histPages) renderHistorial(state.histPage + 1); });
+  $("hist-tbody").addEventListener("click", async (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".hist-del");
+    if (!btn) return;
+    const url = btn.getAttribute("data-url");
+    if (!url) return;
+    if (!window.confirm("¿Eliminar este reporte mensual?")) return;
+    try {
+      await fetchJson(url, { method: "DELETE" });
+      await cargarResumen();
+    } catch (e) {
+      window.alert(e.message);
+    }
+  });
+
+  cargarResumen();
+})();
+</script>
 {% endblock %}

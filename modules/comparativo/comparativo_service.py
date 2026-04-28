@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from openpyxl import load_workbook
@@ -15,6 +16,7 @@ from modules.comparativo.headcount_service import buscar_trabajador
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 COMPARATIVOS_DIR = os.path.join(DATA_DIR, "comparativos")
 NOMINAS_DIR = os.path.join(DATA_DIR, "nominas")
+REPORTES_MENSUALES_DIR = os.path.join(DATA_DIR, "reportes_mensuales")
 
 
 def _normalize_spaces(value: str) -> str:
@@ -42,6 +44,52 @@ def _parse_period_sort_key(value: str) -> datetime:
     if parsed is not None:
         return parsed
     return datetime.min
+
+
+def _ddmmyyyy(dt: date | datetime | None) -> str:
+    if dt is None:
+        return ""
+    if isinstance(dt, datetime):
+        return dt.strftime("%d/%m/%Y")
+    return dt.strftime("%d/%m/%Y")
+
+
+def _date_from_str(value: str | None) -> date | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _safe_slug_cliente(cliente: str) -> str:
+    return _normalize_spaces(str(cliente or "general")).replace(" ", "_").replace("/", "-")
+
+
+def _iter_json_dicts(path: str) -> list[dict[str, Any]]:
+    if not os.path.exists(path):
+        return []
+    out: list[dict[str, Any]] = []
+    for name in os.listdir(path):
+        if not name.lower().endswith(".json"):
+            continue
+        fp = os.path.join(path, name)
+        try:
+            with open(fp, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                out.append(data)
+        except Exception:
+            continue
+    return out
+
+
+def _mes_key(anio: int, mes: int) -> str:
+    return f"{anio:04d}-{mes:02d}"
 
 
 def parsear_nomina(file) -> list[str]:
@@ -334,3 +382,349 @@ def obtener_nominas_guardadas(cliente: str | None = None) -> list[dict[str, Any]
         return items
     except Exception as exc:
         raise ValueError(f"No se pudo obtener nóminas guardadas: {exc}") from exc
+
+
+def obtener_resumen_nominas_por_cliente() -> dict[str, Any]:
+    try:
+        os.makedirs(NOMINAS_DIR, exist_ok=True)
+        comparativos = _iter_json_dicts(COMPARATIVOS_DIR)
+        comparativo_map: dict[tuple[str, str, str], str] = {}
+        for comp in comparativos:
+            key = (
+                str(comp.get("cliente", "")).strip(),
+                str(comp.get("periodo_inicio", "")).strip(),
+                str(comp.get("periodo_fin", "")).strip(),
+            )
+            comparativo_map[key] = str(comp.get("id", "")).strip()
+
+        resumen: dict[str, Any] = {}
+        for nom in _iter_json_dicts(NOMINAS_DIR):
+            cliente = str(nom.get("cliente", "")).strip()
+            if not cliente:
+                continue
+            inicio = str(nom.get("periodo_inicio", "")).strip()
+            fin = str(nom.get("periodo_fin", "")).strip()
+            fin_dt = _date_from_str(fin)
+            if fin_dt is None:
+                continue
+            mes = fin_dt.month
+            anio = fin_dt.year
+            cliente_block = resumen.setdefault(cliente, {"periodos": [], "meses": {}})
+            cliente_block["periodos"].append(
+                {
+                    "periodo_inicio": inicio,
+                    "periodo_fin": fin,
+                    "mes": mes,
+                    "anio": anio,
+                    "comparativo_id": comparativo_map.get((cliente, inicio, fin), ""),
+                }
+            )
+
+        for cliente, block in resumen.items():
+            periodos = block.get("periodos", [])
+            periodos.sort(key=lambda p: (_date_from_str(p.get("periodo_inicio", "")) or date.min), reverse=False)
+            meses_map: dict[str, Any] = {}
+            for p in periodos:
+                key = _mes_key(int(p["anio"]), int(p["mes"]))
+                m = meses_map.setdefault(
+                    key,
+                    {
+                        "mes": int(p["mes"]),
+                        "anio": int(p["anio"]),
+                        "periodos_count": 0,
+                        "fecha_min_dt": None,
+                        "fecha_max_dt": None,
+                    },
+                )
+                m["periodos_count"] += 1
+                ini_dt = _date_from_str(p.get("periodo_inicio", ""))
+                fin_dt = _date_from_str(p.get("periodo_fin", ""))
+                if ini_dt and (m["fecha_min_dt"] is None or ini_dt < m["fecha_min_dt"]):
+                    m["fecha_min_dt"] = ini_dt
+                if fin_dt and (m["fecha_max_dt"] is None or fin_dt > m["fecha_max_dt"]):
+                    m["fecha_max_dt"] = fin_dt
+
+            normalized_meses: dict[str, Any] = {}
+            for key, m in sorted(meses_map.items()):
+                fecha_min_dt = m.get("fecha_min_dt")
+                fecha_max_dt = m.get("fecha_max_dt")
+                dias_cubiertos = 0
+                if fecha_min_dt and fecha_max_dt and fecha_max_dt >= fecha_min_dt:
+                    dias_cubiertos = (fecha_max_dt - fecha_min_dt).days + 1
+                comp = calcular_completitud_mes(cliente, int(m["mes"]), int(m["anio"]))
+                normalized_meses[key] = {
+                    "mes": int(m["mes"]),
+                    "anio": int(m["anio"]),
+                    "periodos_count": int(m["periodos_count"]),
+                    "fecha_min": _ddmmyyyy(fecha_min_dt),
+                    "fecha_max": _ddmmyyyy(fecha_max_dt),
+                    "dias_cubiertos": dias_cubiertos,
+                    "completo": bool(comp.get("completo")),
+                    "semanas_faltantes": comp.get("advertencia") or "",
+                }
+            block["meses"] = normalized_meses
+            block["periodos"] = sorted(
+                periodos,
+                key=lambda p: (_date_from_str(p.get("periodo_inicio", "")) or date.min),
+                reverse=True,
+            )
+        return resumen
+    except Exception as exc:
+        raise ValueError(f"No se pudo obtener resumen de nóminas por cliente: {exc}") from exc
+
+
+def calcular_completitud_mes(cliente: str, mes: int, anio: int) -> dict[str, Any]:
+    try:
+        nominas = obtener_nominas_guardadas(cliente=cliente)
+        periodos = []
+        for n in nominas:
+            fin_dt = _date_from_str(str(n.get("periodo_fin", "")))
+            if fin_dt and fin_dt.month == int(mes) and fin_dt.year == int(anio):
+                periodos.append(n)
+        periodos_count = len(periodos)
+        fecha_min = None
+        fecha_max = None
+        for p in periodos:
+            ini_dt = _date_from_str(str(p.get("periodo_inicio", "")))
+            fin_dt = _date_from_str(str(p.get("periodo_fin", "")))
+            if ini_dt and (fecha_min is None or ini_dt < fecha_min):
+                fecha_min = ini_dt
+            if fin_dt and (fecha_max is None or fin_dt > fecha_max):
+                fecha_max = fin_dt
+        dias_cubiertos = 0
+        if fecha_min and fecha_max and fecha_max >= fecha_min:
+            dias_cubiertos = (fecha_max - fecha_min).days + 1
+        completo = dias_cubiertos >= 24
+        advertencia = None
+        if not completo:
+            advertencia = f"Se detectaron {dias_cubiertos} días cubiertos de ~28-31 esperados"
+        return {
+            "completo": completo,
+            "dias_cubiertos": dias_cubiertos,
+            "periodos_count": periodos_count,
+            "advertencia": advertencia,
+        }
+    except Exception as exc:
+        raise ValueError(f"No se pudo calcular completitud del mes: {exc}") from exc
+
+
+def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, Any]:
+    try:
+        mes = int(mes)
+        anio = int(anio)
+        agrupaciones = alias_service.obtener_agrupaciones()
+        clientes_objetivo = (
+            [str(c).strip() for c in agrupaciones.get(cliente, []) if str(c).strip()]
+            if cliente in agrupaciones
+            else [cliente]
+        )
+        if not clientes_objetivo:
+            clientes_objetivo = [cliente]
+
+        all_nominas = _iter_json_dicts(NOMINAS_DIR)
+        semanas: list[dict[str, Any]] = []
+        for n in all_nominas:
+            c = str(n.get("cliente", "")).strip()
+            if c not in clientes_objetivo:
+                continue
+            fin_dt = _date_from_str(str(n.get("periodo_fin", "")))
+            if fin_dt is None or fin_dt.month != mes or fin_dt.year != anio:
+                continue
+            empleados_raw = n.get("empleados", [])
+            empleados_norm = set()
+            if isinstance(empleados_raw, list):
+                for emp in empleados_raw:
+                    nom = _normalize_name(emp)
+                    if not nom:
+                        continue
+                    alias = alias_service.obtener_alias(nom)
+                    nom = _normalize_name(alias) if alias else nom
+                    if nom:
+                        empleados_norm.add(nom)
+            semanas.append(
+                {
+                    "cliente": c,
+                    "periodo_inicio": str(n.get("periodo_inicio", "")).strip(),
+                    "periodo_fin": str(n.get("periodo_fin", "")).strip(),
+                    "empleados": empleados_norm,
+                }
+            )
+        semanas.sort(key=lambda s: (_date_from_str(s["periodo_inicio"]) or date.min))
+
+        if not semanas:
+            base_comp = calcular_completitud_mes(cliente, mes, anio)
+            return {
+                "cliente": cliente,
+                "mes": mes,
+                "anio": anio,
+                "completo": bool(base_comp.get("completo")),
+                "advertencia_completitud": base_comp.get("advertencia"),
+                "total_personal_mes": 0,
+                "fijos": [],
+                "rotativos": [],
+                "similitudes_detectadas": [],
+            }
+
+        semana_sets = [s["empleados"] for s in semanas]
+        todos_del_mes: set[str] = set().union(*semana_sets)
+
+        comparativos_mes = []
+        for c in _iter_json_dicts(COMPARATIVOS_DIR):
+            c_cliente = str(c.get("cliente", "")).strip()
+            if c_cliente not in clientes_objetivo:
+                continue
+            fin_dt = _date_from_str(str(c.get("periodo_fin", "")))
+            ini_dt = _date_from_str(str(c.get("periodo_inicio", "")))
+            if not ((fin_dt and fin_dt.month == mes and fin_dt.year == anio) or (ini_dt and ini_dt.month == mes and ini_dt.year == anio)):
+                continue
+            comparativos_mes.append(c)
+
+        altas_internas: dict[str, str] = {}
+        bajas_internas: dict[str, str] = {}
+        for c in comparativos_mes:
+            for raw in c.get("altas", []):
+                n = _normalize_name(raw)
+                if not n:
+                    continue
+                fecha = str(c.get("periodo_inicio", "")).strip()
+                old = _date_from_str(altas_internas.get(n, ""))
+                cur = _date_from_str(fecha)
+                if old is None or (cur is not None and cur < old):
+                    altas_internas[n] = fecha
+            for raw in c.get("bajas", []):
+                n = _normalize_name(raw)
+                if not n:
+                    continue
+                fecha = str(c.get("fecha_baja_asumida", "")).strip()
+                old = _date_from_str(bajas_internas.get(n, ""))
+                cur = _date_from_str(fecha)
+                if old is None or (cur is not None and cur > old):
+                    bajas_internas[n] = fecha
+
+        total_semanas = len(semanas)
+        fijos: list[dict[str, Any]] = []
+        rotativos: list[dict[str, Any]] = []
+        periodos_ordenados = [s.get("periodo_inicio", "") for s in semanas]
+
+        for nombre in sorted(todos_del_mes):
+            semanas_presente = [
+                s.get("periodo_inicio", "")
+                for s in semanas
+                if nombre in s.get("empleados", set())
+            ]
+            en_todas = len(semanas_presente) == total_semanas
+            trabajador_hc = buscar_trabajador(nombre)
+            en_headcount = trabajador_hc is not None
+
+            if en_todas:
+                alerta = None if en_headcount else "No encontrado en Headcount"
+                fijos.append(
+                    {
+                        "nombre": nombre,
+                        "en_headcount": en_headcount,
+                        "alerta": alerta,
+                    }
+                )
+                continue
+
+            alertas: list[str] = []
+            fecha_alta_cmp = altas_internas.get(nombre)
+            fecha_hc = str((trabajador_hc or {}).get("fecha_ingreso", "")).strip() if trabajador_hc else ""
+            fecha_alta = None
+            if fecha_alta_cmp and fecha_hc:
+                if _date_from_str(fecha_alta_cmp) != _date_from_str(fecha_hc):
+                    fecha_alta = fecha_alta_cmp
+                    alertas.append(f"Fecha difiere del Headcount: {fecha_hc}")
+                else:
+                    fecha_alta = fecha_alta_cmp
+            elif fecha_alta_cmp:
+                fecha_alta = fecha_alta_cmp
+            elif fecha_hc:
+                fecha_alta = fecha_hc
+            else:
+                alertas.append("Sin fecha de alta - requiere captura manual")
+
+            fecha_baja = bajas_internas.get(nombre)
+            if not fecha_baja:
+                alertas.append("Sin fecha de baja - requiere captura manual")
+
+            rotativos.append(
+                {
+                    "nombre": nombre,
+                    "fecha_alta": fecha_alta,
+                    "fecha_baja": fecha_baja,
+                    "alertas": alertas,
+                    "semanas_presente": semanas_presente,
+                    "en_headcount": en_headcount,
+                }
+            )
+
+        similitudes_detectadas: list[dict[str, Any]] = []
+        nombres_reporte = sorted(todos_del_mes)
+        for i in range(len(nombres_reporte)):
+            for j in range(i + 1, len(nombres_reporte)):
+                a = nombres_reporte[i]
+                b = nombres_reporte[j]
+                if a == b:
+                    continue
+                score = float(fuzz.ratio(a, b))
+                if score >= 88:
+                    similitudes_detectadas.append({"nombre_a": a, "nombre_b": b, "score": score})
+        similitudes_detectadas.sort(key=lambda x: float(x.get("score", 0)), reverse=True)
+
+        comp = calcular_completitud_mes(cliente, mes, anio)
+        return {
+            "cliente": cliente,
+            "mes": mes,
+            "anio": anio,
+            "completo": bool(comp.get("completo")),
+            "advertencia_completitud": comp.get("advertencia"),
+            "total_personal_mes": len(todos_del_mes),
+            "fijos": fijos,
+            "rotativos": rotativos,
+            "similitudes_detectadas": similitudes_detectadas,
+            "semanas": periodos_ordenados,
+        }
+    except Exception as exc:
+        raise ValueError(f"No se pudo generar reporte mensual v2: {exc}") from exc
+
+
+def guardar_reporte_mensual(reporte_dict: dict[str, Any]) -> dict[str, Any]:
+    try:
+        os.makedirs(REPORTES_MENSUALES_DIR, exist_ok=True)
+        cliente = _safe_slug_cliente(str(reporte_dict.get("cliente", "")))
+        anio = int(reporte_dict.get("anio"))
+        mes = int(reporte_dict.get("mes"))
+        path = os.path.join(REPORTES_MENSUALES_DIR, f"{cliente}_{anio:04d}-{mes:02d}.json")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(reporte_dict, fh, ensure_ascii=False, indent=2)
+        return reporte_dict
+    except Exception as exc:
+        raise ValueError(f"No se pudo guardar reporte mensual: {exc}") from exc
+
+
+def obtener_historial_reportes(cliente: str | None = None) -> list[dict[str, Any]]:
+    try:
+        os.makedirs(REPORTES_MENSUALES_DIR, exist_ok=True)
+        items: list[dict[str, Any]] = []
+        for rep in _iter_json_dicts(REPORTES_MENSUALES_DIR):
+            cli = str(rep.get("cliente", "")).strip()
+            if cliente and cli.casefold() != str(cliente).strip().casefold():
+                continue
+            fijos = rep.get("fijos") if isinstance(rep.get("fijos"), list) else []
+            rot = rep.get("rotativos") if isinstance(rep.get("rotativos"), list) else []
+            items.append(
+                {
+                    "cliente": cli,
+                    "mes": int(rep.get("mes", 0)),
+                    "anio": int(rep.get("anio", 0)),
+                    "total_personal_mes": int(rep.get("total_personal_mes", len(fijos) + len(rot))),
+                    "fijos_count": len(fijos),
+                    "rotativos_count": len(rot),
+                    "completo": bool(rep.get("completo", False)),
+                }
+            )
+        items.sort(key=lambda x: (int(x.get("anio", 0)), int(x.get("mes", 0))), reverse=True)
+        return items
+    except Exception as exc:
+        raise ValueError(f"No se pudo obtener historial de reportes mensuales: {exc}") from exc
