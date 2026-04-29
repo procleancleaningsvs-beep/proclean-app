@@ -11,3 +11,4 @@ openpyxl>=3.1,<4.0
 pandas>=2.0,<3.0
 python-docx>=1.1,<2.0
 rapidfuzz>=3.0.0
+# Keep rapidfuzz available at runtime for comparativo imports.
