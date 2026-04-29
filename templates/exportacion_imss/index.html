@@ -7,10 +7,14 @@
 .imss-sec { margin-bottom:1rem; padding-bottom:.8rem; border-bottom:1px solid #e5e7eb; }
 .imss-sec:last-child { border-bottom:0; margin-bottom:0; padding-bottom:0; }
 .imss-form-grid { display:grid; grid-template-columns:1fr; gap:.55rem; }
+.imss-worker-grid { display:grid; grid-template-columns:1fr; gap:12px; }
+.imss-pair-60-40 { display:grid; grid-template-columns:3fr 2fr; gap:12px; }
+.imss-pair-50-50 { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .imss-inline { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
 .imss-inline > * { flex:1; min-width:120px; }
 .imss-field { display:flex; flex-direction:column; gap:.25rem; }
 .imss-field label { font-weight:600; }
+.imss-hidden { display:none !important; }
 .imss-msg { font-size:.9rem; margin:.35rem 0; }
 .imss-msg.ok { color:#0f766e; }
 .imss-msg.err { color:#b91c1c; }
@@ -54,9 +58,25 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
 .imss-dropdown-menu.show { display:block; }
 .imss-dropdown-menu button { width:100%; text-align:left; background:none; border:0; padding:.35rem .45rem; cursor:pointer; }
 .imss-help { font-size:.8rem; color:#64748b; }
+.imss-help.warn { color:#b45309; font-weight:600; }
+.imss-import-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+.imss-import-dropdown { position:relative; display:inline-block; }
+.imss-import-menu {
+  position:absolute; left:0; top:calc(100% + 4px); z-index:25; min-width:260px;
+  border:1px solid #e5e7eb; border-radius:10px; background:#fff; padding:.35rem;
+  box-shadow:0 8px 24px rgba(15,23,42,.15); display:none;
+}
+.imss-import-menu.show { display:block; }
+.imss-import-menu button {
+  width:100%; text-align:left; border:0; background:none; padding:.45rem .5rem; border-radius:8px; cursor:pointer;
+}
+.imss-import-menu button:hover { background:#f1f5f9; }
 @keyframes imss-spin { to { transform:translateY(-50%) rotate(360deg); } }
 @keyframes imss-fade { from { opacity:1; } to { opacity:0; } }
-@media (max-width: 1100px) { .imss-main { grid-template-columns:1fr; } }
+@media (max-width: 1100px) {
+  .imss-main { grid-template-columns:1fr; }
+  .imss-pair-60-40, .imss-pair-50-50 { grid-template-columns:1fr; }
+}
 </style>
 {% endblock %}
 
@@ -127,25 +147,31 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         </div>
         <p id="hc-msg" class="imss-msg" hidden></p>
 
-        <div class="imss-form-grid">
-          <div class="imss-field"><label for="nss">NSS</label><input id="nss" type="text" maxlength="11"></div>
-          <div class="imss-field">
-            <label for="rfc">RFC</label>
-            <input id="rfc" type="text" maxlength="13">
-            <span class="imss-help">(opcional, requerido para SUA)</span>
+        <div class="imss-worker-grid">
+          <div class="imss-pair-60-40">
+            <div class="imss-field"><label for="nss">NSS</label><input id="nss" type="text" maxlength="11"></div>
+            <div class="imss-field">
+              <label for="rfc">RFC</label>
+              <input id="rfc" type="text" maxlength="13">
+              <span class="imss-help">(opcional, requerido para SUA)</span>
+            </div>
           </div>
-          <div class="imss-field"><label for="curp">CURP</label><input id="curp" type="text" maxlength="18"></div>
-          <div class="imss-field"><label for="apellido-paterno">Apellido paterno</label><input id="apellido-paterno" type="text"></div>
-          <div class="imss-field"><label for="apellido-materno">Apellido materno</label><input id="apellido-materno" type="text"></div>
-          <div class="imss-field"><label for="nombres">Nombres</label><input id="nombres" type="text"></div>
-          <div class="imss-field">
-            <label for="sbc-select">SBC</label>
-            <select id="sbc-select"></select>
+          <div class="imss-pair-60-40">
+            <div class="imss-field"><label for="curp">CURP</label><input id="curp" type="text" maxlength="18"></div>
+            <div class="imss-field">
+              <label for="sbc-select">SBC</label>
+              <select id="sbc-select"></select>
+            </div>
           </div>
           <div class="imss-field" id="sbc-extra-wrap" hidden>
             <label for="sbc-extra">SBC personalizado</label>
             <input id="sbc-extra" type="number" step="0.01" min="0">
           </div>
+          <div class="imss-pair-50-50">
+            <div class="imss-field"><label for="apellido-paterno">Apellido paterno</label><input id="apellido-paterno" type="text"></div>
+            <div class="imss-field"><label for="apellido-materno">Apellido materno</label><input id="apellido-materno" type="text"></div>
+          </div>
+          <div class="imss-field"><label for="nombres">Nombres</label><input id="nombres" type="text"></div>
         </div>
         <div class="imss-inline" style="margin-top:.45rem;">
           <button type="button" class="btn btn-primary" id="btn-agregar-mov">Agregar movimiento</button>
@@ -154,29 +180,19 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       </div>
 
       <div class="imss-sec">
-        <div class="imss-divider">O importar múltiples</div>
-        <div class="imss-inline">
-          <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.plantilla_excel') }}">📥 Descargar plantilla Excel</a>
-          <button type="button" class="btn btn-secondary" id="btn-importar-excel">📂 Importar desde Excel</button>
+        <div class="imss-divider">Importación masiva</div>
+        <div class="imss-import-actions">
+          <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.plantilla_excel') }}">Descargar plantilla</a>
+          <div class="imss-import-dropdown">
+            <button type="button" class="btn btn-secondary" id="btn-importar-menu">📥 Importar movimientos ▾</button>
+            <div id="import-menu" class="imss-import-menu">
+              <button type="button" id="opt-import-excel">Importar desde Excel</button>
+              <button type="button" id="opt-import-reporte">Importar desde reporte mensual</button>
+            </div>
+          </div>
           <input type="file" id="excel-file" hidden accept=".xlsx,.xlsm,.xltx,.xltm">
         </div>
         <p id="excel-msg" class="imss-msg" hidden></p>
-      </div>
-
-      <div class="imss-sec">
-        <div class="imss-divider">O cargar desde reporte mensual</div>
-        <div class="imss-form-grid">
-          <div class="imss-field">
-            <label for="reporte-select">Reporte disponible</label>
-            <select id="reporte-select"></select>
-          </div>
-          <label class="imss-inline" style="gap:.35rem;">
-            <input id="incluir-fijos" type="checkbox" style="flex:0;">
-            <span>Incluir personal fijo como ALTA</span>
-            <span class="imss-help" title="Las personas fijas se cargarán como movimiento de ALTA con su fecha de ingreso del headcount">ⓘ</span>
-          </label>
-          <button type="button" class="btn btn-secondary" id="btn-cargar-reporte">Cargar reporte</button>
-        </div>
         <p id="reporte-msg" class="imss-msg" hidden></p>
       </div>
     </section>
@@ -216,8 +232,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         <div class="imss-inline" style="margin-top:.45rem;">
           <button type="button" class="btn btn-primary" id="btn-export-idse" title="Genera TXT compatible con portal IDSE (todos los movimientos)">Exportar IDSE</button>
           <button type="button" class="btn btn-secondary" id="btn-export-sua" title="Genera TXT para SUA (solo movimientos de ALTA)">Exportar SUA</button>
-          <span id="sua-badge" class="imss-help">Solo se exportarán 0 altas</span>
         </div>
+        <p id="sua-badge" class="imss-help" style="margin:.4rem 0 0;" hidden></p>
         <p id="export-msg" class="imss-msg" hidden></p>
       </div>
     </section>
@@ -309,6 +325,53 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   <div class="imss-modal-foot"><button type="button" class="btn btn-secondary" id="hist-movs-close">Cerrar</button></div>
 </dialog>
 
+<dialog id="reporte-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Importar desde reporte mensual</h3></div>
+  <div class="imss-modal-body">
+    <div class="imss-form-grid">
+      <div class="imss-field">
+        <label for="reporte-select">Reporte disponible</label>
+        <select id="reporte-select"></select>
+      </div>
+      <label class="imss-inline" style="gap:.35rem;">
+        <input id="incluir-fijos" type="checkbox" style="flex:0;">
+        <span>Incluir personal fijo como ALTA</span>
+        <span class="imss-help" title="Las personas fijas se cargarán como movimiento de ALTA con su fecha de ingreso del headcount">ⓘ</span>
+      </label>
+    </div>
+    <p id="reporte-modal-msg" class="imss-msg" hidden></p>
+  </div>
+  <div class="imss-modal-foot">
+    <button type="button" class="btn btn-secondary" id="reporte-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-abrir-config-reporte">Cargar reporte</button>
+  </div>
+</dialog>
+
+<dialog id="config-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Configurar datos generales</h3></div>
+  <div class="imss-modal-body">
+    <div class="imss-form-grid">
+      <div class="imss-field">
+        <label for="config-rp-select">RP / Registro Patronal</label>
+        <select id="config-rp-select"></select>
+      </div>
+      <div class="imss-field">
+        <label for="config-sbc-select">SBC</label>
+        <select id="config-sbc-select"></select>
+      </div>
+      <div class="imss-field" id="config-sbc-extra-wrap" hidden>
+        <label for="config-sbc-extra">SBC personalizado</label>
+        <input id="config-sbc-extra" type="number" step="0.01" min="0">
+      </div>
+    </div>
+    <p id="config-msg" class="imss-msg" hidden></p>
+  </div>
+  <div class="imss-modal-foot">
+    <button type="button" class="btn btn-secondary" id="config-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-confirmar-carga-reporte">Confirmar y cargar</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -325,6 +388,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     histPages: 1,
     admin: false,
     pendingDeleteId: null,
+    pendingHistDeleteId: null,
+    pendingReportData: null,
   };
 
   const urls = {
@@ -458,8 +523,10 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     fillRpSelect("rp-select", true);
     fillRpSelect("rp-export-select", false);
     fillRpSelect("edit-rp", true);
+    fillRpSelect("config-rp-select", false);
     fillSbcSelect("sbc-select", "sbc-extra-wrap");
     fillSbcSelect("edit-sbc-select", "edit-sbc-extra-wrap");
+    fillSbcSelect("config-sbc-select", "config-sbc-extra-wrap");
   }
 
   async function loadMovimientos() {
@@ -479,9 +546,11 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       opt.textContent = "No hay reportes mensuales disponibles. Genera uno primero.";
       sel.appendChild(opt);
       sel.disabled = true;
+      setMsg("reporte-modal-msg", "No hay reportes mensuales disponibles. Genera uno primero.", "warn");
       return;
     }
     sel.disabled = false;
+    setMsg("reporte-modal-msg", "", "");
     state.reportes.forEach((r) => {
       const opt = document.createElement("option");
       opt.value = JSON.stringify({ cliente: r.cliente, mes: r.mes, anio: r.anio });
@@ -505,10 +574,21 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     const altas = state.movimientos.filter((m) => m.tipo_movimiento === "ALTA").length;
     const bajas = state.movimientos.filter((m) => m.tipo_movimiento === "BAJA").length;
     $("mov-counter").textContent = `${state.movimientos.length} movimientos (${altas} altas / ${bajas} bajas)`;
-    $("sua-badge").textContent = `Solo se exportarán ${altas} altas`;
     const exportDisabled = state.movimientos.length === 0;
     $("btn-export-idse").disabled = exportDisabled;
-    $("btn-export-sua").disabled = exportDisabled;
+    const suaBtn = $("btn-export-sua");
+    const suaBadge = $("sua-badge");
+    suaBtn.disabled = exportDisabled || altas === 0;
+    if (altas === 0) {
+      suaBtn.title = "No hay movimientos de ALTA para exportar al SUA";
+      suaBadge.hidden = true;
+      suaBadge.textContent = "";
+    } else {
+      suaBtn.title = "Genera TXT para SUA (solo movimientos de ALTA)";
+      suaBadge.hidden = false;
+      suaBadge.className = "imss-help warn";
+      suaBadge.textContent = `Solo se exportarán las ${altas} altas — ${bajas} bajas serán ignoradas`;
+    }
 
     if (!state.movimientos.length) {
       tbody.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
@@ -579,8 +659,16 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("sbc-extra").value = "";
     $("rp-extra").value = "";
     $("rfc-patron-extra").value = "";
-    $("rp-extra-wrap").hidden = $("rp-select").value !== "__otro__";
+    if ($("rp-select").value !== "__otro__") {
+      $("rp-extra-wrap").hidden = true;
+      $("rp-extra").value = "";
+      $("rfc-patron-extra").value = "";
+    }
     fillSbcSelect("sbc-select", "sbc-extra-wrap");
+    if ($("sbc-select").value !== "__otro__") {
+      $("sbc-extra-wrap").hidden = true;
+      $("sbc-extra").value = "";
+    }
   }
 
   function prefillMainFromHeadcount(datos) {
@@ -634,6 +722,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       await loadPatrones();
       $("rp-select").value = rp;
       $("rp-extra-wrap").hidden = true;
+      $("rp-extra").value = "";
+      $("rfc-patron-extra").value = "";
       setMsg("manual-msg", "Patrón guardado y seleccionado.", "ok");
     } catch (e) {
       setMsg("manual-msg", e.message, "err");
@@ -711,7 +801,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   }
 
   async function importFromExcel(file) {
-    const btn = $("btn-importar-excel");
+    const btn = $("btn-importar-menu");
     setLoading(btn, true);
     setMsg("excel-msg", "", "");
     try {
@@ -741,21 +831,62 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     }
   }
 
-  async function loadFromMonthlyReport() {
-    const btn = $("btn-cargar-reporte");
-    setLoading(btn, true);
-    setMsg("reporte-msg", "", "");
+  function openReportModal() {
+    setMsg("reporte-modal-msg", "", "");
+    $("reporte-modal").showModal();
+  }
+
+  function openConfigModalFromReport() {
     try {
       const val = $("reporte-select").value;
       if (!val) throw new Error("Selecciona un reporte mensual.");
+      if ($("reporte-select").disabled) throw new Error("No hay reportes disponibles para cargar.");
       const parsed = JSON.parse(val);
-      const incluir_fijos = Boolean($("incluir-fijos").checked);
+      state.pendingReportData = { ...parsed, incluir_fijos: Boolean($("incluir-fijos").checked) };
+      $("config-rp-select").value = $("rp-select").value !== "__otro__" ? $("rp-select").value : "";
+      fillSbcSelect("config-sbc-select", "config-sbc-extra-wrap");
+      $("config-sbc-select").value = $("sbc-select").value || "";
+      $("config-sbc-extra").value = normalize($("sbc-extra").value);
+      $("config-sbc-extra-wrap").hidden = $("config-sbc-select").value !== "__otro__";
+      setMsg("config-msg", "", "");
+      $("reporte-modal").close();
+      $("config-modal").showModal();
+    } catch (e) {
+      setMsg("reporte-modal-msg", e.message, "err");
+    }
+  }
+
+  async function loadFromMonthlyReportWithConfig() {
+    const btn = $("btn-confirmar-carga-reporte");
+    setLoading(btn, true);
+    setMsg("reporte-msg", "", "");
+    setMsg("config-msg", "", "");
+    try {
+      if (!state.pendingReportData) throw new Error("Primero selecciona un reporte.");
+      const rp_general = normalize($("config-rp-select").value);
+      const sbc_general = getSbc("config-sbc-select", "config-sbc-extra");
+      if (!rp_general) throw new Error("Selecciona RP general.");
+      if (!normalize(sbc_general)) throw new Error("Selecciona SBC general.");
+
+      const payload = {
+        ...state.pendingReportData,
+        rp_general,
+        sbc_general: normalize(sbc_general),
+      };
       const loaded = await fetchJson(urls.cargarReporte, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...parsed, incluir_fijos }),
+        body: JSON.stringify(payload),
       });
-      const movimientos = loaded.movimientos || [];
+
+      const rfcPatronGeneral = normalize((state.patrones || {})[rp_general]);
+      const movimientos = (loaded.movimientos || []).map((mov) => ({
+        ...mov,
+        rp: rp_general,
+        rfc_patron: rfcPatronGeneral || normalize(mov.rfc_patron),
+        sbc: normalize(sbc_general),
+      }));
+
       let saved = 0;
       for (const mov of movimientos) {
         try {
@@ -765,12 +896,16 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
             body: JSON.stringify(mov),
           });
           saved += 1;
-        } catch (_) {}
+        } catch (_) {
+          // continuar con el resto para no frenar la carga masiva
+        }
       }
       await loadMovimientos();
+      $("config-modal").close();
+      state.pendingReportData = null;
       setMsg("reporte-msg", `Se cargaron ${saved} movimientos (${loaded.con_alertas || 0} requieren atención)`, "ok");
     } catch (e) {
-      setMsg("reporte-msg", e.message, "err");
+      setMsg("config-msg", e.message, "err");
     } finally {
       setLoading(btn, false);
     }
@@ -932,7 +1067,12 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       if (!state.movimientos.length) throw new Error("Agrega movimientos para exportar");
       const rp = normalize($("rp-export-select").value);
       if (!rp) throw new Error("Selecciona un RP para exportar.");
-      const ids = state.movimientos.map((m) => m.id);
+      const ids = formato === "SUA"
+        ? state.movimientos.filter((m) => normalize(m.tipo_movimiento) === "ALTA").map((m) => m.id)
+        : state.movimientos.map((m) => m.id);
+      if (formato === "SUA" && ids.length === 0) {
+        throw new Error("No hay movimientos de ALTA para exportar al SUA.");
+      }
       const result = await fetchJson(urls.exportar, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -980,8 +1120,14 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       } else {
         download = `<button type="button" class="imss-icon-btn hist-dl" data-id="${id}" data-formato="${h.tipo_export}" title="Descargar TXT">${iconDownload()}</button>`;
       }
-      const del = isAdmin ? `<button type="button" class="imss-icon-btn delete hist-del" data-id="${id}" title="Eliminar">${iconTrash()}</button>` : "";
-      return `<tr>
+      const del = isAdmin
+        ? (
+          state.pendingHistDeleteId === id
+            ? `<span class="imss-confirm-inline"><button type="button" class="imss-icon-btn delete hist-del-yes" data-id="${id}" title="Confirmar">${iconCheck()}</button><button type="button" class="imss-icon-btn cancel-delete hist-del-cancel" data-id="${id}" title="Cancelar">${iconX()}</button></span>`
+            : `<button type="button" class="imss-icon-btn delete hist-del-ask" data-id="${id}" title="Eliminar exportación">${iconTrash()}</button>`
+        )
+        : "";
+      return `<tr id="hist-row-${id}">
         <td>${normalize(h.rp)}</td>
         <td>${normalize(h.rfc_patron)}</td>
         <td>${normalize(h.tipo_export)}</td>
@@ -1016,25 +1162,80 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   async function deleteHistorial(exportId) {
     const url = urls.eliminarHistorial.replace("__ID__", encodeURIComponent(exportId));
     await fetchJson(url, { method: "DELETE" });
+    const row = $(`hist-row-${exportId}`);
+    if (row) {
+      row.classList.add("imss-row-remove");
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    state.pendingHistDeleteId = null;
     await loadHistorialExportaciones();
     setMsg("hist-msg", "Exportación eliminada.", "ok");
   }
 
   function attachEvents() {
-    $("rp-select").addEventListener("change", () => { $("rp-extra-wrap").hidden = $("rp-select").value !== "__otro__"; });
-    $("edit-rp").addEventListener("change", () => { $("edit-rp-extra-wrap").hidden = $("edit-rp").value !== "__otro__"; });
-    $("sbc-select").addEventListener("change", () => { $("sbc-extra-wrap").hidden = $("sbc-select").value !== "__otro__"; });
-    $("edit-sbc-select").addEventListener("change", () => { $("edit-sbc-extra-wrap").hidden = $("edit-sbc-select").value !== "__otro__"; });
+    $("rp-select").addEventListener("change", () => {
+      const isOtro = $("rp-select").value === "__otro__";
+      $("rp-extra-wrap").hidden = !isOtro;
+      if (!isOtro) {
+        $("rp-extra").value = "";
+        $("rfc-patron-extra").value = "";
+      }
+    });
+    $("edit-rp").addEventListener("change", () => {
+      const isOtro = $("edit-rp").value === "__otro__";
+      $("edit-rp-extra-wrap").hidden = !isOtro;
+      if (!isOtro) {
+        $("edit-rp-extra").value = "";
+        $("edit-rfc-patron-extra").value = "";
+      }
+    });
+    $("sbc-select").addEventListener("change", () => {
+      const isOtro = $("sbc-select").value === "__otro__";
+      $("sbc-extra-wrap").hidden = !isOtro;
+      if (!isOtro) $("sbc-extra").value = "";
+    });
+    $("edit-sbc-select").addEventListener("change", () => {
+      const isOtro = $("edit-sbc-select").value === "__otro__";
+      $("edit-sbc-extra-wrap").hidden = !isOtro;
+      if (!isOtro) $("edit-sbc-extra").value = "";
+    });
+    $("config-sbc-select").addEventListener("change", () => {
+      const isOtro = $("config-sbc-select").value === "__otro__";
+      $("config-sbc-extra-wrap").hidden = !isOtro;
+      if (!isOtro) $("config-sbc-extra").value = "";
+    });
     $("btn-guardar-patron").addEventListener("click", savePatternFromMain);
     $("btn-agregar-mov").addEventListener("click", addManualMovement);
     $("btn-buscar-hc").addEventListener("click", runMainSearch);
-    $("btn-importar-excel").addEventListener("click", () => $("excel-file").click());
+    $("btn-importar-menu").addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      $("import-menu").classList.toggle("show");
+    });
+    $("opt-import-excel").addEventListener("click", () => {
+      $("import-menu").classList.remove("show");
+      $("excel-file").click();
+    });
+    $("opt-import-reporte").addEventListener("click", async () => {
+      $("import-menu").classList.remove("show");
+      try {
+        await loadReportesDisponibles();
+        openReportModal();
+      } catch (e) {
+        setMsg("excel-msg", e.message, "err");
+      }
+    });
     $("excel-file").addEventListener("change", (ev) => {
       const file = ev.target.files && ev.target.files[0];
       if (file) importFromExcel(file);
       ev.target.value = "";
     });
-    $("btn-cargar-reporte").addEventListener("click", loadFromMonthlyReport);
+    $("btn-abrir-config-reporte").addEventListener("click", openConfigModalFromReport);
+    $("btn-confirmar-carga-reporte").addEventListener("click", loadFromMonthlyReportWithConfig);
+    $("reporte-cancel").addEventListener("click", () => $("reporte-modal").close());
+    $("config-cancel").addEventListener("click", () => {
+      state.pendingReportData = null;
+      $("config-modal").close();
+    });
     $("btn-limpiar-lista").addEventListener("click", clearAllMovimientos);
     $("btn-export-idse").addEventListener("click", () => exportar("IDSE"));
     $("btn-export-sua").addEventListener("click", () => exportar("SUA"));
@@ -1108,9 +1309,21 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         if (menu) menu.classList.toggle("show");
         return;
       }
-      const del = t.closest(".hist-del");
-      if (del) {
-        try { await deleteHistorial(del.getAttribute("data-id")); } catch (e) { setMsg("hist-msg", e.message, "err"); }
+      const delAsk = t.closest(".hist-del-ask");
+      if (delAsk) {
+        state.pendingHistDeleteId = delAsk.getAttribute("data-id");
+        renderHistorial(state.histPage);
+        return;
+      }
+      const delCancel = t.closest(".hist-del-cancel");
+      if (delCancel) {
+        state.pendingHistDeleteId = null;
+        renderHistorial(state.histPage);
+        return;
+      }
+      const delYes = t.closest(".hist-del-yes");
+      if (delYes) {
+        try { await deleteHistorial(delYes.getAttribute("data-id")); } catch (e) { setMsg("hist-msg", e.message, "err"); }
         return;
       }
       [...document.querySelectorAll(".imss-dropdown-menu.show")].forEach((m) => m.classList.remove("show"));
@@ -1133,9 +1346,31 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     });
     $("dup-cancel").addEventListener("click", () => $("dup-modal").close());
     $("dup-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("dup-modal").addEventListener("click", (ev) => { if (ev.target === $("dup-modal")) $("dup-modal").close(); });
     $("edit-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("edit-modal").addEventListener("click", (ev) => { if (ev.target === $("edit-modal")) $("edit-modal").close(); });
     $("hist-movs-close").addEventListener("click", () => $("hist-movs-modal").close());
     $("hist-movs-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("hist-movs-modal").addEventListener("click", (ev) => { if (ev.target === $("hist-movs-modal")) $("hist-movs-modal").close(); });
+    $("reporte-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("reporte-modal").addEventListener("click", (ev) => { if (ev.target === $("reporte-modal")) $("reporte-modal").close(); });
+    $("config-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("config-modal").addEventListener("click", (ev) => {
+      if (ev.target === $("config-modal")) {
+        state.pendingReportData = null;
+        $("config-modal").close();
+      }
+    });
+    document.addEventListener("click", (ev) => {
+      const target = ev.target;
+      if (!(target instanceof Element)) return;
+      if (!target.closest(".imss-import-dropdown")) {
+        $("import-menu").classList.remove("show");
+      }
+      if (!target.closest(".imss-dropdown")) {
+        [...document.querySelectorAll(".imss-dropdown-menu.show")].forEach((m) => m.classList.remove("show"));
+      }
+    });
   }
 
   async function init() {

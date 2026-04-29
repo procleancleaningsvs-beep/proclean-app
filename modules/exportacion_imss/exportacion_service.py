@@ -415,6 +415,8 @@ def cargar_desde_reporte_mensual(
     mes: int,
     anio: int,
     incluir_fijos: bool = False,
+    rp_general: str | None = None,
+    sbc_general: str | None = None,
 ) -> list[dict[str, Any]]:
     try:
         cliente_slug = _safe_cliente_slug(cliente)
@@ -430,6 +432,8 @@ def cargar_desde_reporte_mensual(
             mes_fin = date(int(anio), int(mes) + 1, 1).fromordinal(date(int(anio), int(mes) + 1, 1).toordinal() - 1)
 
         patrones = obtener_patrones()
+        rp_general_norm = _norm_str(rp_general)[:11] if rp_general is not None else ""
+        sbc_general_norm = _fmt_sbc_str(sbc_general) if _norm_str(sbc_general) else ""
         out: list[dict[str, Any]] = []
 
         def _build_mov(nombre: str, tipo: str, fecha_mov: str, extra_alerta: str | None = None) -> dict[str, Any]:
@@ -458,6 +462,12 @@ def cargar_desde_reporte_mensual(
                 }
                 rp_val = ""
                 alerta = alerta or "No encontrado en headcount"
+
+            if rp_general_norm:
+                rp_val = rp_general_norm
+            if sbc_general_norm:
+                mapped["sbc"] = sbc_general_norm
+
             if not _norm_str(fecha_mov):
                 alerta = "Sin fecha de movimiento"
             mov = {
