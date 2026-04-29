@@ -7,8 +7,8 @@
 .cmp-stats { display:grid; grid-template-columns: repeat(3,1fr); gap:.75rem; margin:.75rem 0; }
 .cmp-stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
 .cmp-stat strong { display:block; font-size:1.1rem; }
-.cmp-active-scroll { display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; gap:8px; padding-bottom:6px; margin:.5rem 0 .75rem; scrollbar-width:thin; }
-.cmp-client-card { min-width:110px; max-width:110px; padding:8px 10px; font-size:.82rem; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; flex:0 0 auto; }
+.cmp-active-scroll { display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; gap:8px; padding-bottom:8px; margin:.5rem 0 .75rem; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
+.cmp-client-card { min-width:100px; max-width:100px; flex-shrink:0; padding:8px; font-size:.80rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; }
 .cmp-client-card strong { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:.82rem; }
 .cmp-client-card small { display:block; color:#64748b; margin-top:.2rem; }
 .cmp-left label, .cmp-left input, .cmp-left select { display:block; width:100%; }
@@ -34,6 +34,13 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 .cmp-sim-item { border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
 .cmp-inline-msg { margin:.5rem 0; font-size:.92rem; color:#0f766e; }
 .cmp-inline-err { margin:.5rem 0; font-size:.92rem; color:#b91c1c; }
+.cmp-actions { display:flex; gap:12px; align-items:center; }
+.cmp-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:#334155; text-decoration:none; }
+.cmp-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
+.cmp-icon-btn.edit { color:#0d6efd; }
+.cmp-icon-btn.delete { color:#dc2626; }
+.cmp-modal-edit-table td input { width:100%; }
+.cmp-edit-section { margin:.7rem 0; }
 @media (max-width: 1024px) {
   .cmp-row { grid-template-columns: 1fr; }
   .cmp-stats, .cmp-result-cards { grid-template-columns: 1fr; }
@@ -141,7 +148,7 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       <table class="cmp-table">
         <thead>
           <tr>
-            <th>Cliente</th><th>Periodo</th><th>Altas</th><th>Bajas</th><th>Generado</th><th>Exportar</th><th>Eliminar</th>
+            <th>Cliente</th><th>Periodo</th><th>Altas</th><th>Bajas</th><th>Generado</th><th>Acciones</th>
           </tr>
         </thead>
         <tbody id="hist-tbody"></tbody>
@@ -207,6 +214,38 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   </div>
 </dialog>
 
+<dialog id="modal-editar-historial" class="cmp-modal">
+  <div class="cmp-modal-head"><h3 id="edit-title">Editando comparativo</h3></div>
+  <div class="cmp-modal-body">
+    <div class="cmp-edit-section">
+      <h4>Altas</h4>
+      <div class="cmp-table-wrap">
+        <table class="cmp-table cmp-modal-edit-table">
+          <thead><tr><th>Nombre</th><th>Fecha alta</th><th>Eliminar</th></tr></thead>
+          <tbody id="edit-altas-tbody"></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn btn-secondary" id="edit-add-alta">+ Agregar alta</button>
+    </div>
+    <div class="cmp-edit-section">
+      <h4>Bajas</h4>
+      <div class="cmp-table-wrap">
+        <table class="cmp-table cmp-modal-edit-table">
+          <thead><tr><th>Nombre</th><th>Fecha baja</th><th>Eliminar</th></tr></thead>
+          <tbody id="edit-bajas-tbody"></tbody>
+        </table>
+      </div>
+      <button type="button" class="btn btn-secondary" id="edit-add-baja">+ Agregar baja</button>
+    </div>
+    <p id="edit-hist-msg" class="cmp-inline-msg" hidden></p>
+    <p id="edit-hist-err" class="cmp-inline-err" hidden></p>
+  </div>
+  <div class="cmp-modal-foot">
+    <button type="button" class="btn btn-secondary" id="edit-hist-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="edit-hist-save">Guardar cambios</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
   const state = {
@@ -230,6 +269,11 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   const modalSim = $("modal-similitudes");
   const modalNuevoCliente = $("modal-nuevo-cliente");
   const modalDuplicado = $("modal-duplicado");
+  const modalEditarHistorial = $("modal-editar-historial");
+  const detalleUrlTpl = "{{ url_for('comparativo.historial_detalle', comparativo_id='__ID__') }}";
+  const actualizarHistUrlTpl = "{{ url_for('comparativo.historial_actualizar', comparativo_id='__ID__') }}";
+
+  state.historialEdicion = null;
 
   function selectedCliente() {
     if (clienteSelect.value === "__nuevo__") return (state.clienteTemporal || "").trim();
@@ -240,6 +284,18 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     const el = $(id);
     el.textContent = msg || "";
     el.hidden = !msg;
+  }
+
+  function iconDownload() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h7l5 5v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M12 10v7"/><path d="m9 14 3 3 3-3"/></svg>';
+  }
+
+  function iconPencil() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>';
+  }
+
+  function iconTrash() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
   }
 
   async function fetchJson(url, opts) {
@@ -324,6 +380,82 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     $("tabla-bajas").innerHTML = (data.bajas || []).map((r, idx) => (
       `<tr><td>${r.nombre}</td><td><input type="date" data-tipo="baja" data-idx="${idx}" value="${toInputDate(r.fecha_baja_sugerida)}"></td><td><button type="button" class="btn btn-secondary btn-remove" data-tabla="baja" data-idx="${idx}">Quitar</button></td></tr>`
     )).join("");
+  }
+
+  function normalizeDetalleRows(rows, tipo) {
+    const isAlta = tipo === "alta";
+    const key = isAlta ? "fecha_alta" : "fecha_baja";
+    return (Array.isArray(rows) ? rows : []).map((r) => {
+      if (typeof r === "string") {
+        return { nombre: r, [key]: "" };
+      }
+      const nombre = String((r && (r.nombre || "")) || "").trim();
+      const fecha = String((r && (r[key] || r.fecha || "")) || "").trim();
+      return { nombre, [key]: fecha };
+    });
+  }
+
+  function renderEditRows() {
+    const edit = state.historialEdicion;
+    if (!edit) return;
+    $("edit-altas-tbody").innerHTML = edit.altas.map((r, idx) => (
+      `<tr>
+        <td><input type="text" data-edit-row="alta" data-edit-idx="${idx}" data-edit-field="nombre" value="${r.nombre || ""}"></td>
+        <td><input type="date" data-edit-row="alta" data-edit-idx="${idx}" data-edit-field="fecha_alta" value="${toInputDate(r.fecha_alta)}"></td>
+        <td><button type="button" class="cmp-icon-btn delete edit-row-del" data-edit-row="alta" data-edit-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
+      </tr>`
+    )).join("") || '<tr><td colspan="3">Sin altas.</td></tr>';
+    $("edit-bajas-tbody").innerHTML = edit.bajas.map((r, idx) => (
+      `<tr>
+        <td><input type="text" data-edit-row="baja" data-edit-idx="${idx}" data-edit-field="nombre" value="${r.nombre || ""}"></td>
+        <td><input type="date" data-edit-row="baja" data-edit-idx="${idx}" data-edit-field="fecha_baja" value="${toInputDate(r.fecha_baja)}"></td>
+        <td><button type="button" class="cmp-icon-btn delete edit-row-del" data-edit-row="baja" data-edit-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
+      </tr>`
+    )).join("") || '<tr><td colspan="3">Sin bajas.</td></tr>';
+  }
+
+  async function abrirEdicionHistorial(comparativoId) {
+    const url = detalleUrlTpl.replace("__ID__", encodeURIComponent(comparativoId));
+    const data = await fetchJson(url);
+    const comp = data.comparativo || {};
+    const altasBase = Array.isArray(comp.altas_detalle) ? comp.altas_detalle : (comp.altas || []).map((n) => ({ nombre: n, fecha_alta: comp.periodo_inicio || "" }));
+    const bajasBase = Array.isArray(comp.bajas_detalle) ? comp.bajas_detalle : (comp.bajas || []).map((n) => ({ nombre: n, fecha_baja: comp.fecha_baja_asumida || comp.periodo_fin || "" }));
+    state.historialEdicion = {
+      id: comp.id || comparativoId,
+      cliente: comp.cliente || "",
+      periodo_inicio: comp.periodo_inicio || "",
+      periodo_fin: comp.periodo_fin || "",
+      altas: normalizeDetalleRows(altasBase, "alta"),
+      bajas: normalizeDetalleRows(bajasBase, "baja"),
+    };
+    $("edit-title").textContent = `Editando: ${state.historialEdicion.cliente} — ${state.historialEdicion.periodo_inicio} a ${state.historialEdicion.periodo_fin}`;
+    showErr("edit-hist-err", "");
+    $("edit-hist-msg").hidden = true;
+    renderEditRows();
+    modalEditarHistorial.showModal();
+  }
+
+  async function guardarEdicionHistorial() {
+    const edit = state.historialEdicion;
+    if (!edit) return;
+    const payload = {
+      altas: edit.altas
+        .map((r) => ({ nombre: String(r.nombre || "").trim(), fecha_alta: String(r.fecha_alta || "").trim() }))
+        .filter((r) => r.nombre),
+      bajas: edit.bajas
+        .map((r) => ({ nombre: String(r.nombre || "").trim(), fecha_baja: String(r.fecha_baja || "").trim() }))
+        .filter((r) => r.nombre),
+    };
+    const url = actualizarHistUrlTpl.replace("__ID__", encodeURIComponent(edit.id));
+    await fetchJson(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    $("edit-hist-msg").textContent = "Comparativo actualizado.";
+    $("edit-hist-msg").hidden = false;
+    await cargarHistorial(state.historialPage);
+    modalEditarHistorial.close();
   }
 
   function toInputDate(v) {
@@ -458,10 +590,15 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
         <td>${(it.altas || []).length}</td>
         <td>${(it.bajas || []).length}</td>
         <td>${it.fecha_generacion || ""}</td>
-        <td><a class="btn btn-secondary" href="${exportUrlTemplate.replace('__ID__', encodeURIComponent(it.id))}">Excel</a></td>
-        <td><button type="button" class="btn btn-secondary hist-del" data-id="${it.id}">Eliminar</button></td>
+        <td>
+          <div class="cmp-actions">
+            <a class="cmp-icon-btn" title="Exportar Excel" href="${exportUrlTemplate.replace('__ID__', encodeURIComponent(it.id))}">${iconDownload()}</a>
+            <button type="button" class="cmp-icon-btn edit hist-edit" title="Editar comparativo" data-id="${it.id}">${iconPencil()}</button>
+            <button type="button" class="cmp-icon-btn delete hist-del" title="Eliminar" data-id="${it.id}">${iconTrash()}</button>
+          </div>
+        </td>
       </tr>`
-    )).join("") || '<tr><td colspan="7">Sin registros.</td></tr>';
+    )).join("") || '<tr><td colspan="6">Sin registros.</td></tr>';
     $("hist-page").textContent = `${state.historialPage} / ${state.historialPages}`;
   }
 
@@ -633,6 +770,17 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   $("hist-tbody").addEventListener("click", async (ev) => {
     const t = ev.target;
     if (!(t instanceof Element)) return;
+    const btnEdit = t.closest(".hist-edit");
+    if (btnEdit) {
+      const id = btnEdit.getAttribute("data-id");
+      if (!id) return;
+      try {
+        await abrirEdicionHistorial(id);
+      } catch (e) {
+        showErr("left-error", e.message);
+      }
+      return;
+    }
     const btn = t.closest(".hist-del");
     if (!btn) return;
     const id = btn.getAttribute("data-id");
@@ -640,6 +788,59 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     if (!window.confirm("¿Eliminar este comparativo del historial?")) return;
     await eliminarHistorial(id);
   });
+
+  $("edit-altas-tbody").addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLInputElement) || !state.historialEdicion) return;
+    const idx = parseInt(t.getAttribute("data-edit-idx") || "-1", 10);
+    const field = t.getAttribute("data-edit-field");
+    if (idx < 0 || !field || !state.historialEdicion.altas[idx]) return;
+    if (field === "nombre") state.historialEdicion.altas[idx].nombre = t.value;
+    if (field === "fecha_alta") state.historialEdicion.altas[idx].fecha_alta = fromInputDate(t.value);
+  });
+  $("edit-bajas-tbody").addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLInputElement) || !state.historialEdicion) return;
+    const idx = parseInt(t.getAttribute("data-edit-idx") || "-1", 10);
+    const field = t.getAttribute("data-edit-field");
+    if (idx < 0 || !field || !state.historialEdicion.bajas[idx]) return;
+    if (field === "nombre") state.historialEdicion.bajas[idx].nombre = t.value;
+    if (field === "fecha_baja") state.historialEdicion.bajas[idx].fecha_baja = fromInputDate(t.value);
+  });
+  function bindDeleteRow(ev) {
+    const t = ev.target;
+    if (!(t instanceof Element) || !state.historialEdicion) return;
+    const btn = t.closest(".edit-row-del");
+    if (!btn) return;
+    const row = btn.getAttribute("data-edit-row");
+    const idx = parseInt(btn.getAttribute("data-edit-idx") || "-1", 10);
+    if (idx < 0) return;
+    if (row === "alta") state.historialEdicion.altas.splice(idx, 1);
+    if (row === "baja") state.historialEdicion.bajas.splice(idx, 1);
+    renderEditRows();
+  }
+  $("edit-altas-tbody").addEventListener("click", bindDeleteRow);
+  $("edit-bajas-tbody").addEventListener("click", bindDeleteRow);
+  $("edit-add-alta").addEventListener("click", () => {
+    if (!state.historialEdicion) return;
+    state.historialEdicion.altas.push({ nombre: "", fecha_alta: "" });
+    renderEditRows();
+  });
+  $("edit-add-baja").addEventListener("click", () => {
+    if (!state.historialEdicion) return;
+    state.historialEdicion.bajas.push({ nombre: "", fecha_baja: "" });
+    renderEditRows();
+  });
+  $("edit-hist-cancel").addEventListener("click", () => modalEditarHistorial.close());
+  $("edit-hist-save").addEventListener("click", async () => {
+    showErr("edit-hist-err", "");
+    try {
+      await guardarEdicionHistorial();
+    } catch (e) {
+      showErr("edit-hist-err", e.message);
+    }
+  });
+  modalEditarHistorial.addEventListener("cancel", (ev) => ev.preventDefault());
 
   const finInput = $("periodo-fin");
   const iniInput = $("periodo-inicio");

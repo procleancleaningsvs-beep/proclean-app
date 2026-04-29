@@ -32,6 +32,12 @@
 .rpt-pagination { display:flex; gap:.6rem; justify-content:flex-end; align-items:center; margin-top:.6rem; }
 .rpt-inline-err { color:#b91c1c; font-size:.9rem; margin:.45rem 0; }
 .rpt-inline-msg { color:#0f766e; font-size:.9rem; margin:.45rem 0; }
+.rpt-actions { display:flex; gap:12px; align-items:center; }
+.rpt-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:#334155; text-decoration:none; }
+.rpt-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
+.rpt-icon-btn.edit { color:#0d6efd; }
+.rpt-icon-btn.delete { color:#dc2626; }
+.rpt-editor-tools { display:flex; gap:.5rem; margin:.5rem 0 .8rem; }
 dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw); }
 .rpt-modal-head, .rpt-modal-foot { padding:1rem; border-bottom:1px solid #e5e7eb; }
 .rpt-modal-foot { border-top:1px solid #e5e7eb; border-bottom:0; display:flex; justify-content:flex-end; gap:.5rem; }
@@ -56,7 +62,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   <div class="rpt-row">
     <section class="rpt-left">
       <h3>Datos disponibles</h3>
-      <p id="datos-empty" hidden>No hay nóminas cargadas. Genera comparativos semanales primero.</p>
+      <p id="datos-empty" hidden>No hay comparativos semanales guardados.</p>
       <div id="datos-accordion" class="rpt-acc"></div>
       <p id="left-err" class="rpt-inline-err" hidden></p>
     </section>
@@ -74,15 +80,21 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 
         <details id="fijos-details">
           <summary id="fijos-summary">Personal fijo (0)</summary>
+          <div class="rpt-editor-tools">
+            <button type="button" class="btn btn-secondary" id="btn-add-fijo">+ Agregar persona fija</button>
+          </div>
           <div class="rpt-table-wrap">
             <table class="rpt-table">
-              <thead><tr><th>Nombre</th><th>En Headcount</th></tr></thead>
+              <thead><tr><th>Nombre</th><th>En Headcount</th><th>Eliminar</th></tr></thead>
               <tbody id="fijos-tbody"></tbody>
             </table>
           </div>
         </details>
 
         <h4 style="margin-top:.8rem;">Personal rotativo (<span id="rot-count">0</span>)</h4>
+        <div class="rpt-editor-tools">
+          <button type="button" class="btn btn-secondary" id="btn-add-rot">+ Agregar rotativo</button>
+        </div>
         <div class="rpt-table-wrap">
           <table class="rpt-table">
             <thead>
@@ -91,6 +103,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
             <tbody id="rot-tbody"></tbody>
           </table>
         </div>
+        <button type="button" class="btn btn-primary" id="btn-save-reporte">Guardar cambios</button>
         <p id="save-msg" class="rpt-inline-msg" hidden></p>
         <p id="save-err" class="rpt-inline-err" hidden></p>
       </div>
@@ -106,7 +119,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     <div class="rpt-table-wrap">
       <table class="rpt-table">
         <thead>
-          <tr><th>Cliente</th><th>Mes</th><th>Fijos</th><th>Rotativos</th><th>Completo</th><th>Exportar</th><th>Eliminar</th></tr>
+          <tr><th>Cliente</th><th>Mes</th><th>Fijos</th><th>Rotativos</th><th>Completo</th><th>Acciones</th></tr>
         </thead>
         <tbody id="hist-tbody"></tbody>
       </table>
@@ -148,9 +161,21 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   const generarUrl = "{{ url_for('comparativo.reporte_mensual_generar') }}";
   const confirmarUrl = "{{ url_for('comparativo.reporte_mensual_confirmar_similitudes') }}";
   const actualizarFechaUrl = "{{ url_for('comparativo.reporte_mensual_actualizar_fecha') }}";
+  const actualizarReporteUrl = "{{ url_for('comparativo.reporte_mensual_actualizar_reporte') }}";
   const exportarUrlBase = "{{ url_for('comparativo.reporte_mensual_exportar') }}";
   const eliminarUrlTpl = "{{ url_for('comparativo.reporte_mensual_eliminar', cliente='__C__', anio='__A__', mes='__M__') }}";
+  const cargarUrlTpl = "{{ url_for('comparativo.reporte_mensual_cargar', cliente='__C__', anio='__A__', mes='__M__') }}";
   const simModal = $("sim-modal");
+
+  function iconDownload() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h7l5 5v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M12 10v7"/><path d="m9 14 3 3 3-3"/></svg>';
+  }
+  function iconPencil() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>';
+  }
+  function iconTrash() {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+  }
 
   async function fetchJson(url, opts) {
     const r = await fetch(url, opts);
@@ -276,12 +301,13 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     const fijos = Array.isArray(rep.fijos) ? rep.fijos : [];
     $("fijos-summary").textContent = `Personal fijo (${fijos.length})`;
     $("fijos-details").open = fijos.length <= 20;
-    $("fijos-tbody").innerHTML = fijos.map((f) => (
+    $("fijos-tbody").innerHTML = fijos.map((f, idx) => (
       `<tr>
-        <td>${f.nombre || ""}</td>
+        <td><input type="text" data-fijo-idx="${idx}" data-fijo-field="nombre" value="${f.nombre || ""}"></td>
         <td>${f.en_headcount ? "Sí" : `⚠️ ${f.alerta || "No"}`}</td>
+        <td><button type="button" class="rpt-icon-btn delete btn-del-fijo" data-fijo-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
       </tr>`
-    )).join("") || '<tr><td colspan="2">Sin personal fijo.</td></tr>';
+    )).join("") || '<tr><td colspan="3">Sin personal fijo.</td></tr>';
 
     const rot = Array.isArray(rep.rotativos) ? rep.rotativos : [];
     $("rot-count").textContent = String(rot.length);
@@ -292,10 +318,13 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       const fechasBaja = normalizarListaFechas(r, "fechas_baja", "fecha_baja");
       const badgeReingreso = tieneReingreso ? '<span class="rpt-badge-reingreso">Reingreso</span>' : "";
       return `<tr>
-        <td><div class="rpt-name"><span>${r.nombre || ""}</span>${badgeReingreso}</div></td>
+        <td><div class="rpt-name"><input type="text" data-rot-idx="${idx}" data-rot-field="nombre" value="${r.nombre || ""}">${badgeReingreso}</div></td>
         <td>${renderFechaCell(idx, "alta", fechasAlta, alertas, tieneReingreso)}</td>
         <td>${renderFechaCell(idx, "baja", fechasBaja, alertas, tieneReingreso)}</td>
-        <td>${alertas.length ? `<span class="rpt-alert" title="${alertas.join(" | ")}">⚠️ ${alertas.join(" | ")}</span>` : "—"}</td>
+        <td>
+          ${alertas.length ? `<span class="rpt-alert" title="${alertas.join(" | ")}">⚠️ ${alertas.join(" | ")}</span>` : "—"}
+          <button type="button" class="rpt-icon-btn delete btn-del-rot" data-rot-idx="${idx}" title="Eliminar">${iconTrash()}</button>
+        </td>
       </tr>`;
     }).join("") || '<tr><td colspan="4">Sin personal rotativo.</td></tr>';
   }
@@ -369,6 +398,44 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     await cargarResumen();
   }
 
+  async function cargarReporteGuardado(cliente, anio, mes) {
+    const url = cargarUrlTpl
+      .replace("__C__", encodeURIComponent(cliente))
+      .replace("__A__", encodeURIComponent(String(anio)))
+      .replace("__M__", encodeURIComponent(String(mes)));
+    const data = await fetchJson(url);
+    renderReporte(data.reporte || {});
+  }
+
+  async function guardarReporteCompleto() {
+    if (!state.reporte) return;
+    const payload = JSON.parse(JSON.stringify(state.reporte));
+    payload.fijos = (Array.isArray(payload.fijos) ? payload.fijos : []).map((f) => ({
+      nombre: String((f && f.nombre) || "").trim(),
+      en_headcount: Boolean(f && f.en_headcount),
+      alerta: (f && f.alerta) || null,
+    })).filter((f) => f.nombre);
+    payload.rotativos = (Array.isArray(payload.rotativos) ? payload.rotativos : []).map((r) => ({
+      nombre: String((r && r.nombre) || "").trim(),
+      tiene_reingreso: Boolean(r && r.tiene_reingreso),
+      fechas_alta: normalizarListaFechas(r || {}, "fechas_alta", "fecha_alta"),
+      fechas_baja: normalizarListaFechas(r || {}, "fechas_baja", "fecha_baja"),
+      fecha_alta: String((r && r.fecha_alta) || "").trim() || null,
+      fecha_baja: String((r && r.fecha_baja) || "").trim() || null,
+      alertas: Array.isArray(r && r.alertas) ? r.alertas : [],
+      semanas_presente: Array.isArray(r && r.semanas_presente) ? r.semanas_presente : [],
+      presencia_por_periodo: Array.isArray(r && r.presencia_por_periodo) ? r.presencia_por_periodo : [],
+      en_headcount: Boolean(r && r.en_headcount),
+    })).filter((r) => r.nombre);
+    payload.total_personal_mes = payload.fijos.length + payload.rotativos.length;
+    await fetchJson(actualizarReporteUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    state.reporte = payload;
+  }
+
   function filtrarHistorial(items, q) {
     const s = String(q || "").trim().toLowerCase();
     if (!s) return items;
@@ -393,10 +460,15 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
         <td>${r.fijos_count}</td>
         <td>${r.rotativos_count}</td>
         <td>${badge}</td>
-        <td><a class="btn btn-secondary" href="${exportarUrlBase}?${q}">Excel</a></td>
-        <td><button type="button" class="btn btn-secondary hist-del" data-url="${delUrl}">Eliminar</button></td>
+        <td>
+          <div class="rpt-actions">
+            <a class="rpt-icon-btn" title="Exportar Excel" href="${exportarUrlBase}?${q}">${iconDownload()}</a>
+            <button type="button" class="rpt-icon-btn edit hist-edit" title="Ver y editar reporte" data-cliente="${encodeURIComponent(r.cliente)}" data-mes="${r.mes}" data-anio="${r.anio}">${iconPencil()}</button>
+            <button type="button" class="rpt-icon-btn delete hist-del" title="Eliminar reporte" data-url="${delUrl}">${iconTrash()}</button>
+          </div>
+        </td>
       </tr>`;
-    }).join("") || '<tr><td colspan="7">Sin reportes guardados.</td></tr>';
+    }).join("") || '<tr><td colspan="6">Sin reportes guardados.</td></tr>';
     $("hist-page").textContent = `${state.histPage} / ${state.histPages}`;
   }
 
@@ -468,29 +540,12 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     if (idx < 0 || !tipo || Number.isNaN(indice) || indice < 0) return;
     const row = (state.reporte.rotativos || [])[idx];
     if (!row) return;
-    $("save-msg").hidden = true;
-    $("save-err").hidden = true;
-    try {
-      await fetchJson(actualizarFechaUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cliente: state.reporte.cliente,
-          mes: state.reporte.mes,
-          anio: state.reporte.anio,
-          nombre: row.nombre,
-          tipo_fecha: tipo,
-          nueva_fecha: fromInputDate(t.value),
-          indice: indice,
-        }),
-      });
-      $("save-msg").textContent = "Fecha actualizada.";
-      $("save-msg").hidden = false;
-      await generar(state.reporte.cliente, state.reporte.mes, state.reporte.anio);
-    } catch (e) {
-      $("save-err").textContent = e.message;
-      $("save-err").hidden = false;
-    }
+    const key = tipo === "alta" ? "fechas_alta" : "fechas_baja";
+    const value = fromInputDate(t.value);
+    if (!Array.isArray(row[key])) row[key] = normalizarListaFechas(row, key, tipo === "alta" ? "fecha_alta" : "fecha_baja");
+    while (row[key].length <= indice) row[key].push("");
+    row[key][indice] = value;
+    row[tipo === "alta" ? "fecha_alta" : "fecha_baja"] = row[key][0] || null;
   });
 
   $("btn-exportar").addEventListener("click", () => {
@@ -507,9 +562,61 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   $("hist-search").addEventListener("input", () => renderHistorial(1));
   $("hist-prev").addEventListener("click", () => { if (state.histPage > 1) renderHistorial(state.histPage - 1); });
   $("hist-next").addEventListener("click", () => { if (state.histPage < state.histPages) renderHistorial(state.histPage + 1); });
+  $("fijos-tbody").addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLInputElement) || !state.reporte) return;
+    const idx = parseInt(t.getAttribute("data-fijo-idx") || "-1", 10);
+    if (idx < 0 || !(state.reporte.fijos || [])[idx]) return;
+    state.reporte.fijos[idx].nombre = t.value;
+  });
+  $("rot-tbody").addEventListener("input", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof HTMLInputElement) || !state.reporte) return;
+    const idx = parseInt(t.getAttribute("data-rot-idx") || "-1", 10);
+    if (idx < 0 || !(state.reporte.rotativos || [])[idx]) return;
+    if (t.getAttribute("data-rot-field") === "nombre") {
+      state.reporte.rotativos[idx].nombre = t.value;
+    }
+  });
+  $("btn-add-fijo").addEventListener("click", () => {
+    if (!state.reporte) return;
+    if (!Array.isArray(state.reporte.fijos)) state.reporte.fijos = [];
+    state.reporte.fijos.push({ nombre: "", en_headcount: false, alerta: "Capturado manualmente" });
+    renderReporte(state.reporte);
+  });
+  $("btn-add-rot").addEventListener("click", () => {
+    if (!state.reporte) return;
+    if (!Array.isArray(state.reporte.rotativos)) state.reporte.rotativos = [];
+    state.reporte.rotativos.push({
+      nombre: "",
+      tiene_reingreso: false,
+      fechas_alta: [],
+      fechas_baja: [],
+      fecha_alta: null,
+      fecha_baja: null,
+      alertas: ["Capturado manualmente"],
+      semanas_presente: [],
+      presencia_por_periodo: [],
+      en_headcount: false,
+    });
+    renderReporte(state.reporte);
+  });
   $("hist-tbody").addEventListener("click", async (ev) => {
     const t = ev.target;
     if (!(t instanceof Element)) return;
+    const btnEdit = t.closest(".hist-edit");
+    if (btnEdit) {
+      const cliente = decodeURIComponent(btnEdit.getAttribute("data-cliente") || "");
+      const mes = parseInt(btnEdit.getAttribute("data-mes") || "0", 10);
+      const anio = parseInt(btnEdit.getAttribute("data-anio") || "0", 10);
+      if (!cliente || !mes || !anio) return;
+      try {
+        await cargarReporteGuardado(cliente, anio, mes);
+      } catch (e) {
+        window.alert(e.message);
+      }
+      return;
+    }
     const btn = t.closest(".hist-del");
     if (!btn) return;
     const url = btn.getAttribute("data-url");
@@ -520,6 +627,41 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       await cargarResumen();
     } catch (e) {
       window.alert(e.message);
+    }
+  });
+
+  $("rot-tbody").addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element) || !state.reporte) return;
+    const btnDelR = t.closest(".btn-del-rot");
+    if (!btnDelR) return;
+    const idx = parseInt(btnDelR.getAttribute("data-rot-idx") || "-1", 10);
+    if (idx < 0) return;
+    state.reporte.rotativos.splice(idx, 1);
+    renderReporte(state.reporte);
+  });
+  $("fijos-tbody").addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element) || !state.reporte) return;
+    const btnDelF = t.closest(".btn-del-fijo");
+    if (!btnDelF) return;
+    const idx = parseInt(btnDelF.getAttribute("data-fijo-idx") || "-1", 10);
+    if (idx < 0) return;
+    state.reporte.fijos.splice(idx, 1);
+    renderReporte(state.reporte);
+  });
+  $("btn-save-reporte").addEventListener("click", async () => {
+    $("save-msg").hidden = true;
+    $("save-err").hidden = true;
+    try {
+      await guardarReporteCompleto();
+      $("save-msg").textContent = "Reporte guardado correctamente.";
+      $("save-msg").hidden = false;
+      await cargarResumen();
+      renderReporte(state.reporte);
+    } catch (e) {
+      $("save-err").textContent = e.message;
+      $("save-err").hidden = false;
     }
   });
 

@@ -139,6 +139,21 @@ def _load_reporte_guardado(cliente: str, anio: int, mes: int) -> dict | None:
     return None
 
 
+def _find_comparativo_file(comparativo_id: str) -> tuple[str | None, dict | None]:
+    for name in os.listdir(COMPARATIVOS_DIR):
+        if not name.lower().endswith(".json"):
+            continue
+        path = os.path.join(COMPARATIVOS_DIR, name)
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict) and str(data.get("id", "")).strip() == str(comparativo_id).strip():
+                return path, data
+        except Exception:
+            continue
+    return None, None
+
+
 @comparativo_bp.get("/")
 @_login_required_page
 def index():
@@ -364,19 +379,68 @@ def historial_paginado():
 @comparativo_bp.delete("/historial/<comparativo_id>")
 @_login_required_page
 def eliminar_historial_item(comparativo_id: str):
-    for name in os.listdir(COMPARATIVOS_DIR):
-        if not name.lower().endswith(".json"):
-            continue
-        path = os.path.join(COMPARATIVOS_DIR, name)
+    path, _ = _find_comparativo_file(comparativo_id)
+    if path:
         try:
-            with open(path, "r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            if str(data.get("id")) == str(comparativo_id):
-                os.remove(path)
-                return jsonify({"ok": True})
-        except Exception:
-            continue
+            os.remove(path)
+            return jsonify({"ok": True})
+        except OSError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": False, "error": "Comparativo no encontrado."}), 404
+
+
+@comparativo_bp.get("/historial/<comparativo_id>/detalle")
+@_login_required_page
+def historial_detalle(comparativo_id: str):
+    path, data = _find_comparativo_file(comparativo_id)
+    if not path or not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "Comparativo no encontrado."}), 404
+    return jsonify({"ok": True, "comparativo": data})
+
+
+@comparativo_bp.post("/historial/<comparativo_id>/actualizar")
+@_login_required_page
+def historial_actualizar(comparativo_id: str):
+    payload = request.get_json(silent=True) or {}
+    altas_raw = payload.get("altas")
+    bajas_raw = payload.get("bajas")
+    if not isinstance(altas_raw, list) or not isinstance(bajas_raw, list):
+        return jsonify({"ok": False, "error": "altas y bajas deben ser listas."}), 400
+
+    def _norm_rows(rows: list, key_fecha: str) -> tuple[list[str], list[dict]]:
+        nombres: list[str] = []
+        detalle: list[dict] = []
+        for item in rows:
+            if not isinstance(item, dict):
+                continue
+            nombre = str(item.get("nombre", "")).strip().upper()
+            fecha = str(item.get(key_fecha, "")).strip()
+            if not nombre:
+                continue
+            nombres.append(nombre)
+            detalle.append({"nombre": nombre, "fecha": fecha})
+        return nombres, detalle
+
+    nuevas_altas, altas_detalle = _norm_rows(altas_raw, "fecha_alta")
+    nuevas_bajas, bajas_detalle = _norm_rows(bajas_raw, "fecha_baja")
+
+    path, data = _find_comparativo_file(comparativo_id)
+    if not path or not isinstance(data, dict):
+        return jsonify({"ok": False, "error": "Comparativo no encontrado."}), 404
+
+    data["altas"] = nuevas_altas
+    data["bajas"] = nuevas_bajas
+    data["altas_detalle"] = altas_detalle
+    data["bajas_detalle"] = bajas_detalle
+    data["total_nomina"] = len(nuevas_altas) + len(list(data.get("permanencias", [])))
+    data["total_activos"] = len(nuevas_bajas) + len(list(data.get("permanencias", [])))
+
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, ensure_ascii=False, indent=2)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
 @comparativo_bp.get("/reporte-mensual")
@@ -615,6 +679,36 @@ def reporte_mensual_eliminar(cliente: str, anio: str, mes: str):
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@comparativo_bp.get("/reporte-mensual/cargar/<cliente>/<anio>/<mes>")
+@_login_required_page
+def reporte_mensual_cargar(cliente: str, anio: str, mes: str):
+    try:
+        reporte = _load_reporte_guardado(unquote(cliente), int(anio), int(mes))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Parámetros inválidos."}), 400
+    if not isinstance(reporte, dict):
+        return jsonify({"ok": False, "error": "Reporte no encontrado"}), 404
+    return jsonify({"ok": True, "reporte": reporte})
+
+
+@comparativo_bp.post("/reporte-mensual/actualizar-reporte")
+@_login_required_page
+def reporte_mensual_actualizar_reporte():
+    reporte = request.get_json(silent=True) or {}
+    if not isinstance(reporte, dict):
+        return jsonify({"ok": False, "error": "Payload inválido."}), 400
+    required = ("cliente", "mes", "anio", "fijos", "rotativos")
+    if any(k not in reporte for k in required):
+        return jsonify({"ok": False, "error": "Faltan campos requeridos en el reporte."}), 400
+    if not isinstance(reporte.get("fijos"), list) or not isinstance(reporte.get("rotativos"), list):
+        return jsonify({"ok": False, "error": "fijos y rotativos deben ser listas."}), 400
+    try:
+        guardar_reporte_mensual(reporte)
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @comparativo_bp.get("/mensual")
 @_login_required_page
 def reporte_mensual():
@@ -667,7 +761,11 @@ def exportar_semanal(comparativo_id: str):
             bajas_rows = None
 
     if altas_rows is None:
-        altas_rows = [{"nombre": nombre, "fecha": comp.get("periodo_inicio", "")} for nombre in comp.get("altas", [])]
+        detalle_guardado = comp.get("altas_detalle")
+        if isinstance(detalle_guardado, list) and detalle_guardado:
+            altas_rows = detalle_guardado
+        else:
+            altas_rows = [{"nombre": nombre, "fecha": comp.get("periodo_inicio", "")} for nombre in comp.get("altas", [])]
     for item in altas_rows:
         nombre = str(item.get("nombre", "") if isinstance(item, dict) else item)
         fecha = (
@@ -679,7 +777,11 @@ def exportar_semanal(comparativo_id: str):
     ws_bajas = wb.create_sheet("Bajas")
     ws_bajas.append(["Nombre", "Fecha Baja"])
     if bajas_rows is None:
-        bajas_rows = [{"nombre": nombre, "fecha": comp.get("fecha_baja_asumida", "")} for nombre in comp.get("bajas", [])]
+        detalle_guardado = comp.get("bajas_detalle")
+        if isinstance(detalle_guardado, list) and detalle_guardado:
+            bajas_rows = detalle_guardado
+        else:
+            bajas_rows = [{"nombre": nombre, "fecha": comp.get("fecha_baja_asumida", "")} for nombre in comp.get("bajas", [])]
     for item in bajas_rows:
         nombre = str(item.get("nombre", "") if isinstance(item, dict) else item)
         fecha = (

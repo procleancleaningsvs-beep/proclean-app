@@ -386,7 +386,7 @@ def obtener_nominas_guardadas(cliente: str | None = None) -> list[dict[str, Any]
 
 def obtener_resumen_nominas_por_cliente() -> dict[str, Any]:
     try:
-        os.makedirs(NOMINAS_DIR, exist_ok=True)
+        os.makedirs(COMPARATIVOS_DIR, exist_ok=True)
         comparativos = _iter_json_dicts(COMPARATIVOS_DIR)
         comparativo_map: dict[tuple[str, str, str], str] = {}
         for comp in comparativos:
@@ -398,12 +398,12 @@ def obtener_resumen_nominas_por_cliente() -> dict[str, Any]:
             comparativo_map[key] = str(comp.get("id", "")).strip()
 
         resumen: dict[str, Any] = {}
-        for nom in _iter_json_dicts(NOMINAS_DIR):
-            cliente = str(nom.get("cliente", "")).strip()
+        for comp in comparativos:
+            cliente = str(comp.get("cliente", "")).strip()
             if not cliente:
                 continue
-            periodo_inicio = str(nom.get("periodo_inicio", "")).strip()
-            periodo_fin = str(nom.get("periodo_fin", "")).strip()
+            periodo_inicio = str(comp.get("periodo_inicio", "")).strip()
+            periodo_fin = str(comp.get("periodo_fin", "")).strip()
             try:
                 inicio_dt = datetime.strptime(periodo_inicio, "%d/%m/%Y").date()
             except (TypeError, ValueError):
