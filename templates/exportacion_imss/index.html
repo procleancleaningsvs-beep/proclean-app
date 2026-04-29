@@ -1,121 +1,1156 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.imss-layout { display:grid; gap:1rem; }
+.imss-main { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; }
+.imss-left, .imss-right, .imss-bottom { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.imss-sec { margin-bottom:1rem; padding-bottom:.8rem; border-bottom:1px solid #e5e7eb; }
+.imss-sec:last-child { border-bottom:0; margin-bottom:0; padding-bottom:0; }
+.imss-form-grid { display:grid; grid-template-columns:1fr; gap:.55rem; }
+.imss-inline { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+.imss-inline > * { flex:1; min-width:120px; }
+.imss-field { display:flex; flex-direction:column; gap:.25rem; }
+.imss-field label { font-weight:600; }
+.imss-msg { font-size:.9rem; margin:.35rem 0; }
+.imss-msg.ok { color:#0f766e; }
+.imss-msg.err { color:#b91c1c; }
+.imss-msg.warn { color:#b45309; }
+.imss-divider { font-size:.86rem; color:#64748b; font-weight:700; margin:.6rem 0 .45rem; }
+.imss-table-wrap { overflow:auto; }
+.imss-table { width:100%; border-collapse:collapse; }
+.imss-table th, .imss-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
+.imss-badge { border-radius:999px; font-size:.78rem; padding:.15rem .55rem; font-weight:700; display:inline-block; }
+.imss-badge.alta { background:#dcfce7; border:1px solid #bbf7d0; color:#166534; }
+.imss-badge.baja { background:#fee2e2; border:1px solid #fecaca; color:#991b1b; }
+.imss-actions { display:flex; gap:12px; align-items:center; }
+.imss-icon-btn { display:inline-flex; align-items:center; justify-content:center; border:0; background:none; cursor:pointer; padding:0; color:#334155; text-decoration:none; }
+.imss-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
+.imss-icon-btn.edit { color:#0d6efd; }
+.imss-icon-btn.sync { color:#0f766e; }
+.imss-icon-btn.delete { color:#dc2626; }
+.imss-icon-btn.view { color:#7c3aed; }
+.imss-radio { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+.imss-radio button { border:1px solid #cbd5e1; border-radius:999px; background:#fff; padding:.25rem .6rem; font-size:.82rem; cursor:pointer; }
+.imss-radio button.active { border-color:#0d6efd; color:#0d6efd; }
+.imss-export { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.8rem; margin-top:.8rem; }
+.imss-counter { color:#475569; font-size:.9rem; }
+.imss-alert-dot { color:#b45309; cursor:help; }
+.imss-pagination { display:flex; gap:.5rem; justify-content:flex-end; align-items:center; margin-top:.6rem; }
+.is-loading { position:relative; pointer-events:none; opacity:.8; }
+.is-loading::after {
+  content:""; position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  width:14px; height:14px; border-radius:999px; border:2px solid #cbd5e1; border-top-color:#0d6efd; animation:imss-spin .7s linear infinite;
+}
+.imss-row-remove { animation:imss-fade .2s ease-out; opacity:0; }
+.imss-confirm-inline { display:flex; gap:8px; align-items:center; }
+dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95vw); }
+.imss-modal-head, .imss-modal-body, .imss-modal-foot { padding:1rem; }
+.imss-modal-head { border-bottom:1px solid #e5e7eb; }
+.imss-modal-foot { border-top:1px solid #e5e7eb; display:flex; justify-content:flex-end; gap:.5rem; }
+.imss-option-card { border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; margin-bottom:.45rem; cursor:pointer; background:#f8fafc; }
+.imss-option-card:hover { border-color:#93c5fd; background:#eff6ff; }
+.imss-dropdown { position:relative; display:inline-block; }
+.imss-dropdown-menu { position:absolute; right:0; top:100%; z-index:20; min-width:120px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.3rem; box-shadow:0 8px 30px rgba(15,23,42,.15); display:none; }
+.imss-dropdown-menu.show { display:block; }
+.imss-dropdown-menu button { width:100%; text-align:left; background:none; border:0; padding:.35rem .45rem; cursor:pointer; }
+.imss-help { font-size:.8rem; color:#64748b; }
+@keyframes imss-spin { to { transform:translateY(-50%) rotate(360deg); } }
+@keyframes imss-fade { from { opacity:1; } to { opacity:0; } }
+@media (max-width: 1100px) { .imss-main { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
 {% block content %}
 <section class="page-head">
   <div>
     <span class="eyebrow">IMSS</span>
-    <h2>Exportación IDSE / SUA</h2>
-    <p>Captura y exportación de movimientos IMSS compatibles con portales IDSE y SUA.</p>
-  </div>
-  <div class="page-head-actions">
-    <a class="btn btn-primary" href="{{ url_for('exportacion_imss.nuevo_get', tipo='ALTA') }}">Nuevo movimiento</a>
+    <h2>Movimientos IMSS</h2>
+    <p>Captura, validación y exportación de movimientos para IDSE y SUA.</p>
   </div>
 </section>
 
-<div class="form-card">
-  <form method="get" action="{{ url_for('exportacion_imss.index') }}">
-    <label>Tipo movimiento
-      <select name="tipo">
-        <option value="">Todos</option>
-        <option value="ALTA" {% if filtro_tipo == 'ALTA' %}selected{% endif %}>ALTA</option>
-        <option value="BAJA" {% if filtro_tipo == 'BAJA' %}selected{% endif %}>BAJA</option>
-        <option value="MODIFICACION" {% if filtro_tipo == 'MODIFICACION' %}selected{% endif %}>MODIFICACION</option>
-      </select>
-    </label>
-    <label>Cliente
-      <select name="cliente">
-        <option value="">Todos</option>
-        {% for c in clientes %}
-        <option value="{{ c }}" {% if filtro_cliente == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button class="btn btn-secondary" type="submit">Aplicar filtros</button>
-  </form>
+<div class="imss-layout">
+  <div class="imss-main">
+    <section class="imss-left">
+      <div class="imss-sec">
+        <h3>Nuevo movimiento</h3>
+        <div class="imss-form-grid">
+          <div class="imss-field">
+            <label for="tipo-mov">Tipo de movimiento</label>
+            <select id="tipo-mov">
+              <option value="ALTA">ALTA</option>
+              <option value="BAJA">BAJA</option>
+            </select>
+          </div>
+
+          <div class="imss-field">
+            <label for="rp-select">RP / Registro Patronal</label>
+            <select id="rp-select"></select>
+          </div>
+
+          <div id="rp-extra-wrap" class="imss-inline" hidden>
+            <div class="imss-field">
+              <label for="rp-extra">RP</label>
+              <input id="rp-extra" type="text" maxlength="11">
+            </div>
+            <div class="imss-field">
+              <label for="rfc-patron-extra">RFC Patrón</label>
+              <input id="rfc-patron-extra" type="text" maxlength="13">
+            </div>
+            <div class="imss-field">
+              <label>&nbsp;</label>
+              <button type="button" class="btn btn-secondary" id="btn-guardar-patron">Guardar patrón</button>
+            </div>
+          </div>
+
+          <div class="imss-field">
+            <label for="fecha-mov">Fecha de movimiento</label>
+            <input id="fecha-mov" type="date">
+          </div>
+        </div>
+      </div>
+
+      <div class="imss-sec">
+        <div class="imss-divider">Datos del trabajador</div>
+        <div class="imss-field">
+          <label for="hc-query">Buscador headcount</label>
+          <input id="hc-query" type="text" placeholder="Buscar por NSS, RFC, CURP o nombre completo...">
+        </div>
+        <div class="imss-inline" style="margin-top:.45rem;">
+          <div class="imss-radio" id="hc-campos">
+            <button type="button" data-campo="nss" class="active">NSS</button>
+            <button type="button" data-campo="rfc_homoclave">RFC</button>
+            <button type="button" data-campo="curp">CURP</button>
+            <button type="button" data-campo="nombre_completo">Nombre</button>
+          </div>
+          <button type="button" class="btn btn-secondary" id="btn-buscar-hc">Buscar en headcount</button>
+        </div>
+        <p id="hc-msg" class="imss-msg" hidden></p>
+
+        <div class="imss-form-grid">
+          <div class="imss-field"><label for="nss">NSS</label><input id="nss" type="text" maxlength="11"></div>
+          <div class="imss-field">
+            <label for="rfc">RFC</label>
+            <input id="rfc" type="text" maxlength="13">
+            <span class="imss-help">(opcional, requerido para SUA)</span>
+          </div>
+          <div class="imss-field"><label for="curp">CURP</label><input id="curp" type="text" maxlength="18"></div>
+          <div class="imss-field"><label for="apellido-paterno">Apellido paterno</label><input id="apellido-paterno" type="text"></div>
+          <div class="imss-field"><label for="apellido-materno">Apellido materno</label><input id="apellido-materno" type="text"></div>
+          <div class="imss-field"><label for="nombres">Nombres</label><input id="nombres" type="text"></div>
+          <div class="imss-field">
+            <label for="sbc-select">SBC</label>
+            <select id="sbc-select"></select>
+          </div>
+          <div class="imss-field" id="sbc-extra-wrap" hidden>
+            <label for="sbc-extra">SBC personalizado</label>
+            <input id="sbc-extra" type="number" step="0.01" min="0">
+          </div>
+        </div>
+        <div class="imss-inline" style="margin-top:.45rem;">
+          <button type="button" class="btn btn-primary" id="btn-agregar-mov">Agregar movimiento</button>
+        </div>
+        <p id="manual-msg" class="imss-msg" hidden></p>
+      </div>
+
+      <div class="imss-sec">
+        <div class="imss-divider">O importar múltiples</div>
+        <div class="imss-inline">
+          <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.plantilla_excel') }}">📥 Descargar plantilla Excel</a>
+          <button type="button" class="btn btn-secondary" id="btn-importar-excel">📂 Importar desde Excel</button>
+          <input type="file" id="excel-file" hidden accept=".xlsx,.xlsm,.xltx,.xltm">
+        </div>
+        <p id="excel-msg" class="imss-msg" hidden></p>
+      </div>
+
+      <div class="imss-sec">
+        <div class="imss-divider">O cargar desde reporte mensual</div>
+        <div class="imss-form-grid">
+          <div class="imss-field">
+            <label for="reporte-select">Reporte disponible</label>
+            <select id="reporte-select"></select>
+          </div>
+          <label class="imss-inline" style="gap:.35rem;">
+            <input id="incluir-fijos" type="checkbox" style="flex:0;">
+            <span>Incluir personal fijo como ALTA</span>
+            <span class="imss-help" title="Las personas fijas se cargarán como movimiento de ALTA con su fecha de ingreso del headcount">ⓘ</span>
+          </label>
+          <button type="button" class="btn btn-secondary" id="btn-cargar-reporte">Cargar reporte</button>
+        </div>
+        <p id="reporte-msg" class="imss-msg" hidden></p>
+      </div>
+    </section>
+
+    <section class="imss-right">
+      <div class="imss-inline" style="justify-content:space-between; align-items:flex-start;">
+        <div>
+          <h3 style="margin-bottom:.2rem;">Movimientos a exportar</h3>
+          <p id="mov-counter" class="imss-counter">0 movimientos (0 altas / 0 bajas)</p>
+        </div>
+        <button type="button" class="btn btn-secondary" id="btn-limpiar-lista">Limpiar lista</button>
+      </div>
+      <p id="mov-msg" class="imss-msg" hidden></p>
+
+      <div class="imss-table-wrap">
+        <table class="imss-table">
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Nombre completo</th>
+              <th>NSS</th>
+              <th>Fecha mov</th>
+              <th>SBC</th>
+              <th>Alertas</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="mov-tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="imss-export">
+        <div class="imss-field">
+          <label for="rp-export-select">Exportar movimientos como:</label>
+          <select id="rp-export-select"></select>
+        </div>
+        <div class="imss-inline" style="margin-top:.45rem;">
+          <button type="button" class="btn btn-primary" id="btn-export-idse" title="Genera TXT compatible con portal IDSE (todos los movimientos)">Exportar IDSE</button>
+          <button type="button" class="btn btn-secondary" id="btn-export-sua" title="Genera TXT para SUA (solo movimientos de ALTA)">Exportar SUA</button>
+          <span id="sua-badge" class="imss-help">Solo se exportarán 0 altas</span>
+        </div>
+        <p id="export-msg" class="imss-msg" hidden></p>
+      </div>
+    </section>
+  </div>
+
+  <section class="imss-bottom">
+    <h3>Historial de exportaciones</h3>
+    <div class="imss-inline" style="margin-bottom:.6rem;">
+      <input id="hist-search" type="search" placeholder="Buscar por patrón o fecha">
+      <button type="button" class="btn btn-secondary" id="btn-hist-refresh">Actualizar</button>
+    </div>
+    <div class="imss-table-wrap">
+      <table class="imss-table">
+        <thead>
+          <tr>
+            <th>Patrón (RP)</th>
+            <th>RFC Patrón</th>
+            <th>Tipo export</th>
+            <th>Altas</th>
+            <th>Bajas</th>
+            <th>Total</th>
+            <th>Fecha exportación</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </div>
+    <div class="imss-pagination">
+      <button type="button" class="btn btn-secondary" id="hist-prev">Anterior</button>
+      <span id="hist-page">1 / 1</span>
+      <button type="button" class="btn btn-secondary" id="hist-next">Siguiente</button>
+    </div>
+    <p id="hist-msg" class="imss-msg" hidden></p>
+  </section>
 </div>
 
-<div class="form-card">
-  <h3>Movimientos capturados</h3>
-  <div style="margin-bottom:.75rem;display:flex;gap:.5rem;flex-wrap:wrap;">
-    <button class="btn btn-primary" type="button" id="btn-export-idse">Exportar IDSE seleccionados</button>
-    <button class="btn btn-secondary" type="button" id="btn-export-sua">Exportar SUA seleccionados</button>
+<dialog id="dup-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Se encontraron registros duplicados</h3></div>
+  <div class="imss-modal-body" id="dup-list"></div>
+  <div class="imss-modal-foot">
+    <button type="button" class="btn btn-secondary" id="dup-cancel">Cancelar</button>
   </div>
-  <div style="overflow:auto;">
-    <table id="tabla-movs">
-      <thead>
-        <tr>
-          <th><input type="checkbox" id="check-all"></th>
-          <th>Tipo</th>
-          <th>Cliente</th>
-          <th>Nombre completo</th>
-          <th>NSS</th>
-          <th>Fecha mov</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for mov in movimientos %}
-        <tr>
-          <td><input type="checkbox" class="mov-check" value="{{ mov.id }}"></td>
-          <td>{{ mov.tipo_movimiento }}</td>
-          <td>{{ mov.cliente }}</td>
-          <td>{{ mov.apellido_paterno }} {{ mov.apellido_materno }} {{ mov.nombres }}</td>
-          <td>{{ mov.nss }}</td>
-          <td>{{ mov.fecha_movimiento }}</td>
-          <td>
-            <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.nuevo_get', tipo=mov.tipo_movimiento, cliente=mov.cliente, nss=mov.nss) }}">Duplicar</a>
-            <button class="btn btn-secondary btn-delete" data-id="{{ mov.id }}" type="button">Eliminar</button>
-          </td>
-        </tr>
-        {% else %}
-        <tr><td colspan="7">No hay movimientos capturados.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+</dialog>
+
+<dialog id="edit-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Editar movimiento</h3></div>
+  <div class="imss-modal-body">
+    <div class="imss-form-grid">
+      <div class="imss-field"><label>Tipo</label><select id="edit-tipo"><option value="ALTA">ALTA</option><option value="BAJA">BAJA</option></select></div>
+      <div class="imss-field"><label>RP</label><select id="edit-rp"></select></div>
+      <div id="edit-rp-extra-wrap" class="imss-inline" hidden>
+        <div class="imss-field"><label>RP</label><input id="edit-rp-extra" maxlength="11"></div>
+        <div class="imss-field"><label>RFC Patrón</label><input id="edit-rfc-patron-extra" maxlength="13"></div>
+      </div>
+      <div class="imss-field"><label>Fecha movimiento</label><input id="edit-fecha" type="date"></div>
+    </div>
+    <div class="imss-divider">Datos del trabajador</div>
+    <div class="imss-field"><label>Búsqueda headcount por NSS</label><div class="imss-inline"><input id="edit-hc-query" placeholder="NSS..."><button class="btn btn-secondary" type="button" id="btn-edit-hc">Buscar en headcount</button></div></div>
+    <div class="imss-form-grid">
+      <div class="imss-field"><label>NSS</label><input id="edit-nss" maxlength="11"></div>
+      <div class="imss-field"><label>RFC</label><input id="edit-rfc" maxlength="13"></div>
+      <div class="imss-field"><label>CURP</label><input id="edit-curp" maxlength="18"></div>
+      <div class="imss-field"><label>Apellido paterno</label><input id="edit-ap-pat"></div>
+      <div class="imss-field"><label>Apellido materno</label><input id="edit-ap-mat"></div>
+      <div class="imss-field"><label>Nombres</label><input id="edit-nombres"></div>
+      <div class="imss-field"><label>SBC</label><select id="edit-sbc-select"></select></div>
+      <div class="imss-field" id="edit-sbc-extra-wrap" hidden><label>SBC personalizado</label><input id="edit-sbc-extra" type="number" step="0.01" min="0"></div>
+      <div class="imss-field"><label>Alerta</label><input id="edit-alerta"></div>
+    </div>
+    <p id="edit-msg" class="imss-msg" hidden></p>
   </div>
-</div>
+  <div class="imss-modal-foot">
+    <button type="button" class="btn btn-secondary" id="edit-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="edit-save">Guardar cambios</button>
+  </div>
+</dialog>
+
+<dialog id="hist-movs-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Movimientos de la exportación</h3></div>
+  <div class="imss-modal-body">
+    <div class="imss-table-wrap">
+      <table class="imss-table">
+        <thead><tr><th>Nombre</th><th>NSS</th><th>Tipo</th><th>Fecha</th></tr></thead>
+        <tbody id="hist-movs-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="imss-modal-foot"><button type="button" class="btn btn-secondary" id="hist-movs-close">Cerrar</button></div>
+</dialog>
 
 <script>
-(function(){
-  const checkAll = document.getElementById('check-all');
-  const getChecks = () => [...document.querySelectorAll('.mov-check')];
-  const selectedIds = () => getChecks().filter(c => c.checked).map(c => c.value);
-  if (checkAll) {
-    checkAll.addEventListener('change', () => {
-      getChecks().forEach(c => c.checked = checkAll.checked);
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const state = {
+    patrones: {},
+    sbcOpciones: {},
+    movimientos: [],
+    historial: [],
+    reportes: [],
+    campoBusqueda: "nss",
+    duplicateTarget: null,
+    editId: null,
+    histPage: 1,
+    histPages: 1,
+    admin: false,
+    pendingDeleteId: null,
+  };
+
+  const urls = {
+    patrones: "{{ url_for('exportacion_imss.patrones_get') }}",
+    guardarPatron: "{{ url_for('exportacion_imss.patrones_post') }}",
+    movimientos: "{{ url_for('exportacion_imss.movimientos_get') }}",
+    crearMovimiento: "{{ url_for('exportacion_imss.movimientos_post') }}",
+    actualizarMovimiento: "{{ url_for('exportacion_imss.movimientos_put', movimiento_id='__ID__') }}",
+    eliminarMovimiento: "{{ url_for('exportacion_imss.movimientos_delete', movimiento_id='__ID__') }}",
+    buscarHeadcount: "{{ url_for('exportacion_imss.buscar_headcount') }}",
+    cargarExcel: "{{ url_for('exportacion_imss.cargar_excel') }}",
+    plantillaExcel: "{{ url_for('exportacion_imss.plantilla_excel') }}",
+    reportesDisponibles: "{{ url_for('exportacion_imss.reportes_mensuales_disponibles') }}",
+    cargarReporte: "{{ url_for('exportacion_imss.cargar_reporte_mensual') }}",
+    exportar: "{{ url_for('exportacion_imss.exportar') }}",
+    descargar: "{{ url_for('exportacion_imss.descargar_exportacion', exportacion_id='__ID__') }}",
+    historial: "{{ url_for('exportacion_imss.historial_exportaciones') }}",
+    eliminarHistorial: "{{ url_for('exportacion_imss.historial_exportaciones_delete', exportacion_id='__ID__') }}",
+  };
+
+  function iconDoc() { return '<svg viewBox="0 0 24 24"><path d="M7 3h8l5 5v13a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M8 13h8"/><path d="M8 17h6"/></svg>'; }
+  function iconPencil() { return '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>'; }
+  function iconSync() { return '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>'; }
+  function iconTrash() { return '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'; }
+  function iconDownload() { return '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>'; }
+  function iconCheck() { return '<svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg>'; }
+  function iconX() { return '<svg viewBox="0 0 24 24"><path d="m18 6-12 12"/><path d="m6 6 12 12"/></svg>'; }
+
+  function setMsg(id, text, kind) {
+    const el = $(id);
+    if (!el) return;
+    el.hidden = !text;
+    el.textContent = text || "";
+    el.className = "imss-msg" + (kind ? ` ${kind}` : "");
+  }
+
+  function setLoading(button, loading) {
+    if (!button) return;
+    button.classList.toggle("is-loading", Boolean(loading));
+    button.disabled = Boolean(loading);
+  }
+
+  async function fetchJson(url, options) {
+    const resp = await fetch(url, options);
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok || json.ok === false) throw new Error(json.error || "Error de solicitud");
+    return json;
+  }
+
+  function normalize(v) { return String(v || "").trim(); }
+  function toInputDate(v) {
+    const s = normalize(v);
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split("/");
+      return `${y}-${m}-${d}`;
+    }
+    return "";
+  }
+  function fromInputDate(v) {
+    const s = normalize(v);
+    if (!s) return "";
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}/${y}`;
+  }
+  function monthLabel(mes, anio) {
+    const dt = new Date(Number(anio), Number(mes) - 1, 1);
+    return dt.toLocaleDateString("es-MX", { month: "long", year: "numeric" }).replace(/^./, (x) => x.toUpperCase());
+  }
+  function canAdminDeleteHistory() {
+    const bodyRole = (document.body?.dataset?.userRole || "").toLowerCase();
+    const gUser = window.currentUser || window.__CURRENT_USER__ || window.__APP_USER__ || {};
+    const role = String(gUser.rol || gUser.role || bodyRole || "").toLowerCase();
+    const isAdmin = Boolean(gUser.is_admin || gUser.isAdmin) || role === "admin" || role === "administrador";
+    state.admin = isAdmin;
+    return isAdmin;
+  }
+
+  function fillRpSelect(selectId, includeOtro) {
+    const select = $(selectId);
+    if (!select) return;
+    const current = select.value;
+    const opts = Object.entries(state.patrones || {}).sort((a, b) => a[0].localeCompare(b[0]));
+    select.innerHTML = "";
+    opts.forEach(([rp, rfc]) => {
+      const opt = document.createElement("option");
+      opt.value = rp;
+      opt.textContent = `${rp} — ${rfc}`;
+      select.appendChild(opt);
+    });
+    if (includeOtro) {
+      const o = document.createElement("option");
+      o.value = "__otro__";
+      o.textContent = "Otro...";
+      select.appendChild(o);
+    }
+    if ([...select.options].some((o) => o.value === current)) select.value = current;
+  }
+
+  function fillSbcSelect(selectId, extraWrapId) {
+    const select = $(selectId);
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = "";
+    Object.entries(state.sbcOpciones || {}).forEach(([val, label]) => {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = `${val} — ${label}`;
+      select.appendChild(opt);
+    });
+    const otro = document.createElement("option");
+    otro.value = "__otro__";
+    otro.textContent = "Otro...";
+    select.appendChild(otro);
+    if ([...select.options].some((o) => o.value === current)) select.value = current;
+    const extraWrap = $(extraWrapId);
+    if (extraWrap) extraWrap.hidden = select.value !== "__otro__";
+  }
+
+  function getSbc(selectId, extraId) {
+    const sel = $(selectId)?.value || "";
+    if (sel === "__otro__") return normalize($(extraId)?.value);
+    return normalize(sel);
+  }
+
+  async function loadPatrones() {
+    const data = await fetchJson(urls.patrones);
+    state.patrones = data.patrones || {};
+    state.sbcOpciones = data.sbc_opciones || {};
+    fillRpSelect("rp-select", true);
+    fillRpSelect("rp-export-select", false);
+    fillRpSelect("edit-rp", true);
+    fillSbcSelect("sbc-select", "sbc-extra-wrap");
+    fillSbcSelect("edit-sbc-select", "edit-sbc-extra-wrap");
+  }
+
+  async function loadMovimientos() {
+    const data = await fetchJson(urls.movimientos);
+    state.movimientos = Array.isArray(data.movimientos) ? data.movimientos : [];
+    renderMovimientos();
+  }
+
+  async function loadReportesDisponibles() {
+    const sel = $("reporte-select");
+    const data = await fetchJson(urls.reportesDisponibles);
+    state.reportes = Array.isArray(data.reportes) ? data.reportes : [];
+    sel.innerHTML = "";
+    if (!state.reportes.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No hay reportes mensuales disponibles. Genera uno primero.";
+      sel.appendChild(opt);
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    state.reportes.forEach((r) => {
+      const opt = document.createElement("option");
+      opt.value = JSON.stringify({ cliente: r.cliente, mes: r.mes, anio: r.anio });
+      opt.textContent = `${r.cliente} — ${monthLabel(r.mes, r.anio)} (${r.completo ? "Completo" : "Incompleto"})`;
+      sel.appendChild(opt);
     });
   }
 
-  document.getElementById('btn-export-idse')?.addEventListener('click', () => {
-    const ids = selectedIds();
-    if (!ids.length) return window.alert('Selecciona al menos un movimiento.');
-    const tipo = '{{ filtro_tipo }}' || '';
-    const q = new URLSearchParams();
-    ids.forEach(i => q.append('ids', i));
-    if (tipo) q.set('tipo_movimiento', tipo);
-    window.location.href = '{{ url_for("exportacion_imss.exportar_idse") }}?' + q.toString();
-  });
+  async function loadHistorialExportaciones() {
+    const data = await fetchJson(urls.historial);
+    state.historial = Array.isArray(data.items) ? data.items : [];
+    renderHistorial(1);
+  }
 
-  document.getElementById('btn-export-sua')?.addEventListener('click', () => {
-    const ids = selectedIds();
-    if (!ids.length) return window.alert('Selecciona al menos un movimiento.');
-    const q = new URLSearchParams();
-    ids.forEach(i => q.append('ids', i));
-    window.location.href = '{{ url_for("exportacion_imss.exportar_sua") }}?' + q.toString();
-  });
+  function movementName(m) {
+    return [m.apellido_paterno, m.apellido_materno, m.nombres].map((x) => normalize(x)).filter(Boolean).join(" ");
+  }
 
-  document.querySelectorAll('.btn-delete').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const id = btn.getAttribute('data-id');
-      if (!id) return;
-      if (!window.confirm('¿Eliminar este movimiento?')) return;
-      const resp = await fetch('{{ url_for("exportacion_imss.eliminar_movimiento", movimiento_id="__id__") }}'.replace('__id__', id), {
-        method: 'DELETE',
-        credentials: 'same-origin'
+  function renderMovimientos() {
+    const tbody = $("mov-tbody");
+    const altas = state.movimientos.filter((m) => m.tipo_movimiento === "ALTA").length;
+    const bajas = state.movimientos.filter((m) => m.tipo_movimiento === "BAJA").length;
+    $("mov-counter").textContent = `${state.movimientos.length} movimientos (${altas} altas / ${bajas} bajas)`;
+    $("sua-badge").textContent = `Solo se exportarán ${altas} altas`;
+    const exportDisabled = state.movimientos.length === 0;
+    $("btn-export-idse").disabled = exportDisabled;
+    $("btn-export-sua").disabled = exportDisabled;
+
+    if (!state.movimientos.length) {
+      tbody.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
+      setMsg("mov-msg", "Agrega movimientos para exportar", "warn");
+      return;
+    }
+    setMsg("mov-msg", "", "");
+    tbody.innerHTML = state.movimientos.map((m) => {
+      const alert = normalize(m.alerta);
+      const tipo = normalize(m.tipo_movimiento);
+      const badge = `<span class="imss-badge ${tipo === "ALTA" ? "alta" : "baja"}">${tipo}</span>`;
+      const alertCell = alert ? `<span class="imss-alert-dot" title="${alert}">⚠️</span>` : "";
+      const deleteAction = state.pendingDeleteId === m.id
+        ? `<span class="imss-confirm-inline"><button class="imss-icon-btn delete do-delete" data-id="${m.id}" title="Confirmar">${iconCheck()}</button><button class="imss-icon-btn cancel-delete" data-id="${m.id}" title="Cancelar">${iconX()}</button></span>`
+        : `<button class="imss-icon-btn delete ask-delete" data-id="${m.id}" title="Eliminar">${iconTrash()}</button>`;
+      return `<tr id="row-${m.id}">
+        <td>${badge}</td>
+        <td>${movementName(m)}</td>
+        <td>${normalize(m.nss)}</td>
+        <td>${normalize(m.fecha_movimiento)}</td>
+        <td>${normalize(m.sbc)}</td>
+        <td>${alertCell}</td>
+        <td>
+          <div class="imss-actions">
+            <button type="button" class="imss-icon-btn edit edit-mov" data-id="${m.id}" title="Editar">${iconPencil()}</button>
+            <button type="button" class="imss-icon-btn sync sync-mov" data-id="${m.id}" title="Actualizar desde headcount">${iconSync()}</button>
+            ${deleteAction}
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
+  function getMainPayload() {
+    const rpSel = $("rp-select").value;
+    const rp = rpSel === "__otro__" ? normalize($("rp-extra").value) : rpSel;
+    const sbc = getSbc("sbc-select", "sbc-extra");
+    return {
+      tipo_movimiento: normalize($("tipo-mov").value),
+      rp: normalize(rp),
+      fecha_movimiento: fromInputDate($("fecha-mov").value),
+      nss: normalize($("nss").value),
+      rfc: normalize($("rfc").value) || null,
+      curp: normalize($("curp").value),
+      apellido_paterno: normalize($("apellido-paterno").value),
+      apellido_materno: normalize($("apellido-materno").value),
+      nombres: normalize($("nombres").value),
+      sbc: sbc,
+      origen: "manual",
+    };
+  }
+
+  function validatePayload(payload) {
+    const required = ["tipo_movimiento", "rp", "fecha_movimiento", "nss", "curp", "apellido_paterno", "apellido_materno", "nombres", "sbc"];
+    return required.filter((k) => !normalize(payload[k]));
+  }
+
+  function clearMainForm() {
+    $("tipo-mov").value = "ALTA";
+    $("fecha-mov").value = "";
+    $("hc-query").value = "";
+    $("nss").value = "";
+    $("rfc").value = "";
+    $("curp").value = "";
+    $("apellido-paterno").value = "";
+    $("apellido-materno").value = "";
+    $("nombres").value = "";
+    $("sbc-extra").value = "";
+    $("rp-extra").value = "";
+    $("rfc-patron-extra").value = "";
+    $("rp-extra-wrap").hidden = $("rp-select").value !== "__otro__";
+    fillSbcSelect("sbc-select", "sbc-extra-wrap");
+  }
+
+  function prefillMainFromHeadcount(datos) {
+    $("nss").value = normalize(datos.nss);
+    $("rfc").value = normalize(datos.rfc_homoclave);
+    $("curp").value = normalize(datos.curp);
+    $("apellido-paterno").value = normalize(datos.apellido_paterno);
+    $("apellido-materno").value = normalize(datos.apellido_materno);
+    $("nombres").value = normalize(datos.nombre);
+    const sd = normalize(datos.sueldo_diario);
+    if (Object.keys(state.sbcOpciones || {}).includes(sd)) {
+      $("sbc-select").value = sd;
+      $("sbc-extra-wrap").hidden = true;
+    } else if (sd) {
+      $("sbc-select").value = "__otro__";
+      $("sbc-extra").value = sd;
+      $("sbc-extra-wrap").hidden = false;
+    }
+  }
+
+  function prefillEditFromHeadcount(datos) {
+    $("edit-nss").value = normalize(datos.nss);
+    $("edit-rfc").value = normalize(datos.rfc_homoclave);
+    $("edit-curp").value = normalize(datos.curp);
+    $("edit-ap-pat").value = normalize(datos.apellido_paterno);
+    $("edit-ap-mat").value = normalize(datos.apellido_materno);
+    $("edit-nombres").value = normalize(datos.nombre);
+    const sd = normalize(datos.sueldo_diario);
+    if (Object.keys(state.sbcOpciones || {}).includes(sd)) {
+      $("edit-sbc-select").value = sd;
+      $("edit-sbc-extra-wrap").hidden = true;
+    } else if (sd) {
+      $("edit-sbc-select").value = "__otro__";
+      $("edit-sbc-extra").value = sd;
+      $("edit-sbc-extra-wrap").hidden = false;
+    }
+  }
+
+  async function savePatternFromMain() {
+    const btn = $("btn-guardar-patron");
+    setLoading(btn, true);
+    setMsg("manual-msg", "", "");
+    try {
+      const rp = normalize($("rp-extra").value);
+      const rfc_patron = normalize($("rfc-patron-extra").value);
+      await fetchJson(urls.guardarPatron, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rp, rfc_patron }),
       });
-      if (resp.ok) window.location.reload();
-      else window.alert('No se pudo eliminar el movimiento.');
+      await loadPatrones();
+      $("rp-select").value = rp;
+      $("rp-extra-wrap").hidden = true;
+      setMsg("manual-msg", "Patrón guardado y seleccionado.", "ok");
+    } catch (e) {
+      setMsg("manual-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function addManualMovement() {
+    const btn = $("btn-agregar-mov");
+    setLoading(btn, true);
+    setMsg("manual-msg", "", "");
+    try {
+      const payload = getMainPayload();
+      const missing = validatePayload(payload);
+      if (missing.length) throw new Error(`Campos obligatorios faltantes: ${missing.join(", ")}`);
+      await fetchJson(urls.crearMovimiento, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      clearMainForm();
+      await loadMovimientos();
+      setMsg("manual-msg", "Movimiento agregado correctamente.", "ok");
+    } catch (e) {
+      setMsg("manual-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function searchHeadcount(query, campo) {
+    return fetchJson(urls.buscarHeadcount, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query, campo }),
     });
-  });
+  }
+
+  function openDuplicateModal(options, target) {
+    state.duplicateTarget = target;
+    $("dup-list").innerHTML = (options || []).map((op, idx) => (
+      `<div class="imss-option-card" data-idx="${idx}">
+        <strong>${normalize(op.nombre_completo)}</strong><br>
+        NSS: ${normalize(op.nss)} | CURP: ${normalize(op.curp)} | RFC: ${normalize(op.rfc_homoclave)}
+      </div>`
+    )).join("") || "Sin opciones.";
+    $("dup-modal").showModal();
+    state._dupOptions = options || [];
+  }
+
+  async function runMainSearch() {
+    const btn = $("btn-buscar-hc");
+    setLoading(btn, true);
+    setMsg("hc-msg", "", "");
+    try {
+      const query = normalize($("hc-query").value);
+      if (!query) throw new Error("Escribe un valor de búsqueda.");
+      const result = await searchHeadcount(query, state.campoBusqueda);
+      if (!result.encontrado) {
+        setMsg("hc-msg", "No encontrado en headcount — capture los datos manualmente", "warn");
+        return;
+      }
+      if (result.duplicado) {
+        openDuplicateModal(result.opciones || [], "main");
+        return;
+      }
+      prefillMainFromHeadcount(result.datos || {});
+      setMsg("hc-msg", "✓ Datos cargados desde headcount", "ok");
+    } catch (e) {
+      setMsg("hc-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function importFromExcel(file) {
+    const btn = $("btn-importar-excel");
+    setLoading(btn, true);
+    setMsg("excel-msg", "", "");
+    try {
+      const fd = new FormData();
+      fd.append("excel_file", file);
+      const loaded = await fetchJson(urls.cargarExcel, { method: "POST", body: fd });
+      const movimientos = loaded.movimientos || [];
+      let saved = 0;
+      for (const mov of movimientos) {
+        try {
+          await fetchJson(urls.crearMovimiento, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(mov),
+          });
+          saved += 1;
+        } catch (_) {
+          // continuar para mantener carga masiva robusta
+        }
+      }
+      await loadMovimientos();
+      setMsg("excel-msg", `Se cargaron ${saved} movimientos (${loaded.con_alertas || 0} con alertas)`, "ok");
+    } catch (e) {
+      setMsg("excel-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function loadFromMonthlyReport() {
+    const btn = $("btn-cargar-reporte");
+    setLoading(btn, true);
+    setMsg("reporte-msg", "", "");
+    try {
+      const val = $("reporte-select").value;
+      if (!val) throw new Error("Selecciona un reporte mensual.");
+      const parsed = JSON.parse(val);
+      const incluir_fijos = Boolean($("incluir-fijos").checked);
+      const loaded = await fetchJson(urls.cargarReporte, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...parsed, incluir_fijos }),
+      });
+      const movimientos = loaded.movimientos || [];
+      let saved = 0;
+      for (const mov of movimientos) {
+        try {
+          await fetchJson(urls.crearMovimiento, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(mov),
+          });
+          saved += 1;
+        } catch (_) {}
+      }
+      await loadMovimientos();
+      setMsg("reporte-msg", `Se cargaron ${saved} movimientos (${loaded.con_alertas || 0} requieren atención)`, "ok");
+    } catch (e) {
+      setMsg("reporte-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  function openEditModal(id) {
+    const mov = state.movimientos.find((m) => m.id === id);
+    if (!mov) return;
+    state.editId = id;
+    $("edit-tipo").value = normalize(mov.tipo_movimiento) || "ALTA";
+    const rp = normalize(mov.rp);
+    if ([...$("edit-rp").options].some((o) => o.value === rp)) {
+      $("edit-rp").value = rp;
+      $("edit-rp-extra-wrap").hidden = true;
+    } else {
+      $("edit-rp").value = "__otro__";
+      $("edit-rp-extra").value = rp;
+      $("edit-rfc-patron-extra").value = normalize(mov.rfc_patron);
+      $("edit-rp-extra-wrap").hidden = false;
+    }
+    $("edit-fecha").value = toInputDate(mov.fecha_movimiento);
+    $("edit-nss").value = normalize(mov.nss);
+    $("edit-rfc").value = normalize(mov.rfc);
+    $("edit-curp").value = normalize(mov.curp);
+    $("edit-ap-pat").value = normalize(mov.apellido_paterno);
+    $("edit-ap-mat").value = normalize(mov.apellido_materno);
+    $("edit-nombres").value = normalize(mov.nombres);
+    $("edit-alerta").value = normalize(mov.alerta);
+    const sbc = normalize(mov.sbc);
+    if ([...$("edit-sbc-select").options].some((o) => o.value === sbc)) {
+      $("edit-sbc-select").value = sbc;
+      $("edit-sbc-extra-wrap").hidden = true;
+    } else {
+      $("edit-sbc-select").value = "__otro__";
+      $("edit-sbc-extra").value = sbc;
+      $("edit-sbc-extra-wrap").hidden = false;
+    }
+    setMsg("edit-msg", "", "");
+    $("edit-modal").showModal();
+  }
+
+  function buildEditPayload() {
+    const rpSel = $("edit-rp").value;
+    const rp = rpSel === "__otro__" ? normalize($("edit-rp-extra").value) : rpSel;
+    return {
+      tipo_movimiento: normalize($("edit-tipo").value),
+      rp: rp,
+      fecha_movimiento: fromInputDate($("edit-fecha").value),
+      nss: normalize($("edit-nss").value),
+      rfc: normalize($("edit-rfc").value) || null,
+      curp: normalize($("edit-curp").value),
+      apellido_paterno: normalize($("edit-ap-pat").value),
+      apellido_materno: normalize($("edit-ap-mat").value),
+      nombres: normalize($("edit-nombres").value),
+      sbc: getSbc("edit-sbc-select", "edit-sbc-extra"),
+      alerta: normalize($("edit-alerta").value) || null,
+    };
+  }
+
+  async function saveEdit() {
+    const btn = $("edit-save");
+    setLoading(btn, true);
+    setMsg("edit-msg", "", "");
+    try {
+      const payload = buildEditPayload();
+      const missing = validatePayload(payload);
+      if (missing.length) throw new Error(`Campos obligatorios faltantes: ${missing.join(", ")}`);
+      const url = urls.actualizarMovimiento.replace("__ID__", encodeURIComponent(state.editId));
+      await fetchJson(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      $("edit-modal").close();
+      await loadMovimientos();
+      setMsg("mov-msg", "Movimiento actualizado.", "ok");
+    } catch (e) {
+      setMsg("edit-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function syncFromHeadcount(id) {
+    const mov = state.movimientos.find((m) => m.id === id);
+    if (!mov) return;
+    const query = normalize(mov.nss);
+    if (!query) {
+      setMsg("mov-msg", "No se puede sincronizar sin NSS.", "warn");
+      return;
+    }
+    try {
+      const result = await searchHeadcount(query, "nss");
+      if (!result.encontrado) {
+        setMsg("mov-msg", `No encontrado en headcount para NSS ${query}`, "warn");
+        return;
+      }
+      const datos = result.duplicado ? (result.opciones || [])[0] : result.datos;
+      if (!datos) {
+        setMsg("mov-msg", `No encontrado en headcount para NSS ${query}`, "warn");
+        return;
+      }
+      const payload = {
+        nss: normalize(datos.nss),
+        rfc: normalize(datos.rfc_homoclave) || null,
+        curp: normalize(datos.curp),
+        apellido_paterno: normalize(datos.apellido_paterno),
+        apellido_materno: normalize(datos.apellido_materno),
+        nombres: normalize(datos.nombre),
+        sbc: normalize(datos.sueldo_diario) || normalize(mov.sbc),
+      };
+      const url = urls.actualizarMovimiento.replace("__ID__", encodeURIComponent(id));
+      await fetchJson(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      await loadMovimientos();
+      setMsg("mov-msg", "Movimiento actualizado desde headcount.", "ok");
+    } catch (e) {
+      setMsg("mov-msg", e.message, "err");
+    }
+  }
+
+  async function deleteMovimiento(id) {
+    const url = urls.eliminarMovimiento.replace("__ID__", encodeURIComponent(id));
+    await fetchJson(url, { method: "DELETE" });
+    const row = $(`row-${id}`);
+    if (row) {
+      row.classList.add("imss-row-remove");
+      setTimeout(() => loadMovimientos(), 200);
+    } else {
+      await loadMovimientos();
+    }
+  }
+
+  async function clearAllMovimientos() {
+    const btn = $("btn-limpiar-lista");
+    setLoading(btn, true);
+    try {
+      const ids = state.movimientos.map((m) => m.id);
+      for (const id of ids) {
+        try { await fetchJson(urls.eliminarMovimiento.replace("__ID__", encodeURIComponent(id)), { method: "DELETE" }); } catch (_) {}
+      }
+      await loadMovimientos();
+      setMsg("mov-msg", "Lista limpiada.", "ok");
+    } catch (e) {
+      setMsg("mov-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  async function exportar(formato) {
+    const btn = formato === "IDSE" ? $("btn-export-idse") : $("btn-export-sua");
+    setLoading(btn, true);
+    setMsg("export-msg", "", "");
+    try {
+      if (!state.movimientos.length) throw new Error("Agrega movimientos para exportar");
+      const rp = normalize($("rp-export-select").value);
+      if (!rp) throw new Error("Selecciona un RP para exportar.");
+      const ids = state.movimientos.map((m) => m.id);
+      const result = await fetchJson(urls.exportar, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movimientos_ids: ids, tipo_export: formato, rp }),
+      });
+      const exportacionId = normalize(result.exportacion_id);
+      if (!exportacionId) throw new Error("No se recibió exportacion_id.");
+      const downUrl = `${urls.descargar.replace("__ID__", encodeURIComponent(exportacionId))}?formato=${formato}`;
+      window.location.href = downUrl;
+      await loadHistorialExportaciones();
+      setMsg("export-msg", `Exportación ${formato} generada y descargada.`, "ok");
+    } catch (e) {
+      setMsg("export-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
+  function filterHistorial(items, q) {
+    const s = normalize(q).toLowerCase();
+    if (!s) return items;
+    return items.filter((it) => `${it.rp || ""} ${it.rfc_patron || ""} ${it.fecha_exportacion || ""}`.toLowerCase().includes(s));
+  }
+
+  function renderHistorial(page) {
+    const q = $("hist-search").value || "";
+    const filtered = filterHistorial(state.historial, q);
+    const per = 10;
+    state.histPages = filtered.length ? Math.ceil(filtered.length / per) : 1;
+    state.histPage = Math.min(Math.max(1, page), state.histPages);
+    const start = (state.histPage - 1) * per;
+    const rows = filtered.slice(start, start + per);
+    const isAdmin = canAdminDeleteHistory();
+    $("hist-tbody").innerHTML = rows.map((h) => {
+      const id = normalize(h.id);
+      let download = "";
+      if (h.tipo_export === "AMBOS") {
+        download = `<div class="imss-dropdown">
+          <button type="button" class="imss-icon-btn dl-toggle" data-id="${id}" title="Descargar TXT">${iconDownload()}</button>
+          <div class="imss-dropdown-menu" id="dl-menu-${id}">
+            <button type="button" class="hist-dl" data-id="${id}" data-formato="IDSE">Descargar IDSE</button>
+            <button type="button" class="hist-dl" data-id="${id}" data-formato="SUA">Descargar SUA</button>
+          </div>
+        </div>`;
+      } else {
+        download = `<button type="button" class="imss-icon-btn hist-dl" data-id="${id}" data-formato="${h.tipo_export}" title="Descargar TXT">${iconDownload()}</button>`;
+      }
+      const del = isAdmin ? `<button type="button" class="imss-icon-btn delete hist-del" data-id="${id}" title="Eliminar">${iconTrash()}</button>` : "";
+      return `<tr>
+        <td>${normalize(h.rp)}</td>
+        <td>${normalize(h.rfc_patron)}</td>
+        <td>${normalize(h.tipo_export)}</td>
+        <td>${normalize(h.altas)}</td>
+        <td>${normalize(h.bajas)}</td>
+        <td>${normalize(h.total_movimientos)}</td>
+        <td>${normalize(h.fecha_exportacion).replace("T", " ").slice(0, 19)}</td>
+        <td>
+          <div class="imss-actions">
+            <button type="button" class="imss-icon-btn view hist-view" data-id="${id}" title="Ver movimientos">${iconDoc()}</button>
+            ${download}
+            ${del}
+          </div>
+        </td>
+      </tr>`;
+    }).join("") || '<tr><td colspan="8">Sin historial de exportaciones.</td></tr>';
+    $("hist-page").textContent = `${state.histPage} / ${state.histPages}`;
+  }
+
+  function openHistMovs(exportId) {
+    const item = state.historial.find((h) => normalize(h.id) === exportId);
+    const ids = (item?.movimientos_ids || []).map((x) => normalize(x));
+    const byId = new Map(state.movimientos.map((m) => [normalize(m.id), m]));
+    $("hist-movs-tbody").innerHTML = ids.map((id) => {
+      const mov = byId.get(id);
+      if (!mov) return `<tr><td colspan="4">Movimiento ${id} no disponible actualmente.</td></tr>`;
+      return `<tr><td>${movementName(mov)}</td><td>${normalize(mov.nss)}</td><td>${normalize(mov.tipo_movimiento)}</td><td>${normalize(mov.fecha_movimiento)}</td></tr>`;
+    }).join("") || '<tr><td colspan="4">Sin movimientos asociados.</td></tr>';
+    $("hist-movs-modal").showModal();
+  }
+
+  async function deleteHistorial(exportId) {
+    const url = urls.eliminarHistorial.replace("__ID__", encodeURIComponent(exportId));
+    await fetchJson(url, { method: "DELETE" });
+    await loadHistorialExportaciones();
+    setMsg("hist-msg", "Exportación eliminada.", "ok");
+  }
+
+  function attachEvents() {
+    $("rp-select").addEventListener("change", () => { $("rp-extra-wrap").hidden = $("rp-select").value !== "__otro__"; });
+    $("edit-rp").addEventListener("change", () => { $("edit-rp-extra-wrap").hidden = $("edit-rp").value !== "__otro__"; });
+    $("sbc-select").addEventListener("change", () => { $("sbc-extra-wrap").hidden = $("sbc-select").value !== "__otro__"; });
+    $("edit-sbc-select").addEventListener("change", () => { $("edit-sbc-extra-wrap").hidden = $("edit-sbc-select").value !== "__otro__"; });
+    $("btn-guardar-patron").addEventListener("click", savePatternFromMain);
+    $("btn-agregar-mov").addEventListener("click", addManualMovement);
+    $("btn-buscar-hc").addEventListener("click", runMainSearch);
+    $("btn-importar-excel").addEventListener("click", () => $("excel-file").click());
+    $("excel-file").addEventListener("change", (ev) => {
+      const file = ev.target.files && ev.target.files[0];
+      if (file) importFromExcel(file);
+      ev.target.value = "";
+    });
+    $("btn-cargar-reporte").addEventListener("click", loadFromMonthlyReport);
+    $("btn-limpiar-lista").addEventListener("click", clearAllMovimientos);
+    $("btn-export-idse").addEventListener("click", () => exportar("IDSE"));
+    $("btn-export-sua").addEventListener("click", () => exportar("SUA"));
+    $("btn-hist-refresh").addEventListener("click", loadHistorialExportaciones);
+    $("hist-search").addEventListener("input", () => renderHistorial(1));
+    $("hist-prev").addEventListener("click", () => { if (state.histPage > 1) renderHistorial(state.histPage - 1); });
+    $("hist-next").addEventListener("click", () => { if (state.histPage < state.histPages) renderHistorial(state.histPage + 1); });
+    $("edit-cancel").addEventListener("click", () => $("edit-modal").close());
+    $("edit-save").addEventListener("click", saveEdit);
+    $("btn-edit-hc").addEventListener("click", async () => {
+      setMsg("edit-msg", "", "");
+      try {
+        const q = normalize($("edit-hc-query").value || $("edit-nss").value);
+        if (!q) throw new Error("Escribe NSS para buscar.");
+        const res = await searchHeadcount(q, "nss");
+        if (!res.encontrado) {
+          setMsg("edit-msg", "No encontrado en headcount.", "warn");
+          return;
+        }
+        const datos = res.duplicado ? (res.opciones || [])[0] : res.datos;
+        if (!datos) {
+          setMsg("edit-msg", "No encontrado en headcount.", "warn");
+          return;
+        }
+        prefillEditFromHeadcount(datos);
+        setMsg("edit-msg", "✓ Datos cargados desde headcount", "ok");
+      } catch (e) {
+        setMsg("edit-msg", e.message, "err");
+      }
+    });
+
+    $("hc-campos").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-campo]");
+      if (!btn) return;
+      state.campoBusqueda = btn.getAttribute("data-campo");
+      [...$("hc-campos").querySelectorAll("button")].forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
+
+    $("mov-tbody").addEventListener("click", async (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const edit = t.closest(".edit-mov");
+      if (edit) { openEditModal(edit.getAttribute("data-id")); return; }
+      const sync = t.closest(".sync-mov");
+      if (sync) { await syncFromHeadcount(sync.getAttribute("data-id")); return; }
+      const ask = t.closest(".ask-delete");
+      if (ask) { state.pendingDeleteId = ask.getAttribute("data-id"); renderMovimientos(); return; }
+      const cancel = t.closest(".cancel-delete");
+      if (cancel) { state.pendingDeleteId = null; renderMovimientos(); return; }
+      const yes = t.closest(".do-delete");
+      if (yes) { await deleteMovimiento(yes.getAttribute("data-id")); state.pendingDeleteId = null; return; }
+    });
+
+    $("hist-tbody").addEventListener("click", async (ev) => {
+      const t = ev.target;
+      if (!(t instanceof Element)) return;
+      const view = t.closest(".hist-view");
+      if (view) { openHistMovs(view.getAttribute("data-id")); return; }
+      const dl = t.closest(".hist-dl");
+      if (dl) {
+        const id = dl.getAttribute("data-id");
+        const formato = dl.getAttribute("data-formato");
+        window.location.href = `${urls.descargar.replace("__ID__", encodeURIComponent(id))}?formato=${formato}`;
+        return;
+      }
+      const toggle = t.closest(".dl-toggle");
+      if (toggle) {
+        const id = toggle.getAttribute("data-id");
+        const menu = $(`dl-menu-${id}`);
+        if (menu) menu.classList.toggle("show");
+        return;
+      }
+      const del = t.closest(".hist-del");
+      if (del) {
+        try { await deleteHistorial(del.getAttribute("data-id")); } catch (e) { setMsg("hist-msg", e.message, "err"); }
+        return;
+      }
+      [...document.querySelectorAll(".imss-dropdown-menu.show")].forEach((m) => m.classList.remove("show"));
+    });
+
+    $("dup-list").addEventListener("click", (ev) => {
+      const card = ev.target.closest(".imss-option-card");
+      if (!card) return;
+      const idx = parseInt(card.getAttribute("data-idx") || "-1", 10);
+      const datos = (state._dupOptions || [])[idx];
+      if (!datos) return;
+      if (state.duplicateTarget === "main") {
+        prefillMainFromHeadcount(datos);
+        setMsg("hc-msg", "✓ Datos cargados desde headcount", "ok");
+      } else if (state.duplicateTarget === "edit") {
+        prefillEditFromHeadcount(datos);
+        setMsg("edit-msg", "✓ Datos cargados desde headcount", "ok");
+      }
+      $("dup-modal").close();
+    });
+    $("dup-cancel").addEventListener("click", () => $("dup-modal").close());
+    $("dup-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("edit-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("hist-movs-close").addEventListener("click", () => $("hist-movs-modal").close());
+    $("hist-movs-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+  }
+
+  async function init() {
+    attachEvents();
+    try {
+      await loadPatrones();
+      await loadMovimientos();
+      await loadReportesDisponibles();
+      await loadHistorialExportaciones();
+    } catch (e) {
+      setMsg("mov-msg", e.message, "err");
+    }
+  }
+
+  init();
 })();
 </script>
 {% endblock %}
