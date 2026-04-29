@@ -7,9 +7,10 @@
 .cmp-stats { display:grid; grid-template-columns: repeat(3,1fr); gap:.75rem; margin:.75rem 0; }
 .cmp-stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
 .cmp-stat strong { display:block; font-size:1.1rem; }
-.cmp-active-scroll { display:flex; gap:.75rem; overflow-x:auto; overflow-y:hidden; padding:.25rem .1rem .5rem; margin:.5rem 0 .75rem; scrollbar-width:thin; }
-.cmp-active-scroll .cmp-stat { min-width:190px; flex:0 0 auto; }
-.cmp-active-scroll .cmp-stat small { display:block; color:#64748b; margin-top:.2rem; }
+.cmp-active-scroll { display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; gap:8px; padding-bottom:6px; margin:.5rem 0 .75rem; scrollbar-width:thin; }
+.cmp-client-card { min-width:110px; max-width:110px; padding:8px 10px; font-size:.82rem; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; flex:0 0 auto; }
+.cmp-client-card strong { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:.82rem; }
+.cmp-client-card small { display:block; color:#64748b; margin-top:.2rem; }
 .cmp-left label, .cmp-left input, .cmp-left select { display:block; width:100%; }
 .cmp-left label { margin-bottom:.6rem; font-weight:600; }
 .cmp-left input, .cmp-left select { margin-top:.3rem; }
@@ -57,7 +58,7 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       <div class="cmp-stat"><span>N clientes</span><strong id="stat-clientes">{{ headcount.clientes_detectados|length }}</strong></div>
     </div>
     <div class="cmp-active-scroll" id="activos-por-cliente">
-      <div class="cmp-stat"><span>Cargando...</span><small>0 activos</small></div>
+      <div class="cmp-client-card"><strong>Cargando...</strong><small>0 activos</small></div>
     </div>
     <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
     <button type="button" class="btn btn-primary" id="btn-forzar-sync">🔄 Forzar actualización desde OneDrive</button>
@@ -257,14 +258,14 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       const items = Object.entries(data.activos_por_cliente || {});
       const wrap = $("activos-por-cliente");
       if (!items.length) {
-        wrap.innerHTML = '<div class="cmp-stat"><span>Sin datos</span><small>0 activos</small></div>';
+        wrap.innerHTML = '<div class="cmp-client-card"><strong>Sin datos</strong><small>0 activos</small></div>';
       } else {
         wrap.innerHTML = items.map(([k, v]) => (
-          `<div class="cmp-stat"><span>${k}</span><small>${v} activos</small></div>`
+          `<div class="cmp-client-card"><strong>${k}</strong><small>${v} activos</small></div>`
         )).join("");
       }
     } catch (e) {
-      $("activos-por-cliente").innerHTML = '<div class="cmp-stat"><span>Error</span><small>No se pudieron cargar activos</small></div>';
+      $("activos-por-cliente").innerHTML = '<div class="cmp-client-card"><strong>Error</strong><small>No se pudieron cargar activos</small></div>';
     }
   }
 
