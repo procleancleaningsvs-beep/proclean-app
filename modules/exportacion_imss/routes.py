@@ -1,17 +1,31 @@
 from __future__ import annotations
 
+import io
 import os
 from functools import wraps
 
-from flask import Blueprint, g, jsonify, redirect, render_template, request, Response, flash, url_for
+from flask import Blueprint, Response, g, jsonify, render_template, request, send_file
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
 
 from modules.exportacion_imss.exportacion_service import (
-    MOVIMIENTOS_DIR,
-    autocompletar_desde_headcount,
+    SBC_OPCIONES,
+    actualizar_movimiento,
+    buscar_en_headcount,
+    cargar_desde_excel,
+    cargar_desde_reporte_mensual,
+    eliminar_exportacion,
+    eliminar_movimiento,
     generar_txt_idse,
     generar_txt_sua,
+    guardar_exportacion,
     guardar_movimiento,
+    guardar_patron_extra,
+    obtener_historial_exportaciones,
     obtener_movimientos,
+    obtener_patrones,
+    obtener_reporte_mensuales_disponibles,
+    obtener_txt_exportacion,
 )
 
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -29,127 +43,270 @@ def _login_required_page(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if g.user is None:
-            return redirect(url_for("login"))
+            return jsonify({"ok": False, "error": "No autenticado."}), 401
         return view(*args, **kwargs)
 
     return wrapped
 
 
-def _parse_ids() -> list[str]:
-    ids = request.args.getlist("ids")
-    if not ids:
-        raw = (request.args.get("ids") or "").strip()
-        if raw:
-            ids = [v.strip() for v in raw.split(",")]
-    return [x for x in ids if x]
+def _is_admin() -> bool:
+    user = g.user
+    if user is None:
+        return False
+    if isinstance(user, dict):
+        role = str(user.get("rol") or user.get("role") or "").strip().lower()
+        return bool(user.get("is_admin")) or role in {"admin", "administrador"}
+    role = str(getattr(user, "rol", "") or getattr(user, "role", "")).strip().lower()
+    return bool(getattr(user, "is_admin", False)) or role in {"admin", "administrador"}
 
 
 @exportacion_imss_bp.get("/")
 @_login_required_page
 def index():
-    tipo = (request.args.get("tipo") or "").strip().upper() or None
-    cliente = (request.args.get("cliente") or "").strip() or None
-    movimientos = obtener_movimientos(tipo=tipo, cliente=cliente)
-    clientes = sorted({m.get("cliente", "") for m in obtener_movimientos() if m.get("cliente")})
-    agrupados = {"ALTA": [], "BAJA": [], "MODIFICACION": []}
-    for m in movimientos:
-        agrupados.setdefault(m.get("tipo_movimiento", "MODIFICACION"), []).append(m)
-    return render_template(
-        "exportacion_imss/index.html",
-        movimientos=movimientos,
-        agrupados=agrupados,
-        clientes=clientes,
-        filtro_tipo=tipo or "",
-        filtro_cliente=cliente or "",
-    )
+    return render_template("exportacion_imss/index.html")
 
 
-@exportacion_imss_bp.get("/nuevo")
+@exportacion_imss_bp.get("/patrones")
 @_login_required_page
-def nuevo_get():
-    tipo = (request.args.get("tipo") or "ALTA").strip().upper()
-    cliente = (request.args.get("cliente") or "").strip()
-    nss = (request.args.get("nss") or "").strip()
-    prefills = {
-        "tipo_movimiento": tipo if tipo in {"ALTA", "BAJA", "MODIFICACION"} else "ALTA",
-        "cliente": cliente,
-        "nss": nss,
-    }
-    if nss:
-        data = autocompletar_desde_headcount(nss=nss)
-        if data:
-            prefills.update(data)
-    return render_template("exportacion_imss/captura.html", data=prefills)
-
-
-@exportacion_imss_bp.post("/nuevo")
-@_login_required_page
-def nuevo_post():
-    form = request.form
-    payload = {
-        "tipo_movimiento": form.get("tipo_movimiento"),
-        "cliente": form.get("cliente"),
-        "rp": form.get("rp"),
-        "nss": form.get("nss"),
-        "rfc": form.get("rfc"),
-        "curp": form.get("curp"),
-        "apellido_paterno": form.get("apellido_paterno"),
-        "apellido_materno": form.get("apellido_materno"),
-        "nombres": form.get("nombres"),
-        "sbc": form.get("sbc"),
-        "fecha_movimiento": form.get("fecha_movimiento"),
-        "clave_ubicacion": form.get("clave_ubicacion"),
-        "num_credito": form.get("num_credito"),
-        "fecha_inicio_descuento": form.get("fecha_inicio_descuento"),
-        "tipo_descuento": form.get("tipo_descuento"),
-        "valor_descuento": form.get("valor_descuento"),
-    }
+def patrones_get():
     try:
-        guardar_movimiento(payload)
-        flash("Movimiento IMSS guardado correctamente.", "success")
+        return jsonify({"ok": True, "patrones": obtener_patrones(), "sbc_opciones": SBC_OPCIONES})
     except Exception as exc:
-        flash(str(exc), "error")
-        return redirect(url_for("exportacion_imss.nuevo_get"))
-    return redirect(url_for("exportacion_imss.index"))
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
-@exportacion_imss_bp.get("/exportar-idse")
+@exportacion_imss_bp.post("/patrones")
 @_login_required_page
-def exportar_idse():
-    ids = _parse_ids()
-    tipo = (request.args.get("tipo_movimiento") or "").strip().upper()
-    if not ids:
-        flash("Selecciona al menos un movimiento para exportar IDSE.", "error")
-        return redirect(url_for("exportacion_imss.index"))
-    txt = generar_txt_idse(ids, tipo)
-    filename = f"movimientos_{tipo or 'IDSE'}.txt"
-    return Response(
-        txt,
-        mimetype="text/plain; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+def patrones_post():
+    data = request.get_json(silent=True) or {}
+    rp = str(data.get("rp") or "").strip()
+    rfc_patron = str(data.get("rfc_patron") or "").strip()
+    try:
+        updated = guardar_patron_extra(rp, rfc_patron)
+        return jsonify({"ok": True, "patrones": updated})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
-@exportacion_imss_bp.get("/exportar-sua")
+@exportacion_imss_bp.get("/movimientos")
 @_login_required_page
-def exportar_sua():
-    ids = _parse_ids()
-    if not ids:
-        flash("Selecciona al menos un movimiento para exportar SUA.", "error")
-        return redirect(url_for("exportacion_imss.index"))
-    txt = generar_txt_sua(ids)
-    return Response(
-        txt,
-        mimetype="text/plain; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="movimientos_sua.txt"'},
-    )
+def movimientos_get():
+    try:
+        tipo = (request.args.get("tipo") or "").strip() or None
+        return jsonify({"ok": True, "movimientos": obtener_movimientos(tipo=tipo)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
 
-@exportacion_imss_bp.delete("/<movimiento_id>")
+@exportacion_imss_bp.post("/movimientos")
 @_login_required_page
-def eliminar_movimiento(movimiento_id: str):
-    path = os.path.join(MOVIMIENTOS_DIR, f"{movimiento_id}.json")
-    if os.path.exists(path):
-        os.remove(path)
-        return jsonify({"success": True})
-    return jsonify({"success": False, "error": "Movimiento no encontrado"}), 404
+def movimientos_post():
+    data = request.get_json(silent=True) or {}
+    try:
+        mov = guardar_movimiento(data)
+        return jsonify({"ok": True, "movimiento": mov})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.put("/movimientos/<movimiento_id>")
+@_login_required_page
+def movimientos_put(movimiento_id: str):
+    data = request.get_json(silent=True) or {}
+    try:
+        mov = actualizar_movimiento(movimiento_id, data)
+        return jsonify({"ok": True, "movimiento": mov})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.delete("/movimientos/<movimiento_id>")
+@_login_required_page
+def movimientos_delete(movimiento_id: str):
+    try:
+        return jsonify(eliminar_movimiento(movimiento_id))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.post("/buscar-headcount")
+@_login_required_page
+def buscar_headcount():
+    data = request.get_json(silent=True) or {}
+    query = str(data.get("query") or "").strip()
+    campo = str(data.get("campo") or "").strip()
+    try:
+        return jsonify({"ok": True, **buscar_en_headcount(query, campo)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.post("/cargar-excel")
+@_login_required_page
+def cargar_excel():
+    excel_file = request.files.get("excel_file")
+    if excel_file is None:
+        return jsonify({"ok": False, "error": "excel_file es obligatorio."}), 400
+    try:
+        movimientos = cargar_desde_excel(excel_file)
+        con_alertas = sum(1 for m in movimientos if str(m.get("alerta") or "").strip())
+        return jsonify({"ok": True, "movimientos": movimientos, "total": len(movimientos), "con_alertas": con_alertas})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.get("/reportes-mensuales-disponibles")
+@_login_required_page
+def reportes_mensuales_disponibles():
+    try:
+        return jsonify({"ok": True, "reportes": obtener_reporte_mensuales_disponibles()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.post("/cargar-reporte-mensual")
+@_login_required_page
+def cargar_reporte_mensual():
+    data = request.get_json(silent=True) or {}
+    cliente = str(data.get("cliente") or "").strip()
+    mes = data.get("mes")
+    anio = data.get("anio")
+    incluir_fijos = bool(data.get("incluir_fijos", False))
+    if not cliente or mes is None or anio is None:
+        return jsonify({"ok": False, "error": "cliente, mes y anio son obligatorios."}), 400
+    try:
+        movimientos = cargar_desde_reporte_mensual(cliente, int(mes), int(anio), incluir_fijos=incluir_fijos)
+        con_alertas = sum(1 for m in movimientos if str(m.get("alerta") or "").strip())
+        fijos_incluidos = sum(1 for m in movimientos if m.get("origen") == "reporte_mensual" and m.get("tipo_movimiento") == "ALTA") if incluir_fijos else 0
+        return jsonify(
+            {
+                "ok": True,
+                "movimientos": movimientos,
+                "total": len(movimientos),
+                "con_alertas": con_alertas,
+                "fijos_incluidos": fijos_incluidos,
+            }
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.post("/exportar")
+@_login_required_page
+def exportar():
+    data = request.get_json(silent=True) or {}
+    movimientos_ids = data.get("movimientos_ids") or []
+    tipo_export = str(data.get("tipo_export") or "").strip().upper()
+    rp = str(data.get("rp") or "").strip()
+    if not isinstance(movimientos_ids, list) or not movimientos_ids:
+        return jsonify({"ok": False, "error": "movimientos_ids debe ser lista no vacía."}), 400
+    if tipo_export not in {"IDSE", "SUA", "AMBOS"}:
+        return jsonify({"ok": False, "error": "tipo_export inválido."}), 400
+    if not rp:
+        return jsonify({"ok": False, "error": "rp es obligatorio."}), 400
+    try:
+        existentes = {m.get("id"): m for m in obtener_movimientos()}
+        faltantes = [mid for mid in movimientos_ids if mid not in existentes]
+        if faltantes:
+            return jsonify({"ok": False, "error": f"IDs no encontrados: {', '.join(faltantes)}"}), 400
+        txt_idse = generar_txt_idse(movimientos_ids) if tipo_export in {"IDSE", "AMBOS"} else None
+        txt_sua = generar_txt_sua(movimientos_ids) if tipo_export in {"SUA", "AMBOS"} else None
+        if tipo_export == "AMBOS":
+            txt_content = f"{txt_idse or ''}\n---SUA---\n{txt_sua or ''}"
+        else:
+            txt_content = txt_idse if tipo_export == "IDSE" else txt_sua
+        meta = guardar_exportacion(movimientos_ids, tipo_export, txt_content or "", rp)
+        return jsonify({"ok": True, "exportacion_id": meta.get("id"), "txt_idse": txt_idse, "txt_sua": txt_sua})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.get("/exportar/<exportacion_id>/descargar")
+@_login_required_page
+def descargar_exportacion(exportacion_id: str):
+    formato = str(request.args.get("formato") or "").strip().upper()
+    if formato not in {"IDSE", "SUA"}:
+        return jsonify({"ok": False, "error": "formato inválido, usa IDSE o SUA."}), 400
+    try:
+        txt = obtener_txt_exportacion(exportacion_id, formato=formato)
+        filename = f"exportacion_{exportacion_id}_{formato}.txt"
+        return Response(
+            txt,
+            mimetype="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.get("/historial-exportaciones")
+@_login_required_page
+def historial_exportaciones():
+    try:
+        return jsonify({"ok": True, "items": obtener_historial_exportaciones()})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.delete("/historial-exportaciones/<exportacion_id>")
+@_login_required_page
+def historial_exportaciones_delete(exportacion_id: str):
+    if not _is_admin():
+        return jsonify({"ok": False, "error": "Solo admin puede eliminar exportaciones."}), 403
+    try:
+        return jsonify(eliminar_exportacion(exportacion_id))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.get("/plantilla-excel")
+@_login_required_page
+def plantilla_excel():
+    try:
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Plantilla IMSS"
+        headers = [
+            "NSS",
+            "RFC",
+            "CURP",
+            "APELLIDO PATERNO",
+            "APELLIDO MATERNO",
+            "NOMBRES",
+            "SBC",
+            "TIPO MOVIMIENTO",
+            "RP",
+            "FECHA MOVIMIENTO",
+        ]
+        ws.append(headers)
+        ws.append(
+            [
+                "12345678901",
+                "XAXX010101000",
+                "XAXX010101HDFRRL01",
+                "PEREZ",
+                "LOPEZ",
+                "JUAN",
+                "330.57",
+                "ALTA",
+                "Y3752430102",
+                "15/04/2026",
+            ]
+        )
+        bold = Font(bold=True)
+        for cell in ws[1]:
+            cell.font = bold
+        gray_fill = PatternFill(start_color="FFD9D9D9", end_color="FFD9D9D9", fill_type="solid")
+        for cell in ws[2]:
+            cell.fill = gray_fill
+        output = io.BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return send_file(
+            output,
+            as_attachment=True,
+            download_name="plantilla_exportacion_imss.xlsx",
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
