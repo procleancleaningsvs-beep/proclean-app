@@ -455,6 +455,13 @@ def reporte_mensual_actualizar_fecha():
     nombre = str(data.get("nombre") or "").strip().upper()
     tipo_fecha = str(data.get("tipo_fecha") or "").strip().lower()
     nueva_fecha = str(data.get("nueva_fecha") or "").strip()
+    indice_raw = data.get("indice", 0)
+    try:
+        indice = int(indice_raw)
+    except (TypeError, ValueError):
+        indice = 0
+    if indice < 0:
+        indice = 0
     if not cliente or mes is None or anio is None or not nombre or tipo_fecha not in {"alta", "baja"}:
         return jsonify({"ok": False, "error": "Datos incompletos para actualizar fecha."}), 400
     path = _reporte_path(cliente, int(anio), int(mes))
@@ -474,15 +481,34 @@ def reporte_mensual_actualizar_fecha():
                 continue
             if str(r.get("nombre", "")).strip().upper() != nombre:
                 continue
-            key = f"fecha_{tipo_fecha}"
-            r[key] = nueva_fecha or None
+            key_lista = f"fechas_{tipo_fecha}"
+            key_scalar = f"fecha_{tipo_fecha}"
+            fechas = r.get(key_lista)
+            if not isinstance(fechas, list):
+                fechas = []
+            fechas = [str(v or "").strip() for v in fechas]
+            if not fechas:
+                fallback = str(r.get(key_scalar) or "").strip()
+                if fallback:
+                    fechas.append(fallback)
+            while len(fechas) <= indice:
+                fechas.append("")
+            fechas[indice] = nueva_fecha or ""
+            r[key_lista] = fechas
+            r[key_scalar] = fechas[0] if fechas and fechas[0] else None
+
             alertas = r.get("alertas")
             if not isinstance(alertas, list):
                 alertas = []
-            if tipo_fecha == "alta":
-                alertas = [a for a in alertas if "Sin fecha de alta" not in str(a)]
+            if nueva_fecha:
+                if tipo_fecha == "alta":
+                    alertas = [a for a in alertas if "Sin fecha de alta" not in str(a)]
+                else:
+                    alertas = [a for a in alertas if "Sin fecha de baja" not in str(a)]
             else:
-                alertas = [a for a in alertas if "Sin fecha de baja" not in str(a)]
+                msg = f"Sin fecha de {tipo_fecha} - requiere captura manual"
+                if msg not in [str(a) for a in alertas]:
+                    alertas.append(msg)
             r["alertas"] = alertas
             updated = True
             break

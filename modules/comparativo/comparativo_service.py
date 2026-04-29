@@ -402,69 +402,103 @@ def obtener_resumen_nominas_por_cliente() -> dict[str, Any]:
             cliente = str(nom.get("cliente", "")).strip()
             if not cliente:
                 continue
-            inicio = str(nom.get("periodo_inicio", "")).strip()
-            fin = str(nom.get("periodo_fin", "")).strip()
-            fin_dt = _date_from_str(fin)
-            if fin_dt is None:
+            periodo_inicio = str(nom.get("periodo_inicio", "")).strip()
+            periodo_fin = str(nom.get("periodo_fin", "")).strip()
+            try:
+                inicio_dt = datetime.strptime(periodo_inicio, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
                 continue
-            mes = fin_dt.month
-            anio = fin_dt.year
+            try:
+                fin_dt = datetime.strptime(periodo_fin, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                continue
             cliente_block = resumen.setdefault(cliente, {"periodos": [], "meses": {}})
             cliente_block["periodos"].append(
                 {
-                    "periodo_inicio": inicio,
-                    "periodo_fin": fin,
-                    "mes": mes,
-                    "anio": anio,
-                    "comparativo_id": comparativo_map.get((cliente, inicio, fin), ""),
+                    "periodo_inicio": periodo_inicio,
+                    "periodo_fin": periodo_fin,
+                    "comparativo_id": comparativo_map.get((cliente, periodo_inicio, periodo_fin), ""),
+                    "_inicio_dt": inicio_dt,
+                    "_fin_dt": fin_dt,
                 }
             )
 
         for cliente, block in resumen.items():
             periodos = block.get("periodos", [])
-            periodos.sort(key=lambda p: (_date_from_str(p.get("periodo_inicio", "")) or date.min), reverse=False)
+            periodos.sort(key=lambda p: p.get("_inicio_dt") or date.min, reverse=False)
             meses_map: dict[str, Any] = {}
             for p in periodos:
-                key = _mes_key(int(p["anio"]), int(p["mes"]))
-                m = meses_map.setdefault(
-                    key,
-                    {
-                        "mes": int(p["mes"]),
-                        "anio": int(p["anio"]),
-                        "periodos_count": 0,
-                        "fecha_min_dt": None,
-                        "fecha_max_dt": None,
-                    },
-                )
-                m["periodos_count"] += 1
-                ini_dt = _date_from_str(p.get("periodo_inicio", ""))
-                fin_dt = _date_from_str(p.get("periodo_fin", ""))
-                if ini_dt and (m["fecha_min_dt"] is None or ini_dt < m["fecha_min_dt"]):
-                    m["fecha_min_dt"] = ini_dt
-                if fin_dt and (m["fecha_max_dt"] is None or fin_dt > m["fecha_max_dt"]):
-                    m["fecha_max_dt"] = fin_dt
+                ini_dt = p.get("_inicio_dt")
+                fin_dt = p.get("_fin_dt")
+                if not isinstance(ini_dt, date) or not isinstance(fin_dt, date):
+                    continue
+                if ini_dt > fin_dt:
+                    continue
+                cursor_mes = date(ini_dt.year, ini_dt.month, 1)
+                fin_mes = date(fin_dt.year, fin_dt.month, 1)
+                while cursor_mes <= fin_mes:
+                    anio_mes = cursor_mes.year
+                    mes_mes = cursor_mes.month
+                    primer_dia_mes = date(anio_mes, mes_mes, 1)
+                    if mes_mes == 12:
+                        primer_dia_mes_sig = date(anio_mes + 1, 1, 1)
+                    else:
+                        primer_dia_mes_sig = date(anio_mes, mes_mes + 1, 1)
+                    ultimo_dia_mes = date.fromordinal(primer_dia_mes_sig.toordinal() - 1)
+
+                    # Criterio de intersección de periodos con mes.
+                    if ini_dt <= ultimo_dia_mes and fin_dt >= primer_dia_mes:
+                        key = _mes_key(anio_mes, mes_mes)
+                        m = meses_map.setdefault(
+                            key,
+                            {
+                                "mes": mes_mes,
+                                "anio": anio_mes,
+                                "periodos_count": 0,
+                                "fecha_min_dt": None,
+                                "fecha_max_dt": None,
+                            },
+                        )
+                        m["periodos_count"] += 1
+                        inicio_clip = max(ini_dt, primer_dia_mes)
+                        fin_clip = min(fin_dt, ultimo_dia_mes)
+                        if m["fecha_min_dt"] is None or inicio_clip < m["fecha_min_dt"]:
+                            m["fecha_min_dt"] = inicio_clip
+                        if m["fecha_max_dt"] is None or fin_clip > m["fecha_max_dt"]:
+                            m["fecha_max_dt"] = fin_clip
+
+                    if cursor_mes.month == 12:
+                        cursor_mes = date(cursor_mes.year + 1, 1, 1)
+                    else:
+                        cursor_mes = date(cursor_mes.year, cursor_mes.month + 1, 1)
 
             normalized_meses: dict[str, Any] = {}
             for key, m in sorted(meses_map.items()):
                 fecha_min_dt = m.get("fecha_min_dt")
                 fecha_max_dt = m.get("fecha_max_dt")
-                dias_cubiertos = 0
-                if fecha_min_dt and fecha_max_dt and fecha_max_dt >= fecha_min_dt:
-                    dias_cubiertos = (fecha_max_dt - fecha_min_dt).days + 1
                 comp = calcular_completitud_mes(cliente, int(m["mes"]), int(m["anio"]))
                 normalized_meses[key] = {
                     "mes": int(m["mes"]),
                     "anio": int(m["anio"]),
-                    "periodos_count": int(m["periodos_count"]),
+                    "periodos_count": int(comp.get("periodos_count", m["periodos_count"])),
                     "fecha_min": _ddmmyyyy(fecha_min_dt),
                     "fecha_max": _ddmmyyyy(fecha_max_dt),
-                    "dias_cubiertos": dias_cubiertos,
+                    "dias_cubiertos": int(comp.get("dias_cubiertos", 0)),
+                    "dias_totales_mes": int(comp.get("dias_totales_mes", 0)),
                     "completo": bool(comp.get("completo")),
                     "semanas_faltantes": comp.get("advertencia") or "",
+                    "dias_faltantes": comp.get("dias_faltantes", []),
                 }
             block["meses"] = normalized_meses
             block["periodos"] = sorted(
-                periodos,
+                [
+                    {
+                        "periodo_inicio": p.get("periodo_inicio", ""),
+                        "periodo_fin": p.get("periodo_fin", ""),
+                        "comparativo_id": p.get("comparativo_id", ""),
+                    }
+                    for p in periodos
+                ],
                 key=lambda p: (_date_from_str(p.get("periodo_inicio", "")) or date.min),
                 reverse=True,
             )
@@ -475,33 +509,59 @@ def obtener_resumen_nominas_por_cliente() -> dict[str, Any]:
 
 def calcular_completitud_mes(cliente: str, mes: int, anio: int) -> dict[str, Any]:
     try:
-        nominas = obtener_nominas_guardadas(cliente=cliente)
-        periodos = []
-        for n in nominas:
-            fin_dt = _date_from_str(str(n.get("periodo_fin", "")))
-            if fin_dt and fin_dt.month == int(mes) and fin_dt.year == int(anio):
-                periodos.append(n)
-        periodos_count = len(periodos)
-        fecha_min = None
-        fecha_max = None
-        for p in periodos:
-            ini_dt = _date_from_str(str(p.get("periodo_inicio", "")))
-            fin_dt = _date_from_str(str(p.get("periodo_fin", "")))
-            if ini_dt and (fecha_min is None or ini_dt < fecha_min):
-                fecha_min = ini_dt
-            if fin_dt and (fecha_max is None or fin_dt > fecha_max):
-                fecha_max = fin_dt
-        dias_cubiertos = 0
-        if fecha_min and fecha_max and fecha_max >= fecha_min:
-            dias_cubiertos = (fecha_max - fecha_min).days + 1
-        completo = dias_cubiertos >= 24
-        advertencia = None
-        if not completo:
-            advertencia = f"Se detectaron {dias_cubiertos} días cubiertos de ~28-31 esperados"
+        mes = int(mes)
+        anio = int(anio)
+        mes_inicio = date(anio, mes, 1)
+        if mes == 12:
+            siguiente_mes = date(anio + 1, 1, 1)
+        else:
+            siguiente_mes = date(anio, mes + 1, 1)
+        mes_fin = siguiente_mes.fromordinal(siguiente_mes.toordinal() - 1)
+
+        periodos_count = 0
+        dias_cubiertos_set: set[date] = set()
+
+        for nomina in obtener_nominas_guardadas(cliente=cliente):
+            periodo_inicio_raw = str(nomina.get("periodo_inicio", "")).strip()
+            periodo_fin_raw = str(nomina.get("periodo_fin", "")).strip()
+            try:
+                periodo_inicio_dt = datetime.strptime(periodo_inicio_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                continue
+            try:
+                periodo_fin_dt = datetime.strptime(periodo_fin_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                continue
+
+            if periodo_inicio_dt > mes_fin or periodo_fin_dt < mes_inicio:
+                continue
+
+            periodos_count += 1
+            inicio_efectivo = max(periodo_inicio_dt, mes_inicio)
+            fin_efectivo = min(periodo_fin_dt, mes_fin)
+            cursor = inicio_efectivo
+            while cursor <= fin_efectivo:
+                dias_cubiertos_set.add(cursor)
+                cursor = date.fromordinal(cursor.toordinal() + 1)
+
+        dias_requeridos_set: set[date] = set()
+        cursor = mes_inicio
+        while cursor <= mes_fin:
+            dias_requeridos_set.add(cursor)
+            cursor = date.fromordinal(cursor.toordinal() + 1)
+
+        dias_faltantes_dt = sorted(dias_requeridos_set - dias_cubiertos_set)
+        dias_faltantes = [d.strftime("%d/%m/%Y") for d in dias_faltantes_dt]
+        dias_totales_mes = len(dias_requeridos_set)
+        dias_cubiertos = len(dias_cubiertos_set)
+        completo = len(dias_faltantes) == 0
+        advertencia = None if completo else f"Faltan {len(dias_faltantes)} día(s) sin cobertura en el mes."
         return {
             "completo": completo,
             "dias_cubiertos": dias_cubiertos,
+            "dias_totales_mes": dias_totales_mes,
             "periodos_count": periodos_count,
+            "dias_faltantes": dias_faltantes,
             "advertencia": advertencia,
         }
     except Exception as exc:
@@ -512,6 +572,13 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
     try:
         mes = int(mes)
         anio = int(anio)
+        mes_inicio = date(anio, mes, 1)
+        if mes == 12:
+            siguiente_mes = date(anio + 1, 1, 1)
+        else:
+            siguiente_mes = date(anio, mes + 1, 1)
+        mes_fin = date.fromordinal(siguiente_mes.toordinal() - 1)
+
         agrupaciones = alias_service.obtener_agrupaciones()
         clientes_objetivo = (
             [str(c).strip() for c in agrupaciones.get(cliente, []) if str(c).strip()]
@@ -523,14 +590,26 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
 
         all_nominas = _iter_json_dicts(NOMINAS_DIR)
         semanas: list[dict[str, Any]] = []
-        for n in all_nominas:
-            c = str(n.get("cliente", "")).strip()
+        for nomina in all_nominas:
+            c = str(nomina.get("cliente", "")).strip()
             if c not in clientes_objetivo:
                 continue
-            fin_dt = _date_from_str(str(n.get("periodo_fin", "")))
-            if fin_dt is None or fin_dt.month != mes or fin_dt.year != anio:
+            periodo_inicio_raw = str(nomina.get("periodo_inicio", "")).strip()
+            periodo_fin_raw = str(nomina.get("periodo_fin", "")).strip()
+            try:
+                periodo_inicio_dt = datetime.strptime(periodo_inicio_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
                 continue
-            empleados_raw = n.get("empleados", [])
+            try:
+                periodo_fin_dt = datetime.strptime(periodo_fin_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                continue
+
+            # Criterio de intersección con el mes del reporte.
+            if periodo_inicio_dt > mes_fin or periodo_fin_dt < mes_inicio:
+                continue
+
+            empleados_raw = nomina.get("empleados", [])
             empleados_norm = set()
             if isinstance(empleados_raw, list):
                 for emp in empleados_raw:
@@ -544,12 +623,14 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
             semanas.append(
                 {
                     "cliente": c,
-                    "periodo_inicio": str(n.get("periodo_inicio", "")).strip(),
-                    "periodo_fin": str(n.get("periodo_fin", "")).strip(),
+                    "periodo_inicio": periodo_inicio_raw,
+                    "periodo_fin": periodo_fin_raw,
+                    "_periodo_inicio_dt": periodo_inicio_dt,
+                    "_periodo_fin_dt": periodo_fin_dt,
                     "empleados": empleados_norm,
                 }
             )
-        semanas.sort(key=lambda s: (_date_from_str(s["periodo_inicio"]) or date.min))
+        semanas.sort(key=lambda s: s.get("_periodo_inicio_dt") or date.min)
 
         if not semanas:
             base_comp = calcular_completitud_mes(cliente, mes, anio)
@@ -563,43 +644,69 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
                 "fijos": [],
                 "rotativos": [],
                 "similitudes_detectadas": [],
+                "semanas": [],
             }
 
         semana_sets = [s["empleados"] for s in semanas]
         todos_del_mes: set[str] = set().union(*semana_sets)
 
-        comparativos_mes = []
-        for c in _iter_json_dicts(COMPARATIVOS_DIR):
-            c_cliente = str(c.get("cliente", "")).strip()
+        comparativos_mes: list[dict[str, Any]] = []
+        for comparativo in _iter_json_dicts(COMPARATIVOS_DIR):
+            c_cliente = str(comparativo.get("cliente", "")).strip()
             if c_cliente not in clientes_objetivo:
                 continue
-            fin_dt = _date_from_str(str(c.get("periodo_fin", "")))
-            ini_dt = _date_from_str(str(c.get("periodo_inicio", "")))
-            if not ((fin_dt and fin_dt.month == mes and fin_dt.year == anio) or (ini_dt and ini_dt.month == mes and ini_dt.year == anio)):
+            c_inicio_raw = str(comparativo.get("periodo_inicio", "")).strip()
+            c_fin_raw = str(comparativo.get("periodo_fin", "")).strip()
+            try:
+                c_inicio_dt = datetime.strptime(c_inicio_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
                 continue
-            comparativos_mes.append(c)
+            try:
+                c_fin_dt = datetime.strptime(c_fin_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                continue
+            if c_inicio_dt > mes_fin or c_fin_dt < mes_inicio:
+                continue
+            comparativos_mes.append(comparativo)
 
-        altas_internas: dict[str, str] = {}
-        bajas_internas: dict[str, str] = {}
-        for c in comparativos_mes:
-            for raw in c.get("altas", []):
-                n = _normalize_name(raw)
-                if not n:
+        altas_internas: dict[str, list[date]] = {}
+        bajas_internas: dict[str, list[date]] = {}
+        for comparativo in comparativos_mes:
+            alta_raw = str(comparativo.get("periodo_inicio", "")).strip()
+            baja_raw = str(comparativo.get("fecha_baja_asumida", "")).strip()
+            alta_dt = None
+            baja_dt = None
+            try:
+                alta_dt = datetime.strptime(alta_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                alta_dt = None
+            try:
+                baja_dt = datetime.strptime(baja_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                baja_dt = None
+
+            for raw in comparativo.get("altas", []):
+                nom_base = _normalize_name(raw)
+                if not nom_base:
                     continue
-                fecha = str(c.get("periodo_inicio", "")).strip()
-                old = _date_from_str(altas_internas.get(n, ""))
-                cur = _date_from_str(fecha)
-                if old is None or (cur is not None and cur < old):
-                    altas_internas[n] = fecha
-            for raw in c.get("bajas", []):
-                n = _normalize_name(raw)
-                if not n:
+                alias = alias_service.obtener_alias(nom_base)
+                nombre = _normalize_name(alias) if alias else nom_base
+                if alta_dt and mes_inicio <= alta_dt <= mes_fin:
+                    altas_internas.setdefault(nombre, []).append(alta_dt)
+
+            for raw in comparativo.get("bajas", []):
+                nom_base = _normalize_name(raw)
+                if not nom_base:
                     continue
-                fecha = str(c.get("fecha_baja_asumida", "")).strip()
-                old = _date_from_str(bajas_internas.get(n, ""))
-                cur = _date_from_str(fecha)
-                if old is None or (cur is not None and cur > old):
-                    bajas_internas[n] = fecha
+                alias = alias_service.obtener_alias(nom_base)
+                nombre = _normalize_name(alias) if alias else nom_base
+                if baja_dt and mes_inicio <= baja_dt <= mes_fin:
+                    bajas_internas.setdefault(nombre, []).append(baja_dt)
+
+        for nombre in list(altas_internas.keys()):
+            altas_internas[nombre] = sorted(set(altas_internas[nombre]))
+        for nombre in list(bajas_internas.keys()):
+            bajas_internas[nombre] = sorted(set(bajas_internas[nombre]))
 
         total_semanas = len(semanas)
         fijos: list[dict[str, Any]] = []
@@ -607,11 +714,8 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
         periodos_ordenados = [s.get("periodo_inicio", "") for s in semanas]
 
         for nombre in sorted(todos_del_mes):
-            semanas_presente = [
-                s.get("periodo_inicio", "")
-                for s in semanas
-                if nombre in s.get("empleados", set())
-            ]
+            presencia_por_periodo = [nombre in s.get("empleados", set()) for s in semanas]
+            semanas_presente = [s.get("periodo_inicio", "") for idx, s in enumerate(semanas) if presencia_por_periodo[idx]]
             en_todas = len(semanas_presente) == total_semanas
             trabajador_hc = buscar_trabajador(nombre)
             en_headcount = trabajador_hc is not None
@@ -628,33 +732,91 @@ def generar_reporte_mensual_v2(cliente: str, mes: int, anio: int) -> dict[str, A
                 continue
 
             alertas: list[str] = []
-            fecha_alta_cmp = altas_internas.get(nombre)
-            fecha_hc = str((trabajador_hc or {}).get("fecha_ingreso", "")).strip() if trabajador_hc else ""
-            fecha_alta = None
-            if fecha_alta_cmp and fecha_hc:
-                if _date_from_str(fecha_alta_cmp) != _date_from_str(fecha_hc):
-                    fecha_alta = fecha_alta_cmp
-                    alertas.append(f"Fecha difiere del Headcount: {fecha_hc}")
-                else:
-                    fecha_alta = fecha_alta_cmp
-            elif fecha_alta_cmp:
-                fecha_alta = fecha_alta_cmp
-            elif fecha_hc:
-                fecha_alta = fecha_hc
-            else:
-                alertas.append("Sin fecha de alta - requiere captura manual")
+            bloques_presencia = 0
+            en_bloque = False
+            indices_inicio_bloques: list[int] = []
+            indices_fin_bloques: list[int] = []
+            for idx, presente in enumerate(presencia_por_periodo):
+                if presente and not en_bloque:
+                    bloques_presencia += 1
+                    en_bloque = True
+                    indices_inicio_bloques.append(idx)
+                if en_bloque and (not presente):
+                    en_bloque = False
+                    indices_fin_bloques.append(idx - 1)
+            if en_bloque:
+                indices_fin_bloques.append(len(presencia_por_periodo) - 1)
 
-            fecha_baja = bajas_internas.get(nombre)
-            if not fecha_baja:
-                alertas.append("Sin fecha de baja - requiere captura manual")
+            tiene_reingreso = bloques_presencia > 1
+
+            altas_mes_disponibles = list(altas_internas.get(nombre, []))
+            bajas_mes_disponibles = list(bajas_internas.get(nombre, []))
+            fecha_hc_raw = str((trabajador_hc or {}).get("fecha_ingreso", "")).strip() if trabajador_hc else ""
+            fecha_hc_dt = None
+            try:
+                fecha_hc_dt = datetime.strptime(fecha_hc_raw, "%d/%m/%Y").date()
+            except (TypeError, ValueError):
+                fecha_hc_dt = None
+            fecha_hc_mes = fecha_hc_dt if (fecha_hc_dt and mes_inicio <= fecha_hc_dt <= mes_fin) else None
+            existe_alta_previa = bool(fecha_hc_dt and fecha_hc_dt < mes_inicio)
+
+            fechas_alta_dt: list[date] = []
+            fechas_baja_dt: list[date] = []
+
+            for pos, idx_inicio in enumerate(indices_inicio_bloques):
+                semana_inicio_dt = semanas[idx_inicio].get("_periodo_inicio_dt")
+                if not isinstance(semana_inicio_dt, date):
+                    continue
+                if idx_inicio > 0:
+                    fecha_alta_bloque = max(semana_inicio_dt, mes_inicio)
+                    if mes_inicio <= fecha_alta_bloque <= mes_fin:
+                        fechas_alta_dt.append(fecha_alta_bloque)
+                    continue
+
+                # Primer bloque: solo mostrar alta si cae dentro del mes.
+                fecha_alta_bloque = None
+                if pos == 0 and fecha_hc_mes is not None:
+                    fecha_alta_bloque = fecha_hc_mes
+                elif altas_mes_disponibles:
+                    fecha_alta_bloque = altas_mes_disponibles.pop(0)
+
+                if fecha_alta_bloque is not None and mes_inicio <= fecha_alta_bloque <= mes_fin:
+                    fechas_alta_dt.append(fecha_alta_bloque)
+                elif not existe_alta_previa:
+                    alertas.append("Sin fecha de alta - requiere captura manual")
+
+            for idx_fin in indices_fin_bloques:
+                # Solo hay baja si desaparece dentro del mes (hay periodo posterior).
+                if idx_fin >= len(semanas) - 1:
+                    continue
+                fecha_baja_bloque = None
+                if bajas_mes_disponibles:
+                    fecha_baja_bloque = bajas_mes_disponibles.pop(0)
+
+                if fecha_baja_bloque is not None and mes_inicio <= fecha_baja_bloque <= mes_fin:
+                    fechas_baja_dt.append(fecha_baja_bloque)
+                else:
+                    alertas.append("Sin fecha de baja - requiere captura manual")
+
+            # Regla de rango: conservar únicamente fechas dentro del mes.
+            fechas_alta_dt = [d for d in fechas_alta_dt if mes_inicio <= d <= mes_fin]
+            fechas_baja_dt = [d for d in fechas_baja_dt if mes_inicio <= d <= mes_fin]
+            fechas_alta = [_ddmmyyyy(d) for d in fechas_alta_dt]
+            fechas_baja = [_ddmmyyyy(d) for d in fechas_baja_dt]
+            alertas = sorted(set(alertas))
 
             rotativos.append(
                 {
                     "nombre": nombre,
-                    "fecha_alta": fecha_alta,
-                    "fecha_baja": fecha_baja,
+                    "tiene_reingreso": tiene_reingreso,
+                    "fechas_alta": fechas_alta,
+                    "fechas_baja": fechas_baja,
+                    # Compatibilidad con consumidores previos.
+                    "fecha_alta": fechas_alta[0] if fechas_alta else None,
+                    "fecha_baja": fechas_baja[0] if fechas_baja else None,
                     "alertas": alertas,
                     "semanas_presente": semanas_presente,
+                    "presencia_por_periodo": presencia_por_periodo,
                     "en_headcount": en_headcount,
                 }
             )

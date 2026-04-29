@@ -20,6 +20,14 @@
 .rpt-input-date { width:100%; min-width:140px; }
 .rpt-input-date.rpt-empty { border:1px solid #dc2626; }
 .rpt-alert { color:#b45309; font-size:.88rem; }
+.rpt-name { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+.rpt-badge-reingreso { color:#9a3412; background:#ffedd5; border:1px solid #fdba74; border-radius:999px; padding:.12rem .45rem; font-size:.75rem; font-weight:700; }
+.rpt-fecha-stack { display:flex; flex-direction:column; gap:.35rem; }
+.rpt-fecha-inline { display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+.rpt-fecha-text { color:#334155; font-size:.9rem; }
+.rpt-edit-list { display:none; flex-direction:column; gap:.35rem; margin-top:.2rem; }
+.rpt-edit-list.is-open { display:flex; }
+.rpt-btn-mini { font-size:.75rem; line-height:1; padding:.28rem .45rem; }
 .rpt-tools { display:flex; gap:.6rem; align-items:center; margin-bottom:.7rem; }
 .rpt-pagination { display:flex; gap:.6rem; justify-content:flex-end; align-items:center; margin-top:.6rem; }
 .rpt-inline-err { color:#b91c1c; font-size:.9rem; margin:.45rem 0; }
@@ -174,6 +182,49 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     return `${d}/${m}/${y}`;
   }
 
+  function fmtFechaText(v) {
+    const s = String(v || "").trim();
+    if (!s) return "";
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      const [y, m, d] = s.split("-");
+      return `${d}/${m}/${y}`;
+    }
+    return s;
+  }
+
+  function normalizarListaFechas(row, keyList, keySingle) {
+    if (Array.isArray(row[keyList])) {
+      return row[keyList].map((v) => String(v || "").trim()).filter(Boolean);
+    }
+    const single = String(row[keySingle] || "").trim();
+    return single ? [single] : [];
+  }
+
+  function renderFechaCell(rowIdx, tipo, fechas, alertas, tieneReingreso) {
+    const tipoLabel = tipo === "alta" ? "alta" : "baja";
+    const titulo = alertas.join(" | ");
+    const cleanFechas = (Array.isArray(fechas) ? fechas : []).map((v) => String(v || "").trim());
+    if (!tieneReingreso) {
+      const val0 = toInputDate(cleanFechas[0] || "");
+      const cls = val0 ? "" : "rpt-empty";
+      return `<input type="date" class="rpt-input-date ${cls}" data-idx="${rowIdx}" data-tipo="${tipoLabel}" data-indice="0" value="${val0}" title="${titulo}">`;
+    }
+    const texto = cleanFechas.length ? cleanFechas.map((f) => fmtFechaText(f)).join(" · ") : "—";
+    const inputs = (cleanFechas.length ? cleanFechas : [""]).map((f, i) => {
+      const val = toInputDate(f);
+      const cls = val ? "" : "rpt-empty";
+      return `<input type="date" class="rpt-input-date ${cls}" data-idx="${rowIdx}" data-tipo="${tipoLabel}" data-indice="${i}" value="${val}" title="${titulo}">`;
+    }).join("");
+    return `<div class="rpt-fecha-stack">
+      <div class="rpt-fecha-inline">
+        <span class="rpt-fecha-text">${texto}</span>
+        <button type="button" class="btn btn-secondary rpt-btn-mini btn-edit-fechas" data-idx="${rowIdx}" data-tipo="${tipoLabel}">Editar</button>
+      </div>
+      <div class="rpt-edit-list" data-edit-list="${rowIdx}-${tipoLabel}">${inputs}</div>
+    </div>`;
+  }
+
   function renderAccordion() {
     const wrap = $("datos-accordion");
     const clientes = Object.keys(state.resumen || {}).sort();
@@ -236,14 +287,14 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     $("rot-count").textContent = String(rot.length);
     $("rot-tbody").innerHTML = rot.map((r, idx) => {
       const alertas = Array.isArray(r.alertas) ? r.alertas : [];
-      const altaVal = toInputDate(r.fecha_alta);
-      const bajaVal = toInputDate(r.fecha_baja);
-      const altaCls = altaVal ? "" : "rpt-empty";
-      const bajaCls = bajaVal ? "" : "rpt-empty";
+      const tieneReingreso = Boolean(r.tiene_reingreso);
+      const fechasAlta = normalizarListaFechas(r, "fechas_alta", "fecha_alta");
+      const fechasBaja = normalizarListaFechas(r, "fechas_baja", "fecha_baja");
+      const badgeReingreso = tieneReingreso ? '<span class="rpt-badge-reingreso">Reingreso</span>' : "";
       return `<tr>
-        <td>${r.nombre || ""}</td>
-        <td><input type="date" class="rpt-input-date ${altaCls}" data-idx="${idx}" data-tipo="alta" value="${altaVal}" title="${alertas.join(" | ")}"></td>
-        <td><input type="date" class="rpt-input-date ${bajaCls}" data-idx="${idx}" data-tipo="baja" value="${bajaVal}" title="${alertas.join(" | ")}"></td>
+        <td><div class="rpt-name"><span>${r.nombre || ""}</span>${badgeReingreso}</div></td>
+        <td>${renderFechaCell(idx, "alta", fechasAlta, alertas, tieneReingreso)}</td>
+        <td>${renderFechaCell(idx, "baja", fechasBaja, alertas, tieneReingreso)}</td>
         <td>${alertas.length ? `<span class="rpt-alert" title="${alertas.join(" | ")}">⚠️ ${alertas.join(" | ")}</span>` : "—"}</td>
       </tr>`;
     }).join("") || '<tr><td colspan="4">Sin personal rotativo.</td></tr>';
@@ -394,13 +445,27 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   });
   simModal.addEventListener("cancel", (ev) => ev.preventDefault());
 
+  $("rot-tbody").addEventListener("click", (ev) => {
+    const t = ev.target;
+    if (!(t instanceof Element)) return;
+    const btn = t.closest(".btn-edit-fechas");
+    if (!btn) return;
+    const idx = btn.getAttribute("data-idx");
+    const tipo = btn.getAttribute("data-tipo");
+    if (!idx || !tipo) return;
+    const box = $("rot-tbody").querySelector(`[data-edit-list="${idx}-${tipo}"]`);
+    if (!(box instanceof HTMLElement)) return;
+    box.classList.toggle("is-open");
+  });
+
   $("rot-tbody").addEventListener("change", async (ev) => {
     const t = ev.target;
     if (!(t instanceof HTMLInputElement)) return;
-    if (!state.reporte || !t.matches("input[type='date'][data-idx][data-tipo]")) return;
+    if (!state.reporte || !t.matches("input[type='date'][data-idx][data-tipo][data-indice]")) return;
     const idx = parseInt(t.getAttribute("data-idx") || "-1", 10);
     const tipo = t.getAttribute("data-tipo");
-    if (idx < 0 || !tipo) return;
+    const indice = parseInt(t.getAttribute("data-indice") || "0", 10);
+    if (idx < 0 || !tipo || Number.isNaN(indice) || indice < 0) return;
     const row = (state.reporte.rotativos || [])[idx];
     if (!row) return;
     $("save-msg").hidden = true;
@@ -416,6 +481,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
           nombre: row.nombre,
           tipo_fecha: tipo,
           nueva_fecha: fromInputDate(t.value),
+          indice: indice,
         }),
       });
       $("save-msg").textContent = "Fecha actualizada.";
