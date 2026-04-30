@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 import threading
@@ -28,6 +29,7 @@ _DEFAULT_ONEDRIVE_URL = (
 
 _COL_NOMBRE = "NOMBRE COMPLETO"
 _COL_FECHA = "FECHA DE INGRESO"
+_COL_SUELDO = "SUELDO SEMANAL"
 
 _CACHE_TTL_SEC = 300
 _STALE_GRACE_SEC = 300
@@ -93,6 +95,14 @@ def _columnas_requeridas(df: pd.DataFrame) -> tuple[str, str] | tuple[None, None
     return None, None
 
 
+def _columna_sueldo_opcional(df: pd.DataFrame) -> str | None:
+    want_s = _norm_header(_COL_SUELDO)
+    for c in df.columns:
+        if _norm_header(c) == want_s:
+            return str(c)
+    return None
+
+
 def _celda_es_marca_sin_fecha(val: Any) -> bool:
     try:
         if pd.isna(val):
@@ -135,6 +145,47 @@ def _parse_fecha_celda(val: Any) -> date | None:
         except (ValueError, OSError, OverflowError):
             pass
     return None
+
+
+def _parse_sueldo_celda(val: Any) -> float | None:
+    try:
+        if pd.isna(val):
+            return None
+    except TypeError:
+        pass
+    if isinstance(val, (int, float)):
+        n = float(val)
+        return n if math.isfinite(n) else None
+
+    s = str(val or "").strip().replace("\u00a0", "")
+    if not s:
+        return None
+
+    cleaned = re.sub(r"[^\d,.\-]", "", s)
+    if cleaned in ("", "-", ".", ","):
+        return None
+
+    has_comma = "," in cleaned
+    has_dot = "." in cleaned
+    norm = cleaned
+    if has_comma and has_dot:
+        if cleaned.rfind(",") > cleaned.rfind("."):
+            norm = cleaned.replace(".", "").replace(",", ".")
+        else:
+            norm = cleaned.replace(",", "")
+    elif has_comma:
+        if cleaned.count(",") == 1 and len(cleaned.split(",")[1]) <= 2:
+            norm = cleaned.replace(",", ".")
+        else:
+            norm = cleaned.replace(",", "")
+    elif has_dot and cleaned.count(".") > 1:
+        norm = cleaned.replace(".", "")
+
+    try:
+        n = float(norm)
+    except ValueError:
+        return None
+    return n if math.isfinite(n) else None
 
 
 def _is_html_payload(data: bytes, content_type: str | None) -> bool:
@@ -236,29 +287,31 @@ def _get_cached_dataframe(url: str) -> pd.DataFrame:
 def buscar_fecha_ingreso_en_dataframe(
     df: pd.DataFrame,
     nombre_completo: str,
-) -> tuple[date | None, str | None, str | None]:
+) -> tuple[date | None, str | None, str | None, float | None]:
     """
-    Devuelve (fecha, nombre_encontrado, error).
-    - Éxito: (date, str, None)
-    - Sin fila: (None, None, mensaje)
-    - Filas pero sin fecha válida: (None, nombre_referencia, mensaje)
+    Devuelve (fecha, nombre_encontrado, error, sueldo_semanal).
+    - Éxito: (date, str, None, float|None)
+    - Sin fila: (None, None, mensaje, None)
+    - Filas pero sin fecha válida: (None, nombre_referencia, mensaje, None)
     """
     nombre_completo = (nombre_completo or "").strip()
     if not nombre_completo:
-        return None, None, "El nombre completo es obligatorio."
+        return None, None, "El nombre completo es obligatorio.", None
 
     col_n, col_f = _columnas_requeridas(df)
+    col_s = _columna_sueldo_opcional(df)
     if not col_n or not col_f:
         return None, None, (
             f"El Excel debe incluir las columnas «{_COL_NOMBRE}» y «{_COL_FECHA}» "
             "(los encabezados pueden variar en mayúsculas o espacios)."
-        )
+        ), None
 
     q = normalizar_nombre(nombre_completo)
     if not q:
-        return None, None, "El nombre completo es obligatorio."
+        return None, None, "El nombre completo es obligatorio.", None
 
-    work = df[[col_n, col_f]].copy()
+    cols = [col_n, col_f] + ([col_s] if col_s else [])
+    work = df[cols].copy()
 
     def _cell_norm(x: Any) -> str:
         if x is None or (isinstance(x, float) and pd.isna(x)):
@@ -268,16 +321,17 @@ def buscar_fecha_ingreso_en_dataframe(
     work["__norm"] = work[col_n].map(_cell_norm)
     sub = work[work["__norm"] == q]
 
-    matches: list[tuple[str, Any]] = []
+    matches: list[tuple[str, Any, Any]] = []
     for _, row in sub.iterrows():
         raw_n = row[col_n]
         if raw_n is None or (isinstance(raw_n, float) and pd.isna(raw_n)):
             continue
         nombre_cell = str(raw_n).strip()
-        matches.append((nombre_cell, row[col_f]))
+        sueldo_cell = row[col_s] if col_s else None
+        matches.append((nombre_cell, row[col_f], sueldo_cell))
 
     if not matches:
-        return None, None, "No se encontró coincidencia en el Excel."
+        return None, None, "No se encontró coincidencia en el Excel.", None
 
     if len(matches) > 1:
         logger.warning(
@@ -285,26 +339,26 @@ def buscar_fecha_ingreso_en_dataframe(
             len(matches),
         )
 
-    for nombre_raw, celda in matches:
+    for nombre_raw, celda, sueldo_raw in matches:
         if _celda_es_marca_sin_fecha(celda):
             continue
         parsed = _parse_fecha_celda(celda)
         if parsed is not None:
-            return parsed, nombre_raw, None
+            return parsed, nombre_raw, None, _parse_sueldo_celda(sueldo_raw)
 
     ref_name = matches[0][0]
-    return None, ref_name, "La coincidencia existe, pero no tiene fecha válida."
+    return None, ref_name, "La coincidencia existe, pero no tiene fecha válida.", None
 
 
 def buscar_fecha_ingreso_headcount_onedrive(
     nombre_completo: str,
     *,
     url: str | None = None,
-) -> tuple[date | None, str | None, str | None]:
+) -> tuple[date | None, str | None, str | None, float | None]:
     """Descarga (con caché), lee el Excel y cruza por nombre. Sin rutas locales ni Microsoft Graph."""
     resolved = (url or "").strip() or headcount_onedrive_url_resolved()
     try:
         df = _get_cached_dataframe(resolved)
     except Exception as exc:
-        return None, None, f"No se pudo obtener el Excel de headcount: {exc}"
+        return None, None, f"No se pudo obtener el Excel de headcount: {exc}", None
     return buscar_fecha_ingreso_en_dataframe(df, nombre_completo)

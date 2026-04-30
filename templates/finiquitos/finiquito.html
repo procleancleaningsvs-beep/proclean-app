@@ -395,6 +395,31 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
     return Number.isFinite(n) ? n : 0;
   }
 
+  function normalizeSueldoSemanalExcel(raw) {
+    if (raw === null || raw === undefined || raw === '') return '';
+    if (typeof raw === 'number') return Number.isFinite(raw) ? String(raw) : '';
+    let cleaned = String(raw).trim().replace(/\s+/g, '').replace(/[^\d,.\-]/g, '');
+    if (!cleaned || cleaned === '-' || cleaned === '.' || cleaned === ',') return '';
+    const hasComma = cleaned.includes(',');
+    const hasDot = cleaned.includes('.');
+    if (hasComma && hasDot) {
+      if (cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.')) {
+        cleaned = cleaned.replace(/\./g, '').replace(',', '.');
+      } else {
+        cleaned = cleaned.replace(/,/g, '');
+      }
+    } else if (hasComma) {
+      const parts = cleaned.split(',');
+      cleaned = (parts.length === 2 && parts[1].length <= 2)
+        ? cleaned.replace(',', '.')
+        : cleaned.replace(/,/g, '');
+    } else if (hasDot && cleaned.split('.').length > 2) {
+      cleaned = cleaned.replace(/\./g, '');
+    }
+    const n = parseFloat(cleaned);
+    return Number.isFinite(n) ? String(n) : '';
+  }
+
   const DG2_MAX_PERC_TOTAL = 8;
   function dg2PercTotalCount() {
     dg2Ensure();
@@ -934,6 +959,8 @@ dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem;
         return;
       }
       $('fecha_ingreso').value = j.fecha_ingreso;
+      const sueldoExcel = normalizeSueldoSemanalExcel(j.sueldo_semanal);
+      if (sueldoExcel !== '') $('sueldo_semanal').value = sueldoExcel;
       updatePrimaAntiguedadUI();
       scheduleOpcionalesPagosPrevios();
       scheduleAutoSummary();

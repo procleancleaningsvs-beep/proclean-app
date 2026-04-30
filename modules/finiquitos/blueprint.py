@@ -464,13 +464,14 @@ def buscar_fecha_ingreso_excel_mirror():
         return err
     data = request.get_json(silent=True) or {}
     nombre = (data.get("nombre_completo") or "").strip()
-    fd, nombre_encontrado, msg = buscar_fecha_ingreso_headcount_onedrive(nombre)
+    fd, nombre_encontrado, msg, sueldo_semanal = buscar_fecha_ingreso_headcount_onedrive(nombre)
     if msg:
         return jsonify({"ok": False, "error": msg}), 400
     return jsonify(
         {
             "ok": True,
             "fecha_ingreso": fd.isoformat() if fd else None,
+            "sueldo_semanal": sueldo_semanal,
             "nombre_encontrado": nombre_encontrado or "",
         }
     )
