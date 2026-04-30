@@ -580,8 +580,21 @@ def cargar_desde_reporte_mensual(
             nombre = _norm_upper(rot.get("nombre"))
             if not nombre:
                 continue
-            altas = rot.get("fechas_alta") if isinstance(rot.get("fechas_alta"), list) else []
-            bajas = rot.get("fechas_baja") if isinstance(rot.get("fechas_baja"), list) else []
+            fechas_alta_raw = rot.get("fechas_alta") or []
+            if isinstance(fechas_alta_raw, list):
+                altas = fechas_alta_raw
+            else:
+                altas = []
+            if not altas and rot.get("fecha_alta"):
+                altas = [rot["fecha_alta"]]
+
+            fechas_baja_raw = rot.get("fechas_baja") or []
+            if isinstance(fechas_baja_raw, list):
+                bajas = fechas_baja_raw
+            else:
+                bajas = []
+            if not bajas and rot.get("fecha_baja"):
+                bajas = [rot["fecha_baja"]]
             generados_mes = 0
             for fecha_alta in altas:
                 dt = _parse_date_ddmmyyyy(fecha_alta)
