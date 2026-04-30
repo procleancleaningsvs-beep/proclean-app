@@ -9,7 +9,7 @@ from typing import Any
 
 from openpyxl import load_workbook
 
-from modules.comparativo.comparativo_service import DATA_DIR, REPORTES_MENSUALES_DIR, obtener_historial_reportes
+from modules.comparativo.comparativo_service import COMPARATIVOS_DIR, DATA_DIR, REPORTES_MENSUALES_DIR, obtener_historial_reportes
 from modules.comparativo.headcount_service import obtener_activos
 
 MOVIMIENTOS_DIR = os.path.join(DATA_DIR, "movimientos_imss")
@@ -633,6 +633,119 @@ def cargar_desde_reporte_mensual(
         return out
     except Exception as exc:
         raise ValueError(f"No se pudo cargar desde reporte mensual: {exc}") from exc
+
+
+def cargar_desde_comparativo_semanal(
+    comparativo_id: str,
+    rp_general: str | None = None,
+    sbc_general: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        cid = _norm_str(comparativo_id)
+        if not cid:
+            raise ValueError("comparativo_id es obligatorio")
+
+        os.makedirs(COMPARATIVOS_DIR, exist_ok=True)
+        comparativo: dict[str, Any] | None = None
+
+        direct_path = os.path.join(COMPARATIVOS_DIR, f"{cid}.json")
+        if os.path.exists(direct_path):
+            comparativo = _read_json(direct_path)
+
+        if not isinstance(comparativo, dict):
+            for name in os.listdir(COMPARATIVOS_DIR):
+                if not name.lower().endswith(".json"):
+                    continue
+                fp = os.path.join(COMPARATIVOS_DIR, name)
+                data = _read_json(fp)
+                if not isinstance(data, dict):
+                    continue
+                stem = os.path.splitext(name)[0]
+                if _norm_str(data.get("id")) == cid or stem == cid:
+                    comparativo = data
+                    break
+
+        if not isinstance(comparativo, dict):
+            raise ValueError("Comparativo no encontrado")
+
+        patrones = obtener_patrones()
+        rp_general_norm = _norm_str(rp_general)[:11] if rp_general is not None else ""
+        sbc_general_norm = _fmt_sbc_str(sbc_general) if _norm_str(sbc_general) else ""
+        periodo_inicio = _to_ddmmyyyy(comparativo.get("periodo_inicio"))
+        fecha_baja_asumida = _to_ddmmyyyy(comparativo.get("fecha_baja_asumida") or comparativo.get("periodo_fin"))
+        out: list[dict[str, Any]] = []
+
+        def _build_mov(nombre: str, tipo: str, fecha_mov: str) -> dict[str, Any]:
+            match = buscar_en_headcount(nombre, "nombre_completo")
+            hc_data: dict[str, Any] | None = None
+            alerta: str | None = None
+            if bool(match.get("encontrado")):
+                if bool(match.get("duplicado")):
+                    opciones = match.get("opciones") or []
+                    hc_data = opciones[0] if isinstance(opciones, list) and opciones else None
+                    alerta = "Coincidencia duplicada en headcount"
+                else:
+                    hc_data = match.get("datos")
+            if hc_data:
+                mapped = mapear_headcount_a_movimiento(hc_data)
+                rp_val = _norm_str(hc_data.get("patron"))[:11]
+            else:
+                mapped = {
+                    "nss": "",
+                    "rfc": None,
+                    "curp": "",
+                    "apellido_paterno": "",
+                    "apellido_materno": "",
+                    "nombres": _norm_upper(nombre),
+                    "sbc": "0.00",
+                }
+                rp_val = ""
+                alerta = "No encontrado en headcount"
+
+            if rp_general_norm:
+                rp_val = rp_general_norm
+            if sbc_general_norm:
+                mapped["sbc"] = sbc_general_norm
+
+            if not _norm_str(fecha_mov):
+                alerta = alerta or "Sin fecha de movimiento"
+
+            return {
+                "id": str(uuid.uuid4()),
+                "tipo_movimiento": tipo,
+                "rp": rp_val,
+                "rfc_patron": _norm_upper(patrones.get(rp_val, "")),
+                "fecha_movimiento": _to_ddmmyyyy(fecha_mov),
+                "nss": mapped.get("nss", ""),
+                "rfc": mapped.get("rfc"),
+                "curp": mapped.get("curp", ""),
+                "apellido_paterno": mapped.get("apellido_paterno", ""),
+                "apellido_materno": mapped.get("apellido_materno", ""),
+                "nombres": mapped.get("nombres", _norm_upper(nombre)),
+                "sbc": _fmt_sbc_str(mapped.get("sbc")),
+                "alerta": alerta or None,
+                "origen": "comparativo_semanal",
+                "fecha_captura": datetime.now().isoformat(),
+                "fecha_actualizacion": datetime.now().isoformat(),
+            }
+
+        altas_raw = comparativo.get("altas") if isinstance(comparativo.get("altas"), list) else []
+        bajas_raw = comparativo.get("bajas") if isinstance(comparativo.get("bajas"), list) else []
+
+        for raw in altas_raw:
+            nombre = _norm_upper(raw)
+            if not nombre:
+                continue
+            out.append(_build_mov(nombre, "ALTA", periodo_inicio))
+        for raw in bajas_raw:
+            nombre = _norm_upper(raw)
+            if not nombre:
+                continue
+            out.append(_build_mov(nombre, "BAJA", fecha_baja_asumida))
+
+        return out
+    except Exception as exc:
+        raise ValueError(f"No se pudo cargar desde comparativo semanal: {exc}") from exc
 
 
 def generar_txt_idse(movimientos_ids: list[str]) -> str:

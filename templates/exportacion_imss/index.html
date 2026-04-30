@@ -74,6 +74,15 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   width:100%; text-align:left; border:0; background:none; padding:.45rem .5rem; border-radius:8px; cursor:pointer;
 }
 .imss-import-menu button:hover { background:#f1f5f9; }
+.imss-alert-readonly { background:#fff7db; border:1px solid #fde68a; color:#b45309; border-radius:8px; padding:.5rem .6rem; font-size:.9rem; }
+.imss-mov-sections { display:grid; gap:.6rem; }
+.imss-mov-section { border:1px solid #e5e7eb; border-radius:10px; overflow:hidden; background:#fff; }
+.imss-mov-section > summary { cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; padding:.55rem .7rem; background:#f8fafc; font-weight:700; }
+.imss-mov-section > summary::-webkit-details-marker { display:none; }
+.imss-mov-section > summary::after { content:"▾"; color:#64748b; font-size:.9rem; }
+.imss-mov-section:not([open]) > summary::after { content:"▸"; }
+.imss-mov-section .imss-table-wrap { padding:.25rem .45rem .45rem; }
+.imss-badge.reingreso { background:#ffedd5; border:1px solid #fdba74; color:#c2410c; }
 @keyframes imss-spin { to { transform:translateY(-50%) rotate(360deg); } }
 @keyframes imss-fade { from { opacity:1; } to { opacity:0; } }
 @media (max-width: 1100px) {
@@ -191,6 +200,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
             <div id="import-menu" class="imss-import-menu">
               <button type="button" id="opt-import-excel">Importar desde Excel</button>
               <button type="button" id="opt-import-reporte">Importar desde reporte mensual</button>
+              <button type="button" id="opt-import-comparativo">Importar desde comparativo semanal</button>
             </div>
           </div>
           <input type="file" id="excel-file" hidden accept=".xlsx,.xlsm,.xltx,.xltm">
@@ -210,21 +220,64 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       </div>
       <p id="mov-msg" class="imss-msg" hidden></p>
 
-      <div class="imss-table-wrap">
-        <table class="imss-table">
-          <thead>
-            <tr>
-              <th>Tipo</th>
-              <th>Nombre completo</th>
-              <th>NSS</th>
-              <th>Fecha mov</th>
-              <th>SBC</th>
-              <th>Alertas</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody id="mov-tbody"></tbody>
-        </table>
+      <div id="mov-sections" class="imss-mov-sections">
+        <details class="imss-mov-section" id="sec-altas" open>
+          <summary><span>Altas (<span id="count-altas-puras">0</span>)</span><span class="imss-badge alta">ALTA</span></summary>
+          <div class="imss-table-wrap">
+            <table class="imss-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Nombre completo</th>
+                  <th>NSS</th>
+                  <th>Fecha mov</th>
+                  <th>SBC</th>
+                  <th>Alertas</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="mov-altas-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+        <details class="imss-mov-section" id="sec-bajas" open>
+          <summary><span>Bajas (<span id="count-bajas-puras">0</span>)</span><span class="imss-badge baja">BAJA</span></summary>
+          <div class="imss-table-wrap">
+            <table class="imss-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Nombre completo</th>
+                  <th>NSS</th>
+                  <th>Fecha mov</th>
+                  <th>SBC</th>
+                  <th>Alertas</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="mov-bajas-tbody"></tbody>
+            </table>
+          </div>
+        </details>
+        <details class="imss-mov-section" id="sec-reingresos" open>
+          <summary><span>Reingresos (<span id="count-reingresos">0</span>)</span><span class="imss-badge reingreso">REINGRESO</span></summary>
+          <div class="imss-table-wrap">
+            <table class="imss-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Nombre completo</th>
+                  <th>NSS</th>
+                  <th>Fecha mov</th>
+                  <th>SBC</th>
+                  <th>Alertas</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="mov-reingresos-tbody"></tbody>
+            </table>
+          </div>
+        </details>
       </div>
 
       <div class="imss-export">
@@ -288,14 +341,23 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     <div class="imss-form-grid">
       <div class="imss-field"><label>Tipo</label><select id="edit-tipo"><option value="ALTA">ALTA</option><option value="BAJA">BAJA</option></select></div>
       <div class="imss-field"><label>RP</label><select id="edit-rp"></select></div>
-      <div id="edit-rp-extra-wrap" class="imss-inline" hidden>
+      <div id="edit-rp-extra-wrap" class="imss-inline" style="display:none;">
         <div class="imss-field"><label>RP</label><input id="edit-rp-extra" maxlength="11"></div>
         <div class="imss-field"><label>RFC Patrón</label><input id="edit-rfc-patron-extra" maxlength="13"></div>
       </div>
       <div class="imss-field"><label>Fecha movimiento</label><input id="edit-fecha" type="date"></div>
     </div>
     <div class="imss-divider">Datos del trabajador</div>
-    <div class="imss-field"><label>Búsqueda headcount por NSS</label><div class="imss-inline"><input id="edit-hc-query" placeholder="NSS..."><button class="btn btn-secondary" type="button" id="btn-edit-hc">Buscar en headcount</button></div></div>
+    <div class="imss-field">
+      <label>Buscador headcount</label>
+      <div class="imss-radio" id="edit-hc-campos">
+        <button type="button" data-campo="nss" class="active">NSS</button>
+        <button type="button" data-campo="rfc_homoclave">RFC</button>
+        <button type="button" data-campo="curp">CURP</button>
+        <button type="button" data-campo="nombre_completo">Nombre</button>
+      </div>
+      <div class="imss-inline"><input id="edit-hc-query" placeholder="Buscar por NSS, RFC, CURP o nombre..."><button class="btn btn-secondary" type="button" id="btn-edit-hc">Buscar en headcount</button></div>
+    </div>
     <div class="imss-form-grid">
       <div class="imss-field"><label>NSS</label><input id="edit-nss" maxlength="11"></div>
       <div class="imss-field"><label>RFC</label><input id="edit-rfc" maxlength="13"></div>
@@ -304,8 +366,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       <div class="imss-field"><label>Apellido materno</label><input id="edit-ap-mat"></div>
       <div class="imss-field"><label>Nombres</label><input id="edit-nombres"></div>
       <div class="imss-field"><label>SBC</label><select id="edit-sbc-select"></select></div>
-      <div class="imss-field" id="edit-sbc-extra-wrap" hidden><label>SBC personalizado</label><input id="edit-sbc-extra" type="number" step="0.01" min="0"></div>
-      <div class="imss-field"><label>Alerta</label><input id="edit-alerta"></div>
+      <div class="imss-field" id="edit-sbc-extra-wrap" style="display:none;"><label>SBC personalizado</label><input id="edit-sbc-extra" type="number" step="0.01" min="0"></div>
+      <div class="imss-field" id="edit-alerta-wrap" hidden><label>Alerta</label><p id="edit-alerta-text" class="imss-alert-readonly"></p></div>
     </div>
     <p id="edit-msg" class="imss-msg" hidden></p>
   </div>
@@ -362,7 +424,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         <label for="config-sbc-select">SBC</label>
         <select id="config-sbc-select"></select>
       </div>
-      <div class="imss-field" id="config-sbc-extra-wrap" hidden>
+      <div class="imss-field" id="config-sbc-extra-wrap" style="display:none;">
         <label for="config-sbc-extra">SBC personalizado</label>
         <input id="config-sbc-extra" type="number" step="0.01" min="0">
       </div>
@@ -375,6 +437,23 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   </div>
 </dialog>
 
+<dialog id="comparativo-modal" class="imss-modal">
+  <div class="imss-modal-head"><h3>Importar desde comparativo semanal</h3></div>
+  <div class="imss-modal-body">
+    <div class="imss-form-grid">
+      <div class="imss-field">
+        <label for="comparativo-select">Comparativo disponible</label>
+        <select id="comparativo-select"></select>
+      </div>
+    </div>
+    <p id="comparativo-modal-msg" class="imss-msg" hidden></p>
+  </div>
+  <div class="imss-modal-foot">
+    <button type="button" class="btn btn-secondary" id="comparativo-cancel">Cancelar</button>
+    <button type="button" class="btn btn-primary" id="btn-abrir-config-comparativo">Continuar</button>
+  </div>
+</dialog>
+
 <script>
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -384,7 +463,9 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     movimientos: [],
     historial: [],
     reportes: [],
+    comparativos: [],
     campoBusqueda: "nss",
+    editCampoBusqueda: "nss",
     duplicateTarget: null,
     editId: null,
     histPage: 1,
@@ -393,6 +474,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     pendingDeleteId: null,
     pendingHistDeleteId: null,
     pendingReportData: null,
+    pendingComparativoData: null,
   };
 
   const urls = {
@@ -409,6 +491,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     plantillaExcel: "{{ url_for('exportacion_imss.plantilla_excel') }}",
     reportesDisponibles: "{{ url_for('exportacion_imss.reportes_mensuales_disponibles') }}",
     cargarReporte: "{{ url_for('exportacion_imss.cargar_reporte_mensual') }}",
+    comparativosDisponibles: "{{ url_for('exportacion_imss.comparativos_disponibles') }}",
+    cargarComparativo: "{{ url_for('exportacion_imss.cargar_comparativo_semanal') }}",
     exportar: "{{ url_for('exportacion_imss.exportar') }}",
     descargar: "{{ url_for('exportacion_imss.descargar_exportacion', exportacion_id='__ID__') }}",
     historial: "{{ url_for('exportacion_imss.historial_exportaciones') }}",
@@ -540,6 +624,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       extraWrap.style.display = select.value === "__otro__" ? "block" : "none";
     } else if (extraWrap) {
       extraWrap.hidden = select.value !== "__otro__";
+      extraWrap.style.display = select.value === "__otro__" ? "block" : "none";
     }
   }
 
@@ -564,6 +649,30 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("sbc-extra-wrap").hidden = !show;
     $("sbc-extra-wrap").style.display = show ? "block" : "none";
     if (!show) $("sbc-extra").value = "";
+  }
+
+  function toggleEditRpExtra() {
+    const show = $("edit-rp").value === "__otro__";
+    $("edit-rp-extra-wrap").hidden = !show;
+    $("edit-rp-extra-wrap").style.display = show ? "grid" : "none";
+    if (!show) {
+      $("edit-rp-extra").value = "";
+      $("edit-rfc-patron-extra").value = "";
+    }
+  }
+
+  function toggleEditSbcExtra() {
+    const show = $("edit-sbc-select").value === "__otro__";
+    $("edit-sbc-extra-wrap").hidden = !show;
+    $("edit-sbc-extra-wrap").style.display = show ? "block" : "none";
+    if (!show) $("edit-sbc-extra").value = "";
+  }
+
+  function toggleConfigSbcExtra() {
+    const show = $("config-sbc-select").value === "__otro__";
+    $("config-sbc-extra-wrap").hidden = !show;
+    $("config-sbc-extra-wrap").style.display = show ? "block" : "none";
+    if (!show) $("config-sbc-extra").value = "";
   }
 
   async function loadPatrones() {
@@ -609,6 +718,31 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     });
   }
 
+  async function loadComparativosDisponibles() {
+    const sel = $("comparativo-select");
+    const data = await fetchJson(urls.comparativosDisponibles);
+    const items = Array.isArray(data.items) ? data.items : [];
+    state.comparativos = items;
+    sel.innerHTML = "";
+    if (!items.length) {
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "No hay comparativos semanales disponibles.";
+      sel.appendChild(opt);
+      sel.disabled = true;
+      setMsg("comparativo-modal-msg", "No hay comparativos semanales disponibles.", "warn");
+      return;
+    }
+    sel.disabled = false;
+    setMsg("comparativo-modal-msg", "", "");
+    items.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = normalize(c.id);
+      opt.textContent = `${normalize(c.cliente)} — ${normalize(c.periodo_inicio)} al ${normalize(c.periodo_fin)} (${Number(c.altas || 0)} altas / ${Number(c.bajas || 0)} bajas)`;
+      sel.appendChild(opt);
+    });
+  }
+
   async function loadHistorialExportaciones() {
     const data = await fetchJson(urls.historial);
     state.historial = Array.isArray(data.items) ? data.items : [];
@@ -619,8 +753,42 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     return [m.apellido_paterno, m.apellido_materno, m.nombres].map((x) => normalize(x)).filter(Boolean).join(" ");
   }
 
+  function movementKey(m) {
+    return `${normalize(m.nombres)}${normalize(m.apellido_paterno)}`;
+  }
+
+  function renderMovementRows(rows) {
+    if (!rows.length) return '<tr><td colspan="7">Sin movimientos en esta sección.</td></tr>';
+    return rows.map((m) => {
+      const alert = normalize(m.alerta);
+      const tipo = normalize(m.tipo_movimiento);
+      const badge = `<span class="imss-badge ${tipo === "ALTA" ? "alta" : "baja"}">${tipo}</span>`;
+      const alertCell = alert ? `<span class="imss-alert-dot" title="${escHtml(alert)}">⚠️</span>` : "";
+      const deleteAction = state.pendingDeleteId === m.id
+        ? `<span class="imss-confirm-inline"><button class="imss-icon-btn delete do-delete" data-id="${m.id}" title="Confirmar">${iconCheck()}</button><button class="imss-icon-btn cancel-delete" data-id="${m.id}" title="Cancelar">${iconX()}</button></span>`
+        : `<button class="imss-icon-btn delete ask-delete" data-id="${m.id}" title="Eliminar">${iconTrash()}</button>`;
+      return `<tr id="row-${m.id}">
+        <td>${badge}</td>
+        <td>${movementName(m)}</td>
+        <td>${normalize(m.nss)}</td>
+        <td>${normalize(m.fecha_movimiento)}</td>
+        <td>${normalize(m.sbc)}</td>
+        <td>${alertCell}</td>
+        <td>
+          <div class="imss-actions">
+            <button type="button" class="imss-icon-btn edit edit-mov" data-id="${m.id}" title="Editar">${iconPencil()}</button>
+            <button type="button" class="imss-icon-btn sync sync-mov" data-id="${m.id}" title="Actualizar desde headcount">${iconSync()}</button>
+            ${deleteAction}
+          </div>
+        </td>
+      </tr>`;
+    }).join("");
+  }
+
   function renderMovimientos() {
-    const tbody = $("mov-tbody");
+    const tbAltas = $("mov-altas-tbody");
+    const tbBajas = $("mov-bajas-tbody");
+    const tbReing = $("mov-reingresos-tbody");
     const altas = state.movimientos.filter((m) => m.tipo_movimiento === "ALTA").length;
     const bajas = state.movimientos.filter((m) => m.tipo_movimiento === "BAJA").length;
     $("mov-counter").textContent = `${state.movimientos.length} movimientos (${altas} altas / ${bajas} bajas)`;
@@ -641,35 +809,30 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     }
 
     if (!state.movimientos.length) {
-      tbody.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
+      tbAltas.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
+      tbBajas.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
+      tbReing.innerHTML = '<tr><td colspan="7">Sin movimientos cargados.</td></tr>';
+      $("count-altas-puras").textContent = "0";
+      $("count-bajas-puras").textContent = "0";
+      $("count-reingresos").textContent = "0";
       setMsg("mov-msg", "Agrega movimientos para exportar", "warn");
       return;
     }
     setMsg("mov-msg", "", "");
-    tbody.innerHTML = state.movimientos.map((m) => {
-      const alert = normalize(m.alerta);
-      const tipo = normalize(m.tipo_movimiento);
-      const badge = `<span class="imss-badge ${tipo === "ALTA" ? "alta" : "baja"}">${tipo}</span>`;
-      const alertCell = alert ? `<span class="imss-alert-dot" title="${alert}">⚠️</span>` : "";
-      const deleteAction = state.pendingDeleteId === m.id
-        ? `<span class="imss-confirm-inline"><button class="imss-icon-btn delete do-delete" data-id="${m.id}" title="Confirmar">${iconCheck()}</button><button class="imss-icon-btn cancel-delete" data-id="${m.id}" title="Cancelar">${iconX()}</button></span>`
-        : `<button class="imss-icon-btn delete ask-delete" data-id="${m.id}" title="Eliminar">${iconTrash()}</button>`;
-      return `<tr id="row-${m.id}">
-        <td>${badge}</td>
-        <td>${movementName(m)}</td>
-        <td>${normalize(m.nss)}</td>
-        <td>${normalize(m.fecha_movimiento)}</td>
-        <td>${normalize(m.sbc)}</td>
-        <td>${alertCell}</td>
-        <td>
-          <div class="imss-actions">
-            <button type="button" class="imss-icon-btn edit edit-mov" data-id="${m.id}" title="Editar">${iconPencil()}</button>
-            <button type="button" class="imss-icon-btn sync sync-mov" data-id="${m.id}" title="Actualizar desde headcount">${iconSync()}</button>
-            ${deleteAction}
-          </div>
-        </td>
-      </tr>`;
-    }).join("");
+    const nombresAlta = new Set(state.movimientos.filter((m) => normalize(m.tipo_movimiento) === "ALTA").map(movementKey));
+    const nombresBaja = new Set(state.movimientos.filter((m) => normalize(m.tipo_movimiento) === "BAJA").map(movementKey));
+    const reingresos = new Set([...nombresAlta].filter((n) => nombresBaja.has(n)));
+    const altasPuras = state.movimientos.filter((m) => normalize(m.tipo_movimiento) === "ALTA" && !reingresos.has(movementKey(m)));
+    const bajasPuras = state.movimientos.filter((m) => normalize(m.tipo_movimiento) === "BAJA" && !reingresos.has(movementKey(m)));
+    const reingresoMovs = state.movimientos.filter((m) => reingresos.has(movementKey(m)));
+
+    $("count-altas-puras").textContent = String(altasPuras.length);
+    $("count-bajas-puras").textContent = String(bajasPuras.length);
+    $("count-reingresos").textContent = String(reingresoMovs.length);
+
+    tbAltas.innerHTML = renderMovementRows(altasPuras);
+    tbBajas.innerHTML = renderMovementRows(bajasPuras);
+    tbReing.innerHTML = renderMovementRows(reingresoMovs);
   }
 
   function getMainPayload() {
@@ -884,23 +1047,49 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("reporte-modal").showModal();
   }
 
+  function openComparativoModal() {
+    setMsg("comparativo-modal-msg", "", "");
+    $("comparativo-modal").showModal();
+  }
+
   function openConfigModalFromReport() {
     try {
       const val = $("reporte-select").value;
       if (!val) throw new Error("Selecciona un reporte mensual.");
       if ($("reporte-select").disabled) throw new Error("No hay reportes disponibles para cargar.");
       const parsed = JSON.parse(val);
+      state.pendingComparativoData = null;
       state.pendingReportData = { ...parsed, incluir_fijos: Boolean($("incluir-fijos").checked) };
       $("config-rp-select").value = $("rp-select").value !== "__otro__" ? $("rp-select").value : "";
       fillSbcSelect("config-sbc-select", "config-sbc-extra-wrap");
       $("config-sbc-select").value = $("sbc-select").value || "";
       $("config-sbc-extra").value = normalize($("sbc-extra").value);
-      $("config-sbc-extra-wrap").hidden = $("config-sbc-select").value !== "__otro__";
+      toggleConfigSbcExtra();
       setMsg("config-msg", "", "");
       $("reporte-modal").close();
       $("config-modal").showModal();
     } catch (e) {
       setMsg("reporte-modal-msg", e.message, "err");
+    }
+  }
+
+  function openConfigModalFromComparativo() {
+    try {
+      const comparativoId = normalize($("comparativo-select").value);
+      if (!comparativoId) throw new Error("Selecciona un comparativo semanal.");
+      if ($("comparativo-select").disabled) throw new Error("No hay comparativos disponibles para cargar.");
+      state.pendingReportData = null;
+      state.pendingComparativoData = { comparativo_id: comparativoId };
+      $("config-rp-select").value = $("rp-select").value !== "__otro__" ? $("rp-select").value : "";
+      fillSbcSelect("config-sbc-select", "config-sbc-extra-wrap");
+      $("config-sbc-select").value = $("sbc-select").value || "";
+      $("config-sbc-extra").value = normalize($("sbc-extra").value);
+      toggleConfigSbcExtra();
+      setMsg("config-msg", "", "");
+      $("comparativo-modal").close();
+      $("config-modal").showModal();
+    } catch (e) {
+      setMsg("comparativo-modal-msg", e.message, "err");
     }
   }
 
@@ -960,6 +1149,54 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     }
   }
 
+  async function loadFromComparativoWeeklyWithConfig() {
+    const btn = $("btn-confirmar-carga-reporte");
+    setLoading(btn, true);
+    setMsg("reporte-msg", "", "");
+    setMsg("config-msg", "", "");
+    try {
+      if (!state.pendingComparativoData) throw new Error("Primero selecciona un comparativo.");
+      const rp_general = normalize($("config-rp-select").value);
+      const sbc_general = getSbc("config-sbc-select", "config-sbc-extra");
+      if (!rp_general) throw new Error("Selecciona RP general.");
+      if (!normalize(sbc_general)) throw new Error("Selecciona SBC general.");
+      const payload = {
+        comparativo_id: state.pendingComparativoData.comparativo_id,
+        rp_general,
+        sbc_general: normalize(sbc_general),
+      };
+      const loaded = await fetchJson(urls.cargarComparativo, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const movimientos = loaded.movimientos || [];
+      if (!movimientos.length) throw new Error("El comparativo no generó movimientos para guardar.");
+      const result = await fetchJson(urls.movimientosBulk, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movimientos }),
+      });
+      await loadMovimientos();
+      $("config-modal").close();
+      state.pendingComparativoData = null;
+      const guardados = Number(result.guardados || 0);
+      const fallidos = Number(result.fallidos || 0);
+      const conAlertas = Number(loaded.con_alertas || 0);
+      const tipo = fallidos > 0 ? "warn" : "ok";
+      setMsgCollapsible(
+        "reporte-msg",
+        `Se guardaron ${guardados} movimientos (${conAlertas} con alertas, ${fallidos} fallidos)`,
+        tipo,
+        result.errores || [],
+      );
+    } catch (e) {
+      setMsg("config-msg", e.message, "err");
+    } finally {
+      setLoading(btn, false);
+    }
+  }
+
   function openEditModal(id) {
     const mov = state.movimientos.find((m) => m.id === id);
     if (!mov) return;
@@ -969,11 +1206,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     if ([...$("edit-rp").options].some((o) => o.value === rp)) {
       $("edit-rp").value = rp;
       $("edit-rp-extra-wrap").hidden = true;
+      $("edit-rp-extra-wrap").style.display = "none";
     } else {
       $("edit-rp").value = "__otro__";
       $("edit-rp-extra").value = rp;
       $("edit-rfc-patron-extra").value = normalize(mov.rfc_patron);
       $("edit-rp-extra-wrap").hidden = false;
+      $("edit-rp-extra-wrap").style.display = "grid";
     }
     $("edit-fecha").value = toInputDate(mov.fecha_movimiento);
     $("edit-nss").value = normalize(mov.nss);
@@ -982,16 +1221,25 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("edit-ap-pat").value = normalize(mov.apellido_paterno);
     $("edit-ap-mat").value = normalize(mov.apellido_materno);
     $("edit-nombres").value = normalize(mov.nombres);
-    $("edit-alerta").value = normalize(mov.alerta);
+    const alerta = normalize(mov.alerta);
+    state.editOriginalAlerta = alerta || "";
+    $("edit-alerta-text").textContent = alerta;
+    $("edit-alerta-wrap").hidden = !alerta;
     const sbc = normalize(mov.sbc);
     if ([...$("edit-sbc-select").options].some((o) => o.value === sbc)) {
       $("edit-sbc-select").value = sbc;
       $("edit-sbc-extra-wrap").hidden = true;
+      $("edit-sbc-extra-wrap").style.display = "none";
     } else {
       $("edit-sbc-select").value = "__otro__";
       $("edit-sbc-extra").value = sbc;
       $("edit-sbc-extra-wrap").hidden = false;
+      $("edit-sbc-extra-wrap").style.display = "block";
     }
+    state.editCampoBusqueda = "nss";
+    [...$("edit-hc-campos").querySelectorAll("button")].forEach((b) => b.classList.remove("active"));
+    const first = $("edit-hc-campos").querySelector('button[data-campo="nss"]');
+    if (first) first.classList.add("active");
     setMsg("edit-msg", "", "");
     $("edit-modal").showModal();
   }
@@ -999,10 +1247,20 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
   function buildEditPayload() {
     const rpSel = $("edit-rp").value;
     const rp = rpSel === "__otro__" ? normalize($("edit-rp-extra").value) : rpSel;
+    const fecha = fromInputDate($("edit-fecha").value);
+    const requiredForAlertClear = [
+      normalize($("edit-nss").value),
+      normalize($("edit-curp").value),
+      normalize($("edit-ap-pat").value),
+      normalize($("edit-ap-mat").value),
+      normalize($("edit-nombres").value),
+      normalize(fecha),
+    ];
+    const limpiarAlerta = requiredForAlertClear.every(Boolean);
     return {
       tipo_movimiento: normalize($("edit-tipo").value),
       rp: rp,
-      fecha_movimiento: fromInputDate($("edit-fecha").value),
+      fecha_movimiento: fecha,
       nss: normalize($("edit-nss").value),
       rfc: normalize($("edit-rfc").value) || null,
       curp: normalize($("edit-curp").value),
@@ -1010,7 +1268,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       apellido_materno: normalize($("edit-ap-mat").value),
       nombres: normalize($("edit-nombres").value),
       sbc: getSbc("edit-sbc-select", "edit-sbc-extra"),
-      alerta: normalize($("edit-alerta").value) || null,
+      alerta: limpiarAlerta ? null : (state.editOriginalAlerta || null),
     };
   }
 
@@ -1221,25 +1479,16 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       toggleMainRpExtra();
     });
     $("edit-rp").addEventListener("change", () => {
-      const isOtro = $("edit-rp").value === "__otro__";
-      $("edit-rp-extra-wrap").hidden = !isOtro;
-      if (!isOtro) {
-        $("edit-rp-extra").value = "";
-        $("edit-rfc-patron-extra").value = "";
-      }
+      toggleEditRpExtra();
     });
     $("sbc-select").addEventListener("change", () => {
       toggleMainSbcExtra();
     });
     $("edit-sbc-select").addEventListener("change", () => {
-      const isOtro = $("edit-sbc-select").value === "__otro__";
-      $("edit-sbc-extra-wrap").hidden = !isOtro;
-      if (!isOtro) $("edit-sbc-extra").value = "";
+      toggleEditSbcExtra();
     });
     $("config-sbc-select").addEventListener("change", () => {
-      const isOtro = $("config-sbc-select").value === "__otro__";
-      $("config-sbc-extra-wrap").hidden = !isOtro;
-      if (!isOtro) $("config-sbc-extra").value = "";
+      toggleConfigSbcExtra();
     });
     $("btn-guardar-patron").addEventListener("click", savePatternFromMain);
     $("btn-agregar-mov").addEventListener("click", addManualMovement);
@@ -1261,16 +1510,34 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         setMsg("excel-msg", e.message, "err");
       }
     });
+    $("opt-import-comparativo").addEventListener("click", async () => {
+      $("import-menu").classList.remove("show");
+      try {
+        await loadComparativosDisponibles();
+        openComparativoModal();
+      } catch (e) {
+        setMsg("excel-msg", e.message, "err");
+      }
+    });
     $("excel-file").addEventListener("change", (ev) => {
       const file = ev.target.files && ev.target.files[0];
       if (file) importFromExcel(file);
       ev.target.value = "";
     });
     $("btn-abrir-config-reporte").addEventListener("click", openConfigModalFromReport);
-    $("btn-confirmar-carga-reporte").addEventListener("click", loadFromMonthlyReportWithConfig);
+    $("btn-abrir-config-comparativo").addEventListener("click", openConfigModalFromComparativo);
+    $("btn-confirmar-carga-reporte").addEventListener("click", () => {
+      if (state.pendingComparativoData) {
+        void loadFromComparativoWeeklyWithConfig();
+      } else {
+        void loadFromMonthlyReportWithConfig();
+      }
+    });
     $("reporte-cancel").addEventListener("click", () => $("reporte-modal").close());
+    $("comparativo-cancel").addEventListener("click", () => $("comparativo-modal").close());
     $("config-cancel").addEventListener("click", () => {
       state.pendingReportData = null;
+      state.pendingComparativoData = null;
       $("config-modal").close();
     });
     $("btn-limpiar-lista").addEventListener("click", clearAllMovimientos);
@@ -1286,8 +1553,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       setMsg("edit-msg", "", "");
       try {
         const q = normalize($("edit-hc-query").value || $("edit-nss").value);
-        if (!q) throw new Error("Escribe NSS para buscar.");
-        const res = await searchHeadcount(q, "nss");
+        if (!q) throw new Error("Escribe un valor para buscar.");
+        const res = await searchHeadcount(q, state.editCampoBusqueda);
         if (!res.encontrado) {
           setMsg("edit-msg", "No encontrado en headcount.", "warn");
           return;
@@ -1303,6 +1570,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         setMsg("edit-msg", e.message, "err");
       }
     });
+    $("edit-hc-campos").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button[data-campo]");
+      if (!btn) return;
+      state.editCampoBusqueda = btn.getAttribute("data-campo");
+      [...$("edit-hc-campos").querySelectorAll("button")].forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+    });
 
     $("hc-campos").addEventListener("click", (ev) => {
       const btn = ev.target.closest("button[data-campo]");
@@ -1312,7 +1586,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       btn.classList.add("active");
     });
 
-    $("mov-tbody").addEventListener("click", async (ev) => {
+    $("mov-sections").addEventListener("click", async (ev) => {
       const t = ev.target;
       if (!(t instanceof Element)) return;
       const edit = t.closest(".edit-mov");
@@ -1391,10 +1665,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("hist-movs-modal").addEventListener("click", (ev) => { if (ev.target === $("hist-movs-modal")) $("hist-movs-modal").close(); });
     $("reporte-modal").addEventListener("cancel", (ev) => ev.preventDefault());
     $("reporte-modal").addEventListener("click", (ev) => { if (ev.target === $("reporte-modal")) $("reporte-modal").close(); });
+    $("comparativo-modal").addEventListener("cancel", (ev) => ev.preventDefault());
+    $("comparativo-modal").addEventListener("click", (ev) => { if (ev.target === $("comparativo-modal")) $("comparativo-modal").close(); });
     $("config-modal").addEventListener("cancel", (ev) => ev.preventDefault());
     $("config-modal").addEventListener("click", (ev) => {
       if (ev.target === $("config-modal")) {
         state.pendingReportData = null;
+        state.pendingComparativoData = null;
         $("config-modal").close();
       }
     });
@@ -1416,6 +1693,9 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       await loadPatrones();
       toggleMainRpExtra();
       toggleMainSbcExtra();
+      toggleEditRpExtra();
+      toggleEditSbcExtra();
+      toggleConfigSbcExtra();
       await loadMovimientos();
       await loadReportesDisponibles();
       await loadHistorialExportaciones();

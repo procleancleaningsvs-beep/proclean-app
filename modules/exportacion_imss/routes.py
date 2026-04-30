@@ -8,10 +8,12 @@ from flask import Blueprint, Response, g, jsonify, render_template, request, sen
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
+from modules.comparativo.comparativo_service import obtener_historial as obtener_historial_comparativos
 from modules.exportacion_imss.exportacion_service import (
     SBC_OPCIONES,
     actualizar_movimiento,
     buscar_en_headcount,
+    cargar_desde_comparativo_semanal,
     cargar_desde_excel,
     cargar_desde_reporte_mensual,
     eliminar_todos_movimientos,
@@ -190,6 +192,30 @@ def reportes_mensuales_disponibles():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@exportacion_imss_bp.get("/comparativos-disponibles")
+@_login_required_page
+def comparativos_disponibles():
+    try:
+        hist = obtener_historial_comparativos()
+        items = []
+        for c in hist:
+            if not isinstance(c, dict):
+                continue
+            items.append(
+                {
+                    "id": str(c.get("id") or "").strip(),
+                    "cliente": str(c.get("cliente") or "").strip(),
+                    "periodo_inicio": str(c.get("periodo_inicio") or "").strip(),
+                    "periodo_fin": str(c.get("periodo_fin") or "").strip(),
+                    "altas": len(c.get("altas")) if isinstance(c.get("altas"), list) else 0,
+                    "bajas": len(c.get("bajas")) if isinstance(c.get("bajas"), list) else 0,
+                }
+            )
+        return jsonify({"ok": True, "items": items})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @exportacion_imss_bp.post("/cargar-reporte-mensual")
 @_login_required_page
 def cargar_reporte_mensual():
@@ -213,6 +239,27 @@ def cargar_reporte_mensual():
                 "fijos_incluidos": fijos_incluidos,
             }
         )
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.post("/cargar-comparativo-semanal")
+@_login_required_page
+def cargar_comparativo_semanal():
+    data = request.get_json(silent=True) or {}
+    comparativo_id = str(data.get("comparativo_id") or "").strip()
+    rp_general = str(data.get("rp_general") or "").strip() or None
+    sbc_general = str(data.get("sbc_general") or "").strip() or None
+    if not comparativo_id:
+        return jsonify({"ok": False, "error": "comparativo_id es obligatorio."}), 400
+    try:
+        movimientos = cargar_desde_comparativo_semanal(
+            comparativo_id,
+            rp_general=rp_general,
+            sbc_general=sbc_general,
+        )
+        con_alertas = sum(1 for m in movimientos if str(m.get("alerta") or "").strip())
+        return jsonify({"ok": True, "movimientos": movimientos, "total": len(movimientos), "con_alertas": con_alertas})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
