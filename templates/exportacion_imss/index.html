@@ -400,8 +400,10 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     guardarPatron: "{{ url_for('exportacion_imss.patrones_post') }}",
     movimientos: "{{ url_for('exportacion_imss.movimientos_get') }}",
     crearMovimiento: "{{ url_for('exportacion_imss.movimientos_post') }}",
+    movimientosBulk: "{{ url_for('exportacion_imss.movimientos_bulk_post') }}",
     actualizarMovimiento: "{{ url_for('exportacion_imss.movimientos_put', movimiento_id='__ID__') }}",
     eliminarMovimiento: "{{ url_for('exportacion_imss.movimientos_delete', movimiento_id='__ID__') }}",
+    eliminarTodosMovimientos: "{{ url_for('exportacion_imss.movimientos_delete_all') }}",
     buscarHeadcount: "{{ url_for('exportacion_imss.buscar_headcount') }}",
     cargarExcel: "{{ url_for('exportacion_imss.cargar_excel') }}",
     plantillaExcel: "{{ url_for('exportacion_imss.plantilla_excel') }}",
@@ -427,6 +429,29 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     el.hidden = !text;
     el.textContent = text || "";
     el.className = "imss-msg" + (kind ? ` ${kind}` : "");
+  }
+
+  function escHtml(v) {
+    return String(v ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function setMsgCollapsible(id, text, kind, errores) {
+    const el = $(id);
+    if (!el) return;
+    const errs = Array.isArray(errores) ? errores.filter((x) => normalize(x)) : [];
+    el.hidden = !text && errs.length === 0;
+    el.className = "imss-msg" + (kind ? ` ${kind}` : "");
+    if (!el.hidden && errs.length) {
+      const rows = errs.map((e) => `<li>${escHtml(e)}</li>`).join("");
+      el.innerHTML = `${escHtml(text || "")}<details style="margin-top:.35rem;"><summary>Ver errores (${errs.length})</summary><ul style="margin:.35rem 0 0 1.1rem;">${rows}</ul></details>`;
+      return;
+    }
+    el.textContent = text || "";
   }
 
   function setLoading(button, loading) {
@@ -830,21 +855,23 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       fd.append("excel_file", file);
       const loaded = await fetchJson(urls.cargarExcel, { method: "POST", body: fd });
       const movimientos = loaded.movimientos || [];
-      let saved = 0;
-      for (const mov of movimientos) {
-        try {
-          await fetchJson(urls.crearMovimiento, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(mov),
-          });
-          saved += 1;
-        } catch (_) {
-          // continuar para mantener carga masiva robusta
-        }
-      }
+      if (!movimientos.length) throw new Error("El Excel no contiene movimientos para guardar.");
+      const result = await fetchJson(urls.movimientosBulk, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movimientos }),
+      });
       await loadMovimientos();
-      setMsg("excel-msg", `Se cargaron ${saved} movimientos (${loaded.con_alertas || 0} con alertas)`, "ok");
+      const guardados = Number(result.guardados || 0);
+      const fallidos = Number(result.fallidos || 0);
+      const conAlertas = Number(loaded.con_alertas || 0);
+      const tipo = fallidos > 0 ? "warn" : "ok";
+      setMsgCollapsible(
+        "excel-msg",
+        `Se guardaron ${guardados} movimientos (${conAlertas} con alertas, ${fallidos} fallidos)`,
+        tipo,
+        result.errores || [],
+      );
     } catch (e) {
       setMsg("excel-msg", e.message, "err");
     } finally {
@@ -907,24 +934,25 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         rfc_patron: rfcPatronGeneral || normalize(mov.rfc_patron),
         sbc: normalize(sbc_general),
       }));
-
-      let saved = 0;
-      for (const mov of movimientos) {
-        try {
-          await fetchJson(urls.crearMovimiento, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(mov),
-          });
-          saved += 1;
-        } catch (_) {
-          // continuar con el resto para no frenar la carga masiva
-        }
-      }
+      if (!movimientos.length) throw new Error("El reporte no generó movimientos para guardar.");
+      const result = await fetchJson(urls.movimientosBulk, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ movimientos }),
+      });
       await loadMovimientos();
       $("config-modal").close();
       state.pendingReportData = null;
-      setMsg("reporte-msg", `Se cargaron ${saved} movimientos (${loaded.con_alertas || 0} requieren atención)`, "ok");
+      const guardados = Number(result.guardados || 0);
+      const fallidos = Number(result.fallidos || 0);
+      const conAlertas = Number(loaded.con_alertas || 0);
+      const tipo = fallidos > 0 ? "warn" : "ok";
+      setMsgCollapsible(
+        "reporte-msg",
+        `Se guardaron ${guardados} movimientos (${conAlertas} con alertas, ${fallidos} fallidos)`,
+        tipo,
+        result.errores || [],
+      );
     } catch (e) {
       setMsg("config-msg", e.message, "err");
     } finally {
@@ -1067,12 +1095,11 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     const btn = $("btn-limpiar-lista");
     setLoading(btn, true);
     try {
-      const ids = state.movimientos.map((m) => m.id);
-      for (const id of ids) {
-        try { await fetchJson(urls.eliminarMovimiento.replace("__ID__", encodeURIComponent(id)), { method: "DELETE" }); } catch (_) {}
-      }
-      await loadMovimientos();
-      setMsg("mov-msg", "Lista limpiada.", "ok");
+      const res = await fetchJson(urls.eliminarTodosMovimientos, { method: "DELETE" });
+      state.pendingDeleteId = null;
+      state.movimientos = [];
+      renderMovimientos();
+      setMsg("mov-msg", `Lista limpiada (${Number(res.eliminados || 0)} eliminados).`, "ok");
     } catch (e) {
       setMsg("mov-msg", e.message, "err");
     } finally {

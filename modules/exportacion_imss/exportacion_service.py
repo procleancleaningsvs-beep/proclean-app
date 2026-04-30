@@ -276,6 +276,90 @@ def eliminar_movimiento(movimiento_id: str) -> dict[str, bool]:
         raise ValueError(f"No se pudo eliminar movimiento: {exc}") from exc
 
 
+def guardar_movimientos_bulk(lista_movimientos: list[dict[str, Any]]) -> dict[str, Any]:
+    try:
+        _ensure_dirs()
+        patrones = obtener_patrones()
+        now_iso = datetime.now().isoformat()
+        guardados = 0
+        fallidos = 0
+        ids: list[str] = []
+        errores: list[str] = []
+        required = [
+            "tipo_movimiento",
+            "rp",
+            "fecha_movimiento",
+            "nss",
+            "curp",
+            "apellido_paterno",
+            "apellido_materno",
+            "nombres",
+            "sbc",
+        ]
+        for idx, item in enumerate(lista_movimientos or []):
+            try:
+                if not isinstance(item, dict):
+                    raise ValueError("Movimiento inválido (no es objeto).")
+                mov_id = _norm_str(item.get("id")) or str(uuid.uuid4())
+                tipo = _norm_upper(item.get("tipo_movimiento"))
+                rp = _norm_str(item.get("rp"))[:11]
+                alerta_base = _norm_str(item.get("alerta"))
+                faltantes = [k for k in required if not _norm_str(item.get(k))]
+                if tipo not in {"ALTA", "BAJA"}:
+                    faltantes.append("tipo_movimiento inválido")
+                alerta_faltantes = f"Datos incompletos: {', '.join(faltantes)}" if faltantes else ""
+                alerta = " | ".join(x for x in [alerta_base, alerta_faltantes] if x) or None
+
+                payload = {
+                    "id": mov_id,
+                    "tipo_movimiento": tipo,
+                    "rp": rp,
+                    "rfc_patron": _norm_upper(patrones.get(rp, "")),
+                    "fecha_movimiento": _to_ddmmyyyy(item.get("fecha_movimiento")),
+                    "nss": _norm_str(item.get("nss"))[:11],
+                    "rfc": _norm_upper(item.get("rfc")) or None,
+                    "curp": _norm_upper(item.get("curp"))[:18],
+                    "apellido_paterno": _norm_upper(item.get("apellido_paterno")),
+                    "apellido_materno": _norm_upper(item.get("apellido_materno")),
+                    "nombres": _norm_upper(item.get("nombres")),
+                    "sbc": _fmt_sbc_str(item.get("sbc")),
+                    "alerta": alerta,
+                    "origen": _norm_str(item.get("origen") or "bulk") or "bulk",
+                    "fecha_captura": now_iso,
+                    "fecha_actualizacion": now_iso,
+                }
+                _write_json(_movimiento_path(mov_id), payload)
+                guardados += 1
+                ids.append(mov_id)
+            except Exception as exc:
+                fallidos += 1
+                errores.append(f"[{idx}] {exc}")
+        return {
+            "guardados": guardados,
+            "fallidos": fallidos,
+            "ids": ids,
+            "errores": errores,
+        }
+    except Exception as exc:
+        raise ValueError(f"No se pudo guardar movimientos en bulk: {exc}") from exc
+
+
+def eliminar_todos_movimientos() -> dict[str, int]:
+    try:
+        _ensure_dirs()
+        eliminados = 0
+        for name in os.listdir(MOVIMIENTOS_DIR):
+            if not name.lower().endswith(".json"):
+                continue
+            path = os.path.join(MOVIMIENTOS_DIR, name)
+            if os.path.isfile(path):
+                os.remove(path)
+                eliminados += 1
+        return {"eliminados": eliminados}
+    except Exception as exc:
+        raise ValueError(f"No se pudieron eliminar todos los movimientos: {exc}") from exc
+
+
 def obtener_movimientos(tipo: str | None = None) -> list[dict[str, Any]]:
     try:
         out = _all_movimientos()

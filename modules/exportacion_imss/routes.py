@@ -14,12 +14,14 @@ from modules.exportacion_imss.exportacion_service import (
     buscar_en_headcount,
     cargar_desde_excel,
     cargar_desde_reporte_mensual,
+    eliminar_todos_movimientos,
     eliminar_exportacion,
     eliminar_movimiento,
     generar_txt_idse,
     generar_txt_sua,
     guardar_exportacion,
     guardar_movimiento,
+    guardar_movimientos_bulk,
     guardar_patron_extra,
     obtener_historial_exportaciones,
     obtener_movimientos,
@@ -109,6 +111,20 @@ def movimientos_post():
         return jsonify({"ok": False, "error": str(exc)}), 400
 
 
+@exportacion_imss_bp.post("/movimientos/bulk")
+@_login_required_page
+def movimientos_bulk_post():
+    data = request.get_json(silent=True) or {}
+    movimientos = data.get("movimientos")
+    if not isinstance(movimientos, list):
+        return jsonify({"ok": False, "error": "movimientos debe ser una lista."}), 400
+    try:
+        result = guardar_movimientos_bulk(movimientos)
+        return jsonify({"ok": True, **result})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @exportacion_imss_bp.put("/movimientos/<movimiento_id>")
 @_login_required_page
 def movimientos_put(movimiento_id: str):
@@ -125,6 +141,16 @@ def movimientos_put(movimiento_id: str):
 def movimientos_delete(movimiento_id: str):
     try:
         return jsonify(eliminar_movimiento(movimiento_id))
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.delete("/movimientos/todos")
+@_login_required_page
+def movimientos_delete_all():
+    try:
+        res = eliminar_todos_movimientos()
+        return jsonify({"ok": True, "eliminados": int(res.get("eliminados", 0))})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
@@ -189,6 +215,34 @@ def cargar_reporte_mensual():
         )
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@exportacion_imss_bp.route("/debug-reporte/<cliente>/<int:anio>/<int:mes>")
+def debug_reporte(cliente: str, anio: int, mes: int):
+    import json
+    import os
+
+    from modules.comparativo.comparativo_service import DATA_DIR
+
+    slug = cliente.replace(" ", "_").replace("/", "-")
+    path = os.path.join(DATA_DIR, "reportes_mensuales", f"{slug}_{anio:04d}-{mes:02d}.json")
+    if not os.path.exists(path):
+        path2 = os.path.join(DATA_DIR, "reportes_mensuales", f"{cliente}_{anio:04d}-{mes:02d}.json")
+        if os.path.exists(path2):
+            path = path2
+        else:
+            return {"error": "No existe", "path": path}
+    with open(path, encoding="utf-8") as f:
+        r = json.load(f)
+    fijos = r.get("fijos", [])
+    rotativos = r.get("rotativos", [])
+    return {
+        "total_fijos": len(fijos),
+        "total_rotativos": len(rotativos),
+        "keys_reporte": list(r.keys()),
+        "fijo_ejemplo": fijos[0] if fijos else None,
+        "rotativo_ejemplo": rotativos[0] if rotativos else None,
+    }
 
 
 @exportacion_imss_bp.post("/exportar")
