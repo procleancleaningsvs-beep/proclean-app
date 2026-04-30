@@ -34,11 +34,12 @@ def _ensure_dirs() -> None:
 
 
 def _normalize_spaces(value: str) -> str:
-    return " ".join((value or "").split())
+    return " ".join((value or "").replace("\u00a0", " ").split())
 
 
 def _norm_str(value: Any) -> str:
-    return _normalize_spaces(str(value or "").strip())
+    raw = str(value or "").replace("\u00a0", " ").strip()
+    return " ".join(raw.split())
 
 
 def _norm_upper(value: Any) -> str:
