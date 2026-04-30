@@ -59,8 +59,11 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
 .imss-dropdown-menu button { width:100%; text-align:left; background:none; border:0; padding:.35rem .45rem; cursor:pointer; }
 .imss-help { font-size:.8rem; color:#64748b; }
 .imss-help.warn { color:#b45309; font-weight:600; }
-.imss-import-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
-.imss-import-dropdown { position:relative; display:inline-block; }
+.imss-import-actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; align-items:stretch; }
+.imss-import-actions > .btn,
+.imss-import-actions > .imss-import-dropdown { width:100%; }
+.imss-import-dropdown { position:relative; display:block; width:100%; }
+.imss-import-dropdown > .btn { width:100%; }
 .imss-import-menu {
   position:absolute; left:0; top:calc(100% + 4px); z-index:25; min-width:260px;
   border:1px solid #e5e7eb; border-radius:10px; background:#fff; padding:.35rem;
@@ -108,7 +111,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
             <select id="rp-select"></select>
           </div>
 
-          <div id="rp-extra-wrap" class="imss-inline" hidden>
+          <div id="rp-extra-wrap" class="imss-inline" style="display:none;">
             <div class="imss-field">
               <label for="rp-extra">RP</label>
               <input id="rp-extra" type="text" maxlength="11">
@@ -163,7 +166,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
               <select id="sbc-select"></select>
             </div>
           </div>
-          <div class="imss-field" id="sbc-extra-wrap" hidden>
+          <div class="imss-field" id="sbc-extra-wrap" style="display:none;">
             <label for="sbc-extra">SBC personalizado</label>
             <input id="sbc-extra" type="number" step="0.01" min="0">
           </div>
@@ -507,13 +510,35 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     select.appendChild(otro);
     if ([...select.options].some((o) => o.value === current)) select.value = current;
     const extraWrap = $(extraWrapId);
-    if (extraWrap) extraWrap.hidden = select.value !== "__otro__";
+    if (extraWrapId === "sbc-extra-wrap" && extraWrap) {
+      extraWrap.hidden = select.value !== "__otro__";
+      extraWrap.style.display = select.value === "__otro__" ? "block" : "none";
+    } else if (extraWrap) {
+      extraWrap.hidden = select.value !== "__otro__";
+    }
   }
 
   function getSbc(selectId, extraId) {
     const sel = $(selectId)?.value || "";
     if (sel === "__otro__") return normalize($(extraId)?.value);
     return normalize(sel);
+  }
+
+  function toggleMainRpExtra() {
+    const show = $("rp-select").value === "__otro__";
+    $("rp-extra-wrap").hidden = !show;
+    $("rp-extra-wrap").style.display = show ? "grid" : "none";
+    if (!show) {
+      $("rp-extra").value = "";
+      $("rfc-patron-extra").value = "";
+    }
+  }
+
+  function toggleMainSbcExtra() {
+    const show = $("sbc-select").value === "__otro__";
+    $("sbc-extra-wrap").hidden = !show;
+    $("sbc-extra-wrap").style.display = show ? "block" : "none";
+    if (!show) $("sbc-extra").value = "";
   }
 
   async function loadPatrones() {
@@ -659,16 +684,9 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     $("sbc-extra").value = "";
     $("rp-extra").value = "";
     $("rfc-patron-extra").value = "";
-    if ($("rp-select").value !== "__otro__") {
-      $("rp-extra-wrap").hidden = true;
-      $("rp-extra").value = "";
-      $("rfc-patron-extra").value = "";
-    }
+    if ($("rp-select").value !== "__otro__") toggleMainRpExtra();
     fillSbcSelect("sbc-select", "sbc-extra-wrap");
-    if ($("sbc-select").value !== "__otro__") {
-      $("sbc-extra-wrap").hidden = true;
-      $("sbc-extra").value = "";
-    }
+    if ($("sbc-select").value !== "__otro__") toggleMainSbcExtra();
   }
 
   function prefillMainFromHeadcount(datos) {
@@ -682,10 +700,12 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     if (Object.keys(state.sbcOpciones || {}).includes(sd)) {
       $("sbc-select").value = sd;
       $("sbc-extra-wrap").hidden = true;
+      $("sbc-extra-wrap").style.display = "none";
     } else if (sd) {
       $("sbc-select").value = "__otro__";
       $("sbc-extra").value = sd;
       $("sbc-extra-wrap").hidden = false;
+      $("sbc-extra-wrap").style.display = "block";
     }
   }
 
@@ -722,6 +742,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       await loadPatrones();
       $("rp-select").value = rp;
       $("rp-extra-wrap").hidden = true;
+      $("rp-extra-wrap").style.display = "none";
       $("rp-extra").value = "";
       $("rfc-patron-extra").value = "";
       setMsg("manual-msg", "Patrón guardado y seleccionado.", "ok");
@@ -1105,7 +1126,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     state.histPage = Math.min(Math.max(1, page), state.histPages);
     const start = (state.histPage - 1) * per;
     const rows = filtered.slice(start, start + per);
-    const isAdmin = canAdminDeleteHistory();
+    canAdminDeleteHistory();
     $("hist-tbody").innerHTML = rows.map((h) => {
       const id = normalize(h.id);
       let download = "";
@@ -1120,13 +1141,9 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       } else {
         download = `<button type="button" class="imss-icon-btn hist-dl" data-id="${id}" data-formato="${h.tipo_export}" title="Descargar TXT">${iconDownload()}</button>`;
       }
-      const del = isAdmin
-        ? (
-          state.pendingHistDeleteId === id
-            ? `<span class="imss-confirm-inline"><button type="button" class="imss-icon-btn delete hist-del-yes" data-id="${id}" title="Confirmar">${iconCheck()}</button><button type="button" class="imss-icon-btn cancel-delete hist-del-cancel" data-id="${id}" title="Cancelar">${iconX()}</button></span>`
-            : `<button type="button" class="imss-icon-btn delete hist-del-ask" data-id="${id}" title="Eliminar exportación">${iconTrash()}</button>`
-        )
-        : "";
+      const del = state.pendingHistDeleteId === id
+        ? `<span class="imss-confirm-inline"><button type="button" class="imss-icon-btn delete hist-delete-confirm" data-id="${id}" title="Confirmar">${iconCheck()}</button><button type="button" class="imss-icon-btn cancel-delete hist-delete-cancel" data-id="${id}" title="Cancelar">${iconX()}</button></span>`
+        : `<button type="button" class="imss-icon-btn delete hist-delete" data-id="${id}" title="Eliminar exportación">${iconTrash()}</button>`;
       return `<tr id="hist-row-${id}">
         <td>${normalize(h.rp)}</td>
         <td>${normalize(h.rfc_patron)}</td>
@@ -1174,12 +1191,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
 
   function attachEvents() {
     $("rp-select").addEventListener("change", () => {
-      const isOtro = $("rp-select").value === "__otro__";
-      $("rp-extra-wrap").hidden = !isOtro;
-      if (!isOtro) {
-        $("rp-extra").value = "";
-        $("rfc-patron-extra").value = "";
-      }
+      toggleMainRpExtra();
     });
     $("edit-rp").addEventListener("change", () => {
       const isOtro = $("edit-rp").value === "__otro__";
@@ -1190,9 +1202,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       }
     });
     $("sbc-select").addEventListener("change", () => {
-      const isOtro = $("sbc-select").value === "__otro__";
-      $("sbc-extra-wrap").hidden = !isOtro;
-      if (!isOtro) $("sbc-extra").value = "";
+      toggleMainSbcExtra();
     });
     $("edit-sbc-select").addEventListener("change", () => {
       const isOtro = $("edit-sbc-select").value === "__otro__";
@@ -1309,19 +1319,19 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         if (menu) menu.classList.toggle("show");
         return;
       }
-      const delAsk = t.closest(".hist-del-ask");
+      const delAsk = t.closest(".hist-delete");
       if (delAsk) {
         state.pendingHistDeleteId = delAsk.getAttribute("data-id");
         renderHistorial(state.histPage);
         return;
       }
-      const delCancel = t.closest(".hist-del-cancel");
+      const delCancel = t.closest(".hist-delete-cancel");
       if (delCancel) {
         state.pendingHistDeleteId = null;
         renderHistorial(state.histPage);
         return;
       }
-      const delYes = t.closest(".hist-del-yes");
+      const delYes = t.closest(".hist-delete-confirm");
       if (delYes) {
         try { await deleteHistorial(delYes.getAttribute("data-id")); } catch (e) { setMsg("hist-msg", e.message, "err"); }
         return;
@@ -1377,6 +1387,8 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     attachEvents();
     try {
       await loadPatrones();
+      toggleMainRpExtra();
+      toggleMainSbcExtra();
       await loadMovimientos();
       await loadReportesDisponibles();
       await loadHistorialExportaciones();

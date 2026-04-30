@@ -469,7 +469,7 @@ def cargar_desde_reporte_mensual(
                 mapped["sbc"] = sbc_general_norm
 
             if not _norm_str(fecha_mov):
-                alerta = "Sin fecha de movimiento"
+                alerta = alerta or "Sin fecha de movimiento"
             mov = {
                 "id": str(uuid.uuid4()),
                 "tipo_movimiento": tipo,
@@ -498,16 +498,26 @@ def cargar_desde_reporte_mensual(
                 continue
             altas = rot.get("fechas_alta") if isinstance(rot.get("fechas_alta"), list) else []
             bajas = rot.get("fechas_baja") if isinstance(rot.get("fechas_baja"), list) else []
+            generados_mes = 0
             for fecha_alta in altas:
                 dt = _parse_date_ddmmyyyy(fecha_alta)
                 if dt and mes_inicio <= dt <= mes_fin:
                     out.append(_build_mov(nombre, "ALTA", _to_ddmmyyyy(fecha_alta)))
+                    generados_mes += 1
             for fecha_baja in bajas:
                 dt = _parse_date_ddmmyyyy(fecha_baja)
                 if dt and mes_inicio <= dt <= mes_fin:
                     out.append(_build_mov(nombre, "BAJA", _to_ddmmyyyy(fecha_baja)))
-            if not altas and not bajas:
-                out.append(_build_mov(nombre, "ALTA", "", "Sin fecha de movimiento"))
+                    generados_mes += 1
+            if generados_mes == 0:
+                semanas_presente = int(_to_float(rot.get("semanas_presente")))
+                total_semanas = int(_to_float(rot.get("total_semanas")))
+                desaparecio_mes = total_semanas > 0 and semanas_presente < total_semanas
+                if not altas and not bajas and desaparecio_mes:
+                    alerta = "Sin fecha de movimiento — revisar"
+                else:
+                    alerta = "Sin fecha — requiere revisión manual"
+                out.append(_build_mov(nombre, "ALTA", "", alerta))
 
         if incluir_fijos:
             for fijo in reporte.get("fijos", []):
