@@ -951,11 +951,13 @@ def create_app() -> Flask:
     from modules.examenes_medicos.blueprint import register_examenes_medicos
     from modules.comparativo.routes import comparativo_bp
     from modules.exportacion_imss.routes import exportacion_imss_bp
+    from modules.nomina.blueprint import register_nomina
 
     register_vitroflex(app)
     register_finiquitos(app)
     register_carrier(app)
     register_examenes_medicos(app)
+    register_nomina(app)
     app.register_blueprint(comparativo_bp)
     app.register_blueprint(exportacion_imss_bp)
 
@@ -1099,6 +1101,9 @@ def init_db() -> None:
         from modules.examenes_medicos.db import ensure_examenes_medicos_tables
 
         ensure_examenes_medicos_tables(conn)
+        from modules.nomina.db import ensure_nomina_tables
+
+        ensure_nomina_tables(conn)
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]

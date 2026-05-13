@@ -1,0 +1,119 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.nomi-wrap { display:grid; gap:1rem; }
+.nomi-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.nomi-kpis { display:grid; grid-template-columns:repeat(5, 1fr); gap:.75rem; }
+.nomi-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.65rem; }
+.nomi-kpi span { display:block; color:#64748b; font-size:.85rem; }
+.nomi-kpi strong { font-size:1.05rem; }
+.nomi-table-wrap { overflow:auto; }
+.nomi-table { width:100%; border-collapse:collapse; min-width:1400px; }
+.nomi-table th, .nomi-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
+.nomi-row-error { background:#fff1f2; }
+.nomi-row-warn { background:#fff7ed; }
+.nomi-msg { margin:.15rem 0; font-size:.82rem; }
+.nomi-msg.error { color:#be123c; }
+.nomi-msg.warn { color:#b45309; }
+@media (max-width: 980px) { .nomi-kpis { grid-template-columns:1fr 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas</span>
+    <h2>Desglose de asistencia importada</h2>
+    <p>Importación guardada como borrador (sin cálculo de nómina).</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver a Nóminas</a>
+</section>
+
+<div class="nomi-wrap">
+  <section class="nomi-card">
+    <div class="nomi-kpis">
+      <div class="nomi-kpi"><span>Semana</span><strong>{{ imp.semana or '—' }}</strong></div>
+      <div class="nomi-kpi"><span>Cliente</span><strong>{{ imp.cliente or '—' }}</strong></div>
+      <div class="nomi-kpi"><span>Coordinador</span><strong>{{ imp.coordinador or '—' }}</strong></div>
+      <div class="nomi-kpi"><span>Total de registros</span><strong>{{ imp.total_rows }}</strong></div>
+      <div class="nomi-kpi"><span>Errores / Warnings</span><strong>{{ imp.error_count }} / {{ imp.warning_count }}</strong></div>
+    </div>
+  </section>
+
+  <section class="nomi-card">
+    <h3>Tabla de asistencia importada</h3>
+    <div class="nomi-table-wrap">
+      <table class="nomi-table">
+        <thead>
+          <tr>
+            <th>Fila</th>
+            <th>Empleado</th>
+            <th>Cliente</th>
+            <th>Planta</th>
+            <th>Puesto</th>
+            <th>Banco</th>
+            <th>Cuenta</th>
+            <th>{{ imp.rows[0].dia_1_header if imp.rows else 'D1' }}</th>
+            <th>{{ imp.rows[0].dia_2_header if imp.rows else 'D2' }}</th>
+            <th>{{ imp.rows[0].dia_3_header if imp.rows else 'D3' }}</th>
+            <th>{{ imp.rows[0].dia_4_header if imp.rows else 'D4' }}</th>
+            <th>{{ imp.rows[0].dia_5_header if imp.rows else 'D5' }}</th>
+            <th>{{ imp.rows[0].dia_6_header if imp.rows else 'D6' }}</th>
+            <th>{{ imp.rows[0].dia_7_header if imp.rows else 'D7' }}</th>
+            <th>HE</th>
+            <th>Turnos extra</th>
+            <th>Días cubiertos</th>
+            <th>Festivo</th>
+            <th>Vacaciones</th>
+            <th>Prima vacacional</th>
+            <th>Bono</th>
+            <th>Deducciones</th>
+            <th>Observaciones</th>
+            <th>Mensajes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in imp.rows %}
+          {% set has_errors = (row.errors|length) > 0 %}
+          {% set has_warnings = (row.warnings|length) > 0 %}
+          <tr class="{% if has_errors %}nomi-row-error{% elif has_warnings %}nomi-row-warn{% endif %}">
+            <td>{{ row.row_number }}</td>
+            <td>{{ row.nombre_empleado }}</td>
+            <td>{{ row.cliente }}</td>
+            <td>{{ row.planta }}</td>
+            <td>{{ row.puesto }}</td>
+            <td>{{ row.banco }}</td>
+            <td>{{ row.cuenta }}</td>
+            <td>{{ row.dia_1_value }}</td>
+            <td>{{ row.dia_2_value }}</td>
+            <td>{{ row.dia_3_value }}</td>
+            <td>{{ row.dia_4_value }}</td>
+            <td>{{ row.dia_5_value }}</td>
+            <td>{{ row.dia_6_value }}</td>
+            <td>{{ row.dia_7_value }}</td>
+            <td>{{ row.he }}</td>
+            <td>{{ row.turnos_extra_normales }}</td>
+            <td>{{ row.dias_cubiertos_normales }}</td>
+            <td>{{ row.festivo_laborado }}</td>
+            <td>{{ row.vacaciones_laboradas }}</td>
+            <td>{{ row.prima_vacacional }}</td>
+            <td>{{ row.bono }}</td>
+            <td>{{ row.deducciones }}</td>
+            <td>{{ row.observaciones }}</td>
+            <td>
+              {% for msg in row.errors %}
+              <div class="nomi-msg error">Error: {{ msg }}</div>
+              {% endfor %}
+              {% for msg in row.warnings %}
+              <div class="nomi-msg warn">Warning: {{ msg }}</div>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
