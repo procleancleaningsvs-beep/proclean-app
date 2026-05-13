@@ -15,6 +15,7 @@
 .nomi-msg { margin:.15rem 0; font-size:.82rem; }
 .nomi-msg.error { color:#be123c; }
 .nomi-msg.warn { color:#b45309; }
+.nomi-audit { margin-top:.65rem; color:#64748b; font-size:.85rem; }
 @media (max-width: 980px) { .nomi-kpis { grid-template-columns:1fr 1fr; } }
 </style>
 {% endblock %}
@@ -37,6 +38,10 @@
       <div class="nomi-kpi"><span>Coordinador</span><strong>{{ imp.coordinador or '—' }}</strong></div>
       <div class="nomi-kpi"><span>Total de registros</span><strong>{{ imp.total_rows }}</strong></div>
       <div class="nomi-kpi"><span>Errores / Warnings</span><strong>{{ imp.error_count }} / {{ imp.warning_count }}</strong></div>
+    </div>
+    <div class="nomi-audit">
+      Archivo original: <strong>{{ imp.original_filename or imp.filename }}</strong>
+      {% if imp.file_hash %} | SHA-256: <strong>{{ imp.file_hash }}</strong>{% endif %}
     </div>
   </section>
 

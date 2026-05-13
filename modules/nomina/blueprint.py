@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from datetime import date, datetime, timedelta
 from functools import wraps
@@ -169,6 +170,8 @@ def importar_asistencia():
         "cliente": parsed.get("cliente") or "",
         "coordinador": parsed.get("coordinador") or "",
         "filename": filename,
+        "original_filename": filename,
+        "file_hash": hashlib.sha256(file_bytes).hexdigest(),
         "status": "draft",
         "total_rows": parsed.get("total_rows") or 0,
         "error_count": parsed.get("error_count") or 0,

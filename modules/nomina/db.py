@@ -17,6 +17,18 @@ class NominaBaseRow:
     cuenta: str
 
 
+def _normalize_cliente_key(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _migrate_nomina_imports_schema(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_asistencia_imports)").fetchall()}
+    if "original_filename" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN original_filename TEXT")
+    if "file_hash" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN file_hash TEXT")
+
+
 def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -28,6 +40,8 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
             cliente TEXT NOT NULL,
             coordinador TEXT NOT NULL,
             filename TEXT NOT NULL,
+            original_filename TEXT,
+            file_hash TEXT,
             status TEXT NOT NULL,
             total_rows INTEGER NOT NULL DEFAULT 0,
             error_count INTEGER NOT NULL DEFAULT 0,
@@ -39,6 +53,7 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _migrate_nomina_imports_schema(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nomina_asistencia_rows (
@@ -101,9 +116,10 @@ def save_asistencia_import(
             """
             INSERT INTO nomina_asistencia_imports (
                 semana, fecha_inicio, fecha_fin, cliente, coordinador,
-                filename, status, total_rows, error_count, warning_count,
+                filename, original_filename, file_hash,
+                status, total_rows, error_count, warning_count,
                 created_by, created_at, updated_at, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(payload.get("semana") or ""),
@@ -112,6 +128,8 @@ def save_asistencia_import(
                 str(payload.get("cliente") or ""),
                 str(payload.get("coordinador") or ""),
                 str(payload.get("filename") or ""),
+                str(payload.get("original_filename") or ""),
+                str(payload.get("file_hash") or ""),
                 str(payload.get("status") or "draft"),
                 int(payload.get("total_rows") or 0),
                 int(payload.get("error_count") or 0),
@@ -217,13 +235,13 @@ def get_latest_import_base_rows(
             """
             SELECT id
             FROM nomina_asistencia_imports
-            WHERE cliente = ?
+            WHERE LOWER(TRIM(cliente)) = LOWER(TRIM(?))
               AND status = 'draft'
               AND date(fecha_inicio) < date(?)
             ORDER BY date(fecha_inicio) DESC, id DESC
             LIMIT 1
             """,
-            (cliente.strip(), before_start_date.isoformat()),
+            (_normalize_cliente_key(cliente), before_start_date.isoformat()),
         ).fetchone()
         if imp is None:
             return []
@@ -233,6 +251,7 @@ def get_latest_import_base_rows(
             FROM nomina_asistencia_rows
             WHERE import_id = ?
               AND TRIM(COALESCE(nombre_empleado, '')) <> ''
+              AND TRIM(COALESCE(errors_json, '[]')) IN ('[]', '')
             ORDER BY row_number ASC, id ASC
             """,
             (int(imp["id"]),),
