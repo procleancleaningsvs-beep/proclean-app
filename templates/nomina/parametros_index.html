@@ -20,7 +20,7 @@
 .match-probable_match { background:#fef3c7; color:#92400e; }
 .match-multiple_candidates { background:#fde68a; color:#7c2d12; }
 .match-no_match_headcount, .match-no_match_contpaq { background:#fee2e2; color:#991b1b; }
-.match-pending_review { background:#e5e7eb; color:#374151; }
+.match-pending_headcount_unavailable { background:#fef9c3; color:#854d0e; }
 .match-imported { background:#e0f2fe; color:#075985; }
 .warn-list { margin:.2rem 0 0; padding-left:1rem; color:#92400e; font-size:.78rem; }
 .frontera-yes { color:#1e40af; font-weight:600; }
@@ -39,6 +39,17 @@
 </section>
 
 <div class="param-wrap">
+  {% if headcount_match_error %}
+  <section class="param-card" style="border-color:#fbbf24;background:#fffbeb;">
+    <h3 style="margin-top:0;">Headcount no disponible</h3>
+    <p style="margin:.25rem 0;font-size:.9rem;color:#92400e;">{{ headcount_match_error }}</p>
+    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
+      El match contra Headcount no puede ejecutarse en este entorno. La pantalla sigue operativa;
+      los empleados quedan con estado <code>pending_headcount_unavailable</code> hasta configurar la fuente.
+      Antes de usar el motor de cálculo en producción, validar con Headcount real (prueba obligatoria).
+    </p>
+  </section>
+  {% endif %}
   <section class="param-card">
     <h3>KPIs</h3>
     <div class="param-kpis">

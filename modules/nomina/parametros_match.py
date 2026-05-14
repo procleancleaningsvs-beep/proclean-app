@@ -1,6 +1,7 @@
 """Triple match Headcount + Nómina actual + CONTPAQ para parámetros base.
 
 Microfase 4.0. No descartar registros sin match: dejarlos como pendientes.
+Precheck para motor 4.1+: warnings estables y flags en editable_json.
 """
 from __future__ import annotations
 
@@ -10,6 +11,13 @@ from difflib import SequenceMatcher
 from typing import Any
 
 from modules.nomina.config import (
+    WARN_BLOCK_CALC_MISSING_SALARY,
+    WARN_BLOCK_CALC_MISSING_VALOR_HE,
+    WARN_FRONTERA_EXCEL_VS_LEARNED,
+    WARN_HEADCOUNT_UNAVAILABLE,
+    WARN_LOCALIDAD_FRONTERA_DEMOTION_BLOCKED,
+    WARN_REVIEW_NO_CONFIDENT_MATCH,
+    WARN_SAME_NSS_MULTIPLE_CLIENTS,
     get_exento_he_for_year,
     get_smg_for_year,
 )
@@ -20,7 +28,12 @@ from modules.nomina.db import localidad_is_frontera
 class HeadcountIndex:
     by_nss: dict[str, dict]
     by_name: dict[str, list[dict]]
-    source: str
+    source: str = "headcount"
+    unavailable_reason: str | None = None
+
+    @property
+    def is_matchable(self) -> bool:
+        return self.unavailable_reason is None
 
 
 def _norm_name(value: Any) -> str:
@@ -31,7 +44,21 @@ def _norm_name(value: Any) -> str:
     return " ".join(raw.split())
 
 
-def build_headcount_index(headcount_rows: list[dict]) -> HeadcountIndex:
+def build_headcount_index(
+    headcount_rows: list[dict],
+    *,
+    unavailable_reason: str | None = None,
+) -> HeadcountIndex:
+    """Si ``unavailable_reason`` está definido (p. ej. OneDrive no configurado),
+    el índice queda vacío y ``match_to_headcount`` devuelve ``pending_headcount_unavailable``.
+    """
+    if unavailable_reason:
+        return HeadcountIndex(
+            by_nss={},
+            by_name={},
+            source="unavailable",
+            unavailable_reason=unavailable_reason,
+        )
     by_nss: dict[str, dict] = {}
     by_name: dict[str, list[dict]] = {}
     for item in headcount_rows:
@@ -41,7 +68,7 @@ def build_headcount_index(headcount_rows: list[dict]) -> HeadcountIndex:
             by_nss[nss] = item
         if nombre:
             by_name.setdefault(nombre, []).append(item)
-    return HeadcountIndex(by_nss=by_nss, by_name=by_name, source="headcount")
+    return HeadcountIndex(by_nss=by_nss, by_name=by_name, source="headcount", unavailable_reason=None)
 
 
 def _similar(a: str, b: str) -> float:
@@ -57,8 +84,10 @@ def match_to_headcount(
     cliente: str | None,
     index: HeadcountIndex,
 ) -> tuple[str, dict | None, float]:
-    """Return (match_status, hc_record, score). Statuses follow the spec:
-    exact_nss, exact_name, probable_match, multiple_candidates, no_match_headcount."""
+    """Return (match_status, hc_record, score)."""
+    if index.unavailable_reason:
+        return "pending_headcount_unavailable", None, 0.0
+
     nombre_norm = _norm_name(nombre)
     if nss and nss in index.by_nss:
         return "exact_nss", index.by_nss[nss], 1.0
@@ -100,23 +129,40 @@ def derive_smg_from_locality(
     year: int,
     db_path: str,
 ) -> tuple[bool, float | None, float | None, list[str]]:
-    """Resolve (es_frontera, smg, exento_he, warnings) using saved localidades + hint."""
+    """Resolve (es_frontera, smg, exento_he, warnings).
+
+    No degradar frontera aprendida si un Excel nuevo trae FRONTERA=FALSO: se conserva
+    frontera y se emite warning (catálogo ``nomina_localidades_frontera``).
+    """
     warnings: list[str] = []
-    is_frontera: bool | None = None
-    if es_frontera_hint is not None:
-        is_frontera = bool(es_frontera_hint)
-    elif localidad_normalizada:
-        flag = localidad_is_frontera(db_path, cliente or "", localidad_normalizada)
-        if flag is not None:
-            is_frontera = flag
+    learned: bool | None = None
+    if localidad_normalizada:
+        learned = localidad_is_frontera(db_path, cliente or "", localidad_normalizada)
+
+    hint = es_frontera_hint
+    is_frontera: bool
+
+    if hint is True:
+        is_frontera = True
+    elif hint is False and learned is True:
+        warnings.append(
+            f"{WARN_FRONTERA_EXCEL_VS_LEARNED}: Excel indica GENERAL pero la localidad "
+            f"está catalogada como fronteriza; se mantiene FRONTERA para cálculo."
+        )
+        is_frontera = True
+    elif hint is False:
+        is_frontera = False
+    elif learned is not None:
+        is_frontera = bool(learned)
+    else:
+        if (cliente or "").strip().lower() == "pepsi":
+            warnings.append(
+                "Localidad no clasificada como frontera/general; aplicando GENERAL por defecto (Pepsi)."
+            )
         else:
             warnings.append(
                 "Localidad no clasificada como frontera/general; aplicando GENERAL por defecto."
             )
-            is_frontera = False
-    else:
-        if (cliente or "").strip().lower() == "pepsi":
-            warnings.append("Cliente Pepsi sin localidad: no se puede inferir frontera.")
         is_frontera = False
 
     zona = "FRONTERA" if is_frontera else "GENERAL"
@@ -128,6 +174,58 @@ def derive_smg_from_locality(
         float(exento) if exento is not None else None,
         warnings,
     )
+
+
+def append_parametro_precheck_warnings(row: dict[str, Any]) -> None:
+    """Añade códigos de warning y flags para el futuro motor (4.1+), sin bloquear UI."""
+    warnings: list[str] = list(row.get("warnings") or [])
+    ed: dict[str, Any] = dict(row.get("editable_json") or {})
+
+    sal = row.get("salario_operativo")
+    if sal is None or (isinstance(sal, (int, float)) and float(sal) <= 0):
+        if WARN_BLOCK_CALC_MISSING_SALARY not in warnings:
+            warnings.append(WARN_BLOCK_CALC_MISSING_SALARY)
+        ed["block_calc_missing_salary_operativo"] = True
+    else:
+        ed["block_calc_missing_salary_operativo"] = False
+
+    he_qty = row.get("horas_extra_periodo")
+    valor_he = row.get("valor_x_he")
+    if he_qty is not None and float(he_qty) > 0:
+        if valor_he is None or (isinstance(valor_he, (int, float)) and float(valor_he) <= 0):
+            if WARN_BLOCK_CALC_MISSING_VALOR_HE not in warnings:
+                warnings.append(WARN_BLOCK_CALC_MISSING_VALOR_HE)
+            ed["block_calc_missing_valor_x_he_when_he"] = True
+        else:
+            ed["block_calc_missing_valor_x_he_when_he"] = False
+    elif valor_he is not None and (isinstance(valor_he, (int, float)) and float(valor_he) > 0):
+        # Horas extra desconocidas en este import pero ya hay tarifa HE válida.
+        ed["block_calc_missing_valor_x_he_when_he"] = False
+
+    ms = str(row.get("headcount_match_status") or "")
+    if ms in {
+        "pending_headcount_unavailable",
+        "no_match_headcount",
+        "probable_match",
+        "multiple_candidates",
+    }:
+        if WARN_REVIEW_NO_CONFIDENT_MATCH not in warnings:
+            warnings.append(WARN_REVIEW_NO_CONFIDENT_MATCH)
+        ed["review_no_confident_headcount_match"] = True
+    elif ms not in {"exact_nss", "exact_name"}:
+        ed.pop("review_no_confident_headcount_match", None)
+    else:
+        ed.pop("review_no_confident_headcount_match", None)
+
+    if ms == "pending_headcount_unavailable":
+        if WARN_HEADCOUNT_UNAVAILABLE not in warnings:
+            warnings.append(WARN_HEADCOUNT_UNAVAILABLE)
+        ed["headcount_unavailable_pending_match"] = True
+    else:
+        ed.pop("headcount_unavailable_pending_match", None)
+
+    row["warnings"] = warnings
+    row["editable_json"] = ed
 
 
 def build_parametro_row_from_nomina(
@@ -168,7 +266,7 @@ def build_parametro_row_from_nomina(
 
     cliente = parsed_row.get("cliente") or (hc.get("cliente") if hc else None)
 
-    return {
+    row = {
         "nombre": parsed_row.get("nombre"),
         "nombre_normalizado": parsed_row.get("nombre_normalizado"),
         "nss": nss,
@@ -183,6 +281,7 @@ def build_parametro_row_from_nomina(
         "localidad_normalizada": parsed_row.get("localidad_normalizada"),
         "salario_operativo": parsed_row.get("salario_operativo"),
         "valor_x_he": parsed_row.get("valor_x_he"),
+        "horas_extra_periodo": parsed_row.get("horas_extra_periodo"),
         "zona_salario_raw": None,
         "es_frontera": is_frontera,
         "salario_minimo_usado": smg,
@@ -200,6 +299,8 @@ def build_parametro_row_from_nomina(
             "source_filename": source_filename,
         },
     }
+    append_parametro_precheck_warnings(row)
+    return row
 
 
 def build_parametro_row_from_contpaq(
@@ -226,7 +327,7 @@ def build_parametro_row_from_contpaq(
 
     cliente = hc.get("cliente") if hc else None
 
-    return {
+    row = {
         "nombre": parsed_row.get("nombre"),
         "nombre_normalizado": parsed_row.get("nombre_normalizado"),
         "nss": nss,
@@ -241,6 +342,7 @@ def build_parametro_row_from_contpaq(
         "localidad_normalizada": None,
         "salario_operativo": None,
         "valor_x_he": None,
+        "horas_extra_periodo": None,
         "zona_salario_raw": parsed_row.get("zona_salario_raw"),
         "es_frontera": None,
         "salario_minimo_usado": None,
@@ -269,3 +371,5 @@ def build_parametro_row_from_contpaq(
             },
         },
     }
+    append_parametro_precheck_warnings(row)
+    return row

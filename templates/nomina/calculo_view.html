@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.cv-toolbar { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:1rem; }
+.cv-table-wrap { overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
+.cv-table { width:100%; border-collapse:collapse; min-width:2600px; font-size:.78rem; }
+.cv-table th, .cv-table td { border-bottom:1px solid #e5e7eb; padding:.25rem .2rem; vertical-align:middle; }
+.cv-table th { position:sticky; top:0; background:#f8fafc; z-index:1; }
+.cv-table input { width:72px; max-width:100%; font-size:.76rem; padding:.15rem; }
+.cv-table input.wide { width:100px; }
+.cv-run-meta { font-size:.88rem; color:#475569; }
+.badge-warn { color:#92400e; font-size:.72rem; }
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas · Cálculo #{{ run.id }}</span>
+    <h2>Visualizador preliminar</h2>
+    <p class="cv-run-meta">Estado: <strong>{{ run.status }}</strong> · {{ run.fecha_inicio }} → {{ run.fecha_fin }} · Empleados: {{ run.total_empleados }} · Warnings (filas): {{ run.warning_count }} · Bloqueos: {{ run.block_count }}</p>
+    {% if run.raw_json and run.raw_json.get('run_warnings') %}
+    <ul class="badge-warn">
+      {% for w in run.raw_json.run_warnings %}
+      <li>{{ w }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
+  <div class="cv-toolbar">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
+    <form method="post" action="{{ url_for('nomina.calculo_recalcular', calculo_id=run.id) }}" style="display:inline;">
+      <input type="hidden" name="domingo_opcion" value="{{ (run.config_json or {}).get('domingo_opcion','proporcional') }}">
+      <input type="hidden" name="dias_tarifa_isr" value="{{ (run.config_json or {}).get('dias_tarifa_isr',7) }}">
+      <input type="hidden" name="dias_tarifa_subs" value="{{ (run.config_json or {}).get('dias_tarifa_subs',7) }}">
+      {% if (run.config_json or {}).get('es_fin_de_mes') %}
+      <input type="hidden" name="es_fin_de_mes" value="1">
+      {% endif %}
+      {% if (run.config_json or {}).get('permitir_negativo_isr') %}
+      <input type="hidden" name="permitir_negativo_isr" value="1">
+      {% endif %}
+      <button type="submit" class="btn btn-primary">Recalcular</button>
+    </form>
+  </div>
+</section>
+
+<form method="post" action="{{ url_for('nomina.calculo_guardar_ajustes', calculo_id=run.id) }}">
+<div class="cv-table-wrap">
+  <table class="cv-table">
+    <thead>
+      <tr>
+        <th># emp</th>
+        <th>Nombre</th>
+        <th>Cliente</th>
+        <th>Planta</th>
+        <th>Sal. op.</th>
+        <th>Val HE</th>
+        <th>SMG</th>
+        <th>Zona</th>
+        <th>Días</th>
+        <th>Sépt.</th>
+        <th>Días pago</th>
+        <th>HE</th>
+        <th>HE fiscal</th>
+        <th>HE norm</th>
+        <th>Días cub.</th>
+        <th>FL</th>
+        <th>DL</th>
+        <th>Vac lab</th>
+        <th>Prima vac</th>
+        <th>Bono</th>
+        <th>Deduc.</th>
+        <th>C.grav</th>
+        <th>C.exen</th>
+        <th>Base grav</th>
+        <th>ISR</th>
+        <th>Bono TPT</th>
+        <th>Prima ef.</th>
+        <th>INFONAVIT</th>
+        <th>NETO SIMPLE (op.)</th>
+        <th>NETO A PAGAR FINAL</th>
+        <th>Warnings</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row.numero_empleado or '—' }}</td>
+        <td>{{ row.nombre_empleado }}</td>
+        <td>{{ row.cliente }}</td>
+        <td>{{ row.planta or '' }}</td>
+        <td>{{ '%.2f'|format(row.salario_operativo or 0) }}</td>
+        <td>{{ '%.2f'|format(row.valor_x_he or 0) }}</td>
+        <td>{{ '%.2f'|format(row.smg_usado or 0) }}</td>
+        <td>{{ 'Frontera' if row.es_frontera else 'General' }}</td>
+        <td>{{ '%.2f'|format(row.dias_computables or 0) }}</td>
+        <td>{{ '%.2f'|format(row.septimo_dia or 0) }}</td>
+        <td>{{ '%.2f'|format(row.dias_pago or 0) }}</td>
+        <td>{{ '%.2f'|format(row.horas_extra or 0) }}</td>
+        <td>{{ '%.2f'|format(row.valor_he_fiscal or 0) }}</td>
+        <td>{{ '%.2f'|format(row.horas_extra_normales or 0) }}</td>
+        <td>{{ '%.2f'|format(row.dias_cubiertos_normales or 0) }}</td>
+        <td>{{ row.festivo_laborado_detected or 0 }}</td>
+        <td>{{ row.domingo_laborado_detected or 0 }}</td>
+        <td>{{ '%.2f'|format(row.vacaciones_laboradas or 0) }}</td>
+        <td>{{ '%.2f'|format(row.importe_prima_vacacional or 0) }}</td>
+        <td><input class="wide" type="text" name="r{{ row.id }}_bono_manual" value="{{ row.bono_manual if row.bono_manual is not none else '' }}"></td>
+        <td><input class="wide" type="text" name="r{{ row.id }}_deduccion_manual" value="{{ row.deduccion_manual if row.deduccion_manual is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_concepto_gravable" value="{{ row.concepto_gravable if row.concepto_gravable is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_concepto_exento" value="{{ row.concepto_exento if row.concepto_exento is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_base_gravada" value="{{ row.base_gravada if row.base_gravada is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_isr" value="{{ row.isr if row.isr is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_bono_tpt" value="{{ row.bono_tpt if row.bono_tpt is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_prima_eficiencia" value="{{ row.prima_eficiencia if row.prima_eficiencia is not none else '' }}"></td>
+        <td><input type="text" name="r{{ row.id }}_infonavit_semanal" value="{{ row.infonavit_semanal if row.infonavit_semanal is not none else '' }}"></td>
+        <td>{{ '%.2f'|format(row.neto_simple_operativo if row.neto_simple_operativo is not none else (row.neto_simple or 0)) }}</td>
+        <td><strong>{{ '%.2f'|format(row.neto_a_pagar_final if row.neto_a_pagar_final is not none else (row.neto_a_pagar or 0)) }}</strong></td>
+        <td class="badge-warn">{% if row.warnings_json %}{{ (row.warnings_json or [])|join('; ') }}{% endif %}</td>
+        <td>{{ row.row_status }}</td>
+      </tr>
+      <tr>
+        <td colspan="99" style="background:#fafafa;">
+          <label style="font-size:.75rem;color:#64748b;">Importe festivo laborado (FL)</label>
+          <input type="text" name="r{{ row.id }}_importe_festivo_laborado" value="{{ row.importe_festivo_laborado if row.importe_festivo_laborado is not none else '' }}" style="width:120px;">
+          <label style="font-size:.75rem;color:#64748b;margin-left:1rem;">Importe domingo laborado (DL)</label>
+          <input type="text" name="r{{ row.id }}_importe_domingo_laborado" value="{{ row.importe_domingo_laborado if row.importe_domingo_laborado is not none else '' }}" style="width:120px;">
+          <label style="font-size:.75rem;color:#64748b;margin-left:1rem;">Observaciones</label>
+          <input type="text" name="r{{ row.id }}_observaciones" value="{{ (row.manual_overrides_json or {}).get('observaciones','') }}" style="width:420px;max-width:50%;">
+          <details style="display:inline-block;margin-left:1rem;vertical-align:top;">
+            <summary style="cursor:pointer;font-size:.75rem;color:#475569;">Ajuste al neto / auditoría</summary>
+            <div style="font-size:.72rem;color:#64748b;margin-top:.35rem;">
+              Base NETO SIMPLE: {{ '%.2f'|format(row.base_neto_simple or 0) }} ·
+              Ajuste al neto: {{ '%.2f'|format(row.ajuste_al_neto or 0) }} ·
+              Neto redondeado: {{ '%.2f'|format(row.neto_redondeado or 0) }} ·
+              Neto fiscal (percep − ISR): {{ '%.2f'|format(row.neto_simple or 0) }}
+            </div>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p style="margin-top:.75rem;"><button type="submit" class="btn btn-primary">Guardar ajustes</button></p>
+</form>
+{% endblock %}

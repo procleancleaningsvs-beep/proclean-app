@@ -139,6 +139,109 @@ def test_match_to_headcount_priorities():
     assert status == "no_match_headcount"
 
 
+def test_headcount_unavailable_yields_pending_status():
+    idx = build_headcount_index([], unavailable_reason="HEADCOUNT_ONEDRIVE_URL no configurada")
+    assert idx.unavailable_reason
+    status, rec, score = match_to_headcount(
+        nombre="Cualquiera", nss="12345678901", cliente=None, index=idx
+    )
+    assert status == "pending_headcount_unavailable"
+    assert rec is None
+
+
+def test_derive_smg_excel_false_keeps_learned_frontera(monkeypatch):
+    from modules.nomina.config import WARN_FRONTERA_EXCEL_VS_LEARNED
+    from modules.nomina.parametros_match import derive_smg_from_locality
+
+    monkeypatch.setattr(
+        "modules.nomina.parametros_match.localidad_is_frontera",
+        lambda db_path, cliente, loc: True,
+    )
+    is_f, smg, ex, warns = derive_smg_from_locality(
+        cliente="Pepsi",
+        localidad="Tijuana",
+        localidad_normalizada="tijuana",
+        es_frontera_hint=False,
+        year=2026,
+        db_path=":memory:",
+    )
+    assert is_f is True
+    assert smg == 440.87
+    assert any(WARN_FRONTERA_EXCEL_VS_LEARNED in w for w in warns)
+
+
+def test_upsert_localidad_no_auto_demotion(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, list_localidades_frontera, upsert_localidades_frontera
+
+    db = str(tmp_path / "loc.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    upsert_localidades_frontera(
+        db,
+        [
+            {
+                "cliente": "Pepsi",
+                "localidad": "Tijuana",
+                "localidad_normalizada": "tijuana",
+                "es_frontera": True,
+                "source_filename": "a.xlsx",
+            }
+        ],
+        now_iso=iso,
+    )
+    _, _, warns = upsert_localidades_frontera(
+        db,
+        [
+            {
+                "cliente": "Pepsi",
+                "localidad": "Tijuana",
+                "localidad_normalizada": "tijuana",
+                "es_frontera": False,
+                "source_filename": "b.xlsx",
+            }
+        ],
+        now_iso=iso,
+    )
+    assert any("localidad_frontera_demotion_blocked" in w for w in warns)
+    rows = list_localidades_frontera(db, cliente="Pepsi")
+    assert rows[0]["es_frontera"] == 1
+
+
+def test_precheck_flags_block_calc_for_he_without_valor():
+    from modules.nomina.config import WARN_BLOCK_CALC_MISSING_VALOR_HE
+    from modules.nomina.parametros_match import append_parametro_precheck_warnings
+
+    row = {
+        "salario_operativo": 3000.0,
+        "valor_x_he": None,
+        "horas_extra_periodo": 8.0,
+        "headcount_match_status": "exact_nss",
+        "warnings": [],
+        "editable_json": {},
+    }
+    append_parametro_precheck_warnings(row)
+    assert any(WARN_BLOCK_CALC_MISSING_VALOR_HE in w for w in row["warnings"])
+    assert row["editable_json"].get("block_calc_missing_valor_x_he_when_he") is True
+
+
+def test_nss_merge_conflict_detects_cliente_mismatch():
+    from modules.nomina.db import _nss_merge_conflict
+
+    assert _nss_merge_conflict(
+        {"nss": "12345678901", "cliente": "Carrier", "planta": "A", "salario_operativo": 100.0},
+        {"nss": "12345678901", "cliente": "Pepsi", "planta": "A", "salario_operativo": 100.0},
+    )
+    assert not _nss_merge_conflict(
+        {"nss": "12345678901", "cliente": "", "planta": "", "salario_operativo": None},
+        {"nss": "12345678901", "cliente": "Pepsi", "planta": "A", "salario_operativo": 200.0},
+    )
+
+
 def test_smg_frontera_vs_general_via_config():
     from modules.nomina.config import get_smg_for_year, get_exento_he_for_year
     assert float(get_smg_for_year(2026, "GENERAL")) == 315.04

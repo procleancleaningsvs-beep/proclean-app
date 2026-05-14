@@ -98,7 +98,7 @@
             <td>{{ row.dia_6_value }}</td>
             <td>{{ row.dia_7_value }}</td>
             <td>{{ row.he }}</td>
-            <td>{{ row.horas_extra_normales or row.turnos_extra_normales }}</td>
+            <td>{{ row.horas_extra_normales }}{% if row.turnos_extra_normales and not row.horas_extra_normales %} <span style="color:#94a3b8;font-size:.78rem;">(legacy: {{ row.turnos_extra_normales }})</span>{% endif %}</td>
             <td>{{ row.dias_cubiertos_normales }}</td>
             <td>{{ row.vacaciones_laboradas }}</td>
             <td>{{ row.prima_vacacional }}</td>

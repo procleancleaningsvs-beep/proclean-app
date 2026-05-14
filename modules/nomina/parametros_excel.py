@@ -103,6 +103,7 @@ HEADER_ALIASES: dict[str, list[str]] = {
         "VALOR DE HE",
         "VALOR DE HORA EXTRA",
     ],
+    "horas_extra": ["HORAS EXTRA", "HE", "HORAS EXTRAS"],
     "localidad": ["LOCALIDAD", "LOCALIDAD/PLANTA"],
     "frontera": ["FRONTERA", "ZONA FRONTERA", "ES FRONTERA"],
     "nss": ["NSS", "NUM SEGURIDAD SOCIAL", "NUMERO DE SEGURO SOCIAL"],
@@ -248,6 +249,7 @@ def parse_nomina_actual(
         cuenta = _norm_text(_get("cuenta"))
         salario_op = _to_float(_get("salario_operativo"))
         valor_he = _to_float(_get("valor_x_he"))
+        horas_extra_periodo = _to_float(_get("horas_extra"))
         localidad_raw = _norm_text(_get("localidad"))
         localidad_norm = _norm_locality(localidad_raw)
         frontera_raw_val = _get("frontera")
@@ -310,6 +312,7 @@ def parse_nomina_actual(
             "cuenta": cuenta or None,
             "salario_operativo": salario_op,
             "valor_x_he": valor_he,
+            "horas_extra_periodo": horas_extra_periodo,
             "localidad": localidad_raw or None,
             "localidad_normalizada": localidad_norm or None,
             "frontera_raw": (

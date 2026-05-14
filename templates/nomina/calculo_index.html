@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.cv-wrap { display:grid; gap:1rem; max-width:960px; }
+.cv-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.cv-card label { display:block; font-size:.85rem; color:#475569; margin:.35rem 0 .15rem; }
+.cv-card select, .cv-card input[type="text"], .cv-card input[type="number"] { width:100%; max-width:520px; padding:.45rem; border:1px solid #cbd5e1; border-radius:8px; }
+.cv-grid { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+@media (max-width:800px){ .cv-grid { grid-template-columns:1fr; } }
+.cliente-list { max-height:220px; overflow:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem; }
+.cliente-list label { display:flex; gap:.4rem; align-items:center; margin:.15rem 0; }
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas</span>
+    <h2>Cálculo preliminar de nómina</h2>
+    <p>Borrador interno: no exporta nómina final, no genera banco, no costea ni cierra nómina.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+</section>
+
+{% if headcount_source == 'historial_fallback' or headcount_error %}
+<section class="cv-card" style="border-color:#fbbf24;background:#fffbeb;">
+  <strong>Headcount</strong>
+  <p style="margin:.35rem 0;font-size:.9rem;">{{ headcount_error or 'Headcount no disponible; revisar matches antes de usar cálculo real.' }}</p>
+</section>
+{% endif %}
+
+<div class="cv-wrap">
+  <section class="cv-card">
+    <h3 style="margin-top:0;">Nuevo cálculo</h3>
+    <form method="post" action="{{ url_for('nomina.calculo_generar') }}">
+      <label for="asistencia_import_id">Importación de asistencia</label>
+      <select name="asistencia_import_id" id="asistencia_import_id" required>
+        <option value="">— Seleccionar —</option>
+        {% for imp in imports_list %}
+        <option value="{{ imp.id }}">#{{ imp.id }} — {{ imp.semana or 'Semana' }} — {{ imp.cliente }} ({{ imp.total_rows }} filas)</option>
+        {% endfor %}
+      </select>
+
+      <label style="margin-top:.75rem;">Clientes / grupo</label>
+      <p style="font-size:.85rem;color:#64748b;margin:.2rem 0;">Si no marcas ninguno, se usa el cliente de la importación o todas las filas.</p>
+      <div class="cliente-list">
+        {% for c in clientes %}
+        <label><input type="checkbox" name="clientes" value="{{ c }}"> {{ c }}</label>
+        {% endfor %}
+        {% for gname, members in (agrupaciones or {}).items() %}
+        <div style="margin-top:.5rem;font-weight:600;">{{ gname }}</div>
+        {% for c in members %}
+        <label><input type="checkbox" name="clientes" value="{{ c }}"> {{ c }}</label>
+        {% endfor %}
+        {% endfor %}
+      </div>
+
+      <div class="cv-grid" style="margin-top:.75rem;">
+        <div>
+          <label for="domingo_opcion">¿Cómo pagar domingos laborados (DL)?</label>
+          <select name="domingo_opcion" id="domingo_opcion">
+            <option value="proporcional">Proporcional 1.17</option>
+            <option value="prima">Prima dominical 1.25</option>
+            <option value="no">No aplicar automático / revisar manual</option>
+          </select>
+        </div>
+        <div>
+          <label for="dias_tarifa_isr">Días tarifa ISR</label>
+          <input type="number" step="0.01" name="dias_tarifa_isr" id="dias_tarifa_isr" value="7">
+        </div>
+        <div>
+          <label for="dias_tarifa_subs">Días tarifa subsidio</label>
+          <input type="number" step="0.01" name="dias_tarifa_subs" id="dias_tarifa_subs" value="7">
+        </div>
+      </div>
+      <label style="margin-top:.6rem;display:flex;gap:.4rem;align-items:center;">
+        <input type="checkbox" name="es_fin_de_mes" value="1"> Es fin de mes (reservado; por ahora no altera la tabla ISR)
+      </label>
+      <label style="margin-top:.35rem;display:flex;gap:.4rem;align-items:center;">
+        <input type="checkbox" name="permitir_negativo_isr" value="1"> Permitir ISR negativo (macro; uso excepcional)
+      </label>
+      <div style="margin-top:1rem;">
+        <button type="submit" class="btn btn-primary">Generar borrador</button>
+      </div>
+    </form>
+  </section>
+</div>
+{% endblock %}

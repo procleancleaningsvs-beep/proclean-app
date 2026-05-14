@@ -86,7 +86,16 @@
 
     <section class="nd-card">
       <h3>Cálculo de Nómina</h3>
-      <p class="nd-soon">Próximamente: HE dobles/triples, prima dominical, festivos y visualizador tipo Excel.</p>
+      <p class="nd-soon">Borrador preliminar (sin exportación final, banco ni costeo).</p>
+      <div class="nd-kpis">
+        <div class="nd-kpi"><span>Cálculos guardados</span><strong>{{ calc_kpis.total_calculos }}</strong></div>
+        <div class="nd-kpi"><span>Borradores / revisados</span><strong>{{ calc_kpis.borradores }}</strong></div>
+        {% if calc_kpis.last_run %}
+        <div class="nd-kpi"><span>Último ID</span><strong>#{{ calc_kpis.last_run.id }}</strong></div>
+        <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
+        {% endif %}
+      </div>
+      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
     </section>
 
     <section class="nd-card">

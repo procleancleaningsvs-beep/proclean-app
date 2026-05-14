@@ -59,6 +59,22 @@ from modules.nomina.db import (
     list_parametros_imports,
     upsert_localidades_frontera,
     list_localidades_frontera,
+    list_asistencia_imports_for_calculo,
+    insert_nomina_calculo_run,
+    insert_nomina_calculo_rows_batch,
+    get_nomina_calculo_run,
+    list_nomina_calculo_rows,
+    delete_nomina_calculo_rows,
+    get_nomina_calculo_row,
+    update_nomina_calculo_run,
+    update_nomina_calculo_row_manual,
+    recount_calculo_run_totals,
+    nomina_calculo_dashboard_kpis,
+)
+from modules.nomina.calc_service import (
+    build_calculo_payload,
+    index_overrides_from_calculo_rows,
+    resync_row_totales,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
@@ -311,6 +327,7 @@ def index():
         inf_stats = get_infonavit_stats(_db_path())
         param_stats = get_parametros_stats(_db_path())
         param_localidades = list_localidades_frontera(_db_path())
+        calc_kpis = nomina_calculo_dashboard_kpis(_db_path())
         return render_template(
             "nomina/dashboard.html",
             dash=dash,
@@ -319,6 +336,7 @@ def index():
             param_stats=param_stats,
             param_localidades_count=len(param_localidades),
             param_localidades_frontera_count=sum(1 for it in param_localidades if it.get("es_frontera")),
+            calc_kpis=calc_kpis,
             headcount_error=headcount_error,
             headcount_source=headcount_source,
         )
@@ -1131,6 +1149,7 @@ def parametros_index():
     if status_filter == "pendientes":
         match_filters = [
             "no_match_headcount",
+            "pending_headcount_unavailable",
             "no_match_contpaq",
             "probable_match",
             "multiple_candidates",
@@ -1148,12 +1167,14 @@ def parametros_index():
     stats = get_parametros_stats(db_path)
     imports = list_parametros_imports(db_path, limit=20)
     localidades = list_localidades_frontera(db_path)
+    _hc_rows, headcount_match_error = _headcount_for_match()
     return render_template(
         "nomina/parametros_index.html",
         rows=rows,
         stats=stats,
         imports=imports,
         localidades=localidades,
+        headcount_match_error=headcount_match_error,
         filtros={
             "cliente": cliente or "",
             "status": status_filter,
@@ -1186,13 +1207,14 @@ def parametros_importar_nomina():
 
     db_path = _db_path()
     hc_rows, hc_err = _headcount_for_match()
+    hc_index = build_headcount_index(hc_rows, unavailable_reason=hc_err)
     if hc_err:
         parsed["warnings"].append(f"No se pudo cargar Headcount: {hc_err}")
-    hc_index = build_headcount_index(hc_rows)
 
     # Save detected localidades first so subsequent rows benefit.
     if parsed.get("localidades"):
-        upsert_localidades_frontera(db_path, parsed["localidades"], now_iso=_now_iso())
+        _, _, loc_warnings = upsert_localidades_frontera(db_path, parsed["localidades"], now_iso=_now_iso())
+        parsed["warnings"].extend(loc_warnings)
 
     year = _parametros_year_default()
     payload_rows: list[dict] = []
@@ -1223,6 +1245,8 @@ def parametros_importar_nomina():
             "sheet": parsed.get("sheet"),
             "file_warnings": parsed.get("warnings") or [],
             "file_errors": parsed.get("errors") or [],
+            "headcount_unavailable": bool(hc_err),
+            "headcount_error": hc_err,
         },
     }
     uid = int(g.user["id"]) if g.user is not None else None
@@ -1247,7 +1271,12 @@ def parametros_importar_nomina():
     )
     flash(
         f"Nómina importada: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
-        f"Match Headcount exacto: {matched}.",
+        f"Match Headcount exacto: {matched}."
+        + (
+            " Headcount no disponible: revisar match pendiente (pending_headcount_unavailable)."
+            if hc_err
+            else ""
+        ),
         "success",
     )
     return redirect(url_for("nomina.parametros_index"))
@@ -1275,9 +1304,9 @@ def parametros_importar_contpaq():
 
     db_path = _db_path()
     hc_rows, hc_err = _headcount_for_match()
+    hc_index = build_headcount_index(hc_rows, unavailable_reason=hc_err)
     if hc_err:
         parsed["warnings"].append(f"No se pudo cargar Headcount: {hc_err}")
-    hc_index = build_headcount_index(hc_rows)
 
     payload_rows: list[dict] = []
     matched = 0
@@ -1305,6 +1334,8 @@ def parametros_importar_contpaq():
             "sheet": parsed.get("sheet"),
             "file_warnings": parsed.get("warnings") or [],
             "file_errors": parsed.get("errors") or [],
+            "headcount_unavailable": bool(hc_err),
+            "headcount_error": hc_err,
         },
     }
     uid = int(g.user["id"]) if g.user is not None else None
@@ -1318,7 +1349,12 @@ def parametros_importar_contpaq():
     )
     flash(
         f"CONTPAQ importado: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
-        f"Match Headcount exacto: {matched}.",
+        f"Match Headcount exacto: {matched}."
+        + (
+            " Headcount no disponible: revisar match pendiente (pending_headcount_unavailable)."
+            if hc_err
+            else ""
+        ),
         "success",
     )
     return redirect(url_for("nomina.parametros_index"))
@@ -1395,6 +1431,189 @@ def parametros_editar(row_id: int):
         return redirect(url_for("nomina.parametros_editar", row_id=row_id))
 
     return render_template("nomina/parametros_edit.html", row=row)
+
+
+def _calculo_config_from_form() -> dict[str, Any]:
+    return {
+        "domingo_opcion": (request.form.get("domingo_opcion") or "proporcional").strip(),
+        "es_fin_de_mes": bool(request.form.get("es_fin_de_mes")),
+        "permitir_negativo_isr": bool(request.form.get("permitir_negativo_isr")),
+        "dias_tarifa_isr": request.form.get("dias_tarifa_isr") or 7,
+        "dias_tarifa_subs": request.form.get("dias_tarifa_subs") or 7,
+    }
+
+
+def _calculo_cliente_label(clientes: list[str]) -> str:
+    c = [str(x).strip() for x in clientes if str(x).strip()]
+    if not c:
+        return ""
+    if len(c) == 1:
+        return c[0]
+    return "MULTICLIENTE"
+
+
+@nomina_bp.get("/calculo")
+@_nomina_dashboard_required
+def calculo_index():
+    imports_list = list_asistencia_imports_for_calculo(_db_path(), limit=100)
+    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
+    return render_template(
+        "nomina/calculo_index.html",
+        imports_list=imports_list,
+        clientes=clientes,
+        agrupaciones=agrupaciones,
+        headcount_error=headcount_error,
+        headcount_source=headcount_source,
+    )
+
+
+@nomina_bp.post("/calculo/generar")
+@_nomina_dashboard_required
+def calculo_generar():
+    db_path = _db_path()
+    try:
+        import_id = int(request.form.get("asistencia_import_id") or 0)
+    except ValueError:
+        import_id = 0
+    if import_id <= 0:
+        flash("Selecciona una importación de asistencia válida.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    clientes = _extract_selected_clientes_from_form()
+    cfg = _calculo_config_from_form()
+    try:
+        payload = build_calculo_payload(
+            db_path,
+            asistencia_import_id=import_id,
+            clientes_filter=clientes,
+            config_form=cfg,
+        )
+    except ValueError as exc:
+        flash(f"No se pudo generar el cálculo: {exc}", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    run_payload = {
+        "asistencia_import_id": import_id,
+        "cliente": _calculo_cliente_label(clientes),
+        "clientes_json": clientes,
+        "fecha_inicio": payload["fecha_inicio"],
+        "fecha_fin": payload["fecha_fin"],
+        "config_json": payload["config_json"],
+        "status": "borrador",
+        "total_empleados": payload["total_empleados"],
+        "warning_count": payload["warning_count"],
+        "block_count": payload["block_count"],
+        "raw_json": payload["raw_json"],
+    }
+    calculo_id = insert_nomina_calculo_run(db_path, run_payload, created_by=uid, now_iso=now_iso)
+    for r in payload["rows"]:
+        r["updated_by"] = uid
+        r["updated_at"] = now_iso
+    insert_nomina_calculo_rows_batch(db_path, calculo_id, payload["rows"])
+    recount_calculo_run_totals(db_path, calculo_id, now_iso=now_iso)
+    flash("Cálculo preliminar guardado como borrador.", "success")
+    return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
+
+
+@nomina_bp.get("/calculo/<int:calculo_id>")
+@_nomina_dashboard_required
+def calculo_ver(calculo_id: int):
+    run = get_nomina_calculo_run(_db_path(), calculo_id)
+    if not run:
+        abort(404)
+    rows = list_nomina_calculo_rows(_db_path(), calculo_id)
+    return render_template("nomina/calculo_view.html", run=run, rows=rows)
+
+
+@nomina_bp.post("/calculo/<int:calculo_id>/recalcular")
+@_nomina_dashboard_required
+def calculo_recalcular(calculo_id: int):
+    db_path = _db_path()
+    run = get_nomina_calculo_run(db_path, calculo_id)
+    if not run:
+        abort(404)
+    prev_rows = list_nomina_calculo_rows(db_path, calculo_id)
+    prev = index_overrides_from_calculo_rows(prev_rows)
+    import_id = int(run["asistencia_import_id"])
+    clientes = [str(c).strip() for c in (run.get("clientes_json") or []) if str(c).strip()]
+    cfg = _calculo_config_from_form()
+    try:
+        payload = build_calculo_payload(
+            db_path,
+            asistencia_import_id=import_id,
+            clientes_filter=clientes,
+            config_form=cfg,
+            previous_overrides_by_asistencia_id=prev,
+        )
+    except ValueError as exc:
+        flash(f"No se pudo recalcular: {exc}", "error")
+        return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    delete_nomina_calculo_rows(db_path, calculo_id)
+    for r in payload["rows"]:
+        r["updated_by"] = uid
+        r["updated_at"] = now_iso
+    insert_nomina_calculo_rows_batch(db_path, calculo_id, payload["rows"])
+    update_nomina_calculo_run(
+        db_path,
+        calculo_id,
+        {
+            "status": "recalculado",
+            "total_empleados": payload["total_empleados"],
+            "warning_count": payload["warning_count"],
+            "block_count": payload["block_count"],
+            "config_json": payload["config_json"],
+            "raw_json": payload["raw_json"],
+        },
+        now_iso=now_iso,
+    )
+    recount_calculo_run_totals(db_path, calculo_id, now_iso=now_iso)
+    flash("Borrador recalculado conservando ajustes manuales donde aplica.", "success")
+    return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
+
+
+@nomina_bp.post("/calculo/<int:calculo_id>/guardar-ajustes")
+@_nomina_dashboard_required
+def calculo_guardar_ajustes(calculo_id: int):
+    db_path = _db_path()
+    run = get_nomina_calculo_run(db_path, calculo_id)
+    if not run:
+        abort(404)
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    pat = re.compile(r"^r(\d+)_(.+)$")
+    by_row: dict[int, dict[str, Any]] = {}
+    for key, val in request.form.items():
+        m = pat.match(key)
+        if not m:
+            continue
+        rid = int(m.group(1))
+        field = m.group(2)
+        by_row.setdefault(rid, {})[field] = val
+    for rid, fields in by_row.items():
+        row_chk = get_nomina_calculo_row(db_path, rid)
+        if not row_chk or int(row_chk.get("calculo_id") or 0) != int(calculo_id):
+            continue
+        conv: dict[str, Any] = {}
+        for fk, fv in fields.items():
+            if fk == "observaciones":
+                conv[fk] = fv
+                continue
+            s = (fv or "").strip().replace(",", "")
+            if not s:
+                conv[fk] = None
+                continue
+            try:
+                conv[fk] = float(s)
+            except ValueError:
+                conv[fk] = fv
+        update_nomina_calculo_row_manual(db_path, rid, conv, updated_by=uid, now_iso=now_iso)
+        resync_row_totales(db_path, rid)
+    update_nomina_calculo_run(db_path, calculo_id, {"status": "revisado"}, now_iso=now_iso)
+    recount_calculo_run_totals(db_path, calculo_id, now_iso=now_iso)
+    flash("Ajustes manuales guardados.", "success")
+    return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
 
 
 def register_nomina(app) -> None:

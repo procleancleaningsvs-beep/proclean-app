@@ -6,6 +6,12 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from modules.nomina.config import (
+    WARN_LOCALIDAD_FRONTERA_DEMOTION_BLOCKED,
+    WARN_LOCALIDAD_FRONTERA_IMPORT_UNKNOWN,
+    WARN_SAME_NSS_MULTIPLE_CLIENTS,
+)
+
 
 @dataclass
 class NominaBaseRow:
@@ -20,6 +26,33 @@ class NominaBaseRow:
 
 def _normalize_cliente_key(value: str) -> str:
     return " ".join(str(value or "").strip().lower().split())
+
+
+def _salario_operativo_differs(a: Any, b: Any, *, eps: float = 0.01) -> bool:
+    if a is None or b is None:
+        return False
+    try:
+        return abs(float(a) - float(b)) > eps
+    except (TypeError, ValueError):
+        return False
+
+
+def _nss_merge_conflict(existing: dict[str, Any], row: dict[str, Any]) -> bool:
+    """Mismo NSS pero datos incompatibles (cliente/planta/salario): no fusionar en silencio."""
+    nss = str(row.get("nss") or "").strip()
+    if not nss or str(existing.get("nss") or "").strip() != nss:
+        return False
+    ex_c = _normalize_cliente_key(str(existing.get("cliente") or ""))
+    row_c = _normalize_cliente_key(str(row.get("cliente") or ""))
+    if ex_c and row_c and ex_c != row_c:
+        return True
+    ex_p = _normalize_cliente_key(str(existing.get("planta") or ""))
+    row_p = _normalize_cliente_key(str(row.get("planta") or ""))
+    if ex_p and row_p and ex_p != row_p:
+        return True
+    if _salario_operativo_differs(existing.get("salario_operativo"), row.get("salario_operativo")):
+        return True
+    return False
 
 
 def _migrate_nomina_imports_schema(conn: sqlite3.Connection) -> None:
@@ -48,6 +81,19 @@ def _migrate_nomina_rows_schema(conn: sqlite3.Connection) -> None:
         # Master v4: TURNOS EXTRA NORMALES renombrado a HORAS EXTRA NORMALES.
         # Se mantiene la columna legacy para no romper importaciones previas.
         conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN horas_extra_normales TEXT")
+
+
+def _migrate_nomina_calculo_rows_neto411(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_calculo_rows)").fetchall()}
+    for name, decl in (
+        ("base_neto_simple", "REAL"),
+        ("neto_simple_operativo", "REAL"),
+        ("neto_redondeado", "REAL"),
+        ("ajuste_al_neto", "REAL"),
+        ("neto_a_pagar_final", "REAL"),
+    ):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE nomina_calculo_rows ADD COLUMN {name} {decl}")
 
 
 def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
@@ -340,6 +386,110 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_calculo_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            asistencia_import_id INTEGER NOT NULL,
+            cliente TEXT,
+            clientes_json TEXT,
+            fecha_inicio TEXT NOT NULL,
+            fecha_fin TEXT NOT NULL,
+            config_json TEXT,
+            status TEXT NOT NULL,
+            total_empleados INTEGER NOT NULL DEFAULT 0,
+            warning_count INTEGER NOT NULL DEFAULT 0,
+            block_count INTEGER NOT NULL DEFAULT 0,
+            created_by INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            raw_json TEXT,
+            FOREIGN KEY(asistencia_import_id) REFERENCES nomina_asistencia_imports(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_calculo_runs_created ON nomina_calculo_runs(created_at DESC, id DESC)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_calculo_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            calculo_id INTEGER NOT NULL,
+            asistencia_row_id INTEGER NOT NULL,
+            parametro_empleado_id INTEGER,
+            vacaciones_empleado_id INTEGER,
+            infonavit_row_id INTEGER,
+            nss TEXT,
+            numero_empleado TEXT,
+            nombre_empleado TEXT,
+            cliente TEXT,
+            planta TEXT,
+            puesto TEXT,
+            banco TEXT,
+            cuenta TEXT,
+            salario_operativo REAL,
+            valor_x_he REAL,
+            es_frontera INTEGER,
+            smg_usado REAL,
+            exento_he_usado REAL,
+            dias_computables REAL,
+            septimo_dia REAL,
+            dias_pago REAL,
+            horas_extra REAL,
+            valor_he_fiscal REAL,
+            valor_extra_operativo REAL,
+            horas_extra_normales REAL,
+            importe_horas_extra_normales REAL,
+            dias_cubiertos_normales REAL,
+            importe_dias_cubiertos_normales REAL,
+            festivo_laborado_detected INTEGER,
+            importe_festivo_laborado REAL,
+            domingo_laborado_detected INTEGER,
+            importe_domingo_laborado REAL,
+            vacaciones_laboradas REAL,
+            importe_vacaciones_laboradas REAL,
+            prima_vacacional_aplicada INTEGER,
+            dias_prima_vacacional_pendientes REAL,
+            importe_prima_vacacional REAL,
+            bono_manual REAL,
+            bono_manual_clasificacion TEXT,
+            deduccion_manual REAL,
+            sueldo_base_smg REAL,
+            concepto_gravable REAL,
+            concepto_exento REAL,
+            base_gravada REAL,
+            isr REAL,
+            bono_tpt REAL,
+            prima_eficiencia REAL,
+            infonavit_mensual REAL,
+            infonavit_semanal REAL,
+            infonavit_status TEXT,
+            total_percepciones REAL,
+            total_deducciones REAL,
+            neto_simple REAL,
+            neto_a_pagar REAL,
+            base_neto_simple REAL,
+            neto_simple_operativo REAL,
+            neto_redondeado REAL,
+            ajuste_al_neto REAL,
+            neto_a_pagar_final REAL,
+            warnings_json TEXT,
+            blocks_json TEXT,
+            detail_json TEXT,
+            manual_overrides_json TEXT,
+            row_status TEXT,
+            updated_by INTEGER,
+            updated_at TEXT,
+            FOREIGN KEY(calculo_id) REFERENCES nomina_calculo_runs(id) ON DELETE CASCADE,
+            FOREIGN KEY(asistencia_row_id) REFERENCES nomina_asistencia_rows(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_calculo_rows_calculo ON nomina_calculo_rows(calculo_id)"
+    )
+    _migrate_nomina_calculo_rows_neto411(conn)
 
 
 def save_asistencia_import(
@@ -426,7 +576,7 @@ def save_asistencia_import(
                     row.get("dia_7_header"),
                     row.get("dia_7_value"),
                     row.get("he"),
-                    row.get("horas_extra_normales") or row.get("turnos_extra_normales"),
+                    row.get("horas_extra_normales"),
                     row.get("dias_cubiertos_normales"),
                     row.get("vacaciones_laboradas"),
                     row.get("prima_vacacional"),
@@ -1431,17 +1581,38 @@ def upsert_empleado_parametros(
                 inserted += 1
                 continue
             existing_dict = dict(existing)
+            skip_keys: set[str] = set()
+            nss_conflict_notes: list[str] = []
+            if _nss_merge_conflict(existing_dict, row):
+                skip_keys = {"cliente", "planta", "salario_operativo"}
+                nss_conflict_notes.append(
+                    f"{WARN_SAME_NSS_MULTIPLE_CLIENTS}: NSS {nss} con cliente/planta/salario "
+                    "incompatible vs registro existente; se conservan los valores previos."
+                )
             merged: dict[str, Any] = {**existing_dict}
             for key, new_val in row.items():
-                if key in {"warnings", "editable_json"}:
+                if key in {"warnings", "editable_json", "horas_extra_periodo"}:
+                    continue
+                if key in skip_keys:
                     continue
                 cur_val = merged.get(key)
                 if (cur_val in (None, "")) or (key in overwrite and new_val not in (None, "")):
                     merged[key] = new_val
             existing_warnings = json.loads(existing_dict.get("warnings_json") or "[]")
-            new_warnings = list(existing_warnings) + list(row.get("warnings") or [])
+            new_warnings = list(existing_warnings) + nss_conflict_notes + list(row.get("warnings") or [])
             existing_editable = json.loads(existing_dict.get("editable_json") or "{}")
             new_editable = {**existing_editable, **(row.get("editable_json") or {})}
+            if nss_conflict_notes:
+                trace = new_editable.setdefault("same_nss_multiple_clients", [])
+                trace.append(
+                    {
+                        "import_id": import_id,
+                        "skipped_fields": sorted(skip_keys),
+                        "attempted_cliente": row.get("cliente"),
+                        "attempted_planta": row.get("planta"),
+                        "attempted_salario_operativo": row.get("salario_operativo"),
+                    }
+                )
             conn.execute(
                 """
                 UPDATE nomina_empleado_parametros SET
@@ -1623,8 +1794,18 @@ def get_parametros_stats(db_path: str) -> dict[str, int]:
         pending = int(
             conn.execute(
                 """SELECT COUNT(*) FROM nomina_empleado_parametros
-                   WHERE headcount_match_status IN ('no_match','pending_review','probable_match')
-                      OR contpaq_match_status IN ('no_match','pending_review','probable_match')
+                   WHERE headcount_match_status IN (
+                       'no_match_headcount',
+                       'pending_headcount_unavailable',
+                       'probable_match',
+                       'multiple_candidates',
+                       'pending_review'
+                   )
+                      OR contpaq_match_status IN (
+                       'no_match_contpaq',
+                       'pending_review',
+                       'probable_match'
+                   )
                       OR COALESCE(warnings_json,'[]') <> '[]'"""
             ).fetchone()[0]
         )
@@ -1662,41 +1843,85 @@ def upsert_localidades_frontera(
     items: list[dict[str, Any]],
     *,
     now_iso: str,
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
+    """Insert/update localidades. No degradar ``es_frontera`` de 1 a 0 por un Excel con FALSO.
+
+    Returns (inserted, updated, file_warnings).
+    """
     conn = sqlite3.connect(db_path)
     inserted = updated = 0
+    file_warnings: list[str] = []
     try:
         for it in items:
             loc_norm = str(it.get("localidad_normalizada") or "").strip()
             if not loc_norm:
                 continue
             cliente = str(it.get("cliente") or "").strip()
-            es_frontera = int(bool(it.get("es_frontera")))
+            raw_hint = it.get("es_frontera")
+            if raw_hint is True:
+                new_es = 1
+            elif raw_hint is False:
+                new_es = 0
+            else:
+                new_es = None  # indeterminado en esta fila
+
             existing = conn.execute(
                 "SELECT id, es_frontera FROM nomina_localidades_frontera WHERE cliente = ? AND localidad_normalizada = ?",
                 (cliente, loc_norm),
             ).fetchone()
             if existing is None:
+                insert_es = 1 if new_es == 1 else 0
+                if new_es is None:
+                    file_warnings.append(
+                        f"{WARN_LOCALIDAD_FRONTERA_IMPORT_UNKNOWN}: localidad '{loc_norm}' sin FRONTERA explícita; "
+                        "se inserta como GENERAL (0)."
+                    )
                 conn.execute(
                     """INSERT INTO nomina_localidades_frontera (
                         cliente, localidad, localidad_normalizada, es_frontera,
                         source_filename, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        cliente, it.get("localidad"), loc_norm, es_frontera,
+                        cliente, it.get("localidad"), loc_norm, insert_es,
                         it.get("source_filename"), now_iso, now_iso,
                     ),
                 )
                 inserted += 1
             else:
-                conn.execute(
-                    """UPDATE nomina_localidades_frontera SET es_frontera = ?, updated_at = ?
-                       WHERE id = ?""",
-                    (es_frontera or existing[1] or 0, now_iso, existing[0]),
-                )
-                updated += 1
+                eid, cur_es = int(existing[0]), int(existing[1])
+                if new_es is None:
+                    # No tocar bandera aprendida si el Excel no trae dato
+                    conn.execute(
+                        "UPDATE nomina_localidades_frontera SET updated_at = ? WHERE id = ?",
+                        (now_iso, eid),
+                    )
+                    updated += 1
+                elif new_es == 1:
+                    conn.execute(
+                        """UPDATE nomina_localidades_frontera SET es_frontera = 1, updated_at = ?, source_filename = ?
+                           WHERE id = ?""",
+                        (now_iso, it.get("source_filename"), eid),
+                    )
+                    updated += 1
+                elif new_es == 0 and cur_es == 1:
+                    file_warnings.append(
+                        f"{WARN_LOCALIDAD_FRONTERA_DEMOTION_BLOCKED}: '{cliente}' / '{loc_norm}' ya estaba "
+                        "catalogada como FRONTERA; no se degradó por FRONTERA=FALSO en el Excel."
+                    )
+                    conn.execute(
+                        "UPDATE nomina_localidades_frontera SET updated_at = ? WHERE id = ?",
+                        (now_iso, eid),
+                    )
+                    updated += 1
+                else:
+                    conn.execute(
+                        """UPDATE nomina_localidades_frontera SET es_frontera = 0, updated_at = ?, source_filename = ?
+                           WHERE id = ?""",
+                        (now_iso, it.get("source_filename"), eid),
+                    )
+                    updated += 1
         conn.commit()
-        return inserted, updated
+        return inserted, updated, file_warnings
     finally:
         conn.close()
 
@@ -1744,4 +1969,436 @@ def _migrate_nomina_vacaciones_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE nomina_vacaciones_empleados ADD COLUMN headcount_source TEXT")
     if "headcount_raw_status" not in cols:
         conn.execute("ALTER TABLE nomina_vacaciones_empleados ADD COLUMN headcount_raw_status TEXT")
+
+
+def list_asistencia_imports_for_calculo(db_path: str, *, limit: int = 80) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, semana, fecha_inicio, fecha_fin, cliente, coordinador, status,
+                   total_rows, error_count, warning_count, created_at, headcount_source
+            FROM nomina_asistencia_imports
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def nomina_calculo_dashboard_kpis(db_path: str) -> dict[str, Any]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        total = int(conn.execute("SELECT COUNT(*) FROM nomina_calculo_runs").fetchone()[0])
+        borradores = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_calculo_runs WHERE status IN ('borrador','recalculado','revisado')"
+            ).fetchone()[0]
+        )
+        last = conn.execute(
+            "SELECT id, status, created_at, total_empleados, warning_count, block_count FROM nomina_calculo_runs ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        ).fetchone()
+        return {
+            "total_calculos": total,
+            "borradores": borradores,
+            "last_run": dict(last) if last else None,
+        }
+    finally:
+        conn.close()
+
+
+def insert_nomina_calculo_run(
+    db_path: str,
+    payload: dict[str, Any],
+    *,
+    created_by: int | None,
+    now_iso: str,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.execute(
+            """
+            INSERT INTO nomina_calculo_runs (
+                asistencia_import_id, cliente, clientes_json, fecha_inicio, fecha_fin,
+                config_json, status, total_empleados, warning_count, block_count,
+                created_by, created_at, updated_at, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(payload["asistencia_import_id"]),
+                str(payload.get("cliente") or ""),
+                json.dumps(payload.get("clientes_json") or [], ensure_ascii=False),
+                str(payload.get("fecha_inicio") or ""),
+                str(payload.get("fecha_fin") or ""),
+                json.dumps(payload.get("config_json") or {}, ensure_ascii=False),
+                str(payload.get("status") or "borrador"),
+                int(payload.get("total_empleados") or 0),
+                int(payload.get("warning_count") or 0),
+                int(payload.get("block_count") or 0),
+                created_by,
+                now_iso,
+                now_iso,
+                json.dumps(payload.get("raw_json") or {}, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def get_nomina_calculo_run(db_path: str, calculo_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM nomina_calculo_runs WHERE id = ?", (int(calculo_id),)).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["clientes_json"] = json.loads(d.get("clientes_json") or "[]")
+        d["config_json"] = json.loads(d.get("config_json") or "{}")
+        d["raw_json"] = json.loads(d.get("raw_json") or "{}")
+        return d
+    finally:
+        conn.close()
+
+
+def update_nomina_calculo_run(
+    db_path: str,
+    calculo_id: int,
+    updates: dict[str, Any],
+    *,
+    now_iso: str,
+) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        fields = []
+        params: list[Any] = []
+        for key in (
+            "status",
+            "total_empleados",
+            "warning_count",
+            "block_count",
+            "raw_json",
+            "config_json",
+        ):
+            if key in updates:
+                fields.append(f"{key} = ?")
+                val = updates[key]
+                if key in {"raw_json", "config_json"} and not isinstance(val, str):
+                    val = json.dumps(val, ensure_ascii=False)
+                params.append(val)
+        if not fields:
+            return
+        fields.append("updated_at = ?")
+        params.append(now_iso)
+        params.append(int(calculo_id))
+        conn.execute(
+            f"UPDATE nomina_calculo_runs SET {', '.join(fields)} WHERE id = ?",
+            tuple(params),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_nomina_calculo_rows(db_path: str, calculo_id: int) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("DELETE FROM nomina_calculo_rows WHERE calculo_id = ?", (int(calculo_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def insert_nomina_calculo_rows_batch(db_path: str, calculo_id: int, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        for row in rows:
+            conn.execute(
+                """
+                INSERT INTO nomina_calculo_rows (
+                    calculo_id, asistencia_row_id, parametro_empleado_id, vacaciones_empleado_id, infonavit_row_id,
+                    nss, numero_empleado, nombre_empleado, cliente, planta, puesto, banco, cuenta,
+                    salario_operativo, valor_x_he, es_frontera, smg_usado, exento_he_usado,
+                    dias_computables, septimo_dia, dias_pago, horas_extra, valor_he_fiscal, valor_extra_operativo,
+                    horas_extra_normales, importe_horas_extra_normales, dias_cubiertos_normales, importe_dias_cubiertos_normales,
+                    festivo_laborado_detected, importe_festivo_laborado, domingo_laborado_detected, importe_domingo_laborado,
+                    vacaciones_laboradas, importe_vacaciones_laboradas, prima_vacacional_aplicada, dias_prima_vacacional_pendientes, importe_prima_vacacional,
+                    bono_manual, bono_manual_clasificacion, deduccion_manual,
+                    sueldo_base_smg, concepto_gravable, concepto_exento, base_gravada, isr, bono_tpt, prima_eficiencia,
+                    infonavit_mensual, infonavit_semanal, infonavit_status,
+                    total_percepciones, total_deducciones, neto_simple, neto_a_pagar,
+                    base_neto_simple, neto_simple_operativo, neto_redondeado, ajuste_al_neto, neto_a_pagar_final,
+                    warnings_json, blocks_json, detail_json, manual_overrides_json, row_status,
+                    updated_by, updated_at
+                ) VALUES (
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                )
+                """,
+                (
+                    int(calculo_id),
+                    int(row["asistencia_row_id"]),
+                    row.get("parametro_empleado_id"),
+                    row.get("vacaciones_empleado_id"),
+                    row.get("infonavit_row_id"),
+                    row.get("nss"),
+                    row.get("numero_empleado"),
+                    row.get("nombre_empleado"),
+                    row.get("cliente"),
+                    row.get("planta"),
+                    row.get("puesto"),
+                    row.get("banco"),
+                    row.get("cuenta"),
+                    row.get("salario_operativo"),
+                    row.get("valor_x_he"),
+                    int(row.get("es_frontera") or 0),
+                    row.get("smg_usado"),
+                    row.get("exento_he_usado"),
+                    row.get("dias_computables"),
+                    row.get("septimo_dia"),
+                    row.get("dias_pago"),
+                    row.get("horas_extra"),
+                    row.get("valor_he_fiscal"),
+                    row.get("valor_extra_operativo"),
+                    row.get("horas_extra_normales"),
+                    row.get("importe_horas_extra_normales"),
+                    row.get("dias_cubiertos_normales"),
+                    row.get("importe_dias_cubiertos_normales"),
+                    int(row.get("festivo_laborado_detected") or 0),
+                    row.get("importe_festivo_laborado"),
+                    int(row.get("domingo_laborado_detected") or 0),
+                    row.get("importe_domingo_laborado"),
+                    row.get("vacaciones_laboradas"),
+                    row.get("importe_vacaciones_laboradas"),
+                    int(row.get("prima_vacacional_aplicada") or 0),
+                    row.get("dias_prima_vacacional_pendientes"),
+                    row.get("importe_prima_vacacional"),
+                    row.get("bono_manual"),
+                    row.get("bono_manual_clasificacion"),
+                    row.get("deduccion_manual"),
+                    row.get("sueldo_base_smg"),
+                    row.get("concepto_gravable"),
+                    row.get("concepto_exento"),
+                    row.get("base_gravada"),
+                    row.get("isr"),
+                    row.get("bono_tpt"),
+                    row.get("prima_eficiencia"),
+                    row.get("infonavit_mensual"),
+                    row.get("infonavit_semanal"),
+                    row.get("infonavit_status"),
+                    row.get("total_percepciones"),
+                    row.get("total_deducciones"),
+                    row.get("neto_simple"),
+                    row.get("neto_a_pagar"),
+                    row.get("base_neto_simple"),
+                    row.get("neto_simple_operativo"),
+                    row.get("neto_redondeado"),
+                    row.get("ajuste_al_neto"),
+                    row.get("neto_a_pagar_final"),
+                    json.dumps(row.get("warnings_json") or [], ensure_ascii=False),
+                    json.dumps(row.get("blocks_json") or [], ensure_ascii=False),
+                    json.dumps(row.get("detail_json") or {}, ensure_ascii=False),
+                    json.dumps(row.get("manual_overrides_json") or {}, ensure_ascii=False),
+                    str(row.get("row_status") or "pendiente"),
+                    row.get("updated_by"),
+                    row.get("updated_at"),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_nomina_calculo_rows(db_path: str, calculo_id: int) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT * FROM nomina_calculo_rows WHERE calculo_id = ? ORDER BY id ASC",
+            (int(calculo_id),),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["warnings_json"] = json.loads(d.get("warnings_json") or "[]")
+            d["blocks_json"] = json.loads(d.get("blocks_json") or "[]")
+            d["detail_json"] = json.loads(d.get("detail_json") or "{}")
+            d["manual_overrides_json"] = json.loads(d.get("manual_overrides_json") or "{}")
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def get_nomina_calculo_row(db_path: str, row_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM nomina_calculo_rows WHERE id = ?", (int(row_id),)).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["warnings_json"] = json.loads(d.get("warnings_json") or "[]")
+        d["blocks_json"] = json.loads(d.get("blocks_json") or "[]")
+        d["detail_json"] = json.loads(d.get("detail_json") or "{}")
+        d["manual_overrides_json"] = json.loads(d.get("manual_overrides_json") or "{}")
+        return d
+    finally:
+        conn.close()
+
+
+def update_nomina_calculo_row_manual(
+    db_path: str,
+    row_id: int,
+    fields: dict[str, Any],
+    *,
+    updated_by: int | None,
+    now_iso: str,
+) -> bool:
+    allowed_cols = {
+        "concepto_gravable",
+        "concepto_exento",
+        "bono_manual",
+        "deduccion_manual",
+        "importe_domingo_laborado",
+        "importe_festivo_laborado",
+        "infonavit_semanal",
+        "isr",
+        "bono_tpt",
+        "prima_eficiencia",
+        "total_percepciones",
+        "total_deducciones",
+        "neto_simple",
+        "neto_a_pagar",
+        "base_gravada",
+    }
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT manual_overrides_json, detail_json FROM nomina_calculo_rows WHERE id = ?",
+            (int(row_id),),
+        ).fetchone()
+        if row is None:
+            return False
+        manual = json.loads(row[0] or "{}")
+        detail = json.loads(row[1] or "{}")
+        set_parts: list[str] = []
+        params: list[Any] = []
+        for key, val in fields.items():
+            if key == "observaciones":
+                manual["observaciones"] = val
+                detail["observaciones_manual"] = val
+                continue
+            if key not in allowed_cols:
+                continue
+            set_parts.append(f"{key} = ?")
+            params.append(val)
+            manual[key] = val
+        set_parts.append("manual_overrides_json = ?")
+        params.append(json.dumps(manual, ensure_ascii=False))
+        set_parts.append("detail_json = ?")
+        params.append(json.dumps(detail, ensure_ascii=False))
+        set_parts.append("updated_by = ?")
+        params.append(updated_by)
+        set_parts.append("updated_at = ?")
+        params.append(now_iso)
+        set_parts.append("row_status = ?")
+        params.append("revisado")
+        params.append(int(row_id))
+        conn.execute(
+            f"UPDATE nomina_calculo_rows SET {', '.join(set_parts)} WHERE id = ?",
+            tuple(params),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def patch_nomina_calculo_row_engine_fields(
+    db_path: str,
+    row_id: int,
+    patch: dict[str, Any],
+    *,
+    now_iso: str | None = None,
+) -> None:
+    cols = [k for k, v in patch.items() if v is not None and k in {
+        "base_gravada",
+        "isr",
+        "total_percepciones",
+        "total_deducciones",
+        "neto_simple",
+        "neto_a_pagar",
+        "base_neto_simple",
+        "neto_simple_operativo",
+        "neto_redondeado",
+        "ajuste_al_neto",
+        "neto_a_pagar_final",
+        "detail_json",
+    }]
+    if not cols:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        params: list[Any] = []
+        for c in cols:
+            val = patch[c]
+            if c == "detail_json" and isinstance(val, dict):
+                val = json.dumps(val, ensure_ascii=False)
+            params.append(val)
+        if now_iso:
+            cols.append("updated_at")
+            params.append(now_iso)
+        params.append(int(row_id))
+        conn.execute(
+            f"UPDATE nomina_calculo_rows SET {', '.join(f'{c} = ?' for c in cols)} WHERE id = ?",
+            tuple(params),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def recount_calculo_run_totals(db_path: str, calculo_id: int, *, now_iso: str) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        run_rw = conn.execute("SELECT raw_json FROM nomina_calculo_runs WHERE id = ?", (int(calculo_id),)).fetchone()
+        extra = 0
+        if run_rw and run_rw[0]:
+            try:
+                raw = json.loads(run_rw[0])
+                extra = len(raw.get("run_warnings") or [])
+            except json.JSONDecodeError:
+                extra = 0
+        rows = conn.execute(
+            "SELECT warnings_json, blocks_json FROM nomina_calculo_rows WHERE calculo_id = ?",
+            (int(calculo_id),),
+        ).fetchall()
+        w = b = 0
+        for wj, bj in rows:
+            try:
+                w += len(json.loads(wj or "[]"))
+            except json.JSONDecodeError:
+                pass
+            try:
+                b += len(json.loads(bj or "[]"))
+            except json.JSONDecodeError:
+                pass
+        conn.execute(
+            "UPDATE nomina_calculo_runs SET warning_count = ?, block_count = ?, total_empleados = ?, updated_at = ? WHERE id = ?",
+            (w + extra, b, len(rows), now_iso, int(calculo_id)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
