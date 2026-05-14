@@ -1,0 +1,242 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.param-wrap { display:grid; gap:1rem; }
+.param-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.param-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem; }
+.param-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
+.param-kpi span { display:block; color:#64748b; font-size:.83rem; }
+.param-kpi strong { font-size:1.05rem; }
+.param-imports-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+.param-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:end; }
+.param-filters input, .param-filters select { padding:.4rem; border:1px solid #cbd5e1; border-radius:8px; }
+.param-table { width:100%; border-collapse:collapse; min-width:1500px; }
+.param-table th, .param-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.85rem; }
+.param-table tbody tr:hover { background:#f8fafc; }
+.param-table-wrap { overflow:auto; }
+.match-badge { display:inline-block; padding:.1rem .4rem; border-radius:6px; font-size:.75rem; font-weight:600; }
+.match-exact_nss { background:#dcfce7; color:#166534; }
+.match-exact_name { background:#dbeafe; color:#1e40af; }
+.match-probable_match { background:#fef3c7; color:#92400e; }
+.match-multiple_candidates { background:#fde68a; color:#7c2d12; }
+.match-no_match_headcount, .match-no_match_contpaq { background:#fee2e2; color:#991b1b; }
+.match-pending_review { background:#e5e7eb; color:#374151; }
+.match-imported { background:#e0f2fe; color:#075985; }
+.warn-list { margin:.2rem 0 0; padding-left:1rem; color:#92400e; font-size:.78rem; }
+.frontera-yes { color:#1e40af; font-weight:600; }
+.frontera-no { color:#475569; }
+@media (max-width: 1100px) { .param-kpis { grid-template-columns:1fr 1fr; } .param-imports-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas</span>
+    <h2>Parámetros base de empleados</h2>
+    <p>Consolidado Headcount + Nómina actual + CONTPAQ. No incluye motor de cálculo.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver a Nóminas</a>
+</section>
+
+<div class="param-wrap">
+  <section class="param-card">
+    <h3>KPIs</h3>
+    <div class="param-kpis">
+      <div class="param-kpi"><span>Empleados</span><strong>{{ stats.total_empleados }}</strong></div>
+      <div class="param-kpi"><span>Sin salario operativo</span><strong>{{ stats.missing_salario_operativo }}</strong></div>
+      <div class="param-kpi"><span>Sin valor x HE</span><strong>{{ stats.missing_valor_x_he }}</strong></div>
+      <div class="param-kpi"><span>Pendientes revisión</span><strong>{{ stats.pendientes_revision }}</strong></div>
+    </div>
+  </section>
+
+  <section class="param-imports-grid">
+    <div class="param-card">
+      <h3>Importar nómina actual</h3>
+      <p style="color:#64748b;font-size:.88rem;">Carrier/Pepsi/otros. Solo se leen parámetros base; no se guardan ISR/NETO/INFONAVIT.</p>
+      <form method="POST" action="{{ url_for('nomina.parametros_importar_nomina') }}" enctype="multipart/form-data" style="display:grid;gap:.5rem;">
+        <label>Cliente (hint)
+          <input type="text" name="cliente" placeholder="Carrier, Pepsi, GM…" />
+        </label>
+        <label>Archivo Excel (.xlsx/.xlsm)
+          <input type="file" name="file" accept=".xlsx,.xlsm" required />
+        </label>
+        <button class="btn btn-primary" type="submit">Importar nómina</button>
+      </form>
+    </div>
+    <div class="param-card">
+      <h3>Importar CONTPAQ (números de empleado)</h3>
+      <p style="color:#64748b;font-size:.88rem;">Exportación de CONTPAQ Nómina. Aporta código, NSS, fechas y estatus.</p>
+      <form method="POST" action="{{ url_for('nomina.parametros_importar_contpaq') }}" enctype="multipart/form-data" style="display:grid;gap:.5rem;">
+        <label>Archivo Excel
+          <input type="file" name="file" accept=".xlsx,.xlsm" required />
+        </label>
+        <button class="btn btn-primary" type="submit">Importar CONTPAQ</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="param-card">
+    <h3>Historial reciente de importaciones</h3>
+    <div class="param-table-wrap">
+      <table class="param-table" style="min-width:900px;">
+        <thead>
+          <tr>
+            <th>Tipo</th>
+            <th>Cliente</th>
+            <th>Archivo</th>
+            <th>Total filas</th>
+            <th>Match Headcount</th>
+            <th>Warnings</th>
+            <th>Errors</th>
+            <th>Creado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for imp in imports %}
+          <tr>
+            <td>{{ imp.tipo_importacion }}</td>
+            <td>{{ imp.cliente or '—' }}</td>
+            <td>{{ imp.source_filename }}</td>
+            <td>{{ imp.total_rows }}</td>
+            <td>{{ imp.matched_count }}</td>
+            <td>{{ imp.warning_count }}</td>
+            <td>{{ imp.error_count }}</td>
+            <td>{{ imp.created_at }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8">Sin importaciones registradas todavía.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="param-card">
+    <h3>Consolidado de empleados</h3>
+    <form method="GET" class="param-filters" style="margin-bottom:.6rem;">
+      <label>Cliente
+        <input type="text" name="cliente" value="{{ filtros.cliente }}" placeholder="Carrier, Pepsi…" />
+      </label>
+      <label>Estado
+        <select name="status">
+          <option value="">Todos</option>
+          <option value="pendientes" {% if filtros.status == 'pendientes' %}selected{% endif %}>Pendientes / sin match</option>
+        </select>
+      </label>
+      <label><input type="checkbox" name="missing_salario" value="1" {% if filtros.missing_salario %}checked{% endif %}> Sin salario operativo</label>
+      <label><input type="checkbox" name="missing_he" value="1" {% if filtros.missing_he %}checked{% endif %}> Sin valor x HE</label>
+      <button class="btn btn-secondary" type="submit">Aplicar</button>
+    </form>
+    <div class="param-table-wrap">
+      <table class="param-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>NSS</th>
+            <th># empleado</th>
+            <th>Código CONTPAQ</th>
+            <th>Cliente</th>
+            <th>Planta</th>
+            <th>Puesto</th>
+            <th>Banco</th>
+            <th>Cuenta</th>
+            <th>Sal. op.</th>
+            <th>Valor x HE</th>
+            <th>Localidad</th>
+            <th>Frontera</th>
+            <th>SMG aplicable</th>
+            <th>Exento HE</th>
+            <th>Headcount</th>
+            <th>CONTPAQ</th>
+            <th>Nómina</th>
+            <th>Warnings</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.nombre }}</td>
+            <td>{{ row.nss or '—' }}</td>
+            <td>{{ row.numero_empleado or '—' }}</td>
+            <td>{{ row.codigo_contpaq or '—' }}</td>
+            <td>{{ row.cliente or '—' }}</td>
+            <td>{{ row.planta or '—' }}</td>
+            <td>{{ row.puesto or '—' }}</td>
+            <td>{{ row.banco or '—' }}</td>
+            <td>{{ row.cuenta or '—' }}</td>
+            <td>{% if row.salario_operativo is not none %}${{ '%.2f'|format(row.salario_operativo) }}{% else %}—{% endif %}</td>
+            <td>{% if row.valor_x_he is not none %}${{ '%.2f'|format(row.valor_x_he) }}{% else %}—{% endif %}</td>
+            <td>{{ row.localidad or '—' }}</td>
+            <td>
+              {% if row.es_frontera == 1 %}
+                <span class="frontera-yes">Frontera</span>
+              {% elif row.es_frontera == 0 %}
+                <span class="frontera-no">General</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>{% if row.salario_minimo_usado is not none %}${{ '%.2f'|format(row.salario_minimo_usado) }}{% else %}—{% endif %}</td>
+            <td>{% if row.exento_he_usado is not none %}${{ '%.2f'|format(row.exento_he_usado) }}{% else %}—{% endif %}</td>
+            <td>
+              {% if row.headcount_match_status %}
+                <span class="match-badge match-{{ row.headcount_match_status }}">{{ row.headcount_match_status }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if row.contpaq_match_status %}
+                <span class="match-badge match-{{ row.contpaq_match_status }}">{{ row.contpaq_match_status }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if row.nomina_match_status %}
+                <span class="match-badge match-{{ row.nomina_match_status }}">{{ row.nomina_match_status }}</span>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if row.warnings %}
+              <ul class="warn-list">
+                {% for w in row.warnings %}<li>{{ w }}</li>{% endfor %}
+              </ul>
+              {% else %}—{% endif %}
+            </td>
+            <td><a class="btn btn-secondary" href="{{ url_for('nomina.parametros_editar', row_id=row.id) }}">Editar</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="20">Sin empleados con parámetros importados.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="param-card">
+    <h3>Localidades detectadas (frontera/general)</h3>
+    <div class="param-table-wrap">
+      <table class="param-table" style="min-width:700px;">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Localidad</th>
+            <th>Frontera</th>
+            <th>Fuente</th>
+            <th>Actualizado</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for loc in localidades %}
+          <tr>
+            <td>{{ loc.cliente or '—' }}</td>
+            <td>{{ loc.localidad }}</td>
+            <td>{% if loc.es_frontera %}<span class="frontera-yes">Sí</span>{% else %}<span class="frontera-no">No</span>{% endif %}</td>
+            <td>{{ loc.source_filename or '—' }}</td>
+            <td>{{ loc.updated_at or loc.created_at }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="5">Sin localidades clasificadas. Importa una nómina Pepsi con LOCALIDAD/FRONTERA para aprender.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

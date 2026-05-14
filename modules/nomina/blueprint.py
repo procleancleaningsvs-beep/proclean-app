@@ -50,12 +50,32 @@ from modules.nomina.db import (
     get_infonavit_row,
     update_infonavit_row,
     save_asistencia_import,
+    save_parametros_import,
+    upsert_empleado_parametros,
+    list_empleado_parametros,
+    get_empleado_parametro,
+    update_empleado_parametro,
+    get_parametros_stats,
+    list_parametros_imports,
+    upsert_localidades_frontera,
+    list_localidades_frontera,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
 from modules.nomina.headcount_bridge import obtener_headcount_completo
 from modules.nomina.infonavit_pdf import parse_infonavit_pdf
-from modules.nomina.config import get_umi_for_year
+from modules.nomina.config import (
+    get_exento_he_for_year,
+    get_smg_for_year,
+    get_umi_for_year,
+)
+from modules.nomina.parametros_excel import parse_nomina_actual
+from modules.nomina.contpaq_excel import parse_contpaq
+from modules.nomina.parametros_match import (
+    build_headcount_index,
+    build_parametro_row_from_contpaq,
+    build_parametro_row_from_nomina,
+)
 from modules.comparativo import alias_service
 from modules.comparativo.headcount_service import obtener_activos
 
@@ -289,11 +309,16 @@ def index():
         dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
         vac_stats = get_vacaciones_stats(_db_path())
         inf_stats = get_infonavit_stats(_db_path())
+        param_stats = get_parametros_stats(_db_path())
+        param_localidades = list_localidades_frontera(_db_path())
         return render_template(
             "nomina/dashboard.html",
             dash=dash,
             vac_stats=vac_stats,
             inf_stats=inf_stats,
+            param_stats=param_stats,
+            param_localidades_count=len(param_localidades),
+            param_localidades_frontera_count=sum(1 for it in param_localidades if it.get("es_frontera")),
             headcount_error=headcount_error,
             headcount_source=headcount_source,
         )
@@ -1076,6 +1101,300 @@ def infonavit_editar(row_id: int):
             flash("No se pudo actualizar el registro INFONAVIT.", "error")
         return redirect(url_for("nomina.infonavit_editar", row_id=row_id))
     return render_template("nomina/infonavit_edit.html", row=row)
+
+
+# ---------------------------------------------------------------------------
+# Parámetros de Nómina (Microfase 4.0)
+# ---------------------------------------------------------------------------
+
+def _parametros_year_default() -> int:
+    return date.today().year
+
+
+def _headcount_for_match() -> tuple[list[dict], str | None]:
+    try:
+        return obtener_headcount_completo(), None
+    except Exception as exc:  # pragma: no cover - depends on external excel
+        return [], str(exc)
+
+
+@nomina_bp.get("/parametros")
+@_nomina_dashboard_required
+def parametros_index():
+    db_path = _db_path()
+    cliente = (request.args.get("cliente") or "").strip() or None
+    status_filter = (request.args.get("status") or "").strip().lower()
+    only_missing_salary = request.args.get("missing_salario") == "1"
+    only_missing_he = request.args.get("missing_he") == "1"
+
+    match_filters: list[str] = []
+    if status_filter == "pendientes":
+        match_filters = [
+            "no_match_headcount",
+            "no_match_contpaq",
+            "probable_match",
+            "multiple_candidates",
+            "pending_review",
+        ]
+
+    rows = list_empleado_parametros(
+        db_path,
+        cliente=cliente,
+        match_status_any=match_filters or None,
+        only_missing_salary=only_missing_salary,
+        only_missing_valor_he=only_missing_he,
+        limit=2000,
+    )
+    stats = get_parametros_stats(db_path)
+    imports = list_parametros_imports(db_path, limit=20)
+    localidades = list_localidades_frontera(db_path)
+    return render_template(
+        "nomina/parametros_index.html",
+        rows=rows,
+        stats=stats,
+        imports=imports,
+        localidades=localidades,
+        filtros={
+            "cliente": cliente or "",
+            "status": status_filter,
+            "missing_salario": only_missing_salary,
+            "missing_he": only_missing_he,
+        },
+    )
+
+
+@nomina_bp.post("/parametros/importar-nomina")
+@_nomina_dashboard_required
+def parametros_importar_nomina():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Selecciona un archivo Excel de nómina actual.", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    cliente_hint = (request.form.get("cliente") or "").strip()
+    file_bytes = file.read()
+    if not file_bytes:
+        flash("Archivo vacío.", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        flash("Solo se permiten archivos Excel (.xlsx / .xlsm).", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    try:
+        parsed = parse_nomina_actual(file_bytes, filename=file.filename, cliente_hint=cliente_hint)
+    except ValueError as exc:
+        flash(f"No se pudo importar: {exc}", "error")
+        return redirect(url_for("nomina.parametros_index"))
+
+    db_path = _db_path()
+    hc_rows, hc_err = _headcount_for_match()
+    if hc_err:
+        parsed["warnings"].append(f"No se pudo cargar Headcount: {hc_err}")
+    hc_index = build_headcount_index(hc_rows)
+
+    # Save detected localidades first so subsequent rows benefit.
+    if parsed.get("localidades"):
+        upsert_localidades_frontera(db_path, parsed["localidades"], now_iso=_now_iso())
+
+    year = _parametros_year_default()
+    payload_rows: list[dict] = []
+    matched = 0
+    for parsed_row in parsed["rows"]:
+        p = build_parametro_row_from_nomina(
+            parsed_row,
+            hc_index=hc_index,
+            db_path=db_path,
+            year=year,
+            source_filename=file.filename,
+        )
+        if p["headcount_match_status"] in {"exact_nss", "exact_name"}:
+            matched += 1
+        payload_rows.append(p)
+
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    import_payload = {
+        "tipo_importacion": "NOMINA_ACTUAL",
+        "cliente": cliente_hint,
+        "source_filename": file.filename,
+        "file_hash": file_hash,
+        "total_rows": parsed["total_rows"],
+        "matched_count": matched,
+        "warning_count": sum(len(r.get("warnings") or []) for r in payload_rows) + len(parsed.get("warnings") or []),
+        "error_count": len(parsed.get("errors") or []),
+        "raw_json": {
+            "sheet": parsed.get("sheet"),
+            "file_warnings": parsed.get("warnings") or [],
+            "file_errors": parsed.get("errors") or [],
+        },
+    }
+    uid = int(g.user["id"]) if g.user is not None else None
+    import_id = save_parametros_import(db_path, import_payload, created_by=uid, now_iso=_now_iso())
+    inserted, updated = upsert_empleado_parametros(
+        db_path,
+        payload_rows,
+        import_id=import_id,
+        now_iso=_now_iso(),
+        overwrite_keys={
+            "salario_operativo",
+            "valor_x_he",
+            "banco",
+            "cuenta",
+            "planta",
+            "localidad",
+            "localidad_normalizada",
+            "es_frontera",
+            "salario_minimo_usado",
+            "exento_he_usado",
+        },
+    )
+    flash(
+        f"Nómina importada: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
+        f"Match Headcount exacto: {matched}.",
+        "success",
+    )
+    return redirect(url_for("nomina.parametros_index"))
+
+
+@nomina_bp.post("/parametros/importar-contpaq")
+@_nomina_dashboard_required
+def parametros_importar_contpaq():
+    file = request.files.get("file")
+    if not file or not file.filename:
+        flash("Selecciona un archivo Excel exportado de CONTPAQ.", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    file_bytes = file.read()
+    if not file_bytes:
+        flash("Archivo CONTPAQ vacío.", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        flash("Solo se permiten archivos Excel (.xlsx / .xlsm).", "error")
+        return redirect(url_for("nomina.parametros_index"))
+    try:
+        parsed = parse_contpaq(file_bytes, filename=file.filename)
+    except ValueError as exc:
+        flash(f"No se pudo importar CONTPAQ: {exc}", "error")
+        return redirect(url_for("nomina.parametros_index"))
+
+    db_path = _db_path()
+    hc_rows, hc_err = _headcount_for_match()
+    if hc_err:
+        parsed["warnings"].append(f"No se pudo cargar Headcount: {hc_err}")
+    hc_index = build_headcount_index(hc_rows)
+
+    payload_rows: list[dict] = []
+    matched = 0
+    for parsed_row in parsed["rows"]:
+        p = build_parametro_row_from_contpaq(
+            parsed_row,
+            hc_index=hc_index,
+            source_filename=file.filename,
+        )
+        if p["headcount_match_status"] in {"exact_nss", "exact_name"}:
+            matched += 1
+        payload_rows.append(p)
+
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    import_payload = {
+        "tipo_importacion": "CONTPAQ",
+        "cliente": "",
+        "source_filename": file.filename,
+        "file_hash": file_hash,
+        "total_rows": parsed["total_rows"],
+        "matched_count": matched,
+        "warning_count": sum(len(r.get("warnings") or []) for r in payload_rows) + len(parsed.get("warnings") or []),
+        "error_count": len(parsed.get("errors") or []),
+        "raw_json": {
+            "sheet": parsed.get("sheet"),
+            "file_warnings": parsed.get("warnings") or [],
+            "file_errors": parsed.get("errors") or [],
+        },
+    }
+    uid = int(g.user["id"]) if g.user is not None else None
+    import_id = save_parametros_import(db_path, import_payload, created_by=uid, now_iso=_now_iso())
+    inserted, updated = upsert_empleado_parametros(
+        db_path,
+        payload_rows,
+        import_id=import_id,
+        now_iso=_now_iso(),
+        overwrite_keys={"codigo_contpaq", "numero_empleado", "zona_salario_raw"},
+    )
+    flash(
+        f"CONTPAQ importado: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
+        f"Match Headcount exacto: {matched}.",
+        "success",
+    )
+    return redirect(url_for("nomina.parametros_index"))
+
+
+@nomina_bp.route("/parametros/<int:row_id>/editar", methods=["GET", "POST"])
+@_nomina_dashboard_required
+def parametros_editar(row_id: int):
+    row = get_empleado_parametro(_db_path(), row_id)
+    if not row:
+        abort(404)
+
+    if request.method == "POST":
+        def _f(name: str) -> float | None:
+            raw = (request.form.get(name) or "").strip().replace(",", "")
+            if not raw:
+                return None
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+
+        localidad = (request.form.get("localidad") or "").strip()
+        from modules.nomina.parametros_excel import _norm_locality
+        localidad_norm = _norm_locality(localidad)
+        es_frontera_raw = (request.form.get("es_frontera") or "").strip().upper()
+        es_frontera: bool | None
+        if es_frontera_raw in {"1", "TRUE", "VERDADERO", "SI"}:
+            es_frontera = True
+        elif es_frontera_raw in {"0", "FALSE", "FALSO", "NO"}:
+            es_frontera = False
+        else:
+            es_frontera = bool(row.get("es_frontera")) if row.get("es_frontera") is not None else None
+
+        year = _parametros_year_default()
+        if es_frontera is True:
+            smg = get_smg_for_year(year, "FRONTERA")
+            exento = get_exento_he_for_year(year, "FRONTERA")
+        else:
+            smg = get_smg_for_year(year, "GENERAL")
+            exento = get_exento_he_for_year(year, "GENERAL")
+
+        editable_json = dict(row.get("editable_json") or {})
+        comentario = (request.form.get("comentario") or "").strip()
+        if comentario:
+            historial = editable_json.setdefault("comentarios", [])
+            historial.append({
+                "by": int(g.user["id"]) if g.user is not None else None,
+                "at": _now_iso(),
+                "text": comentario,
+            })
+        editable_json["last_manual_edit_at"] = _now_iso()
+
+        updates = {
+            "numero_empleado": (request.form.get("numero_empleado") or "").strip() or None,
+            "salario_operativo": _f("salario_operativo"),
+            "valor_x_he": _f("valor_x_he"),
+            "localidad": localidad or None,
+            "localidad_normalizada": localidad_norm or None,
+            "es_frontera": es_frontera,
+            "salario_minimo_usado": _f("salario_minimo_usado") or (float(smg) if smg is not None else None),
+            "exento_he_usado": _f("exento_he_usado") or (float(exento) if exento is not None else None),
+            "editable_json": editable_json,
+        }
+        uid = int(g.user["id"]) if g.user is not None else None
+        update_empleado_parametro(
+            _db_path(),
+            row_id,
+            updates,
+            updated_by=uid,
+            updated_at=_now_iso(),
+        )
+        flash("Parámetros actualizados.", "success")
+        return redirect(url_for("nomina.parametros_editar", row_id=row_id))
+
+    return render_template("nomina/parametros_edit.html", row=row)
 
 
 def register_nomina(app) -> None:

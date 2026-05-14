@@ -72,6 +72,19 @@
     </section>
 
     <section class="nd-card">
+      <h3>Parámetros de Nómina</h3>
+      <div class="nd-kpis">
+        <div class="nd-kpi"><span>Empleados</span><strong>{{ param_stats.total_empleados }}</strong></div>
+        <div class="nd-kpi"><span>Sin salario operativo</span><strong>{{ param_stats.missing_salario_operativo }}</strong></div>
+        <div class="nd-kpi"><span>Sin valor x HE</span><strong>{{ param_stats.missing_valor_x_he }}</strong></div>
+        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ param_stats.pendientes_revision }}</strong></div>
+        <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
+        <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
+      </div>
+      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
+    </section>
+
+    <section class="nd-card">
       <h3>Cálculo de Nómina</h3>
       <p class="nd-soon">Próximamente: HE dobles/triples, prima dominical, festivos y visualizador tipo Excel.</p>
     </section>

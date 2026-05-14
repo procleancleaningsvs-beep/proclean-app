@@ -8,10 +8,32 @@ from typing import Iterable
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from modules.nomina.config import get_holidays_for_year
 from modules.nomina.db import NominaBaseRow
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_XLSX_PATH = BASE_DIR / "templates_excel" / "Plantilla_asistencia_v3.xlsx"
+TEMPLATE_XLSX_PATH = BASE_DIR / "templates_excel" / "Plantilla_asistencia_v4.xlsx"
+
+# --- v4 column layout (1-based) ---
+COL_NOMBRE = 1   # A
+COL_CLIENTE = 2  # B
+COL_PLANTA = 3   # C
+COL_PUESTO = 4   # D
+COL_BANCO = 5    # E
+COL_CUENTA = 6   # F
+COL_DAY_START = 7  # G..M = 7 days (cols 7..13)
+COL_DAY_END = 13
+COL_HORAS_EXTRA = 14            # N
+COL_HORAS_EXTRA_NORMALES = 15   # O
+COL_DIAS_CUBIERTOS = 16         # P
+COL_VACACIONES_LABORADAS = 17   # Q
+COL_PRIMA_VACACIONAL = 18       # R
+COL_BONO = 19                   # S
+COL_DEDUCCIONES = 20            # T
+COL_OBSERVACIONES = 21          # U
+
+START_DATA_ROW = 5
+DAILY_HEADER_ROW = 4
 
 
 def week_label(fecha_inicio: date, fecha_fin: date) -> str:
@@ -27,61 +49,76 @@ def build_daily_headers(fecha_inicio: date) -> list[str]:
     return out
 
 
-def _find_value_cell_for_label(ws: Worksheet, label: str) -> tuple[int, int]:
-    wanted = " ".join(label.upper().replace("\n", " ").split())
+def _holidays_in_range(fecha_inicio: date) -> dict[int, date]:
+    """Return mapping {day_index_in_period (0..6) -> date} for official holidays."""
+    out: dict[int, date] = {}
+    for i in range(7):
+        d = fecha_inicio + timedelta(days=i)
+        holidays = get_holidays_for_year(d.year)
+        if d in holidays:
+            out[i] = d
+    return out
+
+
+def _write_label_with_value(ws: Worksheet, label: str, value: str) -> None:
+    """v4: SEMANA:/CLIENTE:/COORDINADOR: labels live in merged top cell.
+    Write 'LABEL: VALUE' into the same cell so it renders inside the merged box.
+    """
+    target = (label or "").strip()
+    if not target.endswith(":"):
+        target += ":"
     for row in range(1, 6):
         for col in range(1, ws.max_column + 1):
-            text = " ".join(str(ws.cell(row=row, column=col).value or "").upper().replace("\n", " ").split())
-            if text != wanted:
+            cell_value = ws.cell(row=row, column=col).value
+            if cell_value is None:
                 continue
-            label_end_col = col
-            for merged in ws.merged_cells.ranges:
-                if merged.min_row <= row <= merged.max_row and merged.min_col <= col <= merged.max_col:
-                    label_end_col = max(label_end_col, merged.max_col)
-            candidate_col = label_end_col + 1
-            for merged in ws.merged_cells.ranges:
-                if merged.min_row <= row <= merged.max_row and merged.min_col > label_end_col:
-                    if merged.min_col < candidate_col:
-                        candidate_col = merged.min_col
-            return row, candidate_col
-    raise ValueError(f"No se encontró etiqueta {label} en plantilla Asistencia.")
+            text = str(cell_value).strip()
+            if text.split()[0].upper().rstrip(":") + ":" == target.upper():
+                ws.cell(row=row, column=col, value=f"{target} {value}")
+                return
+            if text.upper() == target.upper():
+                ws.cell(row=row, column=col, value=f"{target} {value}")
+                return
 
 
 def _write_superior_fields(ws: Worksheet, semana: str, cliente: str, coordinador: str) -> None:
-    semana_cell = _find_value_cell_for_label(ws, "SEMANA:")
-    cliente_cell = _find_value_cell_for_label(ws, "CLIENTE:")
-    coordinador_cell = _find_value_cell_for_label(ws, "COORDINADOR:")
-    ws.cell(row=semana_cell[0], column=semana_cell[1], value=semana)
-    ws.cell(row=cliente_cell[0], column=cliente_cell[1], value=cliente)
-    ws.cell(row=coordinador_cell[0], column=coordinador_cell[1], value=coordinador)
+    _write_label_with_value(ws, "SEMANA", semana)
+    _write_label_with_value(ws, "CLIENTE", cliente)
+    _write_label_with_value(ws, "COORDINADOR", coordinador)
 
 
 def _write_daily_headers(ws: Worksheet, headers: list[str]) -> None:
     for idx, header in enumerate(headers):
-        ws.cell(row=4, column=8 + idx, value=header)
+        ws.cell(row=DAILY_HEADER_ROW, column=COL_DAY_START + idx, value=header)
 
 
-def _write_base_rows(ws: Worksheet, base_rows: Iterable[NominaBaseRow]) -> None:
-    start_row = 5
+def _write_base_rows(
+    ws: Worksheet,
+    base_rows: Iterable[NominaBaseRow],
+    holiday_day_indices: list[int],
+) -> int:
+    written = 0
     for i, item in enumerate(base_rows):
-        row = start_row + i
-        ws.cell(row=row, column=1, value=item.nombre_empleado or "")
-        ws.cell(row=row, column=3, value=item.cliente or "")
-        ws.cell(row=row, column=4, value=item.planta or "")
-        ws.cell(row=row, column=5, value=item.puesto or "")
-        ws.cell(row=row, column=6, value=item.banco or "")
-        ws.cell(row=row, column=7, value=item.cuenta or "")
-        for col in range(8, 15):
-            ws.cell(row=row, column=col, value="")
-        ws.cell(row=row, column=15, value="")
-        ws.cell(row=row, column=16, value="")
-        ws.cell(row=row, column=17, value="")
-        ws.cell(row=row, column=18, value="")
-        ws.cell(row=row, column=19, value="")
-        ws.cell(row=row, column=20, value="N/A")
-        ws.cell(row=row, column=21, value="")
-        ws.cell(row=row, column=22, value="")
-        ws.cell(row=row, column=23, value="")
+        row = START_DATA_ROW + i
+        ws.cell(row=row, column=COL_NOMBRE, value=item.nombre_empleado or "")
+        ws.cell(row=row, column=COL_CLIENTE, value=item.cliente or "")
+        ws.cell(row=row, column=COL_PLANTA, value=item.planta or "")
+        ws.cell(row=row, column=COL_PUESTO, value=item.puesto or "")
+        ws.cell(row=row, column=COL_BANCO, value=item.banco or "")
+        ws.cell(row=row, column=COL_CUENTA, value=item.cuenta or "")
+        for idx in range(7):
+            col = COL_DAY_START + idx
+            ws.cell(row=row, column=col, value=("FE" if idx in holiday_day_indices else ""))
+        ws.cell(row=row, column=COL_HORAS_EXTRA, value="")
+        ws.cell(row=row, column=COL_HORAS_EXTRA_NORMALES, value="")
+        ws.cell(row=row, column=COL_DIAS_CUBIERTOS, value="")
+        ws.cell(row=row, column=COL_VACACIONES_LABORADAS, value="")
+        ws.cell(row=row, column=COL_PRIMA_VACACIONAL, value="N/A")
+        ws.cell(row=row, column=COL_BONO, value="")
+        ws.cell(row=row, column=COL_DEDUCCIONES, value="")
+        ws.cell(row=row, column=COL_OBSERVACIONES, value="")
+        written += 1
+    return written
 
 
 def build_asistencia_template_file(
@@ -100,9 +137,9 @@ def build_asistencia_template_file(
     ws = wb["Asistencia"]
     _write_superior_fields(ws, week_label(fecha_inicio, fecha_fin), cliente.strip(), coordinador.strip())
     _write_daily_headers(ws, build_daily_headers(fecha_inicio))
-    _write_base_rows(ws, base_rows)
+    holiday_map = _holidays_in_range(fecha_inicio)
+    _write_base_rows(ws, base_rows, sorted(holiday_map.keys()))
 
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
-

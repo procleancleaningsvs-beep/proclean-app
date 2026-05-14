@@ -67,10 +67,9 @@
             <th>{{ imp.rows[0].dia_5_header if imp.rows else 'D5' }}</th>
             <th>{{ imp.rows[0].dia_6_header if imp.rows else 'D6' }}</th>
             <th>{{ imp.rows[0].dia_7_header if imp.rows else 'D7' }}</th>
-            <th>HE</th>
-            <th>Turnos extra</th>
+            <th>Horas extra</th>
+            <th>Horas extra normales</th>
             <th>Días cubiertos</th>
-            <th>Festivo</th>
             <th>Vacaciones</th>
             <th>Prima vacacional</th>
             <th>Bono</th>
@@ -99,9 +98,8 @@
             <td>{{ row.dia_6_value }}</td>
             <td>{{ row.dia_7_value }}</td>
             <td>{{ row.he }}</td>
-            <td>{{ row.turnos_extra_normales }}</td>
+            <td>{{ row.horas_extra_normales or row.turnos_extra_normales }}</td>
             <td>{{ row.dias_cubiertos_normales }}</td>
-            <td>{{ row.festivo_laborado }}</td>
             <td>{{ row.vacaciones_laboradas }}</td>
             <td>{{ row.prima_vacacional }}</td>
             <td>{{ row.bono }}</td>
