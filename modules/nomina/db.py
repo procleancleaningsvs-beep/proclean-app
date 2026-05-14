@@ -233,12 +233,13 @@ def get_latest_import_base_rows(
     try:
         imp = conn.execute(
             """
-            SELECT id
-            FROM nomina_asistencia_imports
-            WHERE LOWER(TRIM(cliente)) = LOWER(TRIM(?))
-              AND status = 'draft'
-              AND date(fecha_inicio) < date(?)
-            ORDER BY date(fecha_inicio) DESC, id DESC
+            SELECT i.id
+            FROM nomina_asistencia_imports i
+            JOIN nomina_asistencia_rows r ON r.import_id = i.id
+            WHERE LOWER(TRIM(r.cliente)) = LOWER(TRIM(?))
+              AND i.status = 'draft'
+              AND date(i.fecha_inicio) < date(?)
+            ORDER BY date(i.fecha_inicio) DESC, i.id DESC
             LIMIT 1
             """,
             (_normalize_cliente_key(cliente), before_start_date.isoformat()),
@@ -250,11 +251,12 @@ def get_latest_import_base_rows(
             SELECT nombre_empleado, cliente, planta, puesto, banco, cuenta
             FROM nomina_asistencia_rows
             WHERE import_id = ?
+              AND LOWER(TRIM(cliente)) = LOWER(TRIM(?))
               AND TRIM(COALESCE(nombre_empleado, '')) <> ''
               AND TRIM(COALESCE(errors_json, '[]')) IN ('[]', '')
             ORDER BY row_number ASC, id ASC
             """,
-            (int(imp["id"]),),
+            (int(imp["id"]), _normalize_cliente_key(cliente)),
         ).fetchall()
         out: list[NominaBaseRow] = []
         for row in rows:
@@ -269,6 +271,75 @@ def get_latest_import_base_rows(
                 )
             )
         return out
+    finally:
+        conn.close()
+
+
+def get_latest_import_base_rows_multi(
+    db_path: str, clientes: list[str], before_start_date: date
+) -> list[NominaBaseRow]:
+    seen: set[tuple[str, str, str, str, str, str]] = set()
+    out: list[NominaBaseRow] = []
+    for cliente in clientes:
+        for row in get_latest_import_base_rows(db_path, cliente, before_start_date):
+            key = (
+                str(row.nombre_empleado or "").strip().casefold(),
+                str(row.cliente or "").strip().casefold(),
+                str(row.planta or "").strip().casefold(),
+                str(row.puesto or "").strip().casefold(),
+                str(row.banco or "").strip().casefold(),
+                str(row.cuenta or "").strip().casefold(),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(row)
+    return out
+
+
+def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str, Any]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        total_imports = int(
+            conn.execute("SELECT COUNT(*) FROM nomina_asistencia_imports").fetchone()[0]
+        )
+        pending_warnings = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_asistencia_imports WHERE warning_count > 0"
+            ).fetchone()[0]
+        )
+        recientes = conn.execute(
+            """
+            SELECT id, semana, cliente, coordinador, status, total_rows, error_count, warning_count, created_at
+            FROM nomina_asistencia_imports
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (int(recent_limit),),
+        ).fetchall()
+        return {
+            "total_imports": total_imports,
+            "pending_warnings": pending_warnings,
+            "recent_imports": [dict(row) for row in recientes],
+        }
+    finally:
+        conn.close()
+
+
+def nomina_clientes_from_history(db_path: str) -> list[str]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT TRIM(cliente) AS cliente
+            FROM nomina_asistencia_rows
+            WHERE TRIM(COALESCE(cliente, '')) <> ''
+            ORDER BY cliente
+            """
+        ).fetchall()
+        return [str(r["cliente"] or "").strip() for r in rows if str(r["cliente"] or "").strip()]
     finally:
         conn.close()
 

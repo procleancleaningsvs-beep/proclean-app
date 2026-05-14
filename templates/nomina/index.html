@@ -8,6 +8,8 @@
 .nom-field { display:flex; flex-direction:column; gap:.25rem; }
 .nom-field label { font-weight:600; }
 .nom-help { color:#64748b; font-size:.9rem; margin-top:.1rem; }
+.nom-client-list { min-height:180px; }
+.nom-note { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.65rem; color:#334155; font-size:.9rem; }
 @media (max-width: 980px) { .nom-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -16,16 +18,20 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Nóminas</span>
-    <h2>Master de asistencia</h2>
-    <p>Microfase 1: descarga de plantilla, importación, validación y borrador.</p>
+    <h2>Hub de Master de asistencia</h2>
+    <p>Descarga, importación, validación y desglose. Sin cálculo de nómina en esta fase.</p>
   </div>
+  <div class="nom-note">Coordinador: <strong>{{ coordinador_display }}</strong></div>
 </section>
 
 <div class="nom-layout">
+  {% if headcount_error %}
+  <div class="nom-note">No fue posible leer clientes desde Headcount: {{ headcount_error }}</div>
+  {% endif %}
   <div class="nom-grid">
     <section class="nom-card">
       <h3>Descargar Master de Asistencia</h3>
-      <p class="nom-help">La fecha fin se calcula automáticamente como fecha inicio + 6 días.</p>
+      <p class="nom-help">La fecha fin se calcula automáticamente como fecha inicio + 6 días. Puedes seleccionar uno o varios clientes.</p>
       <form class="nom-form" method="post" action="{{ url_for('nomina.descargar_plantilla') }}">
         <div class="nom-field">
           <label for="fecha_inicio">Fecha inicio del periodo</label>
@@ -36,13 +42,31 @@
           <input id="fecha_fin" type="date" readonly>
         </div>
         <div class="nom-field">
-          <label for="cliente">Cliente</label>
-          <input id="cliente" name="cliente" type="text" placeholder="Ej. Vitroflex" required>
+          <label for="clientes">Clientes{% if clientes %} (selección múltiple){% endif %}</label>
+          {% if clientes %}
+          <select id="clientes" name="clientes" class="nom-client-list" multiple required>
+            {% for c in clientes %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+          <p class="nom-help">Mantén Ctrl/Cmd para seleccionar varios clientes.</p>
+          {% else %}
+          <input id="cliente" name="cliente" type="text" placeholder="Cliente" required>
+          <p class="nom-help">No se detectaron clientes desde Headcount/historial; captura manualmente de forma temporal.</p>
+          {% endif %}
         </div>
+        {% if clientes %}
         <div class="nom-field">
-          <label for="coordinador">Coordinador</label>
-          <input id="coordinador" name="coordinador" type="text" placeholder="Nombre del coordinador" required>
+          <label for="grupo_clientes">Agrupación (opcional)</label>
+          <select id="grupo_clientes">
+            <option value="">Seleccionar agrupación…</option>
+            {% for gname, members in agrupaciones.items() %}
+            <option value="{{ gname }}" data-members="{{ members|join('||') }}">{{ gname }} ({{ members|length }})</option>
+            {% endfor %}
+          </select>
+          <p class="nom-help">Al elegir una agrupación, se preseleccionan sus clientes.</p>
         </div>
+        {% endif %}
         <button type="submit" class="btn btn-primary">Descargar plantilla</button>
       </form>
     </section>
@@ -58,6 +82,9 @@
         <button type="submit" class="btn btn-primary">Importar y validar</button>
       </form>
     </section>
+  </div>
+  <div class="nom-note">
+    Edición web pendiente: <strong>Microfase 1.2: visualizador editable tipo Excel con guardado incremental</strong>.
   </div>
 </div>
 
@@ -75,6 +102,18 @@
     fin.value = dt.toISOString().slice(0, 10);
   }
   ini?.addEventListener("change", syncEndDate);
+
+  const groupSel = document.getElementById("grupo_clientes");
+  const clientsSel = document.getElementById("clientes");
+  groupSel?.addEventListener("change", function () {
+    if (!clientsSel) return;
+    const opt = groupSel.options[groupSel.selectedIndex];
+    const members = (opt?.dataset?.members || "").split("||").filter(Boolean);
+    if (!members.length) return;
+    for (const option of clientsSel.options) {
+      option.selected = members.includes(option.value);
+    }
+  });
 })();
 </script>
 {% endblock %}

@@ -1,0 +1,105 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.nd-wrap { display:grid; gap:1rem; }
+.nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
+.nd-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.6rem; }
+.nd-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
+.nd-kpi span { display:block; color:#64748b; font-size:.83rem; }
+.nd-kpi strong { font-size:1.05rem; }
+.nd-table-wrap { overflow:auto; }
+.nd-table { width:100%; border-collapse:collapse; min-width:760px; }
+.nd-table th, .nd-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
+.nd-soon { color:#64748b; font-size:.9rem; }
+@media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas</span>
+    <h2>Dashboard base</h2>
+    <p>Vista inicial para roles Nómina y Admin. Sin cálculos fiscales/laborales en esta microfase.</p>
+  </div>
+  <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
+</section>
+
+<div class="nd-wrap">
+  <div class="nd-grid">
+    <section class="nd-card">
+      <h3>Asistencias</h3>
+      <div class="nd-kpis">
+        <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
+        <div class="nd-kpi"><span>Pendientes con warnings</span><strong>{{ dash.pending_warnings }}</strong></div>
+      </div>
+      <p class="nd-soon" style="margin-top:.7rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
+    </section>
+
+    <section class="nd-card">
+      <h3>Vacaciones</h3>
+      <p class="nd-soon">Próximamente: importación histórica, saldo, primas, vacaciones laboradas y match con Headcount.</p>
+    </section>
+
+    <section class="nd-card">
+      <h3>INFONAVIT</h3>
+      <p class="nd-soon">Próximamente: carga de PDF INFONAVIT, retención/modificación/suspensión y match por NSS/nombre.</p>
+    </section>
+
+    <section class="nd-card">
+      <h3>Cálculo de Nómina</h3>
+      <p class="nd-soon">Próximamente: HE dobles/triples, prima dominical, festivos y visualizador tipo Excel.</p>
+    </section>
+
+    <section class="nd-card">
+      <h3>Exportaciones</h3>
+      <p class="nd-soon">Próximamente: Excel de nómina, banco y pagos fuera de banco.</p>
+    </section>
+
+    <section class="nd-card">
+      <h3>Costeo / Facturación</h3>
+      <p class="nd-soon">Próximamente: costo semanal, carga social, margen y facturación aproximada.</p>
+    </section>
+  </div>
+
+  <section class="nd-card">
+    <h3>Historial / Auditoría</h3>
+    <p class="nd-soon">Auditoría avanzada: próximamente.</p>
+    <div class="nd-table-wrap">
+      <table class="nd-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Semana</th>
+            <th>Cliente</th>
+            <th>Coordinador</th>
+            <th>Total</th>
+            <th>Warnings</th>
+            <th>Creado</th>
+            <th>Ver</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in dash.recent_imports %}
+          <tr>
+            <td>{{ item.id }}</td>
+            <td>{{ item.semana }}</td>
+            <td>{{ item.cliente }}</td>
+            <td>{{ item.coordinador }}</td>
+            <td>{{ item.total_rows }}</td>
+            <td>{{ item.warning_count }}</td>
+            <td>{{ item.created_at }}</td>
+            <td><a class="btn btn-secondary" href="{{ url_for('nomina.asistencia_importada', import_id=item.id) }}">Abrir</a></td>
+          </tr>
+          {% endfor %}
+          {% if not dash.recent_imports %}
+          <tr><td colspan="8">Sin importaciones registradas todavía.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+

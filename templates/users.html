@@ -4,7 +4,7 @@
   <div>
     <span class="eyebrow">Gobernanza</span>
     <h2>Usuarios y roles</h2>
-    <p>Administra accesos para perfiles <strong>admin</strong> y <strong>usuario</strong>.</p>
+    <p>Administra accesos para perfiles <strong>admin</strong>, <strong>nomina</strong>, <strong>coordinador</strong> y <strong>usuario</strong>.</p>
   </div>
 </section>
 
@@ -20,6 +20,8 @@
     <label>Rol
       <select name="role">
         <option value="usuario">usuario</option>
+        <option value="coordinador">coordinador</option>
+        <option value="nomina">nomina</option>
         <option value="admin">admin</option>
       </select>
     </label>
@@ -51,6 +53,8 @@
             <td>
               <select name="edit_role" form="user-edit-{{ user.id }}" class="table-input">
                 <option value="usuario" {% if user.role == 'usuario' %}selected{% endif %}>usuario</option>
+                <option value="coordinador" {% if user.role == 'coordinador' %}selected{% endif %}>coordinador</option>
+                <option value="nomina" {% if user.role == 'nomina' %}selected{% endif %}>nomina</option>
                 <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>admin</option>
               </select>
             </td>

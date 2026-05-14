@@ -602,7 +602,7 @@ def create_app() -> Flask:
                     flash("Usuario no válido.", "error")
                 elif not username:
                     flash("El usuario es obligatorio.", "error")
-                elif role not in {"admin", "usuario"}:
+                elif role not in {"admin", "usuario", "coordinador", "nomina"}:
                     flash("Rol no válido.", "error")
                 elif g.user["id"] == user_id and role != "admin":
                     flash("No puedes quitarte el rol de administrador a ti mismo.", "error")
@@ -634,7 +634,7 @@ def create_app() -> Flask:
 
                 if not username:
                     flash("El usuario es obligatorio.", "error")
-                elif role not in {"admin", "usuario"}:
+                elif role not in {"admin", "usuario", "coordinador", "nomina"}:
                     flash("Rol no válido.", "error")
                 else:
                     if not password:
@@ -1038,6 +1038,37 @@ def _migrate_checkid_query_log_schema(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE checkid_query_log ADD COLUMN {name} {typ}")
 
 
+def _migrate_users_role_constraint(conn: sqlite3.Connection) -> None:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+    ).fetchone()
+    table_sql = str(row[0] if row else "")
+    if "CHECK(role IN ('admin','usuario','coordinador','nomina'))" in table_sql:
+        return
+
+    conn.execute("DROP TABLE IF EXISTS users_new")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina')),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO users_new (id, username, password_hash, role, created_at)
+        SELECT id, username, password_hash, role, created_at
+        FROM users
+        """
+    )
+    conn.execute("DROP TABLE users")
+    conn.execute("ALTER TABLE users_new RENAME TO users")
+
+
 def init_db() -> None:
     conn = sqlite3.connect(DB_PATH)
     try:
@@ -1047,11 +1078,12 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('admin','usuario')),
+                role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina')),
                 created_at TEXT NOT NULL
             )
             """
         )
+        _migrate_users_role_constraint(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS format_history (

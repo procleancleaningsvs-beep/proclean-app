@@ -46,7 +46,9 @@
     <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
     <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
     <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link">Reporte mensual</a>
+    {% if current_user.role in ['admin', 'coordinador', 'nomina'] %}
     <a href="{{ url_for('nomina.index') }}" class="nav-link">Nóminas</a>
+    {% endif %}
   </div>
 
   {% if current_user.role == 'admin' %}
