@@ -1,0 +1,44 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'notas' %}
+{% block fx_main %}
+<div class="fx-hero">
+  <div>
+    <h1>Notas de crédito</h1>
+    <p class="fx-muted" style="font-size:0.9rem">Registro secundario; no afecta el dashboard principal.</p>
+  </div>
+</div>
+
+{% if is_admin %}
+<form method="post" class="fx-form-grid" style="margin-bottom:1.5rem;background:#fff;padding:1rem;border-radius:12px;border:1px solid var(--line)">
+  <label>Cliente<input type="text" name="cliente"></label>
+  <label>Número nota<input type="text" name="numero_nota"></label>
+  <label>ID factura (opcional)<input type="number" name="factura_id" min="1"></label>
+  <label>Monto<input type="text" name="monto"></label>
+  <label>Fecha<input type="date" name="fecha" required></label>
+  <label>Mes (opcional)<input type="number" name="mes" min="1" max="12"></label>
+  <label>Año (opcional)<input type="number" name="anio" value="2026"></label>
+  <label style="grid-column:1/-1">Comentario<textarea name="comentario" rows="2"></textarea></label>
+  <button type="submit" class="fx-btn fx-btn--primary">Registrar</button>
+</form>
+{% endif %}
+
+<div class="fx-table-wrap">
+  <table class="fx-table">
+    <thead><tr><th>Fecha</th><th>Cliente</th><th>Nota</th><th>Factura</th><th>Monto</th><th>Comentario</th></tr></thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.fecha }}</td>
+        <td>{{ r.cliente or '—' }}</td>
+        <td>{{ r.numero_nota or '—' }}</td>
+        <td>{% if r.factura_id %}<a href="{{ url_for('facturacion.factura_detail', fid=r.factura_id) }}">{{ r.factura_numero or r.factura_id }}</a>{% else %}—{% endif %}</td>
+        <td>{{ r.monto or '—' }}</td>
+        <td class="fx-muted" style="max-width:240px;font-size:0.85rem">{{ r.comentario or '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="fx-muted">Sin registros.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

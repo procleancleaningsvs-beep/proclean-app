@@ -1,0 +1,95 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'facturas' %}
+{% block fx_main %}
+<div class="fx-hero">
+  <div>
+    <h1>Facturas</h1>
+    <p>Consulta, filtra y da seguimiento. Los administradores pueden editar y cargar archivos.</p>
+  </div>
+  {% if is_admin %}
+  <div class="fx-toolbar" style="margin:0">
+    <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.factura_nuevo') }}">Nueva factura</a>
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.export_excel', mes=filtros.mes or 5, anio=filtros.anio or 2026) }}">Exportar mes</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="fx-toolbar" method="get">
+  <label>Mes <select name="mes"><option value="">—</option>{% for m in range(1,13) %}<option value="{{ m }}" {% if filtros.mes == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
+  <label>Año <input type="number" name="anio" value="{{ filtros.anio or '' }}" placeholder="2026"></label>
+  <label>Cliente <select name="cliente"><option value="">—</option>{% for c in clientes %}<option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>
+  <label>Operativo <select name="estatus_operativo"><option value="">—</option>{% for o in operativos %}<option value="{{ o }}" {% if filtros.estatus_operativo == o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></label>
+  <label>Pago <select name="estatus_pago"><option value="">—</option>{% for p in pagos %}<option value="{{ p }}" {% if filtros.estatus_pago == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+  <label>Alerta <select name="alerta"><option value="">—</option>{% for a in alertas %}<option value="{{ a }}" {% if filtros.alerta == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
+  <label>Factura <input type="text" name="q" value="{{ filtros.q or '' }}" placeholder="número"></label>
+  <label>PO/OC <input type="text" name="po" value="{{ filtros.po or '' }}"></label>
+  <button type="submit" class="fx-btn fx-btn--primary">Filtrar</button>
+</form>
+
+{% if is_admin %}
+<form class="fx-toolbar" method="post" action="{{ url_for('facturacion.upload_adjuntos') }}" enctype="multipart/form-data" style="background:#f8fafc;padding:0.75rem;border-radius:12px;border:1px dashed var(--line)">
+  <label>Subir PDF/XML (auto-relación)
+    <input type="file" name="archivos" multiple accept=".pdf,.xml,application/pdf,text/xml,application/xml">
+  </label>
+  <label>Mes ref. <input type="number" name="mes" min="1" max="12" value="{{ filtros.mes or '' }}" placeholder="opcional"></label>
+  <label>Año ref. <input type="number" name="anio" value="{{ filtros.anio or '' }}" placeholder="opcional"></label>
+  <button type="submit" class="fx-btn fx-btn--primary">Subir</button>
+</form>
+{% endif %}
+
+<div class="fx-table-wrap">
+  <table class="fx-table">
+    <thead>
+      <tr>
+        <th>Periodo</th>
+        <th>Cliente</th>
+        <th>Factura</th>
+        <th>PO/OC</th>
+        <th>Total</th>
+        <th>Operativo</th>
+        <th>Pago</th>
+        <th>Alertas</th>
+        <th>PDF</th>
+        <th>XML</th>
+        <th>Actualización</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.mes }}/{{ r.anio }}</td>
+        <td>{{ r.cliente }}</td>
+        <td><strong>{{ r.numero_factura }}</strong></td>
+        <td>{{ r.po_oc or '—' }}</td>
+        <td>{% if r.total is not none %}{{ "%.2f"|format(r.total|float) }}{% else %}—{% endif %}</td>
+        <td>
+          {% set op = r.estatus_operativo %}
+          <span class="fx-pill {% if op == 'LISTO' %}fx-pill--op-listo{% elif op == 'PORTAL' %}fx-pill--op-portal{% elif op == 'PENDIENTE NR' %}fx-pill--op-pnr{% elif op == 'ENVIADO' %}fx-pill--op-env{% elif op == 'COTIZACIÓN ENVIADA' %}fx-pill--op-cot{% else %}fx-pill--op-en-cola{% endif %}">{{ op }}</span>
+        </td>
+        <td>
+          {% set pg = r.estatus_pago %}
+          <span class="fx-pill {% if pg == 'PAGADO' %}fx-pill--pg-pag{% elif pg == 'PARCIAL' %}fx-pill--pg-par{% else %}fx-pill--pg-pend{% endif %}">{{ pg }}</span>
+        </td>
+        <td style="max-width:160px">
+          {% for a in r.alertas %}
+          <span class="fx-pill fx-pill--al-{% if a == 'URGENTE' %}urg{% elif a == 'ERROR' %}err{% elif a == 'REFACTURAR' %}ref{% else %}def{% endif %}">{{ a }}</span>
+          {% else %}—{% endfor %}
+        </td>
+        <td>{% if r._adjuntos.pdf %}<a href="{{ url_for('facturacion.descargar_adjunto', fid=r.id, tipo='pdf') }}">Sí</a>{% else %}<span class="fx-muted">No</span>{% endif %}</td>
+        <td>{% if r._adjuntos.xml %}<a href="{{ url_for('facturacion.descargar_adjunto', fid=r.id, tipo='xml') }}">Sí</a>{% else %}<span class="fx-muted">No</span>{% endif %}</td>
+        <td class="fx-muted" style="white-space:nowrap;font-size:0.8rem">{{ r.fecha_actualizacion or '' }}</td>
+        <td class="fx-actions">
+          <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_detail', fid=r.id) }}">Ver</a>
+          {% if is_admin %}
+          <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_editar', fid=r.id) }}">Editar</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="12" class="fx-muted" style="padding:1.5rem">Sin resultados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

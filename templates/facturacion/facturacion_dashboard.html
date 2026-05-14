@@ -1,0 +1,117 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'dash' %}
+{% block fx_extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
+{% endblock %}
+{% block fx_main %}
+<div class="fx-hero">
+  <div>
+    <h1>Facturación</h1>
+    <p>Avance operativo mensual y tendencia anual. El avance se calcula con estatus LISTO.</p>
+  </div>
+  {% if is_admin %}
+  <div class="fx-toolbar" style="margin:0">
+    <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.export_excel', mes=mes, anio=anio) }}">Exportar Excel</a>
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_nuevo') }}">Nueva factura</a>
+  </div>
+  {% endif %}
+</div>
+
+<form class="fx-toolbar" method="get" action="{{ url_for('facturacion.dashboard') }}">
+  <label>Mes
+    <select name="mes">
+      {% for m in range(1,13) %}
+      <option value="{{ m }}" {% if m == mes %}selected{% endif %}>{{ ['','Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'][m] }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>Año
+    <input type="number" name="anio" value="{{ anio }}" min="2020" max="2040">
+  </label>
+  <button type="submit" class="fx-btn fx-btn--primary">Actualizar</button>
+</form>
+
+<div class="fx-grid">
+  <div class="fx-card fx-card--ok">
+    <p class="k">Avance mensual</p>
+    <p class="v">{{ mstats.avance_pct }}%</p>
+    <p class="sub">{{ mstats.listo }} de {{ mstats.total }} en LISTO</p>
+    {% set ap = mstats.avance_pct if mstats.avance_pct < 100 else 100 %}
+    <div class="fx-progress"><span style="width: {{ ap }}%"></span></div>
+  </div>
+  <div class="fx-card fx-card--calm">
+    <p class="k">Total facturas (mes)</p>
+    <p class="v">{{ mstats.total }}</p>
+    <p class="sub">Pendientes operativos: {{ mstats.pendientes }}</p>
+  </div>
+  <div class="fx-card fx-card--hot">
+    <p class="k">Atoradas / atención</p>
+    <p class="v">{{ mstats.atoradas }}</p>
+    <p class="sub">Urgentes: {{ mstats.urgentes }} · Errores: {{ mstats.errores }}</p>
+  </div>
+  <div class="fx-card fx-card--purple">
+    <p class="k">Portal / Pend. NR</p>
+    <p class="v">{{ mstats.portal }} / {{ mstats.pendiente_nr }}</p>
+    <p class="sub">Sin PO/OC (alerta): {{ mstats.sin_po_oc }}</p>
+  </div>
+  <div class="fx-card">
+    <p class="k">Refacturaciones (mes)</p>
+    <p class="v">{{ mstats.refacturaciones }}</p>
+    <p class="sub">Vínculos activos en el periodo</p>
+  </div>
+  <div class="fx-card fx-card--calm">
+    <p class="k">Pagadas (secundario)</p>
+    <p class="v">{{ mstats.pagadas }}</p>
+    <p class="sub">Estatus de pago, no operativo</p>
+  </div>
+</div>
+
+<div class="fx-chart-grid">
+  <div class="fx-chart-card">
+    <h3>Distribución operativa (mes)</h3>
+    <div class="fx-dough-wrap">
+      <canvas id="chartOperativo" height="200"></canvas>
+      <div class="fx-dough-center">
+        <strong>{{ mstats.avance_pct }}%</strong>
+        <span>avance</span>
+      </div>
+    </div>
+  </div>
+  <div class="fx-chart-card">
+    <h3>Acumulado anual {{ anio }} — por estatus</h3>
+    <canvas id="chartAnualMes" height="220"></canvas>
+    <p class="fx-muted" style="margin-top:0.75rem">Total año: {{ ystats.total }} · Listas: {{ ystats.listo }} · Avance: {{ ystats.avance_pct }}%</p>
+  </div>
+</div>
+
+<script type="application/json" id="fx-chart-data">{{ chart_json | safe }}</script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var el = document.getElementById("fx-chart-data");
+  if (!el || typeof Chart === "undefined") return;
+  var data = {};
+  try { data = JSON.parse(el.textContent || "{}"); } catch (e) { return; }
+  var dough = document.getElementById("chartOperativo");
+  if (dough && data.dough_operativo && data.dough_operativo.length) {
+    var labels = data.dough_operativo.map(function (x) { return x.label; });
+    var values = data.dough_operativo.map(function (x) { return x.value; });
+    var colors = ["#94a3b8", "#7dd3fc", "#60a5fa", "#fb923c", "#c4b5fd", "#4ade80"];
+    new Chart(dough, {
+      type: "doughnut",
+      data: { labels: labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+      options: { cutout: "70%", plugins: { legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 11 } } } } }
+    });
+  }
+  var barEl = document.getElementById("chartAnualMes");
+  if (barEl && data.anual && data.anual.por_operativo) {
+    var po = data.anual.por_operativo;
+    var lk = Object.keys(po);
+    new Chart(barEl, {
+      type: "bar",
+      data: { labels: lk, datasets: [{ label: "Facturas", data: lk.map(function (k) { return po[k]; }), borderRadius: 8, backgroundColor: "#22B8E8" }] },
+      options: { scales: { y: { beginAtZero: true, ticks: { precision: 0 } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+    });
+  }
+});
+</script>
+{% endblock %}

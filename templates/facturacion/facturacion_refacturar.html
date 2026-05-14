@@ -1,0 +1,36 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'facturas' %}
+{% block fx_main %}
+{% if not base %}
+<p class="fx-muted">Factura no encontrada.</p>
+{% else %}
+<div class="fx-hero">
+  <h1>Refacturar {{ base.numero_factura }}</h1>
+  <p class="fx-muted">Se desactivará la factura actual y se creará una nueva activa con historial.</p>
+</div>
+<form method="post" class="fx-form-grid" style="background:#fff;padding:1.25rem;border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line)">
+  <label style="grid-column:1/-1">Motivo *<textarea name="motivo" required rows="2" placeholder="Describe el motivo de la refacturación"></textarea></label>
+  <label>Mes *<input type="number" name="mes" required min="1" max="12" value="{{ base.mes }}"></label>
+  <label>Año *<input type="number" name="anio" required value="{{ base.anio }}"></label>
+  <label>Cliente *<input type="text" name="cliente" required value="{{ base.cliente }}"></label>
+  <label>Planta<input type="text" name="planta_servicio" value="{{ base.planta_servicio or '' }}"></label>
+  <label>Usuario<input type="text" name="usuario_contacto" value="{{ base.usuario_contacto or '' }}"></label>
+  <label>Nuevo número factura *<input type="text" name="numero_factura" required placeholder="Nuevo folio"></label>
+  <label>PO/OC<input type="text" name="po_oc" value="{{ base.po_oc or '' }}"></label>
+  <label>Subtotal<input type="text" name="subtotal" value="{{ base.subtotal or '' }}"></label>
+  <label>IVA<input type="text" name="iva" value="{{ base.iva or '' }}"></label>
+  <label>Total<input type="text" name="total" value="{{ base.total or '' }}"></label>
+  <label>Fecha factura<input type="date" name="fecha_factura" value="{{ base.fecha_factura or '' }}"></label>
+  <label>Vencimiento<input type="date" name="fecha_vencimiento" value="{{ base.fecha_vencimiento or '' }}"></label>
+  <label>Operativo *<select name="estatus_operativo" required>{% for o in operativos %}<option value="{{ o }}">{{ o }}</option>{% endfor %}</select></label>
+  <label>Pago *<select name="estatus_pago" required>{% for p in pagos %}<option value="{{ p }}" {% if p == base.estatus_pago %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+  <label style="grid-column:1/-1">Requiere portal <input type="checkbox" name="requiere_portal" value="1" {% if base.requiere_portal %}checked{% endif %}></label>
+  <label style="grid-column:1/-1">Alertas{% for a in alertas %}<label style="display:inline-flex;margin-right:0.75rem;font-weight:400"><input type="checkbox" name="alertas" value="{{ a }}"> {{ a }}</label>{% endfor %}</label>
+  <label style="grid-column:1/-1">Comentarios<textarea name="comentarios" rows="2">{{ base.comentarios or '' }}</textarea></label>
+  <div style="grid-column:1/-1;display:flex;gap:0.5rem">
+    <button type="submit" class="fx-btn fx-btn--primary">Crear refacturación</button>
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_detail', fid=base.id) }}">Cancelar</a>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

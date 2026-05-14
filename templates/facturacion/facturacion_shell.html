@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='facturacion.css') }}">
+{% block fx_extra_head %}{% endblock %}
+{% endblock %}
+{% block content %}
+<div class="fx-wrap">
+  {% include "facturacion/_nav.html" %}
+  {% block fx_main %}{% endblock %}
+</div>
+{% endblock %}

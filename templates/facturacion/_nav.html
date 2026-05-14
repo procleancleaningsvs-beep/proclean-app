@@ -1,0 +1,9 @@
+<nav class="fx-nav" aria-label="Facturación">
+  <a href="{{ url_for('facturacion.dashboard') }}" class="{{ 'is-active' if fx_nav_active == 'dash' else '' }}">Dashboard</a>
+  <a href="{{ url_for('facturacion.facturas_list') }}" class="{{ 'is-active' if fx_nav_active == 'facturas' else '' }}">Facturas</a>
+  <a href="{{ url_for('facturacion.huerfanos') }}" class="{{ 'is-active' if fx_nav_active == 'huerfanos' else '' }}">Archivos sin relación</a>
+  {% if current_user.role == 'admin' %}
+  <a href="{{ url_for('facturacion.import_excel') }}" class="{{ 'is-active' if fx_nav_active == 'import' else '' }}">Importar Excel</a>
+  {% endif %}
+  <a href="{{ url_for('facturacion.notas_credito') }}" class="{{ 'is-active' if fx_nav_active == 'notas' else '' }}">Notas de crédito</a>
+</nav>

@@ -1,0 +1,703 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+from datetime import datetime
+from functools import wraps
+from io import BytesIO
+from pathlib import Path
+from typing import Any
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    g,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
+from werkzeug.utils import secure_filename
+
+from modules.facturacion.config import ALERTA_SET, OPERATIVO_ORDER, PAGO_ORDER
+from modules.facturacion.db import (
+    dashboard_stats,
+    dashboard_stats_anual,
+    delete_factura_soft,
+    delete_huerfano,
+    distinct_clientes,
+    ensure_facturacion_tables,
+    find_factura_activa_por_numero_en_texto,
+    get_factura,
+    get_huerfano,
+    insert_factura,
+    insert_huerfano,
+    insert_nota_credito,
+    list_eventos_for_factura,
+    list_facturas_filtradas,
+    list_huerfanos,
+    list_notas_credito,
+    refacturar,
+    update_factura,
+    upsert_adjunto,
+)
+from modules.facturacion.excel_export import build_facturacion_export_bytes
+from modules.facturacion.excel_import import import_facturacion_excel
+from modules.facturacion.normalize import extraer_numero_factura_desde_nombre_archivo, validar_factura_payload
+from services.app_activity import log_app_activity
+
+_BASE = Path(__file__).resolve().parent.parent.parent
+_TEMPLATE_DIR = _BASE / "templates" / "facturacion"
+
+facturacion_bp = Blueprint(
+    "facturacion",
+    __name__,
+    url_prefix="/facturacion",
+    template_folder=str(_TEMPLATE_DIR),
+)
+
+
+def _login_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.user is None:
+            return redirect(url_for("login"))
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.user is None:
+            return redirect(url_for("login"))
+        if g.user.get("role") != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _db_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(current_app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    return conn
+
+
+def _upload_root() -> Path:
+    return Path(current_app.config["DATABASE"]).parent / "facturacion_uploads"
+
+
+def _now_iso() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _allowed_ext(name: str) -> str | None:
+    lower = name.lower()
+    if lower.endswith(".pdf"):
+        return "pdf"
+    if lower.endswith(".xml"):
+        return "xml"
+    return None
+
+
+def _hash_file(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def register_facturacion(app) -> None:
+    upload_root = Path(app.config["DATABASE"]).parent / "facturacion_uploads"
+    upload_root.mkdir(parents=True, exist_ok=True)
+    app.register_blueprint(facturacion_bp)
+
+    @app.cli.command("facturacion-init-schema")
+    def facturacion_init_schema():
+        """Crea tablas de facturación si no existen."""
+        conn = sqlite3.connect(app.config["DATABASE"])
+        try:
+            ensure_facturacion_tables(conn)
+            conn.commit()
+            print("facturacion: tablas OK")
+        finally:
+            conn.close()
+
+
+@facturacion_bp.route("/")
+@_login_required
+def index():
+    return redirect(url_for("facturacion.dashboard"))
+
+
+@facturacion_bp.route("/dashboard")
+@_login_required
+def dashboard():
+    try:
+        mes = int(request.args.get("mes") or datetime.now().month)
+        anio = int(request.args.get("anio") or datetime.now().year)
+    except ValueError:
+        mes, anio = datetime.now().month, datetime.now().year
+    conn = _db_conn()
+    try:
+        mstats = dashboard_stats(conn, mes=mes, anio=anio)
+        ystats = dashboard_stats_anual(conn, anio=anio)
+        por_op_m = mstats.get("por_operativo") or {}
+        dough_operativo = [{"label": k, "value": v} for k, v in por_op_m.items()]
+        chart_json = json.dumps(
+            {
+                "mensual": mstats,
+                "anual": ystats,
+                "dough_operativo": dough_operativo,
+                "mes": mes,
+                "anio": anio,
+            },
+            ensure_ascii=False,
+        )
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_dashboard.html",
+        mstats=mstats,
+        ystats=ystats,
+        mes=mes,
+        anio=anio,
+        chart_json=chart_json,
+        is_admin=g.user.get("role") == "admin",
+    )
+
+
+@facturacion_bp.route("/facturas")
+@_login_required
+def facturas_list():
+    def _ig(k: str) -> str | None:
+        v = (request.args.get(k) or "").strip()
+        return v or None
+
+    try:
+        mes = int(_ig("mes") or 0) or None
+    except ValueError:
+        mes = None
+    try:
+        anio = int(_ig("anio") or 0) or None
+    except ValueError:
+        anio = None
+    conn = _db_conn()
+    try:
+        rows = list_facturas_filtradas(
+            conn,
+            mes=mes,
+            anio=anio,
+            cliente=_ig("cliente"),
+            estatus_operativo=_ig("estatus_operativo"),
+            estatus_pago=_ig("estatus_pago"),
+            alerta=_ig("alerta"),
+            q_numero=_ig("q"),
+            q_po=_ig("po"),
+        )
+        clientes = distinct_clientes(conn)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_facturas.html",
+        rows=rows,
+        clientes=clientes,
+        filtros={
+            "mes": mes,
+            "anio": anio,
+            "cliente": _ig("cliente"),
+            "estatus_operativo": _ig("estatus_operativo"),
+            "estatus_pago": _ig("estatus_pago"),
+            "alerta": _ig("alerta"),
+            "q": _ig("q"),
+            "po": _ig("po"),
+        },
+        operativos=OPERATIVO_ORDER,
+        pagos=PAGO_ORDER,
+        alertas=sorted(ALERTA_SET),
+        is_admin=g.user.get("role") == "admin",
+    )
+
+
+def _parse_factura_form(form) -> dict[str, Any]:
+    def fnum(k: str):
+        v = (form.get(k) or "").strip()
+        if not v:
+            return None
+        try:
+            return float(v.replace(",", ""))
+        except ValueError:
+            return None
+
+    alertas_raw = form.getlist("alertas")
+    alertas = [a.strip().upper() for a in alertas_raw if a.strip().upper() in ALERTA_SET]
+    return {
+        "mes": int(form.get("mes") or 0),
+        "anio": int(form.get("anio") or 0),
+        "asistencia_mes": int(form["asistencia_mes"]) if (form.get("asistencia_mes") or "").strip() else None,
+        "asistencia_anio": int(form["asistencia_anio"]) if (form.get("asistencia_anio") or "").strip() else None,
+        "cliente": (form.get("cliente") or "").strip(),
+        "planta_servicio": (form.get("planta_servicio") or "").strip() or None,
+        "usuario_contacto": (form.get("usuario_contacto") or "").strip() or None,
+        "responsable_interno": (form.get("responsable_interno") or "").strip() or None,
+        "numero_factura": (form.get("numero_factura") or "").strip(),
+        "po_oc": (form.get("po_oc") or "").strip() or None,
+        "requiere_portal": 1 if form.get("requiere_portal") in {"1", "on", "true", "yes"} else 0,
+        "subtotal": fnum("subtotal"),
+        "iva": fnum("iva"),
+        "total": fnum("total"),
+        "fecha_factura": (form.get("fecha_factura") or "").strip() or None,
+        "fecha_vencimiento": (form.get("fecha_vencimiento") or "").strip() or None,
+        "estatus_operativo": (form.get("estatus_operativo") or "").strip(),
+        "estatus_pago": (form.get("estatus_pago") or "PENDIENTE").strip(),
+        "alertas": alertas,
+        "comentarios": (form.get("comentarios") or "").strip() or None,
+    }
+
+
+@facturacion_bp.route("/facturas/nuevo", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def factura_nuevo():
+    if request.method == "POST":
+        data = _parse_factura_form(request.form)
+        ok, err = validar_factura_payload(data)
+        if not ok:
+            flash(err or "Validación fallida.", "error")
+        else:
+            conn = _db_conn()
+            try:
+                insert_factura(conn, data, user_id=int(g.user["id"]), now=_now_iso())
+                conn.commit()
+                log_app_activity(
+                    str(current_app.config["DATABASE"]),
+                    user_id=int(g.user["id"]),
+                    module="facturacion",
+                    action="crear_factura",
+                    status="ok",
+                    ref=data.get("numero_factura"),
+                )
+                flash("Factura creada.", "success")
+                return redirect(url_for("facturacion.facturas_list"))
+            except sqlite3.IntegrityError:
+                conn.rollback()
+                flash("Ya existe una factura activa con ese número, cliente y periodo.", "error")
+            finally:
+                conn.close()
+    return render_template(
+        "facturacion_form.html",
+        row=None,
+        operativos=OPERATIVO_ORDER,
+        pagos=PAGO_ORDER,
+        alertas=sorted(ALERTA_SET),
+    )
+
+
+@facturacion_bp.route("/facturas/<int:fid>")
+@_login_required
+def factura_detail(fid: int):
+    conn = _db_conn()
+    try:
+        row = get_factura(conn, fid)
+        if not row:
+            abort(404)
+        eventos = list_eventos_for_factura(conn, fid)
+        cadena: list[dict[str, Any]] = []
+        cur = row
+        seen: set[int] = set()
+        while cur and cur.get("factura_original_id") and int(cur["factura_original_id"]) not in seen:
+            pid = int(cur["factura_original_id"])
+            seen.add(pid)
+            prev = get_factura(conn, pid)
+            if prev:
+                cadena.append(dict(prev))
+                cur = prev
+            else:
+                break
+        cadena.reverse()
+        reemplazo = None
+        rid = row.get("factura_reemplazada_por_id")
+        if rid:
+            reemplazo = get_factura(conn, int(rid))
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_detail.html",
+        row=row,
+        eventos=eventos,
+        cadena=cadena,
+        reemplazo=reemplazo,
+        is_admin=g.user.get("role") == "admin",
+    )
+
+
+@facturacion_bp.route("/facturas/<int:fid>/editar", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def factura_editar(fid: int):
+    conn = _db_conn()
+    try:
+        row = get_factura(conn, fid)
+        if not row or not int(row["es_factura_activa"]):
+            abort(404)
+        if request.method == "POST":
+            data = _parse_factura_form(request.form)
+            data["mes"] = int(data["mes"] or row["mes"])
+            data["anio"] = int(data["anio"] or row["anio"])
+            ok, err = validar_factura_payload(data)
+            if not ok:
+                flash(err or "Validación fallida.", "error")
+            else:
+                try:
+                    update_factura(conn, fid, data, user_id=int(g.user["id"]), now=_now_iso())
+                    conn.commit()
+                    flash("Cambios guardados.", "success")
+                    return redirect(url_for("facturacion.factura_detail", fid=fid))
+                except sqlite3.IntegrityError:
+                    conn.rollback()
+                    flash("Conflicto con otra factura activa (número + cliente + periodo).", "error")
+        row = get_factura(conn, fid)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_form.html",
+        row=row,
+        operativos=OPERATIVO_ORDER,
+        pagos=PAGO_ORDER,
+        alertas=sorted(ALERTA_SET),
+    )
+
+
+@facturacion_bp.route("/facturas/<int:fid>/eliminar", methods=["POST"])
+@_login_required
+@_admin_required
+def factura_eliminar(fid: int):
+    conn = _db_conn()
+    try:
+        if delete_factura_soft(conn, fid, user_id=int(g.user["id"]), now=_now_iso()):
+            conn.commit()
+            flash("Factura desactivada.", "success")
+        else:
+            flash("No se pudo eliminar.", "error")
+    finally:
+        conn.close()
+    return redirect(url_for("facturacion.facturas_list"))
+
+
+@facturacion_bp.route("/facturas/<int:fid>/listo", methods=["POST"])
+@_login_required
+@_admin_required
+def factura_marcar_listo(fid: int):
+    conn = _db_conn()
+    try:
+        row = get_factura(conn, fid)
+        if not row:
+            abort(404)
+        update_factura(
+            conn,
+            fid,
+            {"estatus_operativo": "LISTO"},
+            user_id=int(g.user["id"]),
+            now=_now_iso(),
+        )
+        conn.commit()
+        flash("Marcada como LISTO.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("facturacion.factura_detail", fid=fid))
+
+
+@facturacion_bp.route("/facturas/<int:fid>/refacturar", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def factura_refacturar(fid: int):
+    conn = _db_conn()
+    old = None
+    try:
+        old = get_factura(conn, fid)
+        if not old or not int(old["es_factura_activa"]):
+            abort(404)
+        if request.method == "POST":
+            motivo = (request.form.get("motivo") or "").strip()
+            if len(motivo) < 3:
+                flash("Describe el motivo de la refacturación.", "error")
+            else:
+                data = _parse_factura_form(request.form)
+                ok, err = validar_factura_payload(data)
+                if not ok:
+                    flash(err or "Validación fallida.", "error")
+                else:
+                    nid = refacturar(conn, fid, data, motivo=motivo, user_id=int(g.user["id"]), now=_now_iso())
+                    if nid:
+                        conn.commit()
+                        flash("Refacturación registrada.", "success")
+                        return redirect(url_for("facturacion.factura_detail", fid=nid))
+                    flash("No se pudo refacturar.", "error")
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_refacturar.html",
+        base=old,
+        operativos=OPERATIVO_ORDER,
+        pagos=PAGO_ORDER,
+        alertas=sorted(ALERTA_SET),
+    )
+
+
+@facturacion_bp.route("/upload", methods=["POST"])
+@_login_required
+@_admin_required
+def upload_adjuntos():
+    mes = request.form.get("mes")
+    anio = request.form.get("anio")
+    mes_i = int(mes) if mes and str(mes).isdigit() else None
+    anio_i = int(anio) if anio and str(anio).isdigit() else None
+    files = request.files.getlist("archivos")
+    if not files:
+        flash("Selecciona al menos un archivo.", "error")
+        return redirect(url_for("facturacion.facturas_list"))
+    root = _upload_root()
+    root.mkdir(parents=True, exist_ok=True)
+    conn = _db_conn()
+    linked = 0
+    orphans = 0
+    try:
+        for f in files:
+            if not f or not f.filename:
+                continue
+            ext = _allowed_ext(f.filename)
+            if not ext:
+                flash(f"Extensión no permitida: {f.filename}", "error")
+                continue
+            data = f.read()
+            if not data:
+                continue
+            h = _hash_file(data)
+            safe = secure_filename(f.filename) or f"upload.{ext}"
+            stem = Path(safe).stem[:80]
+            stored = f"{h[:16]}_{stem}.{ext}"
+            dest = root / stored
+            dest.write_bytes(data)
+            rel = str(dest)
+            match_id = find_factura_activa_por_numero_en_texto(conn, safe, anio=anio_i, mes=mes_i)
+            if match_id is None:
+                cand = extraer_numero_factura_desde_nombre_archivo(safe)
+                if cand:
+                    match_id = find_factura_activa_por_numero_en_texto(conn, cand, anio=anio_i, mes=mes_i)
+            if match_id:
+                upsert_adjunto(
+                    conn,
+                    factura_id=match_id,
+                    tipo=ext,
+                    stored_filename=stored,
+                    file_path=rel,
+                    file_hash=h,
+                    original_name=f.filename[:240],
+                    user_id=int(g.user["id"]),
+                    now=_now_iso(),
+                )
+                linked += 1
+            else:
+                insert_huerfano(
+                    conn,
+                    stored_path=rel,
+                    original_name=f.filename[:240],
+                    ext=ext,
+                    file_hash=h,
+                    detected_numero=extraer_numero_factura_desde_nombre_archivo(safe),
+                    user_id=int(g.user["id"]),
+                    now=_now_iso(),
+                )
+                orphans += 1
+        conn.commit()
+        flash(f"Carga terminada: {linked} relacionados, {orphans} sin relación.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("facturacion.huerfanos"))
+
+
+@facturacion_bp.route("/adjunto/<int:fid>/<tipo>")
+@_login_required
+def descargar_adjunto(fid: int, tipo: str):
+    if tipo not in {"pdf", "xml"}:
+        abort(404)
+    conn = _db_conn()
+    try:
+        row = conn.execute(
+            "SELECT * FROM facturacion_adjuntos WHERE factura_id = ? AND tipo = ?",
+            (fid, tipo),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        abort(404)
+    p = Path(row["file_path"])
+    if not p.is_file():
+        abort(404)
+    return send_file(p, as_attachment=True, download_name=row["original_name"] or p.name)
+
+
+@facturacion_bp.route("/huerfanos")
+@_login_required
+def huerfanos():
+    conn = _db_conn()
+    try:
+        rows = list_huerfanos(conn)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_huerfanos.html",
+        rows=rows,
+        is_admin=g.user.get("role") == "admin",
+    )
+
+
+@facturacion_bp.route("/huerfanos/<int:hid>/relacionar", methods=["POST"])
+@_login_required
+@_admin_required
+def huerfano_relacionar(hid: int):
+    fid = int(request.form.get("factura_id") or 0)
+    conn = _db_conn()
+    try:
+        h = get_huerfano(conn, hid)
+        if not h or not fid:
+            flash("Datos inválidos.", "error")
+            return redirect(url_for("facturacion.huerfanos"))
+        p = Path(h["stored_path"])
+        if not p.is_file():
+            flash("Archivo físico no encontrado.", "error")
+            return redirect(url_for("facturacion.huerfanos"))
+        upsert_adjunto(
+            conn,
+            factura_id=fid,
+            tipo=str(h["ext"]),
+            stored_filename=p.name,
+            file_path=str(p),
+            file_hash=h.get("file_hash"),
+            original_name=h["original_name"],
+            user_id=int(g.user["id"]),
+            now=_now_iso(),
+        )
+        delete_huerfano(conn, hid)
+        conn.commit()
+        flash("Archivo relacionado.", "success")
+    finally:
+        conn.close()
+    return redirect(url_for("facturacion.huerfanos"))
+
+
+@facturacion_bp.route("/export")
+@_login_required
+@_admin_required
+def export_excel():
+    mes = int(request.args.get("mes") or datetime.now().month)
+    anio = int(request.args.get("anio") or datetime.now().year)
+    conn = _db_conn()
+    try:
+        data = build_facturacion_export_bytes(conn, mes=mes, anio=anio)
+    finally:
+        conn.close()
+    meses = [
+        "",
+        "ENERO",
+        "FEBRERO",
+        "MARZO",
+        "ABRIL",
+        "MAYO",
+        "JUNIO",
+        "JULIO",
+        "AGOSTO",
+        "SEPTIEMBRE",
+        "OCTUBRE",
+        "NOVIEMBRE",
+        "DICIEMBRE",
+    ]
+    label = meses[mes] if 1 <= mes <= 12 else str(mes)
+    fname = f"Facturacion_ProClean_{label}_{anio}.xlsx"
+    return send_file(
+        BytesIO(data),
+        as_attachment=True,
+        download_name=fname,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@facturacion_bp.route("/import", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def import_excel():
+    if request.method == "POST":
+        f = request.files.get("archivo")
+        if not f or not f.filename:
+            flash("Selecciona un archivo Excel.", "error")
+            return redirect(url_for("facturacion.import_excel"))
+        try:
+            anio = int(request.form.get("anio") or datetime.now().year)
+        except ValueError:
+            anio = datetime.now().year
+        content = f.read()
+        conn = _db_conn()
+        try:
+            res = import_facturacion_excel(conn, content, anio_default=anio, user_id=int(g.user["id"]), now=_now_iso())
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001
+            conn.rollback()
+            flash(f"Error al importar: {exc}", "error")
+            return redirect(url_for("facturacion.import_excel"))
+        finally:
+            conn.close()
+        flash(
+            f"Importación: {res['inserted']} nuevas, {res['skipped']} omitidas/duplicadas.",
+            "success",
+        )
+        if res.get("errors"):
+            flash(f"Errores parciales: {len(res['errors'])}", "error")
+        return redirect(url_for("facturacion.facturas_list"))
+    return render_template("facturacion_import.html")
+
+
+@facturacion_bp.route("/notas-credito", methods=["GET", "POST"])
+@_login_required
+def notas_credito():
+    if g.user.get("role") == "admin" and request.method == "POST":
+        conn = _db_conn()
+        try:
+            insert_nota_credito(
+                conn,
+                {
+                    "cliente": (request.form.get("cliente") or "").strip() or None,
+                    "numero_nota": (request.form.get("numero_nota") or "").strip() or None,
+                    "factura_id": int(request.form["factura_id"])
+                    if (request.form.get("factura_id") or "").strip().isdigit()
+                    else None,
+                    "monto": float(request.form["monto"]) if (request.form.get("monto") or "").strip() else None,
+                    "comentario": (request.form.get("comentario") or "").strip() or None,
+                    "fecha": (request.form.get("fecha") or "").strip() or _now_iso()[:10],
+                    "mes": int(request.form["mes"]) if (request.form.get("mes") or "").strip().isdigit() else None,
+                    "anio": int(request.form["anio"]) if (request.form.get("anio") or "").strip().isdigit() else None,
+                },
+                user_id=int(g.user["id"]),
+                now=_now_iso(),
+            )
+            conn.commit()
+            flash("Nota de crédito registrada.", "success")
+        except (ValueError, sqlite3.Error) as exc:
+            conn.rollback()
+            flash(str(exc), "error")
+        finally:
+            conn.close()
+        return redirect(url_for("facturacion.notas_credito"))
+    conn = _db_conn()
+    try:
+        rows = list_notas_credito(conn)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_notas_credito.html",
+        rows=rows,
+        is_admin=g.user.get("role") == "admin",
+    )
