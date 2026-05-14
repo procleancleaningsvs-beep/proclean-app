@@ -23,7 +23,7 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
-from modules.facturacion.config import ALERTA_SET, OPERATIVO_ORDER, PAGO_ORDER
+from modules.facturacion.config import ALERTA_SET, CLIENTE_POR_CLASIFICAR, OPERATIVO_ORDER, PAGO_ORDER
 from modules.facturacion.db import (
     dashboard_stats,
     dashboard_stats_anual,
@@ -34,8 +34,11 @@ from modules.facturacion.db import (
     find_factura_activa_por_numero_en_texto,
     get_factura,
     get_huerfano,
+    get_import_log,
+    get_latest_import_log,
     insert_factura,
     insert_huerfano,
+    insert_import_log,
     insert_nota_credito,
     list_eventos_for_factura,
     list_facturas_filtradas,
@@ -61,6 +64,23 @@ facturacion_bp = Blueprint(
 )
 
 
+def _current_user_role() -> str | None:
+    """g.user puede ser dict o sqlite3.Row; Row no tiene .get()."""
+    user = getattr(g, "user", None)
+    if not user:
+        return None
+    if isinstance(user, dict):
+        return user.get("role")
+    try:
+        return user["role"]
+    except (TypeError, KeyError, IndexError):
+        return None
+
+
+def _is_admin() -> bool:
+    return _current_user_role() == "admin"
+
+
 def _login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -76,7 +96,7 @@ def _admin_required(view):
     def wrapped(*args, **kwargs):
         if g.user is None:
             return redirect(url_for("login"))
-        if g.user.get("role") != "admin":
+        if not _is_admin():
             abort(403)
         return view(*args, **kwargs)
 
@@ -167,7 +187,7 @@ def dashboard():
         mes=mes,
         anio=anio,
         chart_json=chart_json,
-        is_admin=g.user.get("role") == "admin",
+        is_admin=_is_admin(),
     )
 
 
@@ -186,13 +206,21 @@ def facturas_list():
         anio = int(_ig("anio") or 0) or None
     except ValueError:
         anio = None
+    cliente_eq = None
+    cliente_arg = _ig("cliente")
+    if request.args.get("por_clasificar") == "1":
+        if not _is_admin():
+            abort(403)
+        cliente_eq = CLIENTE_POR_CLASIFICAR
+        cliente_arg = None
     conn = _db_conn()
     try:
         rows = list_facturas_filtradas(
             conn,
             mes=mes,
             anio=anio,
-            cliente=_ig("cliente"),
+            cliente=cliente_arg,
+            cliente_eq=cliente_eq,
             estatus_operativo=_ig("estatus_operativo"),
             estatus_pago=_ig("estatus_pago"),
             alerta=_ig("alerta"),
@@ -209,7 +237,8 @@ def facturas_list():
         filtros={
             "mes": mes,
             "anio": anio,
-            "cliente": _ig("cliente"),
+            "cliente": cliente_arg,
+            "por_clasificar": bool(cliente_eq),
             "estatus_operativo": _ig("estatus_operativo"),
             "estatus_pago": _ig("estatus_pago"),
             "alerta": _ig("alerta"),
@@ -219,7 +248,7 @@ def facturas_list():
         operativos=OPERATIVO_ORDER,
         pagos=PAGO_ORDER,
         alertas=sorted(ALERTA_SET),
-        is_admin=g.user.get("role") == "admin",
+        is_admin=_is_admin(),
     )
 
 
@@ -331,7 +360,7 @@ def factura_detail(fid: int):
         eventos=eventos,
         cadena=cadena,
         reemplazo=reemplazo,
-        is_admin=g.user.get("role") == "admin",
+        is_admin=_is_admin(),
     )
 
 
@@ -543,6 +572,7 @@ def descargar_adjunto(fid: int, tipo: str):
 
 @facturacion_bp.route("/huerfanos")
 @_login_required
+@_admin_required
 def huerfanos():
     conn = _db_conn()
     try:
@@ -552,7 +582,6 @@ def huerfanos():
     return render_template(
         "facturacion_huerfanos.html",
         rows=rows,
-        is_admin=g.user.get("role") == "admin",
     )
 
 
@@ -618,12 +647,29 @@ def export_excel():
     ]
     label = meses[mes] if 1 <= mes <= 12 else str(mes)
     fname = f"Facturacion_ProClean_{label}_{anio}.xlsx"
+    bio = BytesIO(data)
+    bio.seek(0)
     return send_file(
-        BytesIO(data),
+        bio,
         as_attachment=True,
         download_name=fname,
         mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+
+
+@facturacion_bp.route("/import/ultimo")
+@_login_required
+@_admin_required
+def import_ultimo():
+    conn = _db_conn()
+    try:
+        row = get_latest_import_log(conn)
+    finally:
+        conn.close()
+    if not row:
+        flash("Aún no hay importaciones registradas.", "error")
+        return redirect(url_for("facturacion.import_excel"))
+    return redirect(url_for("facturacion.import_result", log_id=int(row["id"])))
 
 
 @facturacion_bp.route("/import", methods=["GET", "POST"])
@@ -639,10 +685,26 @@ def import_excel():
             anio = int(request.form.get("anio") or datetime.now().year)
         except ValueError:
             anio = datetime.now().year
+        fname = (f.filename or "").strip() or None
         content = f.read()
         conn = _db_conn()
+        log_id: int | None = None
         try:
-            res = import_facturacion_excel(conn, content, anio_default=anio, user_id=int(g.user["id"]), now=_now_iso())
+            res = import_facturacion_excel(
+                conn,
+                content,
+                anio_default=anio,
+                user_id=int(g.user["id"]),
+                now=_now_iso(),
+                original_filename=fname,
+            )
+            log_id = insert_import_log(
+                conn,
+                res,
+                user_id=int(g.user["id"]),
+                now=_now_iso(),
+                original_filename=fname,
+            )
             conn.commit()
         except Exception as exc:  # noqa: BLE001
             conn.rollback()
@@ -650,20 +712,38 @@ def import_excel():
             return redirect(url_for("facturacion.import_excel"))
         finally:
             conn.close()
-        flash(
-            f"Importación: {res['inserted']} nuevas, {res['skipped']} omitidas/duplicadas.",
-            "success",
-        )
-        if res.get("errors"):
-            flash(f"Errores parciales: {len(res['errors'])}", "error")
-        return redirect(url_for("facturacion.facturas_list"))
+        flash("Importación finalizada. Revisa el resumen detallado.", "success")
+        return redirect(url_for("facturacion.import_result", log_id=int(log_id)))
+
     return render_template("facturacion_import.html")
+
+
+@facturacion_bp.route("/import/resultado/<int:log_id>")
+@_login_required
+@_admin_required
+def import_result(log_id: int):
+    conn = _db_conn()
+    try:
+        log_row = get_import_log(conn, log_id)
+    finally:
+        conn.close()
+    if not log_row:
+        abort(404)
+    return render_template("facturacion_import_result.html", log=log_row)
+
+
+@facturacion_bp.route("/revision/por-clasificar")
+@_login_required
+@_admin_required
+def revision_por_clasificar():
+    return redirect(url_for("facturacion.facturas_list", por_clasificar="1"))
 
 
 @facturacion_bp.route("/notas-credito", methods=["GET", "POST"])
 @_login_required
+@_admin_required
 def notas_credito():
-    if g.user.get("role") == "admin" and request.method == "POST":
+    if request.method == "POST":
         conn = _db_conn()
         try:
             insert_nota_credito(
@@ -696,8 +776,4 @@ def notas_credito():
         rows = list_notas_credito(conn)
     finally:
         conn.close()
-    return render_template(
-        "facturacion_notas_credito.html",
-        rows=rows,
-        is_admin=g.user.get("role") == "admin",
-    )
+    return render_template("facturacion_notas_credito.html", rows=rows)

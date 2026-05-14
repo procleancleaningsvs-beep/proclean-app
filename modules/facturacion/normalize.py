@@ -10,6 +10,7 @@ from modules.facturacion.config import (
     ALERTA_SET,
     OPERATIVO_SET,
     PAGO_SET,
+    archivofaltante_auto_activo,
     cliente_requiere_po_oc,
 )
 
@@ -181,13 +182,16 @@ def compute_auto_alertas(
     po_oc: str | None,
     tiene_pdf: bool,
     tiene_xml: bool,
+    estatus_operativo: str,
+    numero_factura: str | None = None,
     manual_alertas: list[str] | None = None,
 ) -> list[str]:
     extra: list[str] = []
     if cliente_requiere_po_oc(cliente):
         if not (po_oc and str(po_oc).strip()):
             extra.append("SIN PO/OC")
-    if not tiene_pdf or not tiene_xml:
+    num_ok = bool(numero_factura and str(numero_factura).strip() and re.search(r"\d", str(numero_factura)))
+    if num_ok and (not tiene_pdf or not tiene_xml) and archivofaltante_auto_activo(estatus_operativo):
         extra.append("ARCHIVO FALTANTE")
     return merge_alertas(manual_alertas or [], extra)
 

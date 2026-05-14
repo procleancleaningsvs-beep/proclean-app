@@ -3,7 +3,7 @@
 {% block fx_main %}
 <div class="fx-hero">
   <div>
-    <h1>Facturas</h1>
+    <h1>Facturas{% if filtros.por_clasificar %} <span class="fx-muted" style="font-size:1rem">— revisión importación (POR CLASIFICAR)</span>{% endif %}</h1>
     <p>Consulta, filtra y da seguimiento. Los administradores pueden editar y cargar archivos.</p>
   </div>
   {% if is_admin %}
@@ -14,7 +14,14 @@
   {% endif %}
 </div>
 
+{% if filtros.por_clasificar %}
+<div class="fx-card fx-card--hot" style="margin-bottom:1rem;padding:0.85rem 1rem">
+  <strong>Bandeja de revisión:</strong> facturas importadas sin cliente inferido automáticamente. Corrige el campo cliente desde cada detalle o edición.
+</div>
+{% endif %}
+
 <form class="fx-toolbar" method="get">
+  {% if filtros.por_clasificar %}<input type="hidden" name="por_clasificar" value="1">{% endif %}
   <label>Mes <select name="mes"><option value="">—</option>{% for m in range(1,13) %}<option value="{{ m }}" {% if filtros.mes == m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></label>
   <label>Año <input type="number" name="anio" value="{{ filtros.anio or '' }}" placeholder="2026"></label>
   <label>Cliente <select name="cliente"><option value="">—</option>{% for c in clientes %}<option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select></label>

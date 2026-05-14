@@ -8,7 +8,6 @@
   </div>
 </div>
 
-{% if is_admin %}
 <form method="post" class="fx-form-grid" style="margin-bottom:1.5rem;background:#fff;padding:1rem;border-radius:12px;border:1px solid var(--line)">
   <label>Cliente<input type="text" name="cliente"></label>
   <label>Número nota<input type="text" name="numero_nota"></label>
@@ -20,7 +19,6 @@
   <label style="grid-column:1/-1">Comentario<textarea name="comentario" rows="2"></textarea></label>
   <button type="submit" class="fx-btn fx-btn--primary">Registrar</button>
 </form>
-{% endif %}
 
 <div class="fx-table-wrap">
   <table class="fx-table">

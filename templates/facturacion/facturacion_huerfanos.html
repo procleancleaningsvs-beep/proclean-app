@@ -7,7 +7,7 @@
 </div>
 <div class="fx-table-wrap">
   <table class="fx-table">
-    <thead><tr><th>ID</th><th>Archivo</th><th>Tipo</th><th>Detectado</th><th>Fecha</th>{% if is_admin %}<th>Relacionar</th>{% endif %}</tr></thead>
+    <thead><tr><th>ID</th><th>Archivo</th><th>Tipo</th><th>Detectado</th><th>Fecha</th><th>Relacionar</th></tr></thead>
     <tbody>
       {% for r in rows %}
       <tr>
@@ -16,14 +16,12 @@
         <td>{{ r.ext }}</td>
         <td class="fx-muted">{{ r.detected_numero or '—' }}</td>
         <td>{{ r.created_at }}</td>
-        {% if is_admin %}
         <td>
           <form method="post" action="{{ url_for('facturacion.huerfano_relacionar', hid=r.id) }}" class="fx-toolbar" style="margin:0;gap:0.35rem">
             <input type="number" name="factura_id" placeholder="ID factura" required min="1" style="width:6rem">
             <button type="submit" class="fx-btn fx-btn--primary" style="padding:0.35rem 0.6rem">OK</button>
           </form>
         </td>
-        {% endif %}
       </tr>
       {% else %}
       <tr><td colspan="6" class="fx-muted">Sin archivos huérfanos.</td></tr>

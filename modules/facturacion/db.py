@@ -136,6 +136,17 @@ def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS facturacion_import_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            created_by INTEGER,
+            original_filename TEXT,
+            summary_json TEXT NOT NULL
+        )
+        """
+    )
 
 
 def _row_factura(r: sqlite3.Row) -> dict[str, Any]:
@@ -224,6 +235,8 @@ def refresh_archivo_alerta(conn: sqlite3.Connection, factura_id: int, *, now: st
         po_oc=row["po_oc"],
         tiene_pdf=tiene_pdf,
         tiene_xml=tiene_xml,
+        estatus_operativo=str(row["estatus_operativo"] or ""),
+        numero_factura=str(row["numero_factura"] or ""),
         manual_alertas=manual,
     )
     ts = now or str(row["fecha_actualizacion"] or "")
@@ -239,6 +252,7 @@ def list_facturas_filtradas(
     mes: int | None,
     anio: int | None,
     cliente: str | None,
+    cliente_eq: str | None = None,
     estatus_operativo: str | None,
     estatus_pago: str | None,
     alerta: str | None,
@@ -257,7 +271,10 @@ def list_facturas_filtradas(
     if anio is not None:
         wh.append("anio = ?")
         args.append(int(anio))
-    if cliente:
+    if cliente_eq:
+        wh.append("cliente = ?")
+        args.append(cliente_eq.strip())
+    elif cliente:
         wh.append("UPPER(cliente) LIKE UPPER(?)")
         args.append(f"%{cliente.strip()}%")
     if estatus_operativo:
@@ -349,6 +366,8 @@ def insert_factura(
         po_oc=data.get("po_oc"),
         tiene_pdf=False,
         tiene_xml=False,
+        estatus_operativo=str(data.get("estatus_operativo") or ""),
+        numero_factura=str(data.get("numero_factura") or ""),
         manual_alertas=alertas_manual,
     )
     cur = conn.execute(
@@ -402,6 +421,16 @@ def insert_factura(
     )
     fid = int(cur.lastrowid)
     log_evento(conn, factura_id=fid, tipo="CREAR", detalle={"numero": data.get("numero_factura")}, user_id=user_id, created_at=now)
+    for ev in data.get("_extra_eventos") or []:
+        if not isinstance(ev, dict):
+            continue
+        t = str(ev.get("tipo") or "").strip()
+        if not t:
+            continue
+        det = ev.get("detalle")
+        if not isinstance(det, dict):
+            det = {} if det is None else {"info": det}
+        log_evento(conn, factura_id=fid, tipo=t, detalle=det, user_id=user_id, created_at=now)
     return fid
 
 
@@ -419,11 +448,15 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
     else:
         manual = parse_alertas_json(row["alertas_json"])
     adj = adjuntos_for_facturas(conn, [fid]).get(fid, {})
+    op_eff = str(data.get("estatus_operativo", row["estatus_operativo"]) or "")
+    num_eff = str(data.get("numero_factura", row["numero_factura"]) or "")
     auto = compute_auto_alertas(
         cliente=str(data.get("cliente", row["cliente"])),
         po_oc=data.get("po_oc", row["po_oc"]),
         tiene_pdf=adj.get("pdf") is not None,
         tiene_xml=adj.get("xml") is not None,
+        estatus_operativo=op_eff,
+        numero_factura=num_eff,
         manual_alertas=manual,
     )
     conn.execute(
@@ -744,3 +777,40 @@ def distinct_clientes(conn: sqlite3.Connection) -> list[str]:
         "SELECT DISTINCT cliente FROM facturacion_facturas WHERE es_factura_activa = 1 ORDER BY cliente ASC"
     )
     return [str(r[0]) for r in cur.fetchall() if r[0]]
+
+
+def insert_import_log(
+    conn: sqlite3.Connection,
+    summary: dict[str, Any],
+    *,
+    user_id: int | None,
+    now: str,
+    original_filename: str | None,
+) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO facturacion_import_logs (created_at, created_by, original_filename, summary_json)
+        VALUES (?, ?, ?, ?)
+        """,
+        (now, user_id, original_filename, json.dumps(summary, ensure_ascii=False, default=str)),
+    )
+    return int(cur.lastrowid)
+
+
+def get_import_log(conn: sqlite3.Connection, log_id: int) -> dict[str, Any] | None:
+    r = conn.execute("SELECT * FROM facturacion_import_logs WHERE id = ?", (int(log_id),)).fetchone()
+    if not r:
+        return None
+    d = dict(r)
+    try:
+        d["summary"] = json.loads(d.get("summary_json") or "{}")
+    except json.JSONDecodeError:
+        d["summary"] = {}
+    return d
+
+
+def get_latest_import_log(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    r = conn.execute("SELECT * FROM facturacion_import_logs ORDER BY id DESC LIMIT 1").fetchone()
+    if not r:
+        return None
+    return get_import_log(conn, int(r["id"]))

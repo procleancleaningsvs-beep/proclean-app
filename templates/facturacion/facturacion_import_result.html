@@ -1,0 +1,59 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'import' %}
+{% block fx_main %}
+{% set s = log.summary %}
+<div class="fx-hero">
+  <h1>Resumen de importación</h1>
+  <p class="fx-muted">ID log #{{ log.id }} · {{ log.created_at }}{% if log.original_filename %} · {{ log.original_filename }}{% endif %}</p>
+</div>
+
+<div class="fx-grid" style="margin-bottom:1.25rem">
+  <div class="fx-card"><p class="k">Hojas procesadas</p><p class="v" style="font-size:1.1rem">{{ (s.hojas_procesadas or [])|length }}</p><p class="sub">{{ (s.hojas_procesadas or [])|join(', ') or '—' }}</p></div>
+  <div class="fx-card fx-card--ok"><p class="k">Filas leídas</p><p class="v">{{ s.filas_leidas }}</p><p class="sub">Con número de factura válido</p></div>
+  <div class="fx-card fx-card--ok"><p class="k">Importadas</p><p class="v">{{ s.filas_importadas }}</p></div>
+  <div class="fx-card"><p class="k">Duplicados omitidos</p><p class="v">{{ s.duplicados_omitidos }}</p></div>
+  <div class="fx-card fx-card--hot"><p class="k">Por clasificar (cliente)</p><p class="v">{{ s.por_clasificar_cliente }}</p><p class="sub"><a href="{{ url_for('facturacion.revision_por_clasificar') }}">Abrir bandeja</a></p></div>
+  <div class="fx-card"><p class="k">Sin número factura</p><p class="v">{{ s.omitidas_sin_numero_factura }}</p></div>
+  <div class="fx-card"><p class="k">Sin mes</p><p class="v">{{ s.omitidas_sin_mes }}</p></div>
+  <div class="fx-card fx-card--danger"><p class="k">Errores</p><p class="v">{{ s.filas_con_error }}</p></div>
+  <div class="fx-card"><p class="k">Notas crédito (filas)</p><p class="v">{{ s.notas_credito_filas }}</p></div>
+</div>
+
+<div class="fx-table-wrap" style="margin-bottom:1rem">
+  <h3 style="margin:0.75rem 1rem;font-size:1rem">Estatus normalizados (conteo)</h3>
+  <table class="fx-table">
+    <thead><tr><th>Clave</th><th>Cantidad</th></tr></thead>
+    <tbody>
+      {% for k, v in (s.estatus_normalizados or {}).items() %}
+      <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+      {% else %}
+      <tr><td colspan="2" class="fx-muted">Sin normalizaciones registradas.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="fx-table-wrap" style="margin-bottom:1rem">
+  <h3 style="margin:0.75rem 1rem;font-size:1rem">Clientes detectados en esta importación</h3>
+  <p class="fx-muted" style="padding:0 1rem 0.75rem;font-size:0.9rem">{{ (s.clientes_detectados or [])|join(', ') or '—' }}</p>
+</div>
+
+{% if s.advertencias %}
+<div class="fx-card fx-card--hot" style="margin-bottom:1rem">
+  <p class="k">Advertencias</p>
+  <ul class="sub">{% for w in s.advertencias %}<li>{{ w }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% if s.detalle_errores %}
+<div class="fx-table-wrap" style="margin-bottom:1rem">
+  <h3 style="margin:0.75rem 1rem;font-size:1rem">Detalle de errores</h3>
+  <table class="fx-table">
+    <tbody>{% for e in s.detalle_errores %}<tr><td class="fx-muted" style="font-size:0.85rem">{{ e }}</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
+
+<a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.facturas_list') }}">Ir a facturas</a>
+<a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.import_excel') }}">Otra importación</a>
+{% endblock %}
