@@ -193,6 +193,69 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_vacaciones_match_status ON nomina_vacaciones_empleados(match_status)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_infonavit_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            registro_patronal TEXT,
+            fecha_corte TEXT,
+            total_avisos_reportado INTEGER NOT NULL DEFAULT 0,
+            total_rows INTEGER NOT NULL DEFAULT 0,
+            active_count INTEGER NOT NULL DEFAULT 0,
+            modified_count INTEGER NOT NULL DEFAULT 0,
+            suspended_count INTEGER NOT NULL DEFAULT 0,
+            vsm_count INTEGER NOT NULL DEFAULT 0,
+            warning_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            source_filename TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            created_by INTEGER,
+            created_at TEXT NOT NULL,
+            raw_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_infonavit_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER NOT NULL,
+            nss TEXT,
+            numero_credito TEXT,
+            folio_aviso TEXT,
+            nombre_trabajador TEXT,
+            nombre_normalizado TEXT,
+            tipo_aviso TEXT,
+            motivo_aviso TEXT,
+            fecha_aviso TEXT,
+            descuento_raw TEXT,
+            descuento_monto_pesos REAL,
+            descuento_factor_vsm REAL,
+            umi_usada REAL,
+            descuento_cf_calculada REAL,
+            tipo_descuento TEXT,
+            tipo_valor_descuento TEXT,
+            estatus_infonavit TEXT,
+            nombre_headcount TEXT,
+            cliente_headcount TEXT,
+            planta_headcount TEXT,
+            estatus_headcount TEXT,
+            match_status TEXT,
+            match_score REAL,
+            warnings_json TEXT,
+            editable_json TEXT,
+            updated_by INTEGER,
+            updated_at TEXT,
+            FOREIGN KEY(import_id) REFERENCES nomina_infonavit_imports(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_infonavit_rows_import_id ON nomina_infonavit_rows(import_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_infonavit_rows_match_status ON nomina_infonavit_rows(match_status)"
+    )
 
 
 def save_asistencia_import(
@@ -828,6 +891,326 @@ def update_vacaciones_empleado(
         )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def save_infonavit_import(
+    db_path: str,
+    payload: dict[str, Any],
+    created_by: int | None,
+    now_iso: str,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.execute(
+            """
+            INSERT INTO nomina_infonavit_imports (
+                registro_patronal, fecha_corte, total_avisos_reportado, total_rows,
+                active_count, modified_count, suspended_count, vsm_count,
+                warning_count, error_count, source_filename, file_hash,
+                created_by, created_at, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(payload.get("registro_patronal") or ""),
+                str(payload.get("fecha_corte") or ""),
+                int(payload.get("total_avisos_reportado") or 0),
+                int(payload.get("total_rows") or 0),
+                int(payload.get("active_count") or 0),
+                int(payload.get("modified_count") or 0),
+                int(payload.get("suspended_count") or 0),
+                int(payload.get("vsm_count") or 0),
+                int(payload.get("warning_count") or 0),
+                int(payload.get("error_count") or 0),
+                str(payload.get("source_filename") or ""),
+                str(payload.get("file_hash") or ""),
+                created_by,
+                now_iso,
+                json.dumps(payload.get("raw_json") or {}, ensure_ascii=False),
+            ),
+        )
+        import_id = int(cur.lastrowid)
+        for row in payload.get("rows") or []:
+            conn.execute(
+                """
+                INSERT INTO nomina_infonavit_rows (
+                    import_id, nss, numero_credito, folio_aviso, nombre_trabajador,
+                    nombre_normalizado, tipo_aviso, motivo_aviso, fecha_aviso,
+                    descuento_raw, descuento_monto_pesos, descuento_factor_vsm, umi_usada,
+                    descuento_cf_calculada, tipo_descuento, tipo_valor_descuento, estatus_infonavit,
+                    nombre_headcount, cliente_headcount, planta_headcount, estatus_headcount,
+                    match_status, match_score, warnings_json, editable_json, updated_by, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    import_id,
+                    row.get("nss"),
+                    row.get("numero_credito"),
+                    row.get("folio_aviso"),
+                    row.get("nombre_trabajador"),
+                    row.get("nombre_normalizado"),
+                    row.get("tipo_aviso"),
+                    row.get("motivo_aviso"),
+                    row.get("fecha_aviso"),
+                    row.get("descuento_raw"),
+                    row.get("descuento_monto_pesos"),
+                    row.get("descuento_factor_vsm"),
+                    row.get("umi_usada"),
+                    row.get("descuento_cf_calculada"),
+                    row.get("tipo_descuento"),
+                    row.get("tipo_valor_descuento"),
+                    row.get("estatus_infonavit"),
+                    row.get("nombre_headcount"),
+                    row.get("cliente_headcount"),
+                    row.get("planta_headcount"),
+                    row.get("estatus_headcount"),
+                    row.get("match_status"),
+                    row.get("match_score"),
+                    json.dumps(row.get("warnings") or [], ensure_ascii=False),
+                    json.dumps(row.get("editable_json") or {}, ensure_ascii=False),
+                    row.get("updated_by"),
+                    row.get("updated_at"),
+                ),
+            )
+        conn.commit()
+        return import_id
+    finally:
+        conn.close()
+
+
+def get_latest_infonavit_import_id(db_path: str) -> int | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id FROM nomina_infonavit_imports ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row[0])
+    finally:
+        conn.close()
+
+
+def list_infonavit_imports(db_path: str, limit: int = 50) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, registro_patronal, fecha_corte, total_avisos_reportado, total_rows,
+                   active_count, modified_count, suspended_count, vsm_count,
+                   warning_count, error_count, source_filename, created_at
+            FROM nomina_infonavit_imports
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_infonavit_rows(
+    db_path: str,
+    *,
+    import_id: int | None = None,
+    match_status: str | None = None,
+    estatus_infonavit: str | None = None,
+    revision_status: str | None = None,
+    limit: int = 800,
+) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        query = """
+            SELECT r.*, i.created_at AS import_created_at
+            FROM nomina_infonavit_rows r
+            JOIN nomina_infonavit_imports i ON i.id = r.import_id
+            WHERE 1=1
+        """
+        params: list[Any] = []
+        if import_id is not None:
+            query += " AND r.import_id = ?"
+            params.append(int(import_id))
+        if match_status:
+            query += " AND COALESCE(r.match_status,'') = ?"
+            params.append(match_status)
+        if estatus_infonavit:
+            query += " AND COALESCE(r.estatus_infonavit,'') = ?"
+            params.append(estatus_infonavit)
+        if revision_status:
+            query += " AND COALESCE(r.editable_json,'') LIKE ?"
+            params.append(f'%\"revision_status\": \"{revision_status}\"%')
+        query += " ORDER BY r.id DESC LIMIT ?"
+        params.append(int(limit))
+        rows = conn.execute(query, tuple(params)).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["warnings"] = json.loads(d.get("warnings_json") or "[]")
+            d["editable_json"] = json.loads(d.get("editable_json") or "{}")
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def get_infonavit_import(db_path: str, import_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        imp = conn.execute(
+            "SELECT * FROM nomina_infonavit_imports WHERE id = ?",
+            (import_id,),
+        ).fetchone()
+        if imp is None:
+            return None
+        result = dict(imp)
+        result["raw_json"] = json.loads(result.get("raw_json") or "{}")
+        result["rows"] = list_infonavit_rows(db_path, import_id=import_id, limit=5000)
+        return result
+    finally:
+        conn.close()
+
+
+def get_infonavit_row(db_path: str, row_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM nomina_infonavit_rows WHERE id = ?",
+            (row_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["warnings"] = json.loads(d.get("warnings_json") or "[]")
+        d["editable_json"] = json.loads(d.get("editable_json") or "{}")
+        return d
+    finally:
+        conn.close()
+
+
+def update_infonavit_row(
+    db_path: str,
+    row_id: int,
+    updates: dict[str, Any],
+    *,
+    updated_by: int | None,
+    updated_at: str,
+) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            """
+            UPDATE nomina_infonavit_rows
+            SET estatus_infonavit = ?,
+                descuento_monto_pesos = ?,
+                descuento_factor_vsm = ?,
+                umi_usada = ?,
+                descuento_cf_calculada = ?,
+                tipo_valor_descuento = ?,
+                match_status = ?,
+                editable_json = ?,
+                updated_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                updates.get("estatus_infonavit"),
+                updates.get("descuento_monto_pesos"),
+                updates.get("descuento_factor_vsm"),
+                updates.get("umi_usada"),
+                updates.get("descuento_cf_calculada"),
+                updates.get("tipo_valor_descuento"),
+                updates.get("match_status"),
+                json.dumps(updates.get("editable_json") or {}, ensure_ascii=False),
+                updated_by,
+                updated_at,
+                int(row_id),
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_infonavit_stats(db_path: str) -> dict[str, int]:
+    return get_infonavit_stats_by_import(db_path, import_id=None)
+
+
+def get_infonavit_stats_by_import(db_path: str, import_id: int | None) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    try:
+        if import_id is None:
+            import_id = get_latest_infonavit_import_id(db_path)
+        if import_id is None:
+            return {
+                "total_avisos": 0,
+                "activos": 0,
+                "modificados": 0,
+                "suspendidos": 0,
+                "sin_match": 0,
+                "pendientes_revision": 0,
+                "vsm_detectados": 0,
+            }
+        total = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ?",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        activos = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND estatus_infonavit = 'ACTIVO'",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        modificados = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND estatus_infonavit = 'ACTIVO_MODIFICADO'",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        suspendidos = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND estatus_infonavit = 'SUSPENDIDO'",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        sin_match = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND match_status IN ('no_match','pending_review')",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        pendientes = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND (match_status IN ('pending_review','probable_match') OR COALESCE(warnings_json,'[]') <> '[]')",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        vsm = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_infonavit_rows WHERE import_id = ? AND tipo_valor_descuento = 'VSM'",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
+        return {
+            "total_avisos": total,
+            "activos": activos,
+            "modificados": modificados,
+            "suspendidos": suspendidos,
+            "sin_match": sin_match,
+            "pendientes_revision": pendientes,
+            "vsm_detectados": vsm,
+        }
     finally:
         conn.close()
 

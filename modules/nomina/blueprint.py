@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import re
 from datetime import date, datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
@@ -39,11 +40,22 @@ from modules.nomina.db import (
     get_vacaciones_import,
     get_vacaciones_empleado,
     update_vacaciones_empleado,
+    get_infonavit_stats,
+    get_infonavit_stats_by_import,
+    get_latest_infonavit_import_id,
+    list_infonavit_imports,
+    list_infonavit_rows,
+    save_infonavit_import,
+    get_infonavit_import,
+    get_infonavit_row,
+    update_infonavit_row,
     save_asistencia_import,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
 from modules.nomina.headcount_bridge import obtener_headcount_completo
+from modules.nomina.infonavit_pdf import parse_infonavit_pdf
+from modules.nomina.config import get_umi_for_year
 from modules.comparativo import alias_service
 from modules.comparativo.headcount_service import obtener_activos
 
@@ -276,10 +288,12 @@ def index():
     if role in _NOMINA_DASHBOARD_ROLES:
         dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
         vac_stats = get_vacaciones_stats(_db_path())
+        inf_stats = get_infonavit_stats(_db_path())
         return render_template(
             "nomina/dashboard.html",
             dash=dash,
             vac_stats=vac_stats,
+            inf_stats=inf_stats,
             headcount_error=headcount_error,
             headcount_source=headcount_source,
         )
@@ -596,6 +610,149 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
     return rows, source, matched, warnings_total
 
 
+def _year_from_fecha_corte(fecha_corte: str) -> int | None:
+    txt = (fecha_corte or "").strip()
+    if not txt:
+        return None
+    m = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", txt)
+    if m:
+        return int(m.group(3))
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", txt)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _decimal_or_none(raw: str) -> Decimal | None:
+    s = (raw or "").strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return Decimal(s)
+    except InvalidOperation:
+        return None
+
+
+def _infonavit_descuento_logic(row: dict, umi: Decimal | None) -> None:
+    warnings = list(row.get("warnings") or [])
+    estatus = str(row.get("estatus_infonavit") or "").strip().upper()
+    descuento_raw = str(row.get("descuento_raw") or "").strip()
+    tipo_desc = str(row.get("tipo_descuento") or "").strip()
+
+    row["tipo_descuento"] = tipo_desc
+    row["tipo_valor_descuento"] = "SIN_MONTO"
+    row["descuento_monto_pesos"] = None
+    row["descuento_factor_vsm"] = None
+    row["umi_usada"] = None
+    row["descuento_cf_calculada"] = None
+
+    if estatus == "SUSPENDIDO":
+        if "suspension" not in _normalize_name(str(row.get("motivo_aviso") or "")).lower():
+            warnings.append("Suspension sin motivo claro; requiere revision.")
+        row["editable_json"] = {"revision_status": "pending_revision", "aplicar_descuento": False}
+        row["warnings"] = warnings
+        return
+
+    m_pesos = re.search(r"\$\s*([0-9,]+(?:\.[0-9]{1,4})?)", descuento_raw)
+    m_vsm = re.search(r"([0-9]+(?:\.[0-9]{1,6})?)\s*VSM", descuento_raw, flags=re.IGNORECASE)
+    tipo_desc_norm = _normalize_name(tipo_desc)
+    if m_pesos:
+        monto = _decimal_or_none(m_pesos.group(1))
+        if monto is not None:
+            monto = monto.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            row["tipo_valor_descuento"] = "PESOS"
+            row["descuento_monto_pesos"] = float(monto)
+            row["descuento_cf_calculada"] = float(monto)
+        else:
+            warnings.append("No se pudo convertir el monto en pesos.")
+    elif m_vsm or "VSM" in tipo_desc_norm:
+        factor_txt = m_vsm.group(1) if m_vsm else ""
+        factor = _decimal_or_none(factor_txt)
+        row["tipo_valor_descuento"] = "VSM"
+        warnings.append("Descuento en VSM detectado.")
+        if factor is None:
+            warnings.append("Conversion VSM no pudo realizarse.")
+        elif umi is None:
+            warnings.append("UMI no configurada para el anio del reporte.")
+            row["descuento_factor_vsm"] = float(factor)
+        else:
+            cf = (factor * umi).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            row["descuento_factor_vsm"] = float(factor)
+            row["umi_usada"] = float(umi)
+            row["descuento_cf_calculada"] = float(cf)
+            row["descuento_monto_pesos"] = float(cf)
+            warnings.append("VSM convertido a pesos para revision.")
+    else:
+        if estatus in {"ACTIVO", "ACTIVO_MODIFICADO"}:
+            warnings.append("Retencion/Modificacion sin monto de descuento.")
+        if tipo_desc and "PESOS" not in tipo_desc_norm and "VSM" not in tipo_desc_norm:
+            warnings.append("Tipo de descuento no reconocido.")
+
+    row["editable_json"] = {"revision_status": "pending_revision", "aplicar_descuento": False}
+    row["warnings"] = warnings
+
+
+def _match_infonavit_rows(rows: list[dict], db_path: str) -> tuple[list[dict], str]:
+    by_nss, by_name, source = _build_headcount_indices(db_path)
+    for row in rows:
+        warnings = list(row.get("warnings") or [])
+        nss = str(row.get("nss") or "").strip()
+        nombre_norm = _normalize_name(str(row.get("nombre_trabajador") or ""))
+        match_status = "no_match"
+        match_score = 0.0
+        hc_row: dict | None = None
+        if nss and nss in by_nss:
+            hc_row = by_nss[nss]
+            match_status = "exact_nss"
+            match_score = 1.0
+        else:
+            candidates = by_name.get(nombre_norm) or []
+            if len(candidates) == 1:
+                hc_row = candidates[0]
+                match_status = "match_name"
+                match_score = 0.88
+            elif len(candidates) > 1:
+                match_status = "probable_match"
+                match_score = 0.5
+                warnings.append("Multiples candidatos por nombre en Headcount.")
+                hc_row = candidates[0]
+            else:
+                warnings.append("No se encontro trabajador en Headcount.")
+
+        if hc_row is not None:
+            row["nombre_headcount"] = str(hc_row.get("nombre_completo") or "").strip()
+            row["cliente_headcount"] = str(hc_row.get("cliente") or "").strip()
+            row["planta_headcount"] = str(hc_row.get("patron") or "").strip()
+            row["estatus_headcount"] = str(hc_row.get("status_imss") or "").strip()
+            if not _is_headcount_active(hc_row):
+                warnings.append("Trabajador con aviso INFONAVIT, pero Headcount lo marca inactivo/baja.")
+                match_status = "inactive_match"
+                match_score = min(match_score, 0.7) if match_score > 0 else 0.7
+            if not row.get("nss"):
+                row["nss"] = str(hc_row.get("nss") or "").strip()
+        else:
+            row["nombre_headcount"] = ""
+            row["cliente_headcount"] = ""
+            row["planta_headcount"] = ""
+            row["estatus_headcount"] = "NO_ENCONTRADO"
+            if match_status == "probable_match":
+                match_status = "pending_review"
+        row["match_status"] = match_status
+        row["match_score"] = match_score
+        row["warnings"] = warnings
+    return rows, source
+
+
+def _prepare_infonavit_rows(parsed_rows: list[dict], fecha_corte: str, db_path: str) -> tuple[list[dict], str]:
+    year = _year_from_fecha_corte(fecha_corte)
+    umi = get_umi_for_year(year)
+    prepared = [dict(r) for r in parsed_rows]
+    for row in prepared:
+        _infonavit_descuento_logic(row, umi)
+    prepared, headcount_source = _match_infonavit_rows(prepared, db_path)
+    return prepared, headcount_source
+
+
 @nomina_bp.get("/vacaciones")
 @_nomina_dashboard_required
 def vacaciones_index():
@@ -760,6 +917,156 @@ def vacaciones_editar(row_id: int):
         return redirect(url_for("nomina.vacaciones_editar", row_id=row_id))
 
     return render_template("nomina/vacaciones_edit.html", row=row)
+
+
+@nomina_bp.get("/infonavit")
+@_nomina_dashboard_required
+def infonavit_index():
+    latest_import_id = get_latest_infonavit_import_id(_db_path())
+    import_id_raw = (request.args.get("import_id") or "").strip()
+    selected_import_id = int(import_id_raw) if import_id_raw.isdigit() else latest_import_id
+    match_status = (request.args.get("match_status") or "").strip() or None
+    estatus_infonavit = (request.args.get("estatus_infonavit") or "").strip() or None
+    revision_status = (request.args.get("revision_status") or "").strip() or None
+    rows = list_infonavit_rows(
+        _db_path(),
+        import_id=selected_import_id,
+        match_status=match_status,
+        estatus_infonavit=estatus_infonavit,
+        revision_status=revision_status,
+        limit=900,
+    )
+    stats = get_infonavit_stats_by_import(_db_path(), selected_import_id)
+    imports = list_infonavit_imports(_db_path(), limit=100)
+    return render_template(
+        "nomina/infonavit_index.html",
+        rows=rows,
+        stats=stats,
+        imports=imports,
+        latest_import_id=latest_import_id,
+        selected_import_id=selected_import_id,
+        filtros={
+            "import_id": str(selected_import_id or ""),
+            "match_status": match_status or "",
+            "estatus_infonavit": estatus_infonavit or "",
+            "revision_status": revision_status or "",
+        },
+    )
+
+
+@nomina_bp.post("/infonavit/importar")
+@_nomina_dashboard_required
+def infonavit_importar():
+    file = request.files.get("pdf_file")
+    if file is None or not (file.filename or "").strip():
+        flash("Debes seleccionar un PDF de INFONAVIT.", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+    filename = file.filename or "infonavit.pdf"
+    if not filename.lower().endswith(".pdf"):
+        flash("Formato no soportado. Usa PDF.", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+
+    try:
+        file_bytes = file.read()
+        parsed = parse_infonavit_pdf(file_bytes, filename=filename)
+    except Exception as exc:
+        flash(f"No se pudo leer el PDF INFONAVIT: {exc}", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+
+    if parsed.errors:
+        flash("No fue posible extraer avisos validos del PDF.", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+
+    rows, headcount_source = _prepare_infonavit_rows(parsed.rows, str(parsed.metadata.get("fecha_corte") or ""), _db_path())
+    warning_count = sum(len(r.get("warnings") or []) for r in rows) + len(parsed.warnings)
+    active_count = sum(1 for r in rows if str(r.get("estatus_infonavit") or "") == "ACTIVO")
+    modified_count = sum(1 for r in rows if str(r.get("estatus_infonavit") or "") == "ACTIVO_MODIFICADO")
+    suspended_count = sum(1 for r in rows if str(r.get("estatus_infonavit") or "") == "SUSPENDIDO")
+    vsm_count = sum(1 for r in rows if str(r.get("tipo_valor_descuento") or "") == "VSM")
+
+    payload = {
+        "registro_patronal": parsed.metadata.get("registro_patronal") or "",
+        "fecha_corte": parsed.metadata.get("fecha_corte") or "",
+        "total_avisos_reportado": parsed.metadata.get("total_avisos_reportado") or 0,
+        "total_rows": len(rows),
+        "active_count": active_count,
+        "modified_count": modified_count,
+        "suspended_count": suspended_count,
+        "vsm_count": vsm_count,
+        "warning_count": warning_count,
+        "error_count": len(parsed.errors),
+        "source_filename": filename,
+        "file_hash": hashlib.sha256(file_bytes).hexdigest(),
+        "rows": rows,
+        "raw_json": {
+            "metadata": parsed.metadata,
+            "parse_warnings": parsed.warnings,
+            "parse_errors": parsed.errors,
+            "headcount_source": headcount_source,
+        },
+    }
+    uid = int(g.user["id"]) if g.user is not None else None
+    import_id = save_infonavit_import(_db_path(), payload, created_by=uid, now_iso=_now_iso())
+    if parsed.warnings:
+        flash("Importacion realizada con warnings: " + " | ".join(parsed.warnings[:2]), "warning")
+    flash("Importacion INFONAVIT procesada.", "success")
+    return redirect(url_for("nomina.infonavit_import_detail", import_id=import_id))
+
+
+@nomina_bp.get("/infonavit/imports/<int:import_id>")
+@_nomina_dashboard_required
+def infonavit_import_detail(import_id: int):
+    imp = get_infonavit_import(_db_path(), import_id)
+    if imp is None:
+        flash("Importacion INFONAVIT no encontrada.", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+    return render_template("nomina/infonavit_import_detail.html", imp=imp)
+
+
+@nomina_bp.route("/infonavit/<int:row_id>/editar", methods=["GET", "POST"])
+@_nomina_dashboard_required
+def infonavit_editar(row_id: int):
+    row = get_infonavit_row(_db_path(), row_id)
+    if row is None:
+        flash("Registro INFONAVIT no encontrado.", "error")
+        return redirect(url_for("nomina.infonavit_index"))
+    if request.method == "POST":
+        def _f(name: str) -> float | None:
+            raw = (request.form.get(name) or "").strip().replace(",", "")
+            if not raw:
+                return None
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+
+        editable_json = dict(row.get("editable_json") or {})
+        editable_json["revision_status"] = (request.form.get("revision_status") or "").strip() or "pending_review"
+        editable_json["comentarios_revision"] = (request.form.get("comentarios_revision") or "").strip()
+        updates = {
+            "estatus_infonavit": (request.form.get("estatus_infonavit") or "").strip() or "REVISION",
+            "descuento_monto_pesos": _f("descuento_monto_pesos"),
+            "descuento_factor_vsm": _f("descuento_factor_vsm"),
+            "umi_usada": _f("umi_usada"),
+            "descuento_cf_calculada": _f("descuento_cf_calculada"),
+            "tipo_valor_descuento": (request.form.get("tipo_valor_descuento") or "").strip() or "SIN_MONTO",
+            "match_status": (request.form.get("match_status") or "").strip() or "pending_review",
+            "editable_json": editable_json,
+        }
+        uid = int(g.user["id"]) if g.user is not None else None
+        ok = update_infonavit_row(
+            _db_path(),
+            row_id,
+            updates,
+            updated_by=uid,
+            updated_at=_now_iso(),
+        )
+        if ok:
+            flash("Registro INFONAVIT actualizado.", "success")
+        else:
+            flash("No se pudo actualizar el registro INFONAVIT.", "error")
+        return redirect(url_for("nomina.infonavit_editar", row_id=row_id))
+    return render_template("nomina/infonavit_edit.html", row=row)
 
 
 def register_nomina(app) -> None:

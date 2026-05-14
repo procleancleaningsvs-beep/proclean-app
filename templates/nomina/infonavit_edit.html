@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / INFONAVIT</span>
+    <h2>Editar aviso INFONAVIT</h2>
+    <p>{{ row.nombre_trabajador }} {% if row.nss %}- NSS {{ row.nss }}{% endif %}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_index') }}">Volver a INFONAVIT</a>
+</section>
+
+<section class="form-card compact-form">
+  <form method="post">
+    <label>Estatus INFONAVIT
+      <select name="estatus_infonavit">
+        <option value="ACTIVO" {% if row.estatus_infonavit == 'ACTIVO' %}selected{% endif %}>ACTIVO</option>
+        <option value="ACTIVO_MODIFICADO" {% if row.estatus_infonavit == 'ACTIVO_MODIFICADO' %}selected{% endif %}>ACTIVO_MODIFICADO</option>
+        <option value="SUSPENDIDO" {% if row.estatus_infonavit == 'SUSPENDIDO' %}selected{% endif %}>SUSPENDIDO</option>
+        <option value="REVISION" {% if row.estatus_infonavit == 'REVISION' %}selected{% endif %}>REVISION</option>
+      </select>
+    </label>
+    <label>Tipo valor descuento
+      <select name="tipo_valor_descuento">
+        <option value="PESOS" {% if row.tipo_valor_descuento == 'PESOS' %}selected{% endif %}>PESOS</option>
+        <option value="VSM" {% if row.tipo_valor_descuento == 'VSM' %}selected{% endif %}>VSM</option>
+        <option value="SIN_MONTO" {% if row.tipo_valor_descuento == 'SIN_MONTO' %}selected{% endif %}>SIN_MONTO</option>
+      </select>
+    </label>
+    <label>Descuento en pesos
+      <input type="number" step="0.01" name="descuento_monto_pesos" value="{{ row.descuento_monto_pesos if row.descuento_monto_pesos is not none else '' }}">
+    </label>
+    <label>Factor VSM
+      <input type="number" step="0.0001" name="descuento_factor_vsm" value="{{ row.descuento_factor_vsm if row.descuento_factor_vsm is not none else '' }}">
+    </label>
+    <label>UMI usada
+      <input type="number" step="0.01" name="umi_usada" value="{{ row.umi_usada if row.umi_usada is not none else '' }}">
+    </label>
+    <label>Cuota fija calculada
+      <input type="number" step="0.01" name="descuento_cf_calculada" value="{{ row.descuento_cf_calculada if row.descuento_cf_calculada is not none else '' }}">
+    </label>
+    <label>Match status
+      <select name="match_status">
+        <option value="exact_nss" {% if row.match_status == 'exact_nss' %}selected{% endif %}>exact_nss</option>
+        <option value="match_name" {% if row.match_status == 'match_name' %}selected{% endif %}>match_name</option>
+        <option value="inactive_match" {% if row.match_status == 'inactive_match' %}selected{% endif %}>inactive_match</option>
+        <option value="probable_match" {% if row.match_status == 'probable_match' %}selected{% endif %}>probable_match</option>
+        <option value="pending_review" {% if row.match_status == 'pending_review' %}selected{% endif %}>pending_review</option>
+        <option value="no_match" {% if row.match_status == 'no_match' %}selected{% endif %}>no_match</option>
+      </select>
+    </label>
+    <label>Estatus de revisión
+      {% set rev = row.editable_json.get('revision_status', 'pending_review') %}
+      <select name="revision_status">
+        <option value="pending_review" {% if rev == 'pending_review' %}selected{% endif %}>pending_review</option>
+        <option value="revisado" {% if rev == 'revisado' %}selected{% endif %}>revisado</option>
+        <option value="corregido" {% if rev == 'corregido' %}selected{% endif %}>corregido</option>
+        <option value="ignorar" {% if rev == 'ignorar' %}selected{% endif %}>ignorar</option>
+      </select>
+    </label>
+    <label>Comentarios de revisión
+      <textarea name="comentarios_revision" rows="4">{{ row.editable_json.get('comentarios_revision', '') }}</textarea>
+    </label>
+    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+  </form>
+</section>
+{% endblock %}

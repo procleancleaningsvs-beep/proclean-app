@@ -1,0 +1,142 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.ni-wrap { display:grid; gap:1rem; }
+.ni-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; }
+.ni-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.ni-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
+.ni-kpi span { display:block; font-size:.82rem; color:#64748b; }
+.ni-kpi strong { font-size:1.05rem; }
+.ni-form-inline { display:grid; grid-template-columns:repeat(5,1fr); gap:.6rem; }
+.ni-table-wrap { overflow:auto; }
+.ni-table { width:100%; border-collapse:collapse; min-width:1500px; }
+.ni-table th, .ni-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
+.ni-warn { color:#b45309; font-size:.82rem; }
+@media (max-width: 1200px) { .ni-grid, .ni-form-inline { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / INFONAVIT</span>
+    <h2>Avisos INFONAVIT</h2>
+    <p>Carga de PDF de retención, modificación y suspensión con revisión operativa.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+</section>
+
+<div class="ni-wrap">
+  <section class="ni-card">
+    <h3>KPIs (importación vigente)</h3>
+    <div class="ni-grid">
+      <div class="ni-kpi"><span>Total avisos</span><strong>{{ stats.total_avisos }}</strong></div>
+      <div class="ni-kpi"><span>Activos</span><strong>{{ stats.activos }}</strong></div>
+      <div class="ni-kpi"><span>Modificados</span><strong>{{ stats.modificados }}</strong></div>
+      <div class="ni-kpi"><span>Suspendidos</span><strong>{{ stats.suspendidos }}</strong></div>
+      <div class="ni-kpi"><span>Sin match</span><strong>{{ stats.sin_match }}</strong></div>
+      <div class="ni-kpi"><span>Pendientes revisión</span><strong>{{ stats.pendientes_revision }}</strong></div>
+      <div class="ni-kpi"><span>VSM detectados</span><strong>{{ stats.vsm_detectados }}</strong></div>
+    </div>
+  </section>
+
+  <section class="ni-card">
+    <h3>Importar PDF INFONAVIT</h3>
+    <form method="post" action="{{ url_for('nomina.infonavit_importar') }}" enctype="multipart/form-data">
+      <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
+      <button type="submit" class="btn btn-primary">Importar PDF</button>
+    </form>
+  </section>
+
+  <section class="ni-card">
+    <h3>Filtros</h3>
+    <form class="ni-form-inline" method="get" action="{{ url_for('nomina.infonavit_index') }}">
+      <select name="import_id">
+        {% for imp in imports %}
+        <option value="{{ imp.id }}" {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
+          #{{ imp.id }} - {{ imp.created_at }} - {{ imp.source_filename }}
+        </option>
+        {% endfor %}
+      </select>
+      <select name="estatus_infonavit">
+        <option value="">Estatus INFONAVIT</option>
+        <option value="ACTIVO" {% if filtros.estatus_infonavit == 'ACTIVO' %}selected{% endif %}>ACTIVO</option>
+        <option value="ACTIVO_MODIFICADO" {% if filtros.estatus_infonavit == 'ACTIVO_MODIFICADO' %}selected{% endif %}>ACTIVO_MODIFICADO</option>
+        <option value="SUSPENDIDO" {% if filtros.estatus_infonavit == 'SUSPENDIDO' %}selected{% endif %}>SUSPENDIDO</option>
+        <option value="REVISION" {% if filtros.estatus_infonavit == 'REVISION' %}selected{% endif %}>REVISION</option>
+      </select>
+      <select name="match_status">
+        <option value="">Match status</option>
+        <option value="exact_nss" {% if filtros.match_status == 'exact_nss' %}selected{% endif %}>exact_nss</option>
+        <option value="match_name" {% if filtros.match_status == 'match_name' %}selected{% endif %}>match_name</option>
+        <option value="inactive_match" {% if filtros.match_status == 'inactive_match' %}selected{% endif %}>inactive_match</option>
+        <option value="probable_match" {% if filtros.match_status == 'probable_match' %}selected{% endif %}>probable_match</option>
+        <option value="pending_review" {% if filtros.match_status == 'pending_review' %}selected{% endif %}>pending_review</option>
+        <option value="no_match" {% if filtros.match_status == 'no_match' %}selected{% endif %}>no_match</option>
+      </select>
+      <select name="revision_status">
+        <option value="">Revisión</option>
+        <option value="pending_review" {% if filtros.revision_status == 'pending_review' %}selected{% endif %}>pending_review</option>
+        <option value="revisado" {% if filtros.revision_status == 'revisado' %}selected{% endif %}>revisado</option>
+        <option value="corregido" {% if filtros.revision_status == 'corregido' %}selected{% endif %}>corregido</option>
+        <option value="ignorar" {% if filtros.revision_status == 'ignorar' %}selected{% endif %}>ignorar</option>
+      </select>
+      <button class="btn btn-primary" type="submit">Aplicar</button>
+    </form>
+    <p class="ni-warn">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
+  </section>
+
+  <section class="ni-card">
+    <h3>Avisos</h3>
+    <div class="ni-table-wrap">
+      <table class="ni-table">
+        <thead>
+          <tr>
+            <th>NSS</th>
+            <th>Crédito</th>
+            <th>Folio</th>
+            <th>Trabajador</th>
+            <th>Tipo aviso</th>
+            <th>Estatus</th>
+            <th>Fecha</th>
+            <th>Descuento</th>
+            <th>Tipo valor</th>
+            <th>CF calculada</th>
+            <th>Match</th>
+            <th>Headcount</th>
+            <th>Alertas</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.nss or '—' }}</td>
+            <td>{{ row.numero_credito or '—' }}</td>
+            <td>{{ row.folio_aviso or '—' }}</td>
+            <td>{{ row.nombre_trabajador }}</td>
+            <td>{{ row.tipo_aviso or '—' }}</td>
+            <td>{{ row.estatus_infonavit }}</td>
+            <td>{{ row.fecha_aviso or '—' }}</td>
+            <td>{{ row.descuento_raw or '—' }}</td>
+            <td>{{ row.tipo_valor_descuento or 'SIN_MONTO' }}</td>
+            <td>{{ row.descuento_cf_calculada if row.descuento_cf_calculada is not none else '—' }}</td>
+            <td>{{ row.match_status }} ({{ row.match_score or 0 }})</td>
+            <td>{{ row.nombre_headcount or '—' }} / {{ row.estatus_headcount or '—' }}</td>
+            <td>
+              {% for w in row.warnings %}
+              <div class="ni-warn">{{ w }}</div>
+              {% endfor %}
+            </td>
+            <td><a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_editar', row_id=row.id) }}">Editar</a></td>
+          </tr>
+          {% endfor %}
+          {% if not rows %}
+          <tr><td colspan="14">Sin registros INFONAVIT.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / INFONAVIT</span>
+    <h2>Detalle de importación INFONAVIT</h2>
+    <p>Archivo: {{ imp.source_filename }} | Registro patronal: {{ imp.registro_patronal or '—' }}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_index') }}">Volver a INFONAVIT</a>
+</section>
+
+<section class="panel">
+  <p><strong>Fecha corte:</strong> {{ imp.fecha_corte or '—' }}</p>
+  <p><strong>Total avisos reportado:</strong> {{ imp.total_avisos_reportado }}</p>
+  <p><strong>Total filas parseadas:</strong> {{ imp.total_rows }}</p>
+  <p><strong>Activos:</strong> {{ imp.active_count }}</p>
+  <p><strong>Modificados:</strong> {{ imp.modified_count }}</p>
+  <p><strong>Suspendidos:</strong> {{ imp.suspended_count }}</p>
+  <p><strong>VSM:</strong> {{ imp.vsm_count }}</p>
+  <p><strong>Warnings:</strong> {{ imp.warning_count }}</p>
+  <p><strong>Errores:</strong> {{ imp.error_count }}</p>
+  <p><strong>File hash:</strong> {{ imp.file_hash }}</p>
+  {% for w in imp.raw_json.get('parse_warnings', []) %}
+  <div style="color:#b45309;">{{ w }}</div>
+  {% endfor %}
+</section>
+
+<section class="panel">
+  <h3>Registros importados</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>NSS</th>
+          <th>Trabajador</th>
+          <th>Estatus INFONAVIT</th>
+          <th>Tipo valor</th>
+          <th>CF calculada</th>
+          <th>Match</th>
+          <th>Alertas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in imp.rows %}
+        <tr>
+          <td>{{ row.nss or '—' }}</td>
+          <td>{{ row.nombre_trabajador }}</td>
+          <td>{{ row.estatus_infonavit }}</td>
+          <td>{{ row.tipo_valor_descuento }}</td>
+          <td>{{ row.descuento_cf_calculada if row.descuento_cf_calculada is not none else '—' }}</td>
+          <td>{{ row.match_status }}</td>
+          <td>
+            {% for w in row.warnings %}
+            <div>{{ w }}</div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

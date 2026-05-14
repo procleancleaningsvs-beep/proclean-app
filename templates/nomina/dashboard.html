@@ -60,7 +60,15 @@
 
     <section class="nd-card">
       <h3>INFONAVIT</h3>
-      <p class="nd-soon">Próximamente: carga de PDF INFONAVIT, retención/modificación/suspensión y match por NSS/nombre.</p>
+      <div class="nd-kpis">
+        <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
+        <div class="nd-kpi"><span>Activos</span><strong>{{ inf_stats.activos }}</strong></div>
+        <div class="nd-kpi"><span>Modificados</span><strong>{{ inf_stats.modificados }}</strong></div>
+        <div class="nd-kpi"><span>Suspendidos</span><strong>{{ inf_stats.suspendidos }}</strong></div>
+        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
+        <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
+      </div>
+      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
     </section>
 
     <section class="nd-card">
