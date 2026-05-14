@@ -186,6 +186,47 @@ def redondear_neto_operativo(
     return q2(n * step)
 
 
+def terminacion_neto_operativo_valida(valor: Decimal) -> bool:
+    """True si el neto redondeado cae en .00, .20, .40, .60 u .80 (múltiplo de 20 centavos)."""
+    if valor <= 0:
+        return True
+    cent = int((valor * 100).to_integral_value(rounding=ROUND_HALF_UP))
+    return cent % 20 == 0
+
+
+# Alias de columnas Excel → claves del dict de fila del motor (fixtures anonimizados).
+_EXCEL_FIXTURE_KEY_ALIASES: dict[str, str] = {
+    "dias": "dias_computables",
+}
+
+
+def diff_nomina_row_vs_excel_fixture(
+    row: dict[str, Any],
+    esperado: dict[str, Any],
+    *,
+    tolerancia: Decimal = Q2,
+) -> list[str]:
+    """Compara una fila calculada contra valores esperados (Excel/macro). Solo revisa claves presentes en ``esperado``.
+
+    Uso: validación manual contra libro Excel actual sin subir el archivo al repositorio.
+    ``esperado`` puede usar alias ``dias`` → ``dias_computables``.
+    """
+    diffs: list[str] = []
+    for k_raw, exp in esperado.items():
+        row_key = _EXCEL_FIXTURE_KEY_ALIASES.get(k_raw, k_raw)
+        if row_key not in row:
+            diffs.append(f"clave_desconocida:{k_raw}")
+            continue
+        got_raw = row.get(row_key)
+        if got_raw is None and exp is None:
+            continue
+        got = _to_decimal(got_raw)
+        exp_d = _to_decimal(exp)
+        if abs(got - exp_d) > tolerancia:
+            diffs.append(f"{row_key}: motor={got} excel_fixture={exp_d}")
+    return diffs
+
+
 def calcular_isr_2026(
     base_gravada: Decimal,
     *,
@@ -196,7 +237,11 @@ def calcular_isr_2026(
     es_frontera: bool,
     permitir_negativo: bool = False,
 ) -> Decimal:
-    """Réplica macro ISR_2026: baseISR_Mes y baseSub_Mes con FACTOR_MES=30.4; subsidio 536.21 o 0."""
+    """Réplica lógica macro VBA ISR_2026 (tarifa mensual + factor 30.4 + subsidio fijo o 0).
+
+    Este cálculo replica la macro VBA ISR_2026. No redondear pasos intermedios salvo que la macro lo haga.
+    El resultado final equivale a WorksheetFunction.Round(isrRetener, 2) en Excel (aquí ``q2``).
+    """
     if es_fin_de_mes:
         # Reservado: con EsFinDeMes=False no se aplica tope fin de mes en esta fase.
         pass
@@ -209,17 +254,17 @@ def calcular_isr_2026(
     d_sub = dias_tarifa_subs if dias_tarifa_subs > 0 else Decimal(str(DIAS_TARIFA_SUBSIDIO_DEFAULT))
     base_isr_mes = (base_gravada / d_isr) * FACTOR_ISR_MENSUAL
     base_sub_mes = (base_gravada / d_sub) * FACTOR_ISR_MENSUAL
-    isr_mes = q2(_isr_mensual_tabla_2026(base_isr_mes))
+    isr_mensual = _isr_mensual_tabla_2026(base_isr_mes)
+    isr_periodo = (isr_mensual / FACTOR_ISR_MENSUAL) * d_isr
     if SUBSIDIO_BASE_MENSUAL_MIN_INCL <= base_sub_mes < SUBSIDIO_BASE_MENSUAL_MAX_EXCL:
-        subsidio_mes = SUBSIDIO_MACRO_MENSUAL_2026
+        subsidio_mensual = SUBSIDIO_MACRO_MENSUAL_2026
     else:
-        subsidio_mes = Decimal(0)
-    isr_periodo = (isr_mes / FACTOR_ISR_MENSUAL) * d_isr
-    subsidio_periodo = (subsidio_mes / FACTOR_ISR_MENSUAL) * d_sub
-    isr = q2(isr_periodo - subsidio_periodo)
-    if not permitir_negativo and isr < 0:
-        isr = Decimal(0)
-    return q2(isr)
+        subsidio_mensual = Decimal(0)
+    subsidio_periodo = (subsidio_mensual / FACTOR_ISR_MENSUAL) * d_sub
+    isr_retener = isr_periodo - subsidio_periodo
+    if not permitir_negativo and isr_retener < 0:
+        isr_retener = Decimal(0)
+    return q2(isr_retener)
 
 
 def calcular_bono_tpt_y_prima_eficiencia(

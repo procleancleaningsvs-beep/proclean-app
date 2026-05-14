@@ -16,20 +16,27 @@ from modules.nomina.calc_nomina import (
     CalcularNominaConfig,
     EmpleadoCalcInput,
     calcular_empleado_nomina,
+    diff_nomina_row_vs_excel_fixture,
+    enriquecer_netos_y_auditoria,
     q2,
     redondear_neto_operativo,
+    terminacion_neto_operativo_valida,
     _deduccion_mensual_infonavit,
-    _isr_mensual_tabla_2026,
 )
 from modules.nomina.config import (
     BONO_TPT_TOPE_2026,
-    FACTOR_ISR_MENSUAL,
     SMG_BY_YEAR,
-    SUBSIDIO_BASE_MENSUAL_MAX_EXCL,
-    SUBSIDIO_BASE_MENSUAL_MIN_INCL,
-    SUBSIDIO_MACRO_MENSUAL_2026,
     salario_minimo_semanal_2026,
 )
+
+# ---------------------------------------------------------------------------
+# Fixtures ISR_2026 (macro VBA): Round final a 2 decimales; isrMensual sin redondeo intermedio.
+# Valores transcritos / verificados contra la macro (no derivados del código Python del motor).
+# ---------------------------------------------------------------------------
+MACRO_ISR_2026_BASE_2300_D7_SUBSIDIO = Decimal("53.75")
+MACRO_ISR_2026_BASE_3000_D7_SIN_SUBSIDIO = Decimal("276.20")
+# Borde: isrMensual pleno − subsidio deja residual < 1 centavo antes del Round final.
+MACRO_ISR_2026_BASE_1805_98_D7_SUBSIDIO = Decimal("0.01")
 
 
 def test_septimo_dia_y_dias_pago():
@@ -76,7 +83,8 @@ def test_base_gravada_formula():
     assert bg == (sueldo_base + cg + (he_fiscal - ex)).quantize(Decimal("0.01"))
 
 
-def test_isr_cero_bajo_salario_minimo_semanal():
+def test_isr_macro_cero_por_salario_minimo_semanal():
+    """Macro: si TotalPercepcionesPeriodo <= SalarioMinimoSemanal → ISR = 0."""
     smg_sem = salario_minimo_semanal_2026(es_frontera=False)
     isr = calcular_isr_2026(
         Decimal("5000"),
@@ -88,6 +96,48 @@ def test_isr_cero_bajo_salario_minimo_semanal():
         permitir_negativo=False,
     )
     assert isr == Decimal("0.00")
+
+
+def test_isr_macro_base_media_con_subsidio_fixture():
+    """Base gravada media en rango de subsidio mensual 536.21 (macro)."""
+    got = calcular_isr_2026(
+        Decimal("2300"),
+        total_percepciones_periodo=Decimal("5000"),
+        dias_tarifa_isr=Decimal(7),
+        dias_tarifa_subs=Decimal(7),
+        es_fin_de_mes=False,
+        es_frontera=False,
+        permitir_negativo=False,
+    )
+    assert got == MACRO_ISR_2026_BASE_2300_D7_SUBSIDIO
+
+
+def test_isr_macro_base_alta_sin_subsidio_fixture():
+    """Base gravada alta: baseSub_Mes fuera de rango → subsidio 0 (macro)."""
+    got = calcular_isr_2026(
+        Decimal("3000"),
+        total_percepciones_periodo=Decimal("10000"),
+        dias_tarifa_isr=Decimal(7),
+        dias_tarifa_subs=Decimal(7),
+        es_fin_de_mes=False,
+        es_frontera=False,
+        permitir_negativo=False,
+    )
+    assert got == MACRO_ISR_2026_BASE_3000_D7_SIN_SUBSIDIO
+
+
+def test_isr_macro_borde_residual_round_final():
+    """Si se redondea isrMensual antes de periodo, este caso da 0.00; la macro da 0.01."""
+    got = calcular_isr_2026(
+        Decimal("1805.98"),
+        total_percepciones_periodo=Decimal("5000"),
+        dias_tarifa_isr=Decimal(7),
+        dias_tarifa_subs=Decimal(7),
+        es_fin_de_mes=False,
+        es_frontera=False,
+        permitir_negativo=False,
+    )
+    assert got == MACRO_ISR_2026_BASE_1805_98_D7_SUBSIDIO
 
 
 def test_bono_tpt_tope_y_prima():
@@ -109,47 +159,6 @@ def test_bono_tpt_tope_y_prima():
         assert p == (diff - BONO_TPT_TOPE_2026).quantize(Decimal("0.01"))
 
 
-def test_isr_macro_subsidio_536_21_y_base_sub():
-    """Réplica macro: baseSub_Mes define subsidio 536.21 si 0.01 <= base < 11492.67."""
-    d_isr = Decimal(7)
-    d_sub = Decimal(7)
-    base_g = Decimal("2300")
-    base_isr_mes = (base_g / d_isr) * FACTOR_ISR_MENSUAL
-    base_sub_mes = (base_g / d_sub) * FACTOR_ISR_MENSUAL
-    assert SUBSIDIO_BASE_MENSUAL_MIN_INCL <= base_sub_mes < SUBSIDIO_BASE_MENSUAL_MAX_EXCL
-    isr_mes = q2(_isr_mensual_tabla_2026(base_isr_mes))
-    sub_mes = SUBSIDIO_MACRO_MENSUAL_2026
-    esperado = q2((isr_mes / FACTOR_ISR_MENSUAL) * d_isr - (sub_mes / FACTOR_ISR_MENSUAL) * d_sub)
-    got = calcular_isr_2026(
-        base_g,
-        total_percepciones_periodo=Decimal("5000"),
-        dias_tarifa_isr=d_isr,
-        dias_tarifa_subs=d_sub,
-        es_fin_de_mes=False,
-        es_frontera=False,
-        permitir_negativo=False,
-    )
-    assert got == esperado
-
-
-def test_isr_sin_subsidio_si_base_sub_fuera_de_rango():
-    base_g = Decimal("3000")
-    base_sub = (base_g / Decimal(7)) * FACTOR_ISR_MENSUAL
-    assert base_sub >= SUBSIDIO_BASE_MENSUAL_MAX_EXCL
-    got = calcular_isr_2026(
-        base_g,
-        total_percepciones_periodo=Decimal("10000"),
-        dias_tarifa_isr=Decimal(7),
-        dias_tarifa_subs=Decimal(7),
-        es_fin_de_mes=False,
-        es_frontera=False,
-        permitir_negativo=False,
-    )
-    isr_mes = q2(_isr_mensual_tabla_2026((base_g / Decimal(7)) * FACTOR_ISR_MENSUAL))
-    esperado = q2((isr_mes / FACTOR_ISR_MENSUAL) * Decimal(7))
-    assert got == esperado
-
-
 def test_redondear_neto_operativo_ejemplos():
     assert redondear_neto_operativo(Decimal("2700.01")) == Decimal("2700.20")
     assert redondear_neto_operativo(Decimal("2700.20")) == Decimal("2700.20")
@@ -157,6 +166,91 @@ def test_redondear_neto_operativo_ejemplos():
     assert redondear_neto_operativo(Decimal("2700.79")) == Decimal("2700.80")
     assert redondear_neto_operativo(Decimal("2700.85")) == Decimal("2701.00")
     assert redondear_neto_operativo(Decimal("2700.99")) == Decimal("2701.00")
+
+
+def test_base_neto_simple_y_neto_simple_operativo():
+    """NETO SIMPLE: (salario/7)*dias + extra + grav + exento − INFONAVIT; operativo = redondeo .00/.20…"""
+    row: dict = {"detail_json": {}}
+    salario = Decimal("3500")
+    dias_pago = Decimal(7)
+    he = Decimal(2)
+    vx = Decimal("80")
+    cg = Decimal("100")
+    ce = Decimal("50")
+    inf = Decimal("120.50")
+    enriquecer_netos_y_auditoria(
+        row,
+        salario_op=salario,
+        dias_pago=dias_pago,
+        he=he,
+        valor_x_he_para_extra=vx,
+        concepto_gravable=cg,
+        concepto_exento=ce,
+        total_perc=Decimal("4000"),
+        total_ded=Decimal("500"),
+        isr=Decimal("100"),
+        inf_semanal=inf,
+        detail={},
+    )
+    valor_extra = vx * he
+    base_esperada = (salario / Decimal(7)) * dias_pago + valor_extra + cg + ce - inf
+    assert Decimal(str(row["base_neto_simple"])) == base_esperada
+    assert Decimal(str(row["neto_simple_operativo"])) == redondear_neto_operativo(base_esperada)
+
+
+def test_neto_a_pagar_final_terminacion_operativa():
+    row: dict = {"detail_json": {}}
+    enriquecer_netos_y_auditoria(
+        row,
+        salario_op=Decimal("4000"),
+        dias_pago=Decimal(7),
+        he=Decimal(0),
+        valor_x_he_para_extra=Decimal("90"),
+        concepto_gravable=Decimal(0),
+        concepto_exento=Decimal(0),
+        total_perc=Decimal("3000"),
+        total_ded=Decimal("2700.07"),
+        isr=Decimal("10"),
+        inf_semanal=Decimal(0),
+        detail={},
+    )
+    final_d = Decimal(str(row["neto_a_pagar_final"]))
+    assert terminacion_neto_operativo_valida(final_d)
+
+
+def test_diff_nomina_row_vs_excel_fixture_sin_diferencias():
+    fila = {
+        "dias_computables": 6.0,
+        "septimo_dia": 1.0,
+        "dias_pago": 7.0,
+        "valor_he_fiscal": 0.0,
+        "base_gravada": 2300.0,
+        "isr": 53.75,
+        "bono_tpt": 0.0,
+        "prima_eficiencia": 0.0,
+        "infonavit_semanal": 100.0,
+        "neto_simple_operativo": 4000.0,
+        "neto_a_pagar_final": 3920.20,
+    }
+    esperado = {k: fila[k] for k in fila}
+    assert diff_nomina_row_vs_excel_fixture(fila, esperado) == []
+
+
+def test_diff_nomina_row_vs_excel_fixture_detecta_diferencia_y_alias_dias():
+    fila = {"dias_computables": 7.0}
+    assert diff_nomina_row_vs_excel_fixture(fila, {"dias": "7"}) == []
+    diffs = diff_nomina_row_vs_excel_fixture(fila, {"dias": "6"})
+    assert len(diffs) == 1
+    assert "dias_computables" in diffs[0]
+    row = {
+        "tipo_valor_descuento": "VSM",
+        "estatus_infonavit": "ACTIVO",
+        "match_status": "exact_nss",
+        "descuento_factor_vsm": 26.0528,
+    }
+    dm, st = _deduccion_mensual_infonavit(row, Decimal("100.81"))
+    assert st == "vsm_factor_umi"
+    assert dm == Decimal("2626.38")
 
 
 def test_infonavit_vsm_factor_por_umi_sin_30_4():
