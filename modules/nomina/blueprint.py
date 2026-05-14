@@ -31,6 +31,9 @@ from modules.nomina.db import (
     nomina_clientes_from_history,
     nomina_history_rows_for_headcount_fallback,
     get_vacaciones_stats,
+    get_vacaciones_stats_by_import,
+    get_latest_vacaciones_import_id,
+    list_vacaciones_imports,
     list_vacaciones_empleados,
     save_vacaciones_import,
     get_vacaciones_import,
@@ -40,6 +43,7 @@ from modules.nomina.db import (
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
+from modules.nomina.headcount_bridge import obtener_headcount_completo
 from modules.comparativo import alias_service
 from modules.comparativo.headcount_service import obtener_activos
 
@@ -448,7 +452,7 @@ def _iso_to_ordinal(value: str) -> int | None:
 
 def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, list[dict]], str]:
     try:
-        activos = obtener_activos()
+        activos = obtener_headcount_completo()
         source = "headcount"
     except Exception:
         activos = []
@@ -461,6 +465,7 @@ def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, l
                     "cliente": r.get("cliente") or "",
                     "fecha_ingreso": "",
                     "status_imss": "NO_DISPONIBLE",
+                    "status_operacion": "NO_DISPONIBLE",
                     "patron": "",
                     "sueldo_diario": None,
                     "puesto": "",
@@ -477,6 +482,18 @@ def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, l
             continue
         by_name.setdefault(n, []).append(item)
     return by_nss, by_name, source
+
+
+def _is_headcount_active(item: dict | None) -> bool:
+    if not item:
+        return False
+    status_op = str(item.get("status_operacion") or "").strip().upper()
+    status_imss = str(item.get("status_imss") or "").strip().upper()
+    if "BAJA" in status_op:
+        return False
+    if status_op == "ALTA":
+        return True
+    return "ACTIV" in status_imss
 
 
 def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], str, int, int]:
@@ -510,16 +527,31 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
                         break
                 if maybe is not None:
                     hc_row = maybe
-                    match_status = "pending_review"
+                    match_status = "probable_match"
                     match_score = 0.6
                     row_warnings.append("Match probable por nombre y cliente; requiere revisión manual.")
+                else:
+                    match_status = "pending_review"
+                    match_score = 0.35
+                    row_warnings.append("Múltiples candidatos por nombre en Headcount; requiere revisión.")
 
         if hc_row is None:
+            if match_status == "pending_review":
+                row_warnings.append("No se logró resolver match automático; revisión manual requerida.")
+                row["estatus_headcount"] = "PENDIENTE_REVISION"
+                row["match_status"] = "pending_review"
+                row["match_score"] = max(match_score, 0.3)
+                row["headcount_source"] = source
+                row["headcount_raw_status"] = ""
+                row["warnings"] = row_warnings
+                warnings_total += len(row_warnings)
+                continue
             row_warnings.append("Sin match en Headcount; posible inactivo/baja.")
             row["estatus_headcount"] = "INACTIVO_O_NO_ENCONTRADO"
             row["match_status"] = "no_match"
             row["match_score"] = 0.0
             row["headcount_source"] = source
+            row["headcount_raw_status"] = ""
             row["warnings"] = row_warnings
             warnings_total += len(row_warnings)
             continue
@@ -528,14 +560,21 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
         row["nombre_headcount"] = str(hc_row.get("nombre_completo") or "").strip()
         row["planta_headcount"] = str(hc_row.get("patron") or "").strip()
         row["fecha_ingreso_headcount"] = str(hc_row.get("fecha_ingreso") or "").strip()
-        row["estatus_headcount"] = str(hc_row.get("status_imss") or "ACTIVO").strip() or "ACTIVO"
+        row["estatus_headcount"] = str(hc_row.get("status_imss") or "DESCONOCIDO").strip() or "DESCONOCIDO"
         row["sueldo_headcount"] = hc_row.get("sueldo_diario")
         row["sueldo_usado"] = row["sueldo_headcount"] if row.get("sueldo_headcount") not in (None, "") else row.get("sueldo_historico")
         if not row.get("nss"):
             row["nss"] = str(hc_row.get("nss") or "").strip()
+        active = _is_headcount_active(hc_row)
+        if not active:
+            match_status = "inactive_match"
+            row_warnings.append("Trabajador encontrado en Headcount pero con estatus inactivo/baja.")
         row["match_status"] = match_status
         row["match_score"] = match_score
         row["headcount_source"] = source
+        row["headcount_raw_status"] = f"{str(hc_row.get('status_operacion') or '').strip()}|{str(hc_row.get('status_imss') or '').strip()}"
+        if row.get("monto_total_historico") not in (None, "") and row.get("sueldo_usado") in (None, ""):
+            row_warnings.append("Sueldo usado vacío; no se puede recalcular monto total de forma confiable.")
 
         hist_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_historica") or ""))
         hc_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_headcount") or ""))
@@ -547,6 +586,7 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
             )
             if hc_ord - hist_ord > 30:
                 row_warnings.append("Posible reingreso / validar saldo histórico.")
+                row["match_status"] = "possible_reentry"
 
         if source == "historial_fallback":
             row_warnings.append("Datos cruzados con historial interno (fallback), no con Headcount en vivo.")
@@ -559,10 +599,14 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
 @nomina_bp.get("/vacaciones")
 @_nomina_dashboard_required
 def vacaciones_index():
+    latest_import_id = get_latest_vacaciones_import_id(_db_path())
+    import_id_raw = (request.args.get("import_id") or "").strip()
+    selected_import_id = int(import_id_raw) if import_id_raw.isdigit() else latest_import_id
     cliente = (request.args.get("cliente") or "").strip() or None
     match_status = (request.args.get("match_status") or "").strip() or None
     activo = (request.args.get("activo") or "").strip() or None
     prima_pagada = (request.args.get("prima_pagada") or "").strip() or None
+    revision_status = (request.args.get("revision_status") or "").strip() or None
     con_alerta = request.args.get("con_alerta")
     con_alerta_bool = True if con_alerta == "1" else None
     rows = list_vacaciones_empleados(
@@ -572,9 +616,12 @@ def vacaciones_index():
         activo=activo,
         con_alerta=con_alerta_bool,
         prima_pagada=prima_pagada,
+        revision_status=revision_status,
+        import_id=selected_import_id,
         limit=700,
     )
-    stats = get_vacaciones_stats(_db_path())
+    stats = get_vacaciones_stats_by_import(_db_path(), selected_import_id)
+    imports = list_vacaciones_imports(_db_path(), limit=100)
     clientes = sorted({str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()})
     return render_template(
         "nomina/vacaciones_index.html",
@@ -582,12 +629,17 @@ def vacaciones_index():
         rows=rows,
         clientes=clientes,
         filtros={
+            "import_id": str(selected_import_id or ""),
             "cliente": cliente or "",
             "match_status": match_status or "",
             "activo": activo or "",
             "prima_pagada": prima_pagada or "",
+            "revision_status": revision_status or "",
             "con_alerta": con_alerta or "",
         },
+        imports=imports,
+        latest_import_id=latest_import_id,
+        selected_import_id=selected_import_id,
     )
 
 
@@ -690,7 +742,7 @@ def vacaciones_editar(row_id: int):
             "fecha_pago_prima_2026": (request.form.get("fecha_pago_prima_2026") or "").strip(),
             "comentarios": (request.form.get("comentarios") or "").strip(),
             "editable_json": {
-                "revision_status": (request.form.get("revision_status") or "").strip() or "pendiente",
+                "revision_status": (request.form.get("revision_status") or "").strip() or "pending_revision",
             },
         }
         uid = int(g.user["id"]) if g.user is not None else None

@@ -173,12 +173,20 @@ def parse_vacaciones_historico_excel(file_bytes: bytes, filename: str) -> Parsed
         dias_rest_calc = dias_vac - consumed
 
         row_warnings: list[str] = []
+        if dias_rest_calc < 0:
+            row_warnings.append("Saldo calculado negativo; revisar días pagados/utilizados/laborados.")
+        if dias_pagados < (dias_utilizados + vacaciones_laboradas):
+            row_warnings.append("Días pagados es menor que utilizados + vacaciones laboradas.")
         if dias_rest_hist is not None and abs(dias_rest_hist - dias_rest_calc) > 0.01:
             row_warnings.append("Días restantes histórico no coincide con cálculo.")
         prima_2026 = _paid_flag(g("prima_2026_pagada"))
         fecha_pago_2026 = _to_date_text(g("fecha_pago_prima_2026"))
         if prima_2026 and not fecha_pago_2026:
             row_warnings.append("Prima vacacional 2026 marcada como pagada sin fecha.")
+        prima_2025 = _paid_flag(g("prima_2025_pagada"))
+        semana_2025 = str(g("semana_pago_prima_2025") or "").strip()
+        if prima_2025 and not semana_2025:
+            row_warnings.append("Prima vacacional 2025 marcada como pagada sin semana de pago.")
         if _to_float(g("monto_total_historico")) is not None and _to_float(g("sueldo_historico")) is None:
             row_warnings.append("Monto total existe pero sueldo histórico está vacío.")
         if vacaciones_laboradas > 0:
@@ -206,8 +214,8 @@ def parse_vacaciones_historico_excel(file_bytes: bytes, filename: str) -> Parsed
             "dias_pagados": dias_pagados,
             "dias_restantes_historico": dias_rest_hist,
             "dias_restantes_calculado": dias_rest_calc,
-            "prima_2025_pagada": _paid_flag(g("prima_2025_pagada")),
-            "semana_pago_prima_2025": str(g("semana_pago_prima_2025") or "").strip(),
+            "prima_2025_pagada": prima_2025,
+            "semana_pago_prima_2025": semana_2025,
             "prima_2026_pagada": prima_2026,
             "fecha_pago_prima_2026": fecha_pago_2026,
             "monto_total_historico": _to_float(g("monto_total_historico")),
@@ -216,7 +224,7 @@ def parse_vacaciones_historico_excel(file_bytes: bytes, filename: str) -> Parsed
             "match_status": "pending_review",
             "match_score": 0.0,
             "warnings": row_warnings,
-            "editable_json": {},
+            "editable_json": {"revision_status": "pending_revision"},
         }
         if row["sueldo_usado"] is not None:
             row["monto_total_recalculado"] = round((row["sueldo_usado"] or 0.0) * max(row["dias_pagados"], 0.0) * 0.25, 2)

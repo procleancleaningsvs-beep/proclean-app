@@ -50,6 +50,13 @@
   <section class="nv-card">
     <h3>Filtros</h3>
     <form class="nv-form-inline" method="get" action="{{ url_for('nomina.vacaciones_index') }}">
+      <select name="import_id">
+        {% for imp in imports %}
+        <option value="{{ imp.id }}" {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
+          #{{ imp.id }} - {{ imp.created_at }} - {{ imp.source_filename }}
+        </option>
+        {% endfor %}
+      </select>
       <select name="cliente">
         <option value="">Cliente</option>
         {% for c in clientes %}
@@ -73,9 +80,17 @@
         <option value="si" {% if filtros.prima_pagada == 'si' %}selected{% endif %}>Sí</option>
         <option value="no" {% if filtros.prima_pagada == 'no' %}selected{% endif %}>No</option>
       </select>
+      <select name="revision_status">
+        <option value="">Revisión</option>
+        <option value="pending_revision" {% if filtros.revision_status == 'pending_revision' %}selected{% endif %}>pending_revision</option>
+        <option value="revisado" {% if filtros.revision_status == 'revisado' %}selected{% endif %}>revisado</option>
+        <option value="corregido" {% if filtros.revision_status == 'corregido' %}selected{% endif %}>corregido</option>
+        <option value="ignorar_historico" {% if filtros.revision_status == 'ignorar_historico' %}selected{% endif %}>ignorar_historico</option>
+      </select>
       <label><input type="checkbox" name="con_alerta" value="1" {% if filtros.con_alerta == '1' %}checked{% endif %}> Con alerta</label>
       <button class="btn btn-primary" type="submit">Aplicar</button>
     </form>
+    <p class="nv-warn">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
   </section>
 
   <section class="nv-card">
@@ -96,6 +111,7 @@
             <th>Prima 2025</th>
             <th>Prima 2026</th>
             <th>Match</th>
+            <th>Revisión</th>
             <th>Alertas</th>
             <th>Acciones</th>
           </tr>
@@ -115,6 +131,7 @@
             <td>{{ 'Sí' if row.prima_2025_pagada else 'No' }}</td>
             <td>{{ 'Sí' if row.prima_2026_pagada else 'No' }}</td>
             <td>{{ row.match_status }} ({{ row.match_score or 0 }})</td>
+            <td>{{ row.editable_json.get('revision_status', 'pending_revision') }}</td>
             <td>
               {% for w in row.warnings %}
               <div class="nv-warn">{{ w }}</div>
@@ -124,7 +141,7 @@
           </tr>
           {% endfor %}
           {% if not rows %}
-          <tr><td colspan="14">Sin registros de vacaciones.</td></tr>
+          <tr><td colspan="15">Sin registros de vacaciones.</td></tr>
           {% endif %}
         </tbody>
       </table>

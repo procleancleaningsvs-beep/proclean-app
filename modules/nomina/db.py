@@ -176,6 +176,8 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
             comentarios TEXT,
             match_status TEXT,
             match_score REAL,
+            headcount_source TEXT,
+            headcount_raw_status TEXT,
             warnings_json TEXT,
             editable_json TEXT,
             updated_by INTEGER,
@@ -184,6 +186,7 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _migrate_nomina_vacaciones_schema(conn)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_vacaciones_import_id ON nomina_vacaciones_empleados(import_id)"
     )
@@ -523,9 +526,10 @@ def save_vacaciones_import(
                     dias_utilizados, vacaciones_laboradas, dias_pagados, dias_restantes_historico, dias_restantes_calculado,
                     prima_2025_pagada, semana_pago_prima_2025, prima_2026_pagada, fecha_pago_prima_2026,
                     monto_total_historico, monto_total_recalculado, comentarios, match_status, match_score,
+                    headcount_source, headcount_raw_status,
                     warnings_json, editable_json, updated_by, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -559,6 +563,8 @@ def save_vacaciones_import(
                     row.get("comentarios"),
                     row.get("match_status"),
                     row.get("match_score"),
+                    row.get("headcount_source"),
+                    row.get("headcount_raw_status"),
                     json.dumps(row.get("warnings") or [], ensure_ascii=False),
                     json.dumps(row.get("editable_json") or {}, ensure_ascii=False),
                     row.get("updated_by"),
@@ -607,6 +613,8 @@ def list_vacaciones_empleados(
     activo: str | None = None,
     con_alerta: bool | None = None,
     prima_pagada: str | None = None,
+    revision_status: str | None = None,
+    import_id: int | None = None,
     limit: int = 500,
 ) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
@@ -637,6 +645,12 @@ def list_vacaciones_empleados(
                 query += " AND (COALESCE(v.prima_2025_pagada,0)=1 OR COALESCE(v.prima_2026_pagada,0)=1)"
             elif prima_pagada == "no":
                 query += " AND COALESCE(v.prima_2025_pagada,0)=0 AND COALESCE(v.prima_2026_pagada,0)=0"
+        if revision_status:
+            query += " AND COALESCE(v.editable_json,'') LIKE ?"
+            params.append(f'%\"revision_status\": \"{revision_status}\"%')
+        if import_id is not None:
+            query += " AND v.import_id = ?"
+            params.append(int(import_id))
         query += " ORDER BY v.id DESC LIMIT ?"
         params.append(int(limit))
         rows = conn.execute(query, tuple(params)).fetchall()
@@ -652,33 +666,89 @@ def list_vacaciones_empleados(
 
 
 def get_vacaciones_stats(db_path: str) -> dict[str, int]:
+    return get_vacaciones_stats_by_import(db_path, import_id=None)
+
+
+def get_latest_vacaciones_import_id(db_path: str) -> int | None:
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT id FROM nomina_vacaciones_imports ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row[0])
+    finally:
+        conn.close()
+
+
+def list_vacaciones_imports(db_path: str, limit: int = 50) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        total = int(conn.execute("SELECT COUNT(*) FROM nomina_vacaciones_empleados").fetchone()[0])
+        rows = conn.execute(
+            """
+            SELECT id, cliente, source_filename, total_rows, matched_count, warning_count, error_count, created_at
+            FROM nomina_vacaciones_imports
+            ORDER BY datetime(created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (int(limit),),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_vacaciones_stats_by_import(db_path: str, import_id: int | None) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        if import_id is None:
+            import_id = get_latest_vacaciones_import_id(db_path)
+        if import_id is None:
+            return {
+                "empleados_importados": 0,
+                "empleados_match_headcount": 0,
+                "empleados_sin_match": 0,
+                "discrepancias_fecha_ingreso": 0,
+                "primas_pagadas": 0,
+                "saldos_pendientes_revision": 0,
+            }
+        total = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ?",
+                (int(import_id),),
+            ).fetchone()[0]
+        )
         matched = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE match_status IN ('exact_nss','match_name')"
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('exact_nss','match_name','inactive_match','possible_reentry')",
+                (int(import_id),),
             ).fetchone()[0]
         )
         no_match = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE match_status IN ('no_match','pending_review')"
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('no_match','pending_review','probable_match')",
+                (int(import_id),),
             ).fetchone()[0]
         )
         discrep_fecha = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE fecha_ingreso_historica <> fecha_ingreso_headcount AND TRIM(COALESCE(fecha_ingreso_historica,''))<>'' AND TRIM(COALESCE(fecha_ingreso_headcount,''))<>''"
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND fecha_ingreso_historica <> fecha_ingreso_headcount AND TRIM(COALESCE(fecha_ingreso_historica,''))<>'' AND TRIM(COALESCE(fecha_ingreso_headcount,''))<>''",
+                (int(import_id),),
             ).fetchone()[0]
         )
         primas_pagadas = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE COALESCE(prima_2025_pagada,0)=1 OR COALESCE(prima_2026_pagada,0)=1"
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND (COALESCE(prima_2025_pagada,0)=1 OR COALESCE(prima_2026_pagada,0)=1)",
+                (int(import_id),),
             ).fetchone()[0]
         )
         pendientes = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE COALESCE(warnings_json,'[]') <> '[]' OR match_status IN ('pending_review','no_match')"
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND (COALESCE(warnings_json,'[]') <> '[]' OR match_status IN ('pending_review','no_match','probable_match'))",
+                (int(import_id),),
             ).fetchone()[0]
         )
         return {
@@ -760,4 +830,12 @@ def update_vacaciones_empleado(
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+def _migrate_nomina_vacaciones_schema(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_vacaciones_empleados)").fetchall()}
+    if "headcount_source" not in cols:
+        conn.execute("ALTER TABLE nomina_vacaciones_empleados ADD COLUMN headcount_source TEXT")
+    if "headcount_raw_status" not in cols:
+        conn.execute("ALTER TABLE nomina_vacaciones_empleados ADD COLUMN headcount_raw_status TEXT")
 

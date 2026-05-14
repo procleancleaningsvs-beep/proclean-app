@@ -36,10 +36,11 @@
     </label>
     <label>Estatus de revisión
       <select name="revision_status">
-        {% set rev = row.editable_json.get('revision_status', 'pendiente') %}
-        <option value="pendiente" {% if rev == 'pendiente' %}selected{% endif %}>pendiente</option>
+        {% set rev = row.editable_json.get('revision_status', 'pending_revision') %}
+        <option value="pending_revision" {% if rev == 'pending_revision' %}selected{% endif %}>pending_revision</option>
         <option value="revisado" {% if rev == 'revisado' %}selected{% endif %}>revisado</option>
-        <option value="aprobado" {% if rev == 'aprobado' %}selected{% endif %}>aprobado</option>
+        <option value="corregido" {% if rev == 'corregido' %}selected{% endif %}>corregido</option>
+        <option value="ignorar_historico" {% if rev == 'ignorar_historico' %}selected{% endif %}>ignorar_historico</option>
       </select>
     </label>
     <label>Comentarios
