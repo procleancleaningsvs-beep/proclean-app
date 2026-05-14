@@ -48,11 +48,17 @@
                 <input type="checkbox" name="first_page_only" value="1">
                 <span>Solo primera página</span>
               </label>
-              <button type="submit" class="btn btn-small">Descargar</button>
+              <button type="submit" class="btn btn-small btn-success">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10m0 0l-3.5-3.5M10 13l3.5-3.5M4 17h12"/></svg>
+                Descargar
+              </button>
             </form>
             {% if current_user.role == 'admin' %}
             <form method="post" action="{{ url_for('eliminar_historial', record_id=item.id) }}" class="inline-form" onsubmit="return confirm('¿Eliminar este registro del historial y su archivo?');">
-              <button type="submit" class="btn btn-small danger-btn">Eliminar</button>
+              <button type="submit" class="btn btn-small btn-danger">
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h14m-2 0l-1 11H6L5 6m3 0V4h4v2"/></svg>
+                Eliminar
+              </button>
             </form>
             {% endif %}
           </td>

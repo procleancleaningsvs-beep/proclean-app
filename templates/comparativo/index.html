@@ -3,25 +3,25 @@
 <style>
 .cmp-layout { display:grid; gap:1rem; }
 .cmp-row { display:grid; grid-template-columns: 2fr 3fr; gap:1rem; align-items:stretch; }
-.cmp-top, .cmp-left, .cmp-right, .cmp-bottom { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.cmp-top, .cmp-left, .cmp-right, .cmp-bottom { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:1rem; }
 .cmp-stats { display:grid; grid-template-columns: repeat(3,1fr); gap:.75rem; margin:.75rem 0; }
-.cmp-stat { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.75rem; }
+.cmp-stat { background:var(--panel-soft); border:1px solid var(--line); border-radius:10px; padding:.75rem; }
 .cmp-stat strong { display:block; font-size:1.1rem; }
 .cmp-active-scroll { display:flex; flex-direction:row; flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; gap:8px; padding-bottom:8px; margin:.5rem 0 .75rem; scrollbar-width:thin; -webkit-overflow-scrolling:touch; }
-.cmp-client-card { min-width:100px; max-width:100px; flex-shrink:0; padding:8px; font-size:.80rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; }
+.cmp-client-card { min-width:100px; max-width:100px; flex-shrink:0; padding:8px; font-size:.80rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:var(--panel-soft); border:1px solid var(--line); border-radius:10px; }
 .cmp-client-card strong { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:.82rem; }
-.cmp-client-card small { display:block; color:#64748b; margin-top:.2rem; }
+.cmp-client-card small { display:block; color:var(--muted); margin-top:.2rem; }
 .cmp-left label, .cmp-left input, .cmp-left select { display:block; width:100%; }
 .cmp-left label { margin-bottom:.6rem; font-weight:600; }
 .cmp-left input, .cmp-left select { margin-top:.3rem; }
 .cmp-left { display:flex; flex-direction:column; height:100%; min-height:620px; }
 .cmp-left-static { flex:0 0 auto; }
 .cmp-left-preview { flex:1; min-height:180px; display:flex; flex-direction:column; }
-.cmp-preview-list { flex:1; overflow-y:auto; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem; background:#f8fafc; margin:.5rem 0; }
+.cmp-preview-list { flex:1; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:.5rem; background:var(--panel-soft); margin:.5rem 0; }
 .cmp-preview-list ul { margin:0; padding-left:1.2rem; }
-.cmp-placeholder { color:#64748b; border:1px dashed #cbd5e1; border-radius:10px; padding:1rem; text-align:center; }
+.cmp-placeholder { color:var(--muted); border:1px dashed var(--line); border-radius:10px; padding:1rem; text-align:center; }
 .cmp-result-cards { display:grid; grid-template-columns: repeat(3,1fr); gap:.5rem; margin-bottom:.8rem; }
-.cmp-card { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; text-align:center; }
+.cmp-card { background:var(--panel-soft); border:1px solid var(--line); border-radius:10px; padding:.6rem; text-align:center; }
 .cmp-table-wrap { overflow:auto; margin-bottom:.75rem; }
 .cmp-table { width:100%; border-collapse: collapse; }
 .cmp-table th, .cmp-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
@@ -31,14 +31,14 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 .cmp-modal-body { padding:1rem; }
 .cmp-modal-head, .cmp-modal-foot { padding:1rem; border-bottom:1px solid #e5e7eb; }
 .cmp-modal-foot { border-top:1px solid #e5e7eb; border-bottom:0; display:flex; justify-content:flex-end; gap:.5rem; }
-.cmp-sim-item { border:1px solid #e5e7eb; border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
+.cmp-sim-item { border:1px solid var(--line); border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
 .cmp-inline-msg { margin:.5rem 0; font-size:.92rem; color:#0f766e; }
 .cmp-inline-err { margin:.5rem 0; font-size:.92rem; color:#b91c1c; }
 .cmp-actions { display:flex; gap:12px; align-items:center; }
-.cmp-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:#334155; text-decoration:none; }
+.cmp-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:var(--text); text-decoration:none; }
 .cmp-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
-.cmp-icon-btn.edit { color:#0d6efd; }
-.cmp-icon-btn.delete { color:#dc2626; }
+.cmp-icon-btn.edit { color:var(--brand-blue); }
+.cmp-icon-btn.delete { color:var(--error-text); }
 .cmp-modal-edit-table td input { width:100%; }
 .cmp-edit-section { margin:.7rem 0; }
 @media (max-width: 1024px) {
@@ -68,7 +68,10 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       <div class="cmp-client-card"><strong>Cargando...</strong><small>0 activos</small></div>
     </div>
     <p>El headcount se sincroniza automáticamente desde OneDrive. Usa este botón solo si necesitas forzar una actualización inmediata.</p>
-    <button type="button" class="btn btn-primary" id="btn-forzar-sync">🔄 Forzar actualización desde OneDrive</button>
+    <button type="button" class="btn btn-primary" id="btn-forzar-sync">
+      <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4v4h4M16 16v-4h-4"/><path d="M16.93 8A7 7 0 103.07 13"/></svg>
+      Forzar actualización desde OneDrive
+    </button>
     <p id="sync-msg" class="cmp-inline-msg" hidden></p>
     <p id="sync-err" class="cmp-inline-err" hidden></p>
   </section>
