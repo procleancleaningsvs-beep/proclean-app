@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / Vacaciones</span>
+    <h2>Resultado de importación histórica</h2>
+    <p>Fuente: {{ imp.source_filename }} | Headcount source: {{ imp.raw_json.source or imp.headcount_source }}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index') }}">Volver a Vacaciones</a>
+</section>
+
+<section class="panel">
+  <p><strong>Total filas:</strong> {{ imp.total_rows }}</p>
+  <p><strong>Match:</strong> {{ imp.matched_count }}</p>
+  <p><strong>Warnings:</strong> {{ imp.warning_count }}</p>
+  <p><strong>Errores:</strong> {{ imp.error_count }}</p>
+  <p><strong>File hash:</strong> {{ imp.file_hash }}</p>
+</section>
+
+<section class="panel">
+  <h3>Registros importados</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Trabajador</th>
+          <th>NSS</th>
+          <th>Match</th>
+          <th>Estatus HC</th>
+          <th>Días restantes calc</th>
+          <th>Alertas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in imp.rows %}
+        <tr>
+          <td>{{ row.nombre_historico }}</td>
+          <td>{{ row.nss or '—' }}</td>
+          <td>{{ row.match_status }}</td>
+          <td>{{ row.estatus_headcount }}</td>
+          <td>{{ row.dias_restantes_calculado }}</td>
+          <td>
+            {% for w in row.warnings %}
+            <div>{{ w }}</div>
+            {% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+

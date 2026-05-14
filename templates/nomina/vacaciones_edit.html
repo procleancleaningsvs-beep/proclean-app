@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / Vacaciones</span>
+    <h2>Editar registro</h2>
+    <p>{{ row.nombre_historico }} {% if row.nss %}- NSS {{ row.nss }}{% endif %}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index') }}">Volver a Vacaciones</a>
+</section>
+
+<section class="form-card compact-form">
+  <form method="post">
+    <label>Fecha ingreso usada
+      <input type="date" name="fecha_ingreso_usada" value="{{ row.fecha_ingreso_usada or '' }}">
+    </label>
+    <label>Sueldo usado
+      <input type="number" step="0.01" name="sueldo_usado" value="{{ row.sueldo_usado if row.sueldo_usado is not none else '' }}">
+    </label>
+    <label>Días utilizados
+      <input type="number" step="0.01" name="dias_utilizados" value="{{ row.dias_utilizados if row.dias_utilizados is not none else '' }}">
+    </label>
+    <label>Vacaciones laboradas
+      <input type="number" step="0.01" name="vacaciones_laboradas" value="{{ row.vacaciones_laboradas if row.vacaciones_laboradas is not none else '' }}">
+    </label>
+    <label>Días pagados
+      <input type="number" step="0.01" name="dias_pagados" value="{{ row.dias_pagados if row.dias_pagados is not none else '' }}">
+    </label>
+    <label>Días restantes (calculado/ajuste)
+      <input type="number" step="0.01" name="dias_restantes_calculado" value="{{ row.dias_restantes_calculado if row.dias_restantes_calculado is not none else '' }}">
+    </label>
+    <label><input type="checkbox" name="prima_2025_pagada" value="1" {% if row.prima_2025_pagada %}checked{% endif %}> Prima 2025 pagada</label>
+    <label><input type="checkbox" name="prima_2026_pagada" value="1" {% if row.prima_2026_pagada %}checked{% endif %}> Prima 2026 pagada</label>
+    <label>Fecha pago prima 2026
+      <input type="date" name="fecha_pago_prima_2026" value="{{ row.fecha_pago_prima_2026 or '' }}">
+    </label>
+    <label>Estatus de revisión
+      <select name="revision_status">
+        {% set rev = row.editable_json.get('revision_status', 'pendiente') %}
+        <option value="pendiente" {% if rev == 'pendiente' %}selected{% endif %}>pendiente</option>
+        <option value="revisado" {% if rev == 'revisado' %}selected{% endif %}>revisado</option>
+        <option value="aprobado" {% if rev == 'aprobado' %}selected{% endif %}>aprobado</option>
+      </select>
+    </label>
+    <label>Comentarios
+      <textarea name="comentarios" rows="4">{{ row.comentarios or '' }}</textarea>
+    </label>
+    <button type="submit" class="btn btn-primary">Guardar cambios</button>
+  </form>
+</section>
+{% endblock %}
+

@@ -125,6 +125,71 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_asistencia_rows_import_id ON nomina_asistencia_rows(import_id)"
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_vacaciones_imports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente TEXT NOT NULL,
+            source_filename TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            total_rows INTEGER NOT NULL DEFAULT 0,
+            matched_count INTEGER NOT NULL DEFAULT 0,
+            warning_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            created_by INTEGER,
+            created_at TEXT NOT NULL,
+            raw_json TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_vacaciones_empleados (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            import_id INTEGER NOT NULL,
+            nss TEXT,
+            nombre_historico TEXT,
+            nombre_normalizado TEXT,
+            nombre_headcount TEXT,
+            cliente TEXT,
+            planta_historica TEXT,
+            planta_headcount TEXT,
+            fecha_ingreso_historica TEXT,
+            fecha_ingreso_headcount TEXT,
+            fecha_ingreso_usada TEXT,
+            estatus_headcount TEXT,
+            sueldo_historico REAL,
+            sueldo_headcount REAL,
+            sueldo_usado REAL,
+            dias_vacaciones_historico REAL,
+            dias_utilizados REAL,
+            vacaciones_laboradas REAL,
+            dias_pagados REAL,
+            dias_restantes_historico REAL,
+            dias_restantes_calculado REAL,
+            prima_2025_pagada INTEGER NOT NULL DEFAULT 0,
+            semana_pago_prima_2025 TEXT,
+            prima_2026_pagada INTEGER NOT NULL DEFAULT 0,
+            fecha_pago_prima_2026 TEXT,
+            monto_total_historico REAL,
+            monto_total_recalculado REAL,
+            comentarios TEXT,
+            match_status TEXT,
+            match_score REAL,
+            warnings_json TEXT,
+            editable_json TEXT,
+            updated_by INTEGER,
+            updated_at TEXT,
+            FOREIGN KEY(import_id) REFERENCES nomina_vacaciones_imports(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_vacaciones_import_id ON nomina_vacaciones_empleados(import_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_vacaciones_match_status ON nomina_vacaciones_empleados(match_status)"
+    )
 
 
 def save_asistencia_import(
@@ -413,6 +478,286 @@ def nomina_history_rows_for_headcount_fallback(db_path: str) -> list[dict[str, s
             seen.add(key)
             out.append({"nombre_empleado": nombre, "cliente": cliente, "nss": nss})
         return out
+    finally:
+        conn.close()
+
+
+def save_vacaciones_import(
+    db_path: str,
+    payload: dict[str, Any],
+    created_by: int | None,
+    now_iso: str,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.execute(
+            """
+            INSERT INTO nomina_vacaciones_imports (
+                cliente, source_filename, file_hash, total_rows,
+                matched_count, warning_count, error_count,
+                created_by, created_at, raw_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(payload.get("cliente") or ""),
+                str(payload.get("source_filename") or ""),
+                str(payload.get("file_hash") or ""),
+                int(payload.get("total_rows") or 0),
+                int(payload.get("matched_count") or 0),
+                int(payload.get("warning_count") or 0),
+                int(payload.get("error_count") or 0),
+                created_by,
+                now_iso,
+                json.dumps(payload.get("raw_json") or {}, ensure_ascii=False),
+            ),
+        )
+        import_id = int(cur.lastrowid)
+        for row in payload.get("rows") or []:
+            conn.execute(
+                """
+                INSERT INTO nomina_vacaciones_empleados (
+                    import_id, nss, nombre_historico, nombre_normalizado, nombre_headcount, cliente,
+                    planta_historica, planta_headcount, fecha_ingreso_historica, fecha_ingreso_headcount, fecha_ingreso_usada,
+                    estatus_headcount, sueldo_historico, sueldo_headcount, sueldo_usado, dias_vacaciones_historico,
+                    dias_utilizados, vacaciones_laboradas, dias_pagados, dias_restantes_historico, dias_restantes_calculado,
+                    prima_2025_pagada, semana_pago_prima_2025, prima_2026_pagada, fecha_pago_prima_2026,
+                    monto_total_historico, monto_total_recalculado, comentarios, match_status, match_score,
+                    warnings_json, editable_json, updated_by, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    import_id,
+                    row.get("nss"),
+                    row.get("nombre_historico"),
+                    row.get("nombre_normalizado"),
+                    row.get("nombre_headcount"),
+                    row.get("cliente"),
+                    row.get("planta_historica"),
+                    row.get("planta_headcount"),
+                    row.get("fecha_ingreso_historica"),
+                    row.get("fecha_ingreso_headcount"),
+                    row.get("fecha_ingreso_usada"),
+                    row.get("estatus_headcount"),
+                    row.get("sueldo_historico"),
+                    row.get("sueldo_headcount"),
+                    row.get("sueldo_usado"),
+                    row.get("dias_vacaciones_historico"),
+                    row.get("dias_utilizados"),
+                    row.get("vacaciones_laboradas"),
+                    row.get("dias_pagados"),
+                    row.get("dias_restantes_historico"),
+                    row.get("dias_restantes_calculado"),
+                    int(bool(row.get("prima_2025_pagada"))),
+                    row.get("semana_pago_prima_2025"),
+                    int(bool(row.get("prima_2026_pagada"))),
+                    row.get("fecha_pago_prima_2026"),
+                    row.get("monto_total_historico"),
+                    row.get("monto_total_recalculado"),
+                    row.get("comentarios"),
+                    row.get("match_status"),
+                    row.get("match_score"),
+                    json.dumps(row.get("warnings") or [], ensure_ascii=False),
+                    json.dumps(row.get("editable_json") or {}, ensure_ascii=False),
+                    row.get("updated_by"),
+                    row.get("updated_at"),
+                ),
+            )
+        conn.commit()
+        return import_id
+    finally:
+        conn.close()
+
+
+def get_vacaciones_import(db_path: str, import_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        imp = conn.execute(
+            "SELECT * FROM nomina_vacaciones_imports WHERE id = ?",
+            (import_id,),
+        ).fetchone()
+        if imp is None:
+            return None
+        rows = conn.execute(
+            "SELECT * FROM nomina_vacaciones_empleados WHERE import_id = ? ORDER BY id ASC",
+            (import_id,),
+        ).fetchall()
+        result = dict(imp)
+        result["raw_json"] = json.loads(result.get("raw_json") or "{}")
+        parsed_rows: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["warnings"] = json.loads(d.get("warnings_json") or "[]")
+            d["editable_json"] = json.loads(d.get("editable_json") or "{}")
+            parsed_rows.append(d)
+        result["rows"] = parsed_rows
+        return result
+    finally:
+        conn.close()
+
+
+def list_vacaciones_empleados(
+    db_path: str,
+    *,
+    cliente: str | None = None,
+    match_status: str | None = None,
+    activo: str | None = None,
+    con_alerta: bool | None = None,
+    prima_pagada: str | None = None,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        query = """
+            SELECT v.*, i.created_at AS import_created_at
+            FROM nomina_vacaciones_empleados v
+            JOIN nomina_vacaciones_imports i ON i.id = v.import_id
+            WHERE 1=1
+        """
+        params: list[Any] = []
+        if cliente:
+            query += " AND LOWER(TRIM(COALESCE(v.cliente,''))) = LOWER(TRIM(?))"
+            params.append(cliente)
+        if match_status:
+            query += " AND COALESCE(v.match_status,'') = ?"
+            params.append(match_status)
+        if activo:
+            if activo == "activo":
+                query += " AND UPPER(COALESCE(v.estatus_headcount,'')) LIKE '%ACTIVO%'"
+            elif activo == "inactivo":
+                query += " AND UPPER(COALESCE(v.estatus_headcount,'')) NOT LIKE '%ACTIVO%'"
+        if con_alerta is True:
+            query += " AND COALESCE(v.warnings_json,'[]') <> '[]'"
+        if prima_pagada:
+            if prima_pagada == "si":
+                query += " AND (COALESCE(v.prima_2025_pagada,0)=1 OR COALESCE(v.prima_2026_pagada,0)=1)"
+            elif prima_pagada == "no":
+                query += " AND COALESCE(v.prima_2025_pagada,0)=0 AND COALESCE(v.prima_2026_pagada,0)=0"
+        query += " ORDER BY v.id DESC LIMIT ?"
+        params.append(int(limit))
+        rows = conn.execute(query, tuple(params)).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["warnings"] = json.loads(d.get("warnings_json") or "[]")
+            d["editable_json"] = json.loads(d.get("editable_json") or "{}")
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def get_vacaciones_stats(db_path: str) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        total = int(conn.execute("SELECT COUNT(*) FROM nomina_vacaciones_empleados").fetchone()[0])
+        matched = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE match_status IN ('exact_nss','match_name')"
+            ).fetchone()[0]
+        )
+        no_match = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE match_status IN ('no_match','pending_review')"
+            ).fetchone()[0]
+        )
+        discrep_fecha = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE fecha_ingreso_historica <> fecha_ingreso_headcount AND TRIM(COALESCE(fecha_ingreso_historica,''))<>'' AND TRIM(COALESCE(fecha_ingreso_headcount,''))<>''"
+            ).fetchone()[0]
+        )
+        primas_pagadas = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE COALESCE(prima_2025_pagada,0)=1 OR COALESCE(prima_2026_pagada,0)=1"
+            ).fetchone()[0]
+        )
+        pendientes = int(
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE COALESCE(warnings_json,'[]') <> '[]' OR match_status IN ('pending_review','no_match')"
+            ).fetchone()[0]
+        )
+        return {
+            "empleados_importados": total,
+            "empleados_match_headcount": matched,
+            "empleados_sin_match": no_match,
+            "discrepancias_fecha_ingreso": discrep_fecha,
+            "primas_pagadas": primas_pagadas,
+            "saldos_pendientes_revision": pendientes,
+        }
+    finally:
+        conn.close()
+
+
+def get_vacaciones_empleado(db_path: str, row_id: int) -> dict[str, Any] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            "SELECT * FROM nomina_vacaciones_empleados WHERE id = ?",
+            (row_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        d["warnings"] = json.loads(d.get("warnings_json") or "[]")
+        d["editable_json"] = json.loads(d.get("editable_json") or "{}")
+        return d
+    finally:
+        conn.close()
+
+
+def update_vacaciones_empleado(
+    db_path: str,
+    row_id: int,
+    updates: dict[str, Any],
+    *,
+    updated_by: int | None,
+    updated_at: str,
+) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            """
+            UPDATE nomina_vacaciones_empleados
+            SET fecha_ingreso_usada = ?,
+                sueldo_usado = ?,
+                dias_utilizados = ?,
+                vacaciones_laboradas = ?,
+                dias_pagados = ?,
+                dias_restantes_calculado = ?,
+                prima_2025_pagada = ?,
+                prima_2026_pagada = ?,
+                fecha_pago_prima_2026 = ?,
+                comentarios = ?,
+                editable_json = ?,
+                updated_by = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                updates.get("fecha_ingreso_usada"),
+                updates.get("sueldo_usado"),
+                updates.get("dias_utilizados"),
+                updates.get("vacaciones_laboradas"),
+                updates.get("dias_pagados"),
+                updates.get("dias_restantes_calculado"),
+                int(bool(updates.get("prima_2025_pagada"))),
+                int(bool(updates.get("prima_2026_pagada"))),
+                updates.get("fecha_pago_prima_2026"),
+                updates.get("comentarios"),
+                json.dumps(updates.get("editable_json") or {}, ensure_ascii=False),
+                updated_by,
+                updated_at,
+                int(row_id),
+            ),
+        )
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 

@@ -12,6 +12,7 @@
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
 .nd-table th, .nd-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
 .nd-soon { color:#64748b; font-size:.9rem; }
+.nd-link { margin-top:.6rem; display:inline-block; }
 @media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -46,7 +47,15 @@
 
     <section class="nd-card">
       <h3>Vacaciones</h3>
-      <p class="nd-soon">Próximamente: importación histórica, saldo, primas, vacaciones laboradas y match con Headcount.</p>
+      <div class="nd-kpis">
+        <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
+        <div class="nd-kpi"><span>Match Headcount</span><strong>{{ vac_stats.empleados_match_headcount }}</strong></div>
+        <div class="nd-kpi"><span>Sin match</span><strong>{{ vac_stats.empleados_sin_match }}</strong></div>
+        <div class="nd-kpi"><span>Discrepancia ingreso</span><strong>{{ vac_stats.discrepancias_fecha_ingreso }}</strong></div>
+        <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
+        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
+      </div>
+      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
     </section>
 
     <section class="nd-card">

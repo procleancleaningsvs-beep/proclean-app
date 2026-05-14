@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
+import unicodedata
 
 from flask import (
     Blueprint,
@@ -29,9 +30,16 @@ from modules.nomina.db import (
     nomina_dashboard_overview,
     nomina_clientes_from_history,
     nomina_history_rows_for_headcount_fallback,
+    get_vacaciones_stats,
+    list_vacaciones_empleados,
+    save_vacaciones_import,
+    get_vacaciones_import,
+    get_vacaciones_empleado,
+    update_vacaciones_empleado,
     save_asistencia_import,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
+from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
 from modules.comparativo import alias_service
 from modules.comparativo.headcount_service import obtener_activos
 
@@ -66,6 +74,19 @@ def _nomina_access_required(view):
             return redirect(url_for("login"))
         role = str(g.user.get("role") if isinstance(g.user, dict) else g.user["role"]).strip().lower()
         if role not in _NOMINA_ALLOWED_ROLES:
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _nomina_dashboard_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.user is None:
+            return redirect(url_for("login"))
+        role = _current_role()
+        if role not in _NOMINA_DASHBOARD_ROLES:
             abort(403)
         return view(*args, **kwargs)
 
@@ -126,6 +147,14 @@ def _coordinador_display_name() -> str:
     return "Coordinador"
 
 
+def _normalize_name(value: str) -> str:
+    s = " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = re.sub(r"[^A-Z0-9 ]+", " ", s)
+    return " ".join(s.split()).strip()
+
+
 def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None, str]:
     try:
         clientes = sorted({str(a.get("cliente") or "").strip() for a in obtener_activos() if str(a.get("cliente") or "").strip()})
@@ -146,11 +175,6 @@ def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], st
                 "historial_fallback",
             )
         return [], {}, str(exc), "sin_fuente"
-
-
-def _normalize_name(value: str) -> str:
-    return " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
-
 
 def _enrich_rows_with_headcount(rows: list[dict], db_path: str) -> tuple[list[dict], str, int]:
     indexed_by_cliente_nombre: dict[tuple[str, str], dict] = {}
@@ -247,9 +271,11 @@ def index():
     clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
     if role in _NOMINA_DASHBOARD_ROLES:
         dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
+        vac_stats = get_vacaciones_stats(_db_path())
         return render_template(
             "nomina/dashboard.html",
             dash=dash,
+            vac_stats=vac_stats,
             headcount_error=headcount_error,
             headcount_source=headcount_source,
         )
@@ -409,6 +435,279 @@ def asistencia_importada(import_id: int):
         flash("No se encontró la importación solicitada.", "error")
         return redirect(url_for("nomina.index"))
     return render_template("nomina/asistencia_importada.html", imp=imp)
+
+
+def _iso_to_ordinal(value: str) -> int | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value[:10], "%Y-%m-%d").date().toordinal()
+    except ValueError:
+        return None
+
+
+def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, list[dict]], str]:
+    try:
+        activos = obtener_activos()
+        source = "headcount"
+    except Exception:
+        activos = []
+        source = "historial_fallback"
+        for r in nomina_history_rows_for_headcount_fallback(db_path):
+            activos.append(
+                {
+                    "nss": r.get("nss") or "",
+                    "nombre_completo": r.get("nombre_empleado") or "",
+                    "cliente": r.get("cliente") or "",
+                    "fecha_ingreso": "",
+                    "status_imss": "NO_DISPONIBLE",
+                    "patron": "",
+                    "sueldo_diario": None,
+                    "puesto": "",
+                }
+            )
+    by_nss: dict[str, dict] = {}
+    by_name: dict[str, list[dict]] = {}
+    for item in activos:
+        nss = str(item.get("nss") or "").strip()
+        if nss and nss not in by_nss:
+            by_nss[nss] = item
+        n = _normalize_name(str(item.get("nombre_completo") or ""))
+        if not n:
+            continue
+        by_name.setdefault(n, []).append(item)
+    return by_nss, by_name, source
+
+
+def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], str, int, int]:
+    by_nss, by_name, source = _build_headcount_indices(db_path)
+    matched = 0
+    warnings_total = 0
+    for row in rows:
+        row_warnings = list(row.get("warnings") or [])
+        match_status = "no_match"
+        match_score = 0.0
+        hc_row: dict | None = None
+        nss = str(row.get("nss") or "").strip()
+        nombre_norm = _normalize_name(str(row.get("nombre_historico") or ""))
+        cliente_norm = str(row.get("cliente") or "").strip().casefold()
+
+        if nss and nss in by_nss:
+            hc_row = by_nss[nss]
+            match_status = "exact_nss"
+            match_score = 1.0
+        else:
+            candidates = by_name.get(nombre_norm) or []
+            if len(candidates) == 1:
+                hc_row = candidates[0]
+                match_status = "match_name"
+                match_score = 0.92
+            elif len(candidates) > 1:
+                maybe = None
+                for cand in candidates:
+                    if str(cand.get("cliente") or "").strip().casefold() == cliente_norm:
+                        maybe = cand
+                        break
+                if maybe is not None:
+                    hc_row = maybe
+                    match_status = "pending_review"
+                    match_score = 0.6
+                    row_warnings.append("Match probable por nombre y cliente; requiere revisión manual.")
+
+        if hc_row is None:
+            row_warnings.append("Sin match en Headcount; posible inactivo/baja.")
+            row["estatus_headcount"] = "INACTIVO_O_NO_ENCONTRADO"
+            row["match_status"] = "no_match"
+            row["match_score"] = 0.0
+            row["headcount_source"] = source
+            row["warnings"] = row_warnings
+            warnings_total += len(row_warnings)
+            continue
+
+        matched += 1
+        row["nombre_headcount"] = str(hc_row.get("nombre_completo") or "").strip()
+        row["planta_headcount"] = str(hc_row.get("patron") or "").strip()
+        row["fecha_ingreso_headcount"] = str(hc_row.get("fecha_ingreso") or "").strip()
+        row["estatus_headcount"] = str(hc_row.get("status_imss") or "ACTIVO").strip() or "ACTIVO"
+        row["sueldo_headcount"] = hc_row.get("sueldo_diario")
+        row["sueldo_usado"] = row["sueldo_headcount"] if row.get("sueldo_headcount") not in (None, "") else row.get("sueldo_historico")
+        if not row.get("nss"):
+            row["nss"] = str(hc_row.get("nss") or "").strip()
+        row["match_status"] = match_status
+        row["match_score"] = match_score
+        row["headcount_source"] = source
+
+        hist_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_historica") or ""))
+        hc_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_headcount") or ""))
+        if hc_ord is not None:
+            row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount")
+        if hist_ord is not None and hc_ord is not None and hist_ord != hc_ord:
+            row_warnings.append(
+                "Fecha de ingreso en histórico no coincide con Headcount. Se usará Headcount salvo revisión manual."
+            )
+            if hc_ord - hist_ord > 30:
+                row_warnings.append("Posible reingreso / validar saldo histórico.")
+
+        if source == "historial_fallback":
+            row_warnings.append("Datos cruzados con historial interno (fallback), no con Headcount en vivo.")
+
+        row["warnings"] = row_warnings
+        warnings_total += len(row_warnings)
+    return rows, source, matched, warnings_total
+
+
+@nomina_bp.get("/vacaciones")
+@_nomina_dashboard_required
+def vacaciones_index():
+    cliente = (request.args.get("cliente") or "").strip() or None
+    match_status = (request.args.get("match_status") or "").strip() or None
+    activo = (request.args.get("activo") or "").strip() or None
+    prima_pagada = (request.args.get("prima_pagada") or "").strip() or None
+    con_alerta = request.args.get("con_alerta")
+    con_alerta_bool = True if con_alerta == "1" else None
+    rows = list_vacaciones_empleados(
+        _db_path(),
+        cliente=cliente,
+        match_status=match_status,
+        activo=activo,
+        con_alerta=con_alerta_bool,
+        prima_pagada=prima_pagada,
+        limit=700,
+    )
+    stats = get_vacaciones_stats(_db_path())
+    clientes = sorted({str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()})
+    return render_template(
+        "nomina/vacaciones_index.html",
+        stats=stats,
+        rows=rows,
+        clientes=clientes,
+        filtros={
+            "cliente": cliente or "",
+            "match_status": match_status or "",
+            "activo": activo or "",
+            "prima_pagada": prima_pagada or "",
+            "con_alerta": con_alerta or "",
+        },
+    )
+
+
+@nomina_bp.post("/vacaciones/importar")
+@_nomina_dashboard_required
+def vacaciones_importar():
+    file = request.files.get("excel_file")
+    if file is None or not (file.filename or "").strip():
+        flash("Debes seleccionar un Excel histórico de vacaciones.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    filename = file.filename or "vacaciones.xlsx"
+    if not filename.lower().endswith((".xlsx", ".xlsm")):
+        flash("Formato no soportado. Usa .xlsx/.xlsm", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+
+    try:
+        file_bytes = file.read()
+        parsed = parse_vacaciones_historico_excel(file_bytes, filename=filename)
+    except Exception as exc:
+        flash(f"No se pudo leer el archivo de vacaciones: {exc}", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+
+    rows = parsed.rows
+    rows, source, matched_count, warning_count = _match_vacaciones_rows(rows, _db_path())
+    error_count = len(parsed.errors)
+    if error_count > 0:
+        flash("Se omitieron filas con error de estructura en importación histórica.", "warning")
+    if not rows:
+        flash("No se detectaron filas válidas para importar vacaciones.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+
+    payload = {
+        "cliente": parsed.cliente or "Carrier",
+        "source_filename": filename,
+        "file_hash": hashlib.sha256(file_bytes).hexdigest(),
+        "total_rows": len(rows),
+        "matched_count": matched_count,
+        "warning_count": warning_count,
+        "error_count": error_count,
+        "rows": rows,
+        "raw_json": {
+            "source": source,
+            "parse_warnings": parsed.warnings,
+            "parse_errors": parsed.errors,
+            "created_for": "nomina_vacaciones",
+        },
+    }
+    uid = int(g.user["id"]) if g.user is not None else None
+    import_id = save_vacaciones_import(_db_path(), payload, created_by=uid, now_iso=_now_iso())
+    flash("Importación histórica de vacaciones procesada.", "success")
+    return redirect(url_for("nomina.vacaciones_import_detail", import_id=import_id))
+
+
+@nomina_bp.get("/vacaciones/imports/<int:import_id>")
+@_nomina_dashboard_required
+def vacaciones_import_detail(import_id: int):
+    imp = get_vacaciones_import(_db_path(), import_id)
+    if imp is None:
+        flash("Importación de vacaciones no encontrada.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    return render_template("nomina/vacaciones_import_detail.html", imp=imp)
+
+
+@nomina_bp.route("/vacaciones/<int:row_id>/editar", methods=["GET", "POST"])
+@_nomina_dashboard_required
+def vacaciones_editar(row_id: int):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        flash("Registro de vacaciones no encontrado.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    if request.method == "POST":
+        def _f(name: str) -> float | None:
+            raw = (request.form.get(name) or "").strip().replace(",", "")
+            if not raw:
+                return None
+            try:
+                return float(raw)
+            except ValueError:
+                return None
+
+        dias_utilizados = _f("dias_utilizados") or 0.0
+        vacaciones_laboradas = _f("vacaciones_laboradas") or 0.0
+        dias_pagados = _f("dias_pagados") or 0.0
+        dias_vac = _f("dias_vacaciones_historico")
+        if dias_vac is None:
+            dias_vac = float(row.get("dias_vacaciones_historico") or 0.0)
+        rest_manual = _f("dias_restantes_calculado")
+        consumed = max(dias_pagados, dias_utilizados + vacaciones_laboradas)
+        rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
+
+        updates = {
+            "fecha_ingreso_usada": (request.form.get("fecha_ingreso_usada") or "").strip(),
+            "sueldo_usado": _f("sueldo_usado"),
+            "dias_utilizados": dias_utilizados,
+            "vacaciones_laboradas": vacaciones_laboradas,
+            "dias_pagados": dias_pagados,
+            "dias_restantes_calculado": rest_calc,
+            "prima_2025_pagada": (request.form.get("prima_2025_pagada") or "") in {"1", "on", "true"},
+            "prima_2026_pagada": (request.form.get("prima_2026_pagada") or "") in {"1", "on", "true"},
+            "fecha_pago_prima_2026": (request.form.get("fecha_pago_prima_2026") or "").strip(),
+            "comentarios": (request.form.get("comentarios") or "").strip(),
+            "editable_json": {
+                "revision_status": (request.form.get("revision_status") or "").strip() or "pendiente",
+            },
+        }
+        uid = int(g.user["id"]) if g.user is not None else None
+        ok = update_vacaciones_empleado(
+            _db_path(),
+            row_id,
+            updates,
+            updated_by=uid,
+            updated_at=_now_iso(),
+        )
+        if ok:
+            flash("Registro de vacaciones actualizado.", "success")
+        else:
+            flash("No se pudo actualizar el registro.", "error")
+        return redirect(url_for("nomina.vacaciones_editar", row_id=row_id))
+
+    return render_template("nomina/vacaciones_edit.html", row=row)
 
 
 def register_nomina(app) -> None:
