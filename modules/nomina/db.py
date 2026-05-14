@@ -15,6 +15,7 @@ class NominaBaseRow:
     puesto: str
     banco: str
     cuenta: str
+    nss: str = ""
 
 
 def _normalize_cliente_key(value: str) -> str:
@@ -27,6 +28,22 @@ def _migrate_nomina_imports_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN original_filename TEXT")
     if "file_hash" not in cols:
         conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN file_hash TEXT")
+    if "clientes_json" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN clientes_json TEXT")
+    if "headcount_source" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN headcount_source TEXT")
+
+
+def _migrate_nomina_rows_schema(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_asistencia_rows)").fetchall()}
+    if "nss" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN nss TEXT")
+    if "headcount_match_status" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN headcount_match_status TEXT")
+    if "headcount_match_score" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN headcount_match_score REAL")
+    if "headcount_source" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN headcount_source TEXT")
 
 
 def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
@@ -42,6 +59,8 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
             filename TEXT NOT NULL,
             original_filename TEXT,
             file_hash TEXT,
+            clientes_json TEXT,
+            headcount_source TEXT,
             status TEXT NOT NULL,
             total_rows INTEGER NOT NULL DEFAULT 0,
             error_count INTEGER NOT NULL DEFAULT 0,
@@ -66,6 +85,10 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
             puesto TEXT,
             banco TEXT,
             cuenta TEXT,
+            nss TEXT,
+            headcount_match_status TEXT,
+            headcount_match_score REAL,
+            headcount_source TEXT,
             dia_1_header TEXT,
             dia_1_value TEXT,
             dia_2_header TEXT,
@@ -95,6 +118,7 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _migrate_nomina_rows_schema(conn)
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_asistencia_imports_cliente_fechas ON nomina_asistencia_imports(cliente, fecha_inicio, fecha_fin)"
     )
@@ -117,9 +141,10 @@ def save_asistencia_import(
             INSERT INTO nomina_asistencia_imports (
                 semana, fecha_inicio, fecha_fin, cliente, coordinador,
                 filename, original_filename, file_hash,
+                clientes_json, headcount_source,
                 status, total_rows, error_count, warning_count,
                 created_by, created_at, updated_at, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(payload.get("semana") or ""),
@@ -130,6 +155,8 @@ def save_asistencia_import(
                 str(payload.get("filename") or ""),
                 str(payload.get("original_filename") or ""),
                 str(payload.get("file_hash") or ""),
+                json.dumps(payload.get("clientes") or [], ensure_ascii=False),
+                str(payload.get("headcount_source") or ""),
                 str(payload.get("status") or "draft"),
                 int(payload.get("total_rows") or 0),
                 int(payload.get("error_count") or 0),
@@ -146,13 +173,14 @@ def save_asistencia_import(
                 """
                 INSERT INTO nomina_asistencia_rows (
                     import_id, row_number, nombre_empleado, cliente, planta, puesto, banco, cuenta,
+                    nss, headcount_match_status, headcount_match_score, headcount_source,
                     dia_1_header, dia_1_value, dia_2_header, dia_2_value, dia_3_header, dia_3_value,
                     dia_4_header, dia_4_value, dia_5_header, dia_5_value, dia_6_header, dia_6_value,
                     dia_7_header, dia_7_value, he, turnos_extra_normales, dias_cubiertos_normales,
                     festivo_laborado, vacaciones_laboradas, prima_vacacional, bono, deducciones,
                     observaciones, errors_json, warnings_json
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -164,6 +192,10 @@ def save_asistencia_import(
                     row.get("puesto"),
                     row.get("banco"),
                     row.get("cuenta"),
+                    row.get("nss"),
+                    row.get("headcount_match_status"),
+                    float(row.get("headcount_match_score") or 0.0),
+                    row.get("headcount_source"),
                     row.get("dia_1_header"),
                     row.get("dia_1_value"),
                     row.get("dia_2_header"),
@@ -220,6 +252,7 @@ def get_asistencia_import(db_path: str, import_id: int) -> dict[str, Any] | None
             parsed_rows.append(d)
         result["rows"] = parsed_rows
         result["raw_json"] = json.loads(result.get("raw_json") or "{}")
+        result["clientes"] = json.loads(result.get("clientes_json") or "[]")
         return result
     finally:
         conn.close()
@@ -248,7 +281,8 @@ def get_latest_import_base_rows(
             return []
         rows = conn.execute(
             """
-            SELECT nombre_empleado, cliente, planta, puesto, banco, cuenta
+            SELECT nombre_empleado, cliente, planta, puesto, banco, cuenta,
+                   COALESCE(nss, '') AS nss
             FROM nomina_asistencia_rows
             WHERE import_id = ?
               AND LOWER(TRIM(cliente)) = LOWER(TRIM(?))
@@ -268,6 +302,7 @@ def get_latest_import_base_rows(
                     puesto=str(row["puesto"] or ""),
                     banco=str(row["banco"] or ""),
                     cuenta=str(row["cuenta"] or ""),
+                    nss=str(row["nss"] or ""),
                 )
             )
         return out
@@ -277,24 +312,33 @@ def get_latest_import_base_rows(
 
 def get_latest_import_base_rows_multi(
     db_path: str, clientes: list[str], before_start_date: date
-) -> list[NominaBaseRow]:
-    seen: set[tuple[str, str, str, str, str, str]] = set()
+) -> tuple[list[NominaBaseRow], list[str]]:
+    seen_nss: set[str] = set()
+    seen_name: set[tuple[str, str]] = set()
     out: list[NominaBaseRow] = []
+    warnings: list[str] = []
     for cliente in clientes:
         for row in get_latest_import_base_rows(db_path, cliente, before_start_date):
-            key = (
+            nss_key = str(row.nss or "").strip()
+            name_key = (
                 str(row.nombre_empleado or "").strip().casefold(),
                 str(row.cliente or "").strip().casefold(),
-                str(row.planta or "").strip().casefold(),
-                str(row.puesto or "").strip().casefold(),
-                str(row.banco or "").strip().casefold(),
-                str(row.cuenta or "").strip().casefold(),
             )
-            if key in seen:
+            if nss_key and nss_key in seen_nss:
+                warnings.append(
+                    f"Duplicado base omitido por NSS {nss_key} en cliente {row.cliente or cliente}."
+                )
                 continue
-            seen.add(key)
+            if not nss_key and name_key in seen_name:
+                warnings.append(
+                    f"Duplicado base omitido por nombre '{row.nombre_empleado}' en cliente {row.cliente or cliente}."
+                )
+                continue
+            if nss_key:
+                seen_nss.add(nss_key)
+            seen_name.add(name_key)
             out.append(row)
-    return out
+    return out, warnings
 
 
 def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str, Any]:
@@ -340,6 +384,35 @@ def nomina_clientes_from_history(db_path: str) -> list[str]:
             """
         ).fetchall()
         return [str(r["cliente"] or "").strip() for r in rows if str(r["cliente"] or "").strip()]
+    finally:
+        conn.close()
+
+
+def nomina_history_rows_for_headcount_fallback(db_path: str) -> list[dict[str, str]]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            """
+            SELECT nombre_empleado, cliente, nss
+            FROM nomina_asistencia_rows
+            WHERE TRIM(COALESCE(nombre_empleado, '')) <> ''
+              AND TRIM(COALESCE(nss, '')) <> ''
+            ORDER BY id DESC
+            """
+        ).fetchall()
+        out: list[dict[str, str]] = []
+        seen: set[tuple[str, str, str]] = set()
+        for row in rows:
+            nombre = str(row["nombre_empleado"] or "").strip()
+            cliente = str(row["cliente"] or "").strip()
+            nss = str(row["nss"] or "").strip()
+            key = (nombre.casefold(), cliente.casefold(), nss)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"nombre_empleado": nombre, "cliente": cliente, "nss": nss})
+        return out
     finally:
         conn.close()
 

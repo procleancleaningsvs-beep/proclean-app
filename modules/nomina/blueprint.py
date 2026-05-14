@@ -28,6 +28,7 @@ from modules.nomina.db import (
     get_latest_import_base_rows_multi,
     nomina_dashboard_overview,
     nomina_clientes_from_history,
+    nomina_history_rows_for_headcount_fallback,
     save_asistencia_import,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
@@ -125,7 +126,7 @@ def _coordinador_display_name() -> str:
     return "Coordinador"
 
 
-def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None]:
+def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None, str]:
     try:
         clientes = sorted({str(a.get("cliente") or "").strip() for a in obtener_activos() if str(a.get("cliente") or "").strip()})
         agrupaciones_raw = alias_service.obtener_agrupaciones()
@@ -134,12 +135,85 @@ def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], st
             group_clients = [str(c).strip() for c in (members or []) if str(c).strip() in clientes]
             if group_clients:
                 agrupaciones[str(name).strip()] = group_clients
-        return clientes, agrupaciones, None
+        return clientes, agrupaciones, None, "headcount"
     except Exception as exc:
         fallback = nomina_clientes_from_history(_db_path())
         if fallback:
-            return fallback, {}, f"Headcount no disponible ({exc}). Se muestran clientes detectados en historial de Nóminas."
-        return [], {}, str(exc)
+            return (
+                fallback,
+                {},
+                f"Headcount no disponible ({exc}). Se muestran clientes detectados en historial de Nóminas.",
+                "historial_fallback",
+            )
+        return [], {}, str(exc), "sin_fuente"
+
+
+def _normalize_name(value: str) -> str:
+    return " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
+
+
+def _enrich_rows_with_headcount(rows: list[dict], db_path: str) -> tuple[list[dict], str, int]:
+    indexed_by_cliente_nombre: dict[tuple[str, str], dict] = {}
+    indexed_by_nombre: dict[str, dict] = {}
+    source = "headcount"
+    try:
+        activos = obtener_activos()
+        for item in activos:
+            nombre = _normalize_name(str(item.get("nombre_completo") or ""))
+            cliente = str(item.get("cliente") or "").strip().casefold()
+            if not nombre:
+                continue
+            indexed_by_nombre.setdefault(nombre, item)
+            indexed_by_cliente_nombre.setdefault((cliente, nombre), item)
+    except Exception:
+        source = "historial_fallback"
+        for item in nomina_history_rows_for_headcount_fallback(db_path):
+            nombre = _normalize_name(item.get("nombre_empleado") or "")
+            cliente = str(item.get("cliente") or "").strip().casefold()
+            if not nombre:
+                continue
+            indexed_by_cliente_nombre.setdefault(
+                (cliente, nombre),
+                {"nss": item.get("nss") or "", "nombre_completo": item.get("nombre_empleado") or "", "cliente": item.get("cliente") or ""},
+            )
+            indexed_by_nombre.setdefault(
+                nombre,
+                {"nss": item.get("nss") or "", "nombre_completo": item.get("nombre_empleado") or "", "cliente": item.get("cliente") or ""},
+            )
+
+    pending = 0
+    for row in rows:
+        nombre = _normalize_name(str(row.get("nombre_empleado") or ""))
+        cliente = str(row.get("cliente") or "").strip().casefold()
+        matched = indexed_by_cliente_nombre.get((cliente, nombre))
+        match_status = "pending_review"
+        score = 0.0
+        nss = ""
+        if matched:
+            nss = str(matched.get("nss") or "").strip()
+            if nss:
+                match_status = "exact_nss"
+                score = 1.0
+            else:
+                match_status = "name_match"
+                score = 0.75
+        else:
+            generic = indexed_by_nombre.get(nombre)
+            if generic:
+                nss = str(generic.get("nss") or "").strip()
+                if nss:
+                    match_status = "headcount_ok"
+                    score = 0.9
+                else:
+                    match_status = "name_match"
+                    score = 0.7
+        if match_status == "pending_review":
+            pending += 1
+        row["nss"] = nss
+        row["headcount_match_status"] = match_status
+        row["headcount_match_score"] = score
+        row["headcount_source"] = source
+    return rows, source, pending
 
 
 def _extract_selected_clientes_from_form() -> list[str]:
@@ -170,29 +244,36 @@ def _cliente_header_label(clientes: list[str]) -> str:
 @_nomina_access_required
 def index():
     role = _current_role()
+    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
     if role in _NOMINA_DASHBOARD_ROLES:
         dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
-        return render_template("nomina/dashboard.html", dash=dash)
-    clientes, agrupaciones, headcount_error = _available_clientes_headcount()
+        return render_template(
+            "nomina/dashboard.html",
+            dash=dash,
+            headcount_error=headcount_error,
+            headcount_source=headcount_source,
+        )
     return render_template(
         "nomina/index.html",
         coordinador_display=_coordinador_display_name(),
         clientes=clientes,
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
+        headcount_source=headcount_source,
     )
 
 
 @nomina_bp.get("/master")
 @_nomina_access_required
 def master_hub():
-    clientes, agrupaciones, headcount_error = _available_clientes_headcount()
+    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
     return render_template(
         "nomina/index.html",
         coordinador_display=_coordinador_display_name(),
         clientes=clientes,
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
+        headcount_source=headcount_source,
     )
 
 
@@ -210,10 +291,11 @@ def descargar_plantilla():
         return redirect(url_for("nomina.master_hub"))
 
     fecha_fin = fecha_inicio + timedelta(days=6)
+    duplicate_base_warnings: list[str] = []
     if len(clientes) == 1:
         base_rows = get_latest_import_base_rows(_db_path(), clientes[0], fecha_inicio)
     else:
-        base_rows = get_latest_import_base_rows_multi(_db_path(), clientes, fecha_inicio)
+        base_rows, duplicate_base_warnings = get_latest_import_base_rows_multi(_db_path(), clientes, fecha_inicio)
 
     cliente_header = _cliente_header_label(clientes)
     payload = build_asistencia_template_file(
@@ -226,6 +308,11 @@ def descargar_plantilla():
     output = BytesIO(payload)
     output.seek(0)
     filename = f"Master_Asistencia_{fecha_inicio.strftime('%Y%m%d')}_{cliente_header.replace(' ', '_')}.xlsx"
+    if duplicate_base_warnings:
+        flash(
+            "Se omitieron posibles duplicados en base previa: " + " | ".join(duplicate_base_warnings[:3]),
+            "warning",
+        )
     return send_file(
         output,
         as_attachment=True,
@@ -275,6 +362,12 @@ def importar_asistencia():
     else:
         fecha_inicio, fecha_fin = range_detected
 
+    parsed_rows = parsed.get("rows") or []
+    parsed_rows, headcount_source, pending_matches = _enrich_rows_with_headcount(parsed_rows, _db_path())
+    clientes_detectados = sorted(
+        {str(r.get("cliente") or "").strip() for r in parsed_rows if str(r.get("cliente") or "").strip()}
+    )
+
     payload = {
         "semana": parsed.get("semana") or "",
         "fecha_inicio": fecha_inicio.isoformat(),
@@ -288,13 +381,18 @@ def importar_asistencia():
         "total_rows": parsed.get("total_rows") or 0,
         "error_count": parsed.get("error_count") or 0,
         "warning_count": parsed.get("warning_count") or 0,
-        "rows": parsed.get("rows") or [],
+        "rows": parsed_rows,
+        "clientes": clientes_detectados,
+        "headcount_source": headcount_source,
         "raw_json": {
             "dias_headers": parsed.get("dias_headers") or [],
             "semana": parsed.get("semana") or "",
             "cliente": parsed.get("cliente") or "",
             "coordinador_archivo": parsed.get("coordinador") or "",
             "coordinador_session": _coordinador_display_name(),
+            "clientes_detectados": clientes_detectados,
+            "headcount_source": headcount_source,
+            "pending_headcount_matches": pending_matches,
         },
     }
     created_by = int(g.user["id"]) if g.user is not None else None

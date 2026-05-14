@@ -27,6 +27,13 @@
 </section>
 
 <div class="nd-wrap">
+  {% if headcount_source == 'historial_fallback' %}
+  <section class="nd-card">
+    <h3>Advertencia de fuente</h3>
+    <p class="nd-soon">Headcount no estuvo disponible y se usó historial interno de Nóminas como fallback.</p>
+    {% if headcount_error %}<p class="nd-soon">{{ headcount_error }}</p>{% endif %}
+  </section>
+  {% endif %}
   <div class="nd-grid">
     <section class="nd-card">
       <h3>Asistencias</h3>

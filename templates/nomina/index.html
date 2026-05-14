@@ -25,7 +25,9 @@
 </section>
 
 <div class="nom-layout">
-  {% if headcount_error %}
+  {% if headcount_source == 'historial_fallback' %}
+  <div class="nom-note">La base se generó con la última información disponible.</div>
+  {% elif headcount_error %}
   <div class="nom-note">No fue posible leer clientes desde Headcount: {{ headcount_error }}</div>
   {% endif %}
   <div class="nom-grid">
