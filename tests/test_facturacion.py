@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+from io import BytesIO
+from pathlib import Path
 from unittest.mock import patch
 
 import flask
+import pytest
 from flask import g
+from werkzeug.exceptions import Forbidden
 
 from modules.facturacion.config import cliente_requiere_po_oc
 from modules.facturacion.db import ensure_facturacion_tables, insert_factura
@@ -164,3 +168,133 @@ def test_facturacion_dashboard_passes_is_admin_with_sqlite_row_user(tmp_path):
             with patch("modules.facturacion.blueprint.render_template", return_value="<html/>") as rt:
                 dashboard()
             assert rt.call_args.kwargs["is_admin"] is False
+
+
+def _xlsx_facturacion_enero_a_mayo() -> bytes:
+    import openpyxl
+
+    headers = [
+        "MES",
+        "ASISTENCIA DE",
+        "PLANTA",
+        "USUARIO",
+        "FACTURA",
+        "PO",
+        "SUBTOTAL",
+        "IVA",
+        "TOTAL",
+        "FECHA FACTURA",
+        "FECHA DE VENCIMIENTO",
+        "ESTATUS",
+        "COMENTARIOS",
+        "FECHA DE PAGO",
+    ]
+    wb = openpyxl.Workbook()
+    first = True
+    for inv, mes in enumerate(("ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO"), start=1):
+        if first:
+            ws = wb.active
+            ws.title = mes
+            first = False
+        else:
+            ws = wb.create_sheet(mes)
+        ws.append(headers)
+        ws.append(
+            [
+                mes,
+                "",
+                "",
+                f"u{inv}@carrier.com",
+                f"F2026INV{inv:03d}",
+                "PO-1",
+                100,
+                16,
+                116,
+                None,
+                None,
+                "EN COLA",
+                "",
+                None,
+            ]
+        )
+    bio = BytesIO()
+    wb.save(bio)
+    wb.close()
+    return bio.getvalue()
+
+
+def test_import_facturacion_excel_procesa_hojas_enero_a_mayo(tmp_path):
+    from modules.facturacion.db import get_import_log, insert_import_log
+    from modules.facturacion.excel_import import import_facturacion_excel
+
+    dbp = tmp_path / "imp.db"
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    content = _xlsx_facturacion_enero_a_mayo()
+    res = import_facturacion_excel(
+        conn,
+        content,
+        anio_default=2026,
+        user_id=1,
+        now="2026-05-01 12:00:00",
+        original_filename="FACTURACION_PROCLEAN_2026_v2.xlsx",
+    )
+    conn.commit()
+    assert set(res["hojas_procesadas"]) == {"ENERO", "FEBRERO", "MARZO", "ABRIL", "MAYO"}
+    assert res["filas_leidas"] == 5
+    assert res["filas_importadas"] == 5
+    assert res["duplicados_omitidos"] == 0
+    assert "CARRIER" in res["clientes_detectados"]
+    log_id = insert_import_log(
+        conn,
+        res,
+        user_id=1,
+        now="2026-05-01 12:00:00",
+        original_filename="FACTURACION_PROCLEAN_2026_v2.xlsx",
+    )
+    conn.commit()
+    row = get_import_log(conn, log_id)
+    assert row is not None
+    assert row["summary"]["filas_importadas"] == 5
+    conn.close()
+
+
+def test_import_excel_vista_admin_ok(tmp_path):
+    from modules.facturacion.blueprint import facturacion_bp, import_excel
+
+    repo = Path(__file__).resolve().parent.parent / "templates"
+    app = flask.Flask(__name__, template_folder=str(repo))
+    app.config["DATABASE"] = str(tmp_path / "d.db")
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    conn.commit()
+    conn.close()
+    app.register_blueprint(facturacion_bp)
+    with app.app_context():
+        with app.test_request_context("/facturacion/import", method="GET"):
+            g.user = _memory_row("admin")
+            html = import_excel()
+    assert "Importar Excel" in html
+    assert 'name="archivo"' in html
+    assert 'name="anio"' in html
+
+
+def test_import_excel_vista_no_admin_403(tmp_path):
+    from modules.facturacion.blueprint import facturacion_bp, import_excel
+
+    repo = Path(__file__).resolve().parent.parent / "templates"
+    app = flask.Flask(__name__, template_folder=str(repo))
+    app.config["DATABASE"] = str(tmp_path / "d2.db")
+    conn = sqlite3.connect(app.config["DATABASE"])
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    conn.commit()
+    conn.close()
+    app.register_blueprint(facturacion_bp)
+    with pytest.raises(Forbidden):
+        with app.app_context():
+            with app.test_request_context("/facturacion/import", method="GET"):
+                g.user = _memory_row("usuario")
+                import_excel()

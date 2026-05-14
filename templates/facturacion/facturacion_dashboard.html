@@ -11,7 +11,8 @@
   </div>
   {% if is_admin %}
   <div class="fx-toolbar" style="margin:0">
-    <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.export_excel', mes=mes, anio=anio) }}">Exportar Excel</a>
+    <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.import_excel') }}">Importar Excel</a>
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.export_excel', mes=mes, anio=anio) }}">Exportar Excel</a>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_nuevo') }}">Nueva factura</a>
   </div>
   {% endif %}
