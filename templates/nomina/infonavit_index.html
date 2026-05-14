@@ -12,6 +12,11 @@
 .ni-table { width:100%; border-collapse:collapse; min-width:1500px; }
 .ni-table th, .ni-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
 .ni-warn { color:#b45309; font-size:.82rem; }
+.ni-vsm-badge { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; margin-right:.25rem; }
+.ni-vsm-formula { color:#475569; font-size:.78rem; margin-top:.15rem; }
+.ni-vsm-cf { color:#0f766e; font-weight:600; }
+.ni-pesos-badge { display:inline-block; background:#dcfce7; color:#166534; border:1px solid #86efac; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; }
+.ni-sinmonto-badge { display:inline-block; background:#e2e8f0; color:#334155; border:1px solid #cbd5e1; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; }
 @media (max-width: 1200px) { .ni-grid, .ni-form-inline { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -99,9 +104,8 @@
             <th>Tipo aviso</th>
             <th>Estatus</th>
             <th>Fecha</th>
-            <th>Descuento</th>
-            <th>Tipo valor</th>
-            <th>CF calculada</th>
+            <th>Descuento original</th>
+            <th>Factor / UMI / CF</th>
             <th>Match</th>
             <th>Headcount</th>
             <th>Alertas</th>
@@ -118,9 +122,31 @@
             <td>{{ row.tipo_aviso or '—' }}</td>
             <td>{{ row.estatus_infonavit }}</td>
             <td>{{ row.fecha_aviso or '—' }}</td>
-            <td>{{ row.descuento_raw or '—' }}</td>
-            <td>{{ row.tipo_valor_descuento or 'SIN_MONTO' }}</td>
-            <td>{{ row.descuento_cf_calculada if row.descuento_cf_calculada is not none else '—' }}</td>
+            <td>
+              {% if row.tipo_valor_descuento == 'VSM' %}
+                <span class="ni-vsm-badge">VSM</span>{{ row.descuento_raw or '—' }}
+              {% elif row.tipo_valor_descuento == 'PESOS' %}
+                <span class="ni-pesos-badge">PESOS</span> {{ row.descuento_raw or '—' }}
+              {% else %}
+                <span class="ni-sinmonto-badge">SIN MONTO</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if row.tipo_valor_descuento == 'VSM' %}
+                {% if row.descuento_cf_calculada is not none %}
+                  <div><span class="ni-vsm-cf">${{ '%.2f'|format(row.descuento_cf_calculada) }}</span></div>
+                  <div class="ni-vsm-formula">{{ row.descuento_factor_vsm }} VSM × {{ row.umi_usada }} = ${{ '%.2f'|format(row.descuento_cf_calculada) }}</div>
+                  <div class="ni-vsm-formula">CF calculada = VSM × UMI</div>
+                {% else %}
+                  <div class="ni-warn">VSM detectado, CF no calculada (revisar UMI).</div>
+                  {% if row.descuento_factor_vsm is not none %}<div class="ni-vsm-formula">factor: {{ row.descuento_factor_vsm }} VSM</div>{% endif %}
+                {% endif %}
+              {% elif row.tipo_valor_descuento == 'PESOS' %}
+                <div>${{ '%.2f'|format(row.descuento_cf_calculada or 0) }}</div>
+              {% else %}
+                <div>—</div>
+              {% endif %}
+            </td>
             <td>{{ row.match_status }} ({{ row.match_score or 0 }})</td>
             <td>{{ row.nombre_headcount or '—' }} / {{ row.estatus_headcount or '—' }}</td>
             <td>
@@ -132,7 +158,7 @@
           </tr>
           {% endfor %}
           {% if not rows %}
-          <tr><td colspan="14">Sin registros INFONAVIT.</td></tr>
+          <tr><td colspan="13">Sin registros INFONAVIT.</td></tr>
           {% endif %}
         </tbody>
       </table>

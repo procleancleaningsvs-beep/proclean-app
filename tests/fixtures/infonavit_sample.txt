@@ -1,0 +1,45 @@
+Reporte de Avisos de Retención
+y Suspensión de Descuentos
+Fecha y hora de corte de la información: 13.05.2026 10:00:00
+Número de Registro Patronal: A0000000000
+Total de avisos: 4 avisos
+Número de
+Seguridad
+Social
+Número de
+Crédito
+Folio de Aviso Nombre del
+Trabajador
+Tipo de Aviso Motivo del Aviso Fecha de Aviso Descuento Tipo de Descuento
+10000000001 1000000001 R00000000001
+01
+Empleado Uno
+De Prueba
+Retención Aviso De Retencion
+Por Os
+10/01/2026 $ 1234.56 Cuota Fija Mensual
+en Pesos
+10000000002 1000000002 R00000000002
+02
+Empleada Dos
+Apellido Largo
+Que Cruza Linea
+Modificación Cambio
+Caracteristicas Del
+Credito
+15/01/2026 $ 789.10 Cuota Fija Mensual
+en Pesos
+10000000003 1000000003 S00000000003
+03
+Trabajador Tres
+Suspendido
+Suspensión Suspension Por
+Obligado Solidario
+20/02/2026 Cuota Fija Mensual
+en Pesos
+10000000004 1000000004 R00000000004
+04
+Empleado Cuatro
+Mun#oz Plus
+Retención Nuevo Acreditado 05/03/2026 12.3456 VSM Cuota Fija Mensual
+en VSM

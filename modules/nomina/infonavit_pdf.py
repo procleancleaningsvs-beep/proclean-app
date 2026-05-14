@@ -162,25 +162,17 @@ def _parse_chunk(base: dict[str, str], chunk: str) -> dict[str, Any]:
     }
 
 
-def parse_infonavit_pdf(file_bytes: bytes, *, filename: str = "infonavit.pdf") -> InfonavitParsedResult:
+def parse_infonavit_text(merged_text: str) -> InfonavitParsedResult:
+    """Parse the already-extracted text body of an INFONAVIT report.
+
+    Exposed for testing without a binary PDF; ``parse_infonavit_pdf`` is the
+    runtime entrypoint that extracts text first via ``pypdf``.
+    """
     warnings: list[str] = []
     errors: list[str] = []
-    if not file_bytes:
-        raise ValueError("Archivo vacio.")
-    if not filename.lower().endswith(".pdf"):
-        raise ValueError("Solo se permiten archivos PDF para INFONAVIT.")
-
-    reader = PdfReader(BytesIO(file_bytes))
-    if not reader.pages:
-        raise ValueError("No se encontraron paginas en el PDF.")
-
-    page_texts: list[str] = []
-    for page in reader.pages:
-        page_texts.append(_clean_page_text(page.extract_text() or ""))
-
-    merged_text = "\n".join(page_texts)
-    metadata = _extract_metadata(merged_text)
-    chunks = _iter_row_chunks(merged_text)
+    cleaned = _clean_page_text(merged_text or "")
+    metadata = _extract_metadata(cleaned)
+    chunks = _iter_row_chunks(cleaned)
     rows = [_parse_chunk(base, chunk) for base, chunk in chunks]
 
     if not rows:
@@ -197,3 +189,20 @@ def parse_infonavit_pdf(file_bytes: bytes, *, filename: str = "infonavit.pdf") -
         warnings=warnings,
         errors=errors,
     )
+
+
+def parse_infonavit_pdf(file_bytes: bytes, *, filename: str = "infonavit.pdf") -> InfonavitParsedResult:
+    if not file_bytes:
+        raise ValueError("Archivo vacio.")
+    if not filename.lower().endswith(".pdf"):
+        raise ValueError("Solo se permiten archivos PDF para INFONAVIT.")
+
+    reader = PdfReader(BytesIO(file_bytes))
+    if not reader.pages:
+        raise ValueError("No se encontraron paginas en el PDF.")
+
+    page_texts: list[str] = []
+    for page in reader.pages:
+        page_texts.append(_clean_page_text(page.extract_text() or ""))
+
+    return parse_infonavit_text("\n".join(page_texts))

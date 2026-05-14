@@ -646,10 +646,16 @@ def _infonavit_descuento_logic(row: dict, umi: Decimal | None) -> None:
     row["umi_usada"] = None
     row["descuento_cf_calculada"] = None
 
+    editable: dict = {
+        "revision_status": "pending_revision",
+        "aplicar_descuento": False,
+        "listo_para_calculo": False,
+    }
+
     if estatus == "SUSPENDIDO":
         if "suspension" not in _normalize_name(str(row.get("motivo_aviso") or "")).lower():
             warnings.append("Suspension sin motivo claro; requiere revision.")
-        row["editable_json"] = {"revision_status": "pending_revision", "aplicar_descuento": False}
+        row["editable_json"] = editable
         row["warnings"] = warnings
         return
 
@@ -672,9 +678,12 @@ def _infonavit_descuento_logic(row: dict, umi: Decimal | None) -> None:
         warnings.append("Descuento en VSM detectado.")
         if factor is None:
             warnings.append("Conversion VSM no pudo realizarse.")
+            editable["revision_status"] = "pending_review"
         elif umi is None:
-            warnings.append("UMI no configurada para el anio del reporte.")
+            warnings.append("UMI no configurada para el anio del reporte; CF en pesos no calculada.")
             row["descuento_factor_vsm"] = float(factor)
+            editable["revision_status"] = "pending_review"
+            editable["umi_no_configurada"] = True
         else:
             cf = (factor * umi).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             row["descuento_factor_vsm"] = float(factor)
@@ -688,7 +697,7 @@ def _infonavit_descuento_logic(row: dict, umi: Decimal | None) -> None:
         if tipo_desc and "PESOS" not in tipo_desc_norm and "VSM" not in tipo_desc_norm:
             warnings.append("Tipo de descuento no reconocido.")
 
-    row["editable_json"] = {"revision_status": "pending_revision", "aplicar_descuento": False}
+    row["editable_json"] = editable
     row["warnings"] = warnings
 
 

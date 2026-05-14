@@ -9,6 +9,33 @@
   <a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_index') }}">Volver a INFONAVIT</a>
 </section>
 
+<section class="panel" style="margin-bottom:1rem;">
+  <h3 style="margin:0 0 .5rem;">Descuento detectado</h3>
+  <p style="margin:.2rem 0;"><strong>Original:</strong>
+    {% if row.tipo_valor_descuento == 'VSM' %}
+      <span style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:8px;padding:.15rem .35rem;font-weight:600;">VSM</span>
+      {{ row.descuento_raw or '—' }}
+    {% elif row.tipo_valor_descuento == 'PESOS' %}
+      <span style="background:#dcfce7;color:#166534;border:1px solid #86efac;border-radius:8px;padding:.15rem .35rem;font-weight:600;">PESOS</span>
+      {{ row.descuento_raw or '—' }}
+    {% else %}
+      <span style="background:#e2e8f0;color:#334155;border:1px solid #cbd5e1;border-radius:8px;padding:.15rem .35rem;font-weight:600;">SIN MONTO</span>
+    {% endif %}
+  </p>
+  {% if row.tipo_valor_descuento == 'VSM' %}
+    {% if row.descuento_cf_calculada is not none %}
+    <p style="margin:.2rem 0;"><strong>Conversión:</strong>
+      {{ row.descuento_factor_vsm }} VSM × {{ row.umi_usada }} = <strong>${{ '%.2f'|format(row.descuento_cf_calculada) }}</strong>
+    </p>
+    <p style="color:#475569;font-size:.85rem;margin:.2rem 0;">CF calculada = VSM × UMI (no aplicado todavía a nómina).</p>
+    {% else %}
+    <p style="color:#b45309;margin:.2rem 0;">VSM detectado, CF no calculada. Revisar UMI configurada para el año del reporte.</p>
+    {% endif %}
+  {% elif row.tipo_valor_descuento == 'PESOS' %}
+    <p style="margin:.2rem 0;"><strong>Cuota fija en pesos:</strong> ${{ '%.2f'|format(row.descuento_cf_calculada or 0) }}</p>
+  {% endif %}
+</section>
+
 <section class="form-card compact-form">
   <form method="post">
     <label>Estatus INFONAVIT
