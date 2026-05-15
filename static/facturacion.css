@@ -334,3 +334,26 @@
   .fx-wrap { padding: 1rem; }
   .fx-card .v { font-size: 1.45rem; }
 }
+
+.fx-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.fx-cell-stack .fx-primary {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.fx-cell-stack .fx-secondary {
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.fx-cell-mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}

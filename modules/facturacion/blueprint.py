@@ -25,10 +25,13 @@ from werkzeug.utils import secure_filename
 
 from modules.facturacion.config import ALERTA_SET, CLIENTE_POR_CLASIFICAR, OPERATIVO_ORDER, PAGO_ORDER
 from modules.facturacion.db import (
+    apply_automatic_fechas_from_adjunto,
     dashboard_stats,
     dashboard_stats_anual,
+    delete_cliente_credito,
     delete_factura_soft,
     delete_huerfano,
+    delete_razon_social_map,
     distinct_clientes,
     ensure_facturacion_tables,
     find_factura_activa_por_numero_en_texto,
@@ -40,13 +43,17 @@ from modules.facturacion.db import (
     insert_huerfano,
     insert_import_log,
     insert_nota_credito,
+    list_cliente_credito,
     list_eventos_for_factura,
     list_facturas_filtradas,
     list_huerfanos,
     list_notas_credito,
+    list_razon_social_map,
     refacturar,
     update_factura,
     upsert_adjunto,
+    upsert_cliente_credito,
+    upsert_razon_social_map,
 )
 from modules.facturacion.excel_export import build_facturacion_export_bytes
 from modules.facturacion.excel_import import import_facturacion_excel
@@ -135,6 +142,12 @@ def register_facturacion(app) -> None:
     upload_root = Path(app.config["DATABASE"]).parent / "facturacion_uploads"
     upload_root.mkdir(parents=True, exist_ok=True)
     app.register_blueprint(facturacion_bp)
+
+    @app.template_filter("fx_money_mx")
+    def fx_money_mx(value: object) -> str:
+        from modules.facturacion.money_format import format_money_mx
+
+        return format_money_mx(value)
 
     @app.cli.command("facturacion-init-schema")
     def facturacion_init_schema():
@@ -252,6 +265,66 @@ def facturas_list():
     )
 
 
+@facturacion_bp.route("/catalogo", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def facturacion_catalogo():
+    conn = _db_conn()
+    try:
+        if request.method == "POST":
+            act = (request.form.get("action") or "").strip()
+            now = _now_iso()
+            try:
+                if act == "add_razon":
+                    upsert_razon_social_map(
+                        conn,
+                        razon_social=(request.form.get("razon_social") or "").strip(),
+                        cliente_principal=(request.form.get("cliente_principal") or "").strip(),
+                        now=now,
+                    )
+                    flash("Mapeo razón social → cliente guardado.", "success")
+                elif act == "edit_razon":
+                    rid = int(request.form.get("id") or 0)
+                    upsert_razon_social_map(
+                        conn,
+                        razon_social=(request.form.get("razon_social") or "").strip(),
+                        cliente_principal=(request.form.get("cliente_principal") or "").strip(),
+                        now=now,
+                        row_id=rid,
+                    )
+                    flash("Mapeo actualizado.", "success")
+                elif act == "del_razon":
+                    delete_razon_social_map(conn, int(request.form.get("id") or 0))
+                    flash("Mapeo eliminado.", "success")
+                elif act == "add_credito":
+                    upsert_cliente_credito(
+                        conn,
+                        cliente_principal=(request.form.get("cliente_principal") or "").strip(),
+                        dias_credito=int(request.form.get("dias_credito") or 0),
+                        now=now,
+                    )
+                    flash("Días de crédito guardados.", "success")
+                elif act == "del_credito":
+                    delete_cliente_credito(conn, (request.form.get("cliente_principal") or "").strip())
+                    flash("Cliente eliminado del catálogo de crédito.", "success")
+                else:
+                    flash("Acción no reconocida.", "error")
+            except (ValueError, TypeError) as exc:
+                flash(str(exc) or "Datos inválidos.", "error")
+            conn.commit()
+            return redirect(url_for("facturacion.facturacion_catalogo"))
+        razones = list_razon_social_map(conn)
+        creditos = list_cliente_credito(conn)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_catalogo.html",
+        razones=razones,
+        creditos=creditos,
+        is_admin=_is_admin(),
+    )
+
+
 def _parse_factura_form(form) -> dict[str, Any]:
     def fnum(k: str):
         v = (form.get(k) or "").strip()
@@ -270,6 +343,7 @@ def _parse_factura_form(form) -> dict[str, Any]:
         "asistencia_mes": int(form["asistencia_mes"]) if (form.get("asistencia_mes") or "").strip() else None,
         "asistencia_anio": int(form["asistencia_anio"]) if (form.get("asistencia_anio") or "").strip() else None,
         "cliente": (form.get("cliente") or "").strip(),
+        "razon_social": (form.get("razon_social") or "").strip() or None,
         "planta_servicio": (form.get("planta_servicio") or "").strip() or None,
         "usuario_contacto": (form.get("usuario_contacto") or "").strip() or None,
         "responsable_interno": (form.get("responsable_interno") or "").strip() or None,
@@ -530,6 +604,17 @@ def upload_adjuntos():
                     now=_now_iso(),
                 )
                 linked += 1
+                try:
+                    apply_automatic_fechas_from_adjunto(
+                        conn,
+                        factura_id=match_id,
+                        file_bytes=data,
+                        ext=ext,
+                        user_id=int(g.user["id"]),
+                        now=_now_iso(),
+                    )
+                except Exception:
+                    current_app.logger.exception("facturacion: fechas desde adjunto")
             else:
                 insert_huerfano(
                     conn,
@@ -611,6 +696,18 @@ def huerfano_relacionar(hid: int):
             user_id=int(g.user["id"]),
             now=_now_iso(),
         )
+        try:
+            raw = p.read_bytes()
+            apply_automatic_fechas_from_adjunto(
+                conn,
+                factura_id=fid,
+                file_bytes=raw,
+                ext=str(h["ext"]),
+                user_id=int(g.user["id"]),
+                now=_now_iso(),
+            )
+        except Exception:
+            current_app.logger.exception("facturacion: fechas desde adjunto huérfano")
         delete_huerfano(conn, hid)
         conn.commit()
         flash("Archivo relacionado.", "success")

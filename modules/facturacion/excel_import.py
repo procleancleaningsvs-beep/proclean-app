@@ -9,6 +9,7 @@ from typing import Any
 
 import openpyxl
 
+from modules.facturacion.cliente_catalog import load_catalog_maps, resolve_cliente_principal
 from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
 from modules.facturacion.db import insert_factura, insert_nota_credito
 from modules.facturacion.normalize import (
@@ -147,6 +148,14 @@ def _row_vals(row: tuple[Any, ...], mapping: dict[str, int]) -> dict[str, Any]:
         "estatus": g("ESTATUS"),
         "comentarios": g("COMENTARIOS"),
         "fecha_pago": g("FECHA DE PAGO", "FECHA DE PAGO "),
+        "razon_social": g(
+            "RAZON SOCIAL",
+            "RAZÓN SOCIAL",
+            "RAZON SOCIAL ",
+            "NOMBRE O RAZON SOCIAL",
+            "NOMBRE O RAZÓN SOCIAL",
+            "CLIENTE RAZON SOCIAL",
+        ),
     }
 
 
@@ -222,6 +231,8 @@ def import_facturacion_excel(
     advertencias: list[str] = []
     notas_insertadas = 0
 
+    maps = load_catalog_maps(conn)
+
     for sheet_name in wb.sheetnames:
         key = str(sheet_name).strip().upper()
         if key == "NOTAS DE CREDITO":
@@ -251,10 +262,16 @@ def import_facturacion_excel(
             filas_leidas += 1
             usuario = _norm_cell(rv["usuario"])
             mes_txt = _norm_cell(rv["mes"])
+            razon_excel = _norm_cell(rv.get("razon_social")) or None
             cli_infer = _infer_cliente(usuario, mes_txt)
-            sin_infer = cli_infer is None
-            cli = fix_cliente_name(cli_infer) if cli_infer else CLIENTE_POR_CLASIFICAR
-            if sin_infer:
+            cli, razon_guardada = resolve_cliente_principal(
+                maps,
+                razon_social_excel=razon_excel,
+                cli_infer=cli_infer,
+                fix_cliente_name_fn=fix_cliente_name,
+                por_clasificar=CLIENTE_POR_CLASIFICAR,
+            )
+            if cli == CLIENTE_POR_CLASIFICAR:
                 por_clasificar += 1
 
             mes_fact = parse_mes_num(mes_txt) or sheet_mes_num or parse_mes_num(key)
@@ -307,7 +324,7 @@ def import_facturacion_excel(
             if "NO PORTAL" in est_raw_s.upper():
                 tag = "[Import] Excel estatus: NO PORTAL (conservado; operativo=ENVIADO, sin portal)"
                 comentarios = f"{comentarios} | {tag}" if comentarios else tag
-            if sin_infer:
+            if cli == CLIENTE_POR_CLASIFICAR:
                 tag2 = "[Import] Cliente asignado como POR CLASIFICAR (revisar y corregir)."
                 comentarios = f"{comentarios} | {tag2}" if comentarios else tag2
 
@@ -319,6 +336,7 @@ def import_facturacion_excel(
                 "asistencia_mes": int(asist) if asist else None,
                 "asistencia_anio": int(anio_default),
                 "cliente": cli,
+                "razon_social": razon_guardada,
                 "planta_servicio": _norm_cell(rv["planta"]) or None,
                 "usuario_contacto": usuario or None,
                 "numero_factura": num_raw.upper() if num_raw.isalnum() else num_raw,

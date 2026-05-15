@@ -4,7 +4,11 @@
 <div class="fx-hero">
   <div>
     <h1>Factura {{ row.numero_factura }}</h1>
-    <p class="fx-muted">{{ row.cliente }} · {{ row.mes }}/{{ row.anio }}{% if not row.es_factura_activa %} · <strong>Inactiva</strong>{% endif %}</p>
+    <p class="fx-muted">
+      <strong>{{ row.cliente }}</strong>
+      {% if row.razon_social %} · <span class="fx-secondary">Razón social: {{ row.razon_social }}</span>{% endif %}
+      · {{ row.mes }}/{{ row.anio }}{% if not row.es_factura_activa %} · <strong>Inactiva</strong>{% endif %}
+    </p>
   </div>
   <div class="fx-actions">
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.facturas_list') }}">← Lista</a>
@@ -19,9 +23,19 @@
 
 <div class="fx-grid" style="margin-bottom:1rem">
   <div class="fx-card">
-    <p class="k">Totales</p>
-    <p class="sub">Subtotal {{ row.subtotal or '—' }} · IVA {{ row.iva or '—' }}</p>
-    <p class="v">{% if row.total is not none %}{{ "%.2f"|format(row.total|float) }}{% else %}—{% endif %}</p>
+    <p class="k">Importes</p>
+    <p class="sub">Subtotal {{ row.subtotal|fx_money_mx }} · IVA {{ row.iva|fx_money_mx }}</p>
+    <p class="v fx-cell-mono">{{ row.total|fx_money_mx }}</p>
+  </div>
+  <div class="fx-card">
+    <p class="k">Referencia</p>
+    <p class="sub">{% if row.planta_servicio %}Planta: <strong>{{ row.planta_servicio }}</strong>{% else %}Planta: —{% endif %}</p>
+    <p class="sub fx-cell-mono" style="word-break:break-all">{% if row.usuario_contacto %}{{ row.usuario_contacto }}{% else %}Correo: —{% endif %}</p>
+  </div>
+  <div class="fx-card">
+    <p class="k">Fechas</p>
+    <p class="sub">Emisión: {{ row.fecha_factura or '—' }}</p>
+    <p class="sub">Vencimiento: {{ row.fecha_vencimiento or '—' }}</p>
   </div>
   <div class="fx-card">
     <p class="k">Operativo / Pago</p>

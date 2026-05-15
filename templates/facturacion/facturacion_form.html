@@ -9,17 +9,18 @@
   <label>Año *<input type="number" name="anio" required value="{{ row.anio if row else 2026 }}"></label>
   <label>Asistencia (mes)<input type="number" name="asistencia_mes" min="1" max="12" value="{{ row.asistencia_mes if row else '' }}"></label>
   <label>Asistencia (año)<input type="number" name="asistencia_anio" value="{{ row.asistencia_anio if row else '' }}"></label>
-  <label>Cliente *<input type="text" name="cliente" required value="{{ row.cliente if row else '' }}"></label>
-  <label>Planta / servicio<input type="text" name="planta_servicio" value="{{ row.planta_servicio if row else '' }}"></label>
-  <label>Usuario contacto<input type="text" name="usuario_contacto" value="{{ row.usuario_contacto if row else '' }}"></label>
+  <label>Cliente principal *<input type="text" name="cliente" required value="{{ row.cliente if row else '' }}" title="Nombre canónico del cliente (Pepsi, Carrier, Vitro…)"></label>
+  <label>Razón social (opcional)<input type="text" name="razon_social" value="{{ row.razon_social if row and row.razon_social else '' }}" placeholder="Como en el documento / Excel"></label>
+  <label>Planta<input type="text" name="planta_servicio" value="{{ row.planta_servicio if row else '' }}" title="Columna PLANTAS del Excel / ubicación"></label>
+  <label>Correo / usuario contacto<input type="text" name="usuario_contacto" value="{{ row.usuario_contacto if row else '' }}" placeholder="correo@empresa.com"></label>
   <label>Responsable interno<input type="text" name="responsable_interno" value="{{ row.responsable_interno if row else '' }}"></label>
   <label>Número factura *<input type="text" name="numero_factura" required value="{{ row.numero_factura if row else '' }}"></label>
   <label>PO/OC<input type="text" name="po_oc" value="{{ row.po_oc if row else '' }}"></label>
   <label>Subtotal<input type="text" name="subtotal" value="{{ row.subtotal if row else '' }}"></label>
   <label>IVA<input type="text" name="iva" value="{{ row.iva if row else '' }}"></label>
   <label>Total<input type="text" name="total" value="{{ row.total if row else '' }}"></label>
-  <label>Fecha factura<input type="date" name="fecha_factura" value="{{ row.fecha_factura if row and row.fecha_factura else '' }}"></label>
-  <label>Vencimiento<input type="date" name="fecha_vencimiento" value="{{ row.fecha_vencimiento if row and row.fecha_vencimiento else '' }}"></label>
+  <label>Fecha de emisión<input type="date" name="fecha_factura" value="{{ row.fecha_factura if row and row.fecha_factura else '' }}"></label>
+  <label>Fecha de vencimiento<input type="date" name="fecha_vencimiento" value="{{ row.fecha_vencimiento if row and row.fecha_vencimiento else '' }}"></label>
   <label>Estatus operativo *<select name="estatus_operativo" required>{% for o in operativos %}<option value="{{ o }}" {% if row and row.estatus_operativo == o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></label>
   <label>Estatus pago *<select name="estatus_pago" required>{% for p in pagos %}<option value="{{ p }}" {% if row and row.estatus_pago == p %}selected{% elif not row and p == 'PENDIENTE' %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
   <label style="grid-column:1/-1">Requiere portal <input type="checkbox" name="requiere_portal" value="1" {% if row and row.requiere_portal %}checked{% endif %}></label>

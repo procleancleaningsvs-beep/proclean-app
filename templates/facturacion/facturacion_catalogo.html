@@ -1,0 +1,85 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'catalogo' %}
+{% block fx_main %}
+<div class="fx-hero">
+  <div>
+    <h1>Catálogo de clientes</h1>
+    <p class="fx-muted">Asocia <strong>razones sociales</strong> al <strong>cliente principal</strong> (Pepsi, Carrier, Vitro, etc.) y define <strong>días de crédito</strong> para calcular automáticamente la <strong>fecha de vencimiento</strong> cuando se detecta la fecha de emisión en un PDF o XML relacionado.</p>
+  </div>
+</div>
+
+<div class="fx-grid" style="margin-bottom:1.5rem">
+  <div class="fx-card" style="grid-column:1/-1">
+    <p class="k">Nuevo mapeo: razón social → cliente principal</p>
+    <form method="post" class="fx-toolbar" style="margin:0.5rem 0 0">
+      <input type="hidden" name="action" value="add_razon">
+      <label>Razón social<input type="text" name="razon_social" required placeholder="Ej. Embotelladora XYZ"></label>
+      <label>Cliente principal<input type="text" name="cliente_principal" required placeholder="Ej. Pepsi"></label>
+      <button type="submit" class="fx-btn fx-btn--primary">Guardar mapeo</button>
+    </form>
+  </div>
+  <div class="fx-card" style="grid-column:1/-1">
+    <p class="k">Días de crédito por cliente principal</p>
+    <form method="post" class="fx-toolbar" style="margin:0.5rem 0 0">
+      <input type="hidden" name="action" value="add_credito">
+      <label>Cliente principal<input type="text" name="cliente_principal" required placeholder="Ej. Carrier"></label>
+      <label>Días<input type="number" name="dias_credito" min="0" max="999" value="30" required></label>
+      <button type="submit" class="fx-btn fx-btn--primary">Guardar crédito</button>
+    </form>
+  </div>
+</div>
+
+<div class="fx-table-wrap" style="margin-bottom:1.5rem">
+  <table class="fx-table">
+    <thead><tr><th colspan="2">Razón social → cliente principal</th><th style="width:6rem"></th></tr></thead>
+    <tbody>
+      {% for m in razones %}
+      <tr>
+        <td colspan="2" style="padding:0.65rem 1rem">
+          <form method="post" class="fx-toolbar" style="margin:0;align-items:flex-end;flex-wrap:wrap">
+            <input type="hidden" name="action" value="edit_razon">
+            <input type="hidden" name="id" value="{{ m.id }}">
+            <label style="flex:2;min-width:12rem">Razón social<input type="text" name="razon_social" value="{{ m.razon_social }}" required></label>
+            <label style="flex:1;min-width:9rem">Cliente principal<input type="text" name="cliente_principal" value="{{ m.cliente_principal }}" required></label>
+            <button type="submit" class="fx-btn fx-btn--ghost">Actualizar</button>
+          </form>
+        </td>
+        <td style="vertical-align:middle;white-space:nowrap;padding:0.65rem 1rem">
+          <form method="post" onsubmit="return confirm('¿Eliminar este mapeo?');">
+            <input type="hidden" name="action" value="del_razon">
+            <input type="hidden" name="id" value="{{ m.id }}">
+            <button type="submit" class="fx-btn fx-btn--danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="fx-muted" style="padding:1rem">Sin mapeos. Agrega la primera razón social arriba.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="fx-table-wrap">
+  <h3 style="margin:0.75rem 1rem;font-size:1rem">Crédito por cliente</h3>
+  <table class="fx-table">
+    <thead><tr><th>Cliente principal</th><th>Días crédito</th><th></th></tr></thead>
+    <tbody>
+      {% for c in creditos %}
+      <tr>
+        <td><strong>{{ c.cliente_principal }}</strong></td>
+        <td>{{ c.dias_credito }}</td>
+        <td>
+          <form method="post" onsubmit="return confirm('¿Quitar este cliente del catálogo de crédito?');">
+            <input type="hidden" name="action" value="del_credito">
+            <input type="hidden" name="cliente_principal" value="{{ c.cliente_principal }}">
+            <button type="submit" class="fx-btn fx-btn--ghost">Quitar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="fx-muted" style="padding:1rem">Sin registros de crédito.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

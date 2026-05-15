@@ -298,3 +298,42 @@ def test_import_excel_vista_no_admin_403(tmp_path):
             with app.test_request_context("/facturacion/import", method="GET"):
                 g.user = _memory_row("usuario")
                 import_excel()
+
+
+def test_format_money_mx():
+    from modules.facturacion.money_format import format_money_mx
+
+    assert format_money_mx(25450.8) == "$25,450.80"
+    assert format_money_mx(None) == "—"
+
+
+def test_extract_fecha_from_xml_cfdi():
+    from modules.facturacion.doc_fechas import extract_fecha_emision_from_xml
+
+    xml = b'<?xml version="1.0"?><cfdi:Comprobante Fecha="2026-03-15T12:00:00" xmlns:cfdi="http://www.sat.gob.mx/cfd/4">'
+    assert extract_fecha_emision_from_xml(xml) == "2026-03-15"
+
+
+def test_resolve_cliente_principal_map(tmp_path):
+    from modules.facturacion.cliente_catalog import load_catalog_maps, resolve_cliente_principal
+    from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
+    from modules.facturacion.db import upsert_razon_social_map
+    from modules.facturacion.normalize import fix_cliente_name
+
+    dbp = tmp_path / "c.db"
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    upsert_razon_social_map(conn, razon_social="PEPSI NORTE SA", cliente_principal="Pepsi", now="2026-01-01 00:00:00")
+    conn.commit()
+    maps = load_catalog_maps(conn)
+    p, rz = resolve_cliente_principal(
+        maps,
+        razon_social_excel="PEPSI NORTE SA",
+        cli_infer=None,
+        fix_cliente_name_fn=fix_cliente_name,
+        por_clasificar=CLIENTE_POR_CLASIFICAR,
+    )
+    assert p == "Pepsi"
+    assert rz == "PEPSI NORTE SA"
+    conn.close()

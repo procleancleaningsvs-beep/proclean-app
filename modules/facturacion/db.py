@@ -147,6 +147,38 @@ def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS facturacion_razon_social_map (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            razon_social TEXT NOT NULL,
+            cliente_principal TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(razon_social)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS facturacion_cliente_credito (
+            cliente_principal TEXT NOT NULL PRIMARY KEY,
+            dias_credito INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    _migrate_facturacion_columns(conn)
+
+
+def _table_column_names(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _migrate_facturacion_columns(conn: sqlite3.Connection) -> None:
+    cols = _table_column_names(conn, "facturacion_facturas")
+    if "razon_social" not in cols:
+        conn.execute("ALTER TABLE facturacion_facturas ADD COLUMN razon_social TEXT")
 
 
 def _row_factura(r: sqlite3.Row) -> dict[str, Any]:
@@ -373,7 +405,7 @@ def insert_factura(
     cur = conn.execute(
         """
         INSERT INTO facturacion_facturas (
-            mes, anio, asistencia_mes, asistencia_anio, cliente, planta_servicio, concepto_servicio,
+            mes, anio, asistencia_mes, asistencia_anio, cliente, razon_social, planta_servicio, concepto_servicio,
             usuario_contacto, responsable_interno, numero_factura, po_oc, requiere_po_oc, requiere_portal,
             subtotal, iva, total, fecha_factura, fecha_vencimiento,
             estatus_operativo, estatus_pago, alertas_json, comentarios,
@@ -381,7 +413,7 @@ def insert_factura(
             refacturacion_motivo, refacturacion_fecha, refacturacion_por,
             es_factura_activa, fecha_creacion, fecha_actualizacion, actualizado_por, creado_por
         ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
         )
         """,
         (
@@ -390,6 +422,7 @@ def insert_factura(
             data.get("asistencia_mes"),
             data.get("asistencia_anio"),
             str(data["cliente"]).strip(),
+            (data.get("razon_social") or None) and str(data.get("razon_social")).strip() or None,
             (data.get("planta_servicio") or None) and str(data.get("planta_servicio")).strip() or None,
             (data.get("concepto_servicio") or None) and str(data.get("concepto_servicio")).strip() or None,
             (data.get("usuario_contacto") or None) and str(data.get("usuario_contacto")).strip() or None,
@@ -463,7 +496,7 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
         """
         UPDATE facturacion_facturas SET
             mes = ?, anio = ?, asistencia_mes = ?, asistencia_anio = ?,
-            cliente = ?, planta_servicio = ?, concepto_servicio = ?,
+            cliente = ?, razon_social = ?, planta_servicio = ?, concepto_servicio = ?,
             usuario_contacto = ?, responsable_interno = ?,
             numero_factura = ?, po_oc = ?, requiere_po_oc = ?, requiere_portal = ?,
             subtotal = ?, iva = ?, total = ?,
@@ -479,6 +512,7 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
             data.get("asistencia_mes", row["asistencia_mes"]),
             data.get("asistencia_anio", row["asistencia_anio"]),
             str(data.get("cliente", row["cliente"])).strip(),
+            ((str(data["razon_social"]).strip() or None) if "razon_social" in data else row["razon_social"]),
             data.get("planta_servicio", row["planta_servicio"]),
             data.get("concepto_servicio", row["concepto_servicio"]),
             data.get("usuario_contacto", row["usuario_contacto"]),
@@ -774,7 +808,18 @@ def insert_nota_credito(
 
 def distinct_clientes(conn: sqlite3.Connection) -> list[str]:
     cur = conn.execute(
-        "SELECT DISTINCT cliente FROM facturacion_facturas WHERE es_factura_activa = 1 ORDER BY cliente ASC"
+        """
+        SELECT c FROM (
+            SELECT DISTINCT TRIM(cliente) AS c FROM facturacion_facturas
+            WHERE es_factura_activa = 1 AND cliente IS NOT NULL AND TRIM(cliente) != ''
+            UNION
+            SELECT DISTINCT TRIM(cliente_principal) AS c FROM facturacion_cliente_credito
+            WHERE TRIM(cliente_principal) != ''
+            UNION
+            SELECT DISTINCT TRIM(cliente_principal) AS c FROM facturacion_razon_social_map
+            WHERE TRIM(cliente_principal) != ''
+        ) ORDER BY c ASC
+        """
     )
     return [str(r[0]) for r in cur.fetchall() if r[0]]
 
@@ -814,3 +859,138 @@ def get_latest_import_log(conn: sqlite3.Connection) -> dict[str, Any] | None:
     if not r:
         return None
     return get_import_log(conn, int(r["id"]))
+
+
+def list_razon_social_map(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        "SELECT * FROM facturacion_razon_social_map ORDER BY cliente_principal ASC, razon_social ASC"
+    )
+    return [dict(x) for x in cur.fetchall()]
+
+
+def upsert_razon_social_map(
+    conn: sqlite3.Connection,
+    *,
+    razon_social: str,
+    cliente_principal: str,
+    now: str,
+    row_id: int | None = None,
+) -> None:
+    rz = (razon_social or "").strip()
+    cp = (cliente_principal or "").strip()
+    if not rz or not cp:
+        raise ValueError("razon_social y cliente_principal son obligatorios")
+    if row_id:
+        conn.execute(
+            """
+            UPDATE facturacion_razon_social_map
+            SET razon_social = ?, cliente_principal = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (rz, cp, now, int(row_id)),
+        )
+        return
+    conn.execute(
+        """
+        INSERT INTO facturacion_razon_social_map (razon_social, cliente_principal, created_at, updated_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(razon_social) DO UPDATE SET
+            cliente_principal = excluded.cliente_principal,
+            updated_at = excluded.updated_at
+        """,
+        (rz, cp, now, now),
+    )
+
+
+def delete_razon_social_map(conn: sqlite3.Connection, row_id: int) -> None:
+    conn.execute("DELETE FROM facturacion_razon_social_map WHERE id = ?", (int(row_id),))
+
+
+def list_cliente_credito(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        "SELECT * FROM facturacion_cliente_credito ORDER BY cliente_principal ASC"
+    )
+    return [dict(x) for x in cur.fetchall()]
+
+
+def upsert_cliente_credito(
+    conn: sqlite3.Connection,
+    *,
+    cliente_principal: str,
+    dias_credito: int,
+    now: str,
+) -> None:
+    cp = (cliente_principal or "").strip()
+    if not cp:
+        raise ValueError("cliente_principal es obligatorio")
+    d = max(0, int(dias_credito))
+    conn.execute(
+        """
+        INSERT INTO facturacion_cliente_credito (cliente_principal, dias_credito, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(cliente_principal) DO UPDATE SET
+            dias_credito = excluded.dias_credito,
+            updated_at = excluded.updated_at
+        """,
+        (cp, d, now),
+    )
+
+
+def delete_cliente_credito(conn: sqlite3.Connection, cliente_principal: str) -> None:
+    cp = (cliente_principal or "").strip()
+    if cp:
+        conn.execute("DELETE FROM facturacion_cliente_credito WHERE cliente_principal = ?", (cp,))
+
+
+def apply_automatic_fechas_from_adjunto(
+    conn: sqlite3.Connection,
+    *,
+    factura_id: int,
+    file_bytes: bytes,
+    ext: str,
+    user_id: int | None,
+    now: str,
+) -> bool:
+    """Si se detecta fecha de emisión en PDF/XML, actualiza factura y vencimiento según días de crédito."""
+    from modules.facturacion.cliente_catalog import (
+        add_days_to_iso_date,
+        dias_credito_para_cliente,
+        load_catalog_maps,
+    )
+    from modules.facturacion.doc_fechas import extract_fecha_emision_from_bytes
+
+    fe = extract_fecha_emision_from_bytes(file_bytes, ext=str(ext))
+    if not fe:
+        return False
+    row = conn.execute(
+        "SELECT cliente, fecha_vencimiento FROM facturacion_facturas WHERE id = ?",
+        (int(factura_id),),
+    ).fetchone()
+    if not row:
+        return False
+    maps = load_catalog_maps(conn)
+    dias = dias_credito_para_cliente(maps, str(row["cliente"] or ""))
+    if dias > 0:
+        venc = add_days_to_iso_date(fe, dias)
+    else:
+        venc = row["fecha_vencimiento"]
+    conn.execute(
+        """
+        UPDATE facturacion_facturas SET
+            fecha_factura = ?,
+            fecha_vencimiento = ?,
+            fecha_actualizacion = ?,
+            actualizado_por = ?
+        WHERE id = ?
+        """,
+        (fe, venc, now, user_id, int(factura_id)),
+    )
+    log_evento(
+        conn,
+        factura_id=int(factura_id),
+        tipo="FECHAS_DESDE_DOCUMENTO",
+        detalle={"fecha_factura": fe, "fecha_vencimiento": venc, "ext": ext, "dias_credito": dias},
+        user_id=user_id,
+        created_at=now,
+    )
+    return True
