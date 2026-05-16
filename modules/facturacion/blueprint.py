@@ -29,30 +29,38 @@ from modules.facturacion.db import (
     dashboard_stats,
     dashboard_stats_anual,
     delete_cliente_credito,
+    delete_cliente_plantilla,
+    delete_correo_cliente_map,
     delete_factura_soft,
     delete_huerfano,
     delete_razon_social_map,
     distinct_clientes,
     ensure_facturacion_tables,
+    fabricar_esqueleto_desde_plantillas,
     find_factura_activa_por_numero_en_texto,
     get_factura,
     get_huerfano,
     get_import_log,
     get_latest_import_log,
+    insert_cliente_plantilla,
     insert_factura,
     insert_huerfano,
     insert_import_log,
     insert_nota_credito,
     list_cliente_credito,
+    list_cliente_plantillas,
+    list_correo_cliente_map,
     list_eventos_for_factura,
     list_facturas_filtradas,
     list_huerfanos,
     list_notas_credito,
     list_razon_social_map,
     refacturar,
+    update_cliente_plantilla,
     update_factura,
     upsert_adjunto,
     upsert_cliente_credito,
+    upsert_correo_cliente_map,
     upsert_razon_social_map,
 )
 from modules.facturacion.excel_export import build_facturacion_export_bytes
@@ -226,6 +234,7 @@ def facturas_list():
             abort(403)
         cliente_eq = CLIENTE_POR_CLASIFICAR
         cliente_arg = None
+    solo_pendientes = request.args.get("solo_pendientes") == "1"
     conn = _db_conn()
     try:
         rows = list_facturas_filtradas(
@@ -239,6 +248,7 @@ def facturas_list():
             alerta=_ig("alerta"),
             q_numero=_ig("q"),
             q_po=_ig("po"),
+            solo_pre_factura=solo_pendientes,
         )
         clientes = distinct_clientes(conn)
     finally:
@@ -252,6 +262,7 @@ def facturas_list():
             "anio": anio,
             "cliente": cliente_arg,
             "por_clasificar": bool(cliente_eq),
+            "solo_pendientes": solo_pendientes,
             "estatus_operativo": _ig("estatus_operativo"),
             "estatus_pago": _ig("estatus_pago"),
             "alerta": _ig("alerta"),
@@ -307,6 +318,28 @@ def facturacion_catalogo():
                 elif act == "del_credito":
                     delete_cliente_credito(conn, (request.form.get("cliente_principal") or "").strip())
                     flash("Cliente eliminado del catálogo de crédito.", "success")
+                elif act == "add_correo_map":
+                    upsert_correo_cliente_map(
+                        conn,
+                        tipo=(request.form.get("tipo_correo") or "EMAIL").strip(),
+                        valor=(request.form.get("valor_correo") or "").strip(),
+                        cliente_principal=(request.form.get("cliente_principal_correo") or "").strip(),
+                        now=now,
+                    )
+                    flash("Mapeo correo/dominio → cliente guardado.", "success")
+                elif act == "edit_correo_map":
+                    upsert_correo_cliente_map(
+                        conn,
+                        tipo=(request.form.get("tipo_correo") or "").strip(),
+                        valor=(request.form.get("valor_correo") or "").strip(),
+                        cliente_principal=(request.form.get("cliente_principal_correo") or "").strip(),
+                        now=now,
+                        row_id=int(request.form.get("id") or 0),
+                    )
+                    flash("Mapeo actualizado.", "success")
+                elif act == "del_correo_map":
+                    delete_correo_cliente_map(conn, int(request.form.get("id") or 0))
+                    flash("Mapeo eliminado.", "success")
                 else:
                     flash("Acción no reconocida.", "error")
             except (ValueError, TypeError) as exc:
@@ -315,13 +348,141 @@ def facturacion_catalogo():
             return redirect(url_for("facturacion.facturacion_catalogo"))
         razones = list_razon_social_map(conn)
         creditos = list_cliente_credito(conn)
+        correos_map = list_correo_cliente_map(conn)
     finally:
         conn.close()
     return render_template(
         "facturacion_catalogo.html",
         razones=razones,
         creditos=creditos,
+        correos_map=correos_map,
         is_admin=_is_admin(),
+    )
+
+
+@facturacion_bp.route("/plantillas-cliente", methods=["GET", "POST"])
+@_login_required
+@_admin_required
+def plantillas_cliente():
+    conn = _db_conn()
+    filtro_cli = (request.args.get("cliente") or "").strip() or None
+    try:
+        if request.method == "POST":
+            act = (request.form.get("action") or "").strip()
+            now = _now_iso()
+            try:
+                if act == "save":
+                    row_id = int(request.form.get("id") or 0)
+                    orden = int(request.form.get("orden") or 0)
+                    cli = (request.form.get("cliente") or "").strip()
+                    if not cli:
+                        flash("Cliente es obligatorio.", "error")
+                    else:
+                        common = dict(
+                            cliente=cli,
+                            orden=orden,
+                            clasificacion=(request.form.get("clasificacion") or "").strip() or None,
+                            planta_servicio=(request.form.get("planta_servicio") or "").strip() or None,
+                            usuario_contacto=(request.form.get("usuario_contacto") or "").strip() or None,
+                            razon_social=(request.form.get("razon_social") or "").strip() or None,
+                            responsable_interno=(request.form.get("responsable_interno") or "").strip() or None,
+                            requiere_portal=1 if request.form.get("requiere_portal") in {"1", "on", "true"} else 0,
+                            notas_internas=(request.form.get("notas_internas") or "").strip() or None,
+                            now=now,
+                        )
+                        if row_id:
+                            update_cliente_plantilla(conn, row_id, **common)
+                            flash("Línea de plantilla actualizada.", "success")
+                        else:
+                            insert_cliente_plantilla(conn, **common)
+                            flash("Línea de plantilla agregada.", "success")
+                        filtro_cli = cli
+                elif act == "del":
+                    rid = int(request.form.get("id") or 0)
+                    if delete_cliente_plantilla(conn, rid):
+                        flash("Línea eliminada.", "success")
+                    else:
+                        flash("No se puede eliminar: hay facturas activas vinculadas a esta plantilla.", "error")
+                else:
+                    flash("Acción no reconocida.", "error")
+            except (ValueError, TypeError) as exc:
+                flash(str(exc) or "Datos inválidos.", "error")
+            conn.commit()
+            q = {"cliente": filtro_cli} if filtro_cli else {}
+            return redirect(url_for("facturacion.plantillas_cliente", **q))
+        edit_row = None
+        eid = (request.args.get("edit") or "").strip()
+        if eid.isdigit():
+            r = conn.execute(
+                "SELECT * FROM facturacion_cliente_plantilla WHERE id = ?",
+                (int(eid),),
+            ).fetchone()
+            if r:
+                edit_row = dict(r)
+        rows = list_cliente_plantillas(conn, cliente=filtro_cli)
+        clientes = distinct_clientes(conn)
+    finally:
+        conn.close()
+    return render_template(
+        "facturacion_plantillas.html",
+        rows=rows,
+        clientes=clientes,
+        filtro_cli=filtro_cli,
+        edit_row=edit_row,
+        is_admin=_is_admin(),
+    )
+
+
+@facturacion_bp.route("/plantillas-cliente/generar-mes", methods=["POST"])
+@_login_required
+@_admin_required
+def plantillas_generar_mes():
+    try:
+        mes = int(request.form.get("mes") or 0)
+        anio = int(request.form.get("anio") or 0)
+    except (TypeError, ValueError):
+        mes, anio = 0, 0
+    if mes < 1 or mes > 12 or anio < 2000:
+        flash("Indica mes (1–12) y año válidos para generar el esqueleto.", "error")
+        return redirect(request.referrer or url_for("facturacion.dashboard"))
+    cliente = (request.form.get("cliente") or "").strip() or None
+    conn = _db_conn()
+    try:
+        res = fabricar_esqueleto_desde_plantillas(
+            conn,
+            mes=mes,
+            anio=anio,
+            cliente=cliente,
+            user_id=int(g.user["id"]),
+            now=_now_iso(),
+        )
+        conn.commit()
+        log_app_activity(
+            str(current_app.config["DATABASE"]),
+            user_id=int(g.user["id"]),
+            module="facturacion",
+            action="plantillas_generar_mes",
+            status="ok",
+            ref=f"{anio}-{mes:02d}",
+        )
+        flash(
+            f"Esqueleto del periodo: {res['inserted']} filas nuevas, "
+            f"{res['skipped_y_existia']} ya existían por plantilla, "
+            f"{res['plantillas_encontradas']} líneas de plantilla consideradas.",
+            "success",
+        )
+    finally:
+        conn.close()
+    dest = (request.form.get("next") or "facturas").strip()
+    if dest == "dashboard":
+        return redirect(url_for("facturacion.dashboard", mes=mes, anio=anio))
+    return redirect(
+        url_for(
+            "facturacion.facturas_list",
+            mes=mes,
+            anio=anio,
+            **({"cliente": cliente} if cliente else {}),
+        )
     )
 
 
@@ -335,6 +496,12 @@ def _parse_factura_form(form) -> dict[str, Any]:
         except ValueError:
             return None
 
+    es_seg = form.get("es_seguimiento") in {"1", "on", "true", "yes"}
+    num_raw = (form.get("numero_factura") or "").strip()
+    if es_seg:
+        num_raw = ""
+    es_pre = 1 if es_seg or not num_raw else 0
+
     alertas_raw = form.getlist("alertas")
     alertas = [a.strip().upper() for a in alertas_raw if a.strip().upper() in ALERTA_SET]
     return {
@@ -347,7 +514,8 @@ def _parse_factura_form(form) -> dict[str, Any]:
         "planta_servicio": (form.get("planta_servicio") or "").strip() or None,
         "usuario_contacto": (form.get("usuario_contacto") or "").strip() or None,
         "responsable_interno": (form.get("responsable_interno") or "").strip() or None,
-        "numero_factura": (form.get("numero_factura") or "").strip(),
+        "numero_factura": num_raw or None,
+        "es_pre_factura": es_pre,
         "po_oc": (form.get("po_oc") or "").strip() or None,
         "requiere_portal": 1 if form.get("requiere_portal") in {"1", "on", "true", "yes"} else 0,
         "subtotal": fnum("subtotal"),
@@ -382,9 +550,12 @@ def factura_nuevo():
                     module="facturacion",
                     action="crear_factura",
                     status="ok",
-                    ref=data.get("numero_factura"),
+                    ref=data.get("numero_factura") or f"seguimiento_pre_{data.get('cliente')}",
                 )
-                flash("Factura creada.", "success")
+                if int(data.get("es_pre_factura") or 0):
+                    flash("Registro de seguimiento guardado (sin número de factura).", "success")
+                else:
+                    flash("Factura creada.", "success")
                 return redirect(url_for("facturacion.facturas_list"))
             except sqlite3.IntegrityError:
                 conn.rollback()
@@ -569,6 +740,12 @@ def upload_adjuntos():
     linked = 0
     orphans = 0
     try:
+        forced_id: int | None = None
+        raw_force = (request.form.get("factura_id") or "").strip()
+        if raw_force.isdigit():
+            frow = get_factura(conn, int(raw_force))
+            if frow and int(frow["es_factura_activa"]):
+                forced_id = int(raw_force)
         for f in files:
             if not f or not f.filename:
                 continue
@@ -586,7 +763,9 @@ def upload_adjuntos():
             dest = root / stored
             dest.write_bytes(data)
             rel = str(dest)
-            match_id = find_factura_activa_por_numero_en_texto(conn, safe, anio=anio_i, mes=mes_i)
+            match_id = forced_id
+            if match_id is None:
+                match_id = find_factura_activa_por_numero_en_texto(conn, safe, anio=anio_i, mes=mes_i)
             if match_id is None:
                 cand = extraer_numero_factura_desde_nombre_archivo(safe)
                 if cand:
@@ -629,9 +808,14 @@ def upload_adjuntos():
                 orphans += 1
         conn.commit()
         flash(f"Carga terminada: {linked} relacionados, {orphans} sin relación.", "success")
+        redir_args: dict[str, Any] = {}
+        if mes_i is not None:
+            redir_args["mes"] = mes_i
+        if anio_i is not None:
+            redir_args["anio"] = anio_i
+        return redirect(url_for("facturacion.facturas_list", **redir_args))
     finally:
         conn.close()
-    return redirect(url_for("facturacion.huerfanos"))
 
 
 @facturacion_bp.route("/adjunto/<int:fid>/<tipo>")

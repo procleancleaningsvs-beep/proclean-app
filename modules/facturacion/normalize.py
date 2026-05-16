@@ -191,6 +191,8 @@ def compute_auto_alertas(
         if not (po_oc and str(po_oc).strip()):
             extra.append("SIN PO/OC")
     num_ok = bool(numero_factura and str(numero_factura).strip() and re.search(r"\d", str(numero_factura)))
+    if not num_ok:
+        extra.append("SIN NÚMERO FACTURA")
     if num_ok and (not tiene_pdf or not tiene_xml) and archivofaltante_auto_activo(estatus_operativo):
         extra.append("ARCHIVO FALTANTE")
     return merge_alertas(manual_alertas or [], extra)
@@ -207,6 +209,14 @@ def validar_factura_payload(data: dict[str, Any]) -> tuple[bool, str | None]:
     op = str(data.get("estatus_operativo") or "").strip()
     if op not in OPERATIVO_SET:
         return False, "Estatus operativo no válido."
+    raw_num = data.get("numero_factura")
+    num = (str(raw_num).strip() if raw_num is not None else "")
+    if "es_pre_factura" in data and data.get("es_pre_factura") is not None:
+        es_pre = int(data["es_pre_factura"])
+    else:
+        es_pre = 1 if not num else 0
+    if not es_pre and (not num or not re.search(r"\d", num)):
+        return False, "El número de factura es obligatorio salvo en modo seguimiento sin factura emitida."
     pg = str(data.get("estatus_pago") or "").strip()
     if pg not in PAGO_SET:
         return False, "Estatus de pago no válido."

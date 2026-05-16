@@ -12,22 +12,23 @@ from modules.facturacion.normalize import (
     parse_alertas_json,
 )
 
-
-def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS facturacion_facturas (
+# Esquema v2: seguimiento pre-factura (numero_factura opcional) + es_pre_factura
+DDL_FACTURAS_V2 = """
+CREATE TABLE facturacion_facturas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             mes INTEGER NOT NULL,
             anio INTEGER NOT NULL,
             asistencia_mes INTEGER,
             asistencia_anio INTEGER,
             cliente TEXT NOT NULL,
+            razon_social TEXT,
             planta_servicio TEXT,
             concepto_servicio TEXT,
             usuario_contacto TEXT,
             responsable_interno TEXT,
-            numero_factura TEXT NOT NULL,
+            numero_factura TEXT,
+            es_pre_factura INTEGER NOT NULL DEFAULT 0,
+            plantilla_linea_id INTEGER,
             po_oc TEXT,
             requiere_po_oc INTEGER NOT NULL DEFAULT 0,
             requiere_portal INTEGER NOT NULL DEFAULT 0,
@@ -53,13 +54,21 @@ def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
             FOREIGN KEY (factura_original_id) REFERENCES facturacion_facturas(id),
             FOREIGN KEY (factura_reemplazada_por_id) REFERENCES facturacion_facturas(id)
         )
-        """
+"""
+
+
+def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        DDL_FACTURAS_V2.replace("CREATE TABLE facturacion_facturas", "CREATE TABLE IF NOT EXISTS facturacion_facturas")
     )
+    conn.execute("DROP INDEX IF EXISTS uq_facturacion_factura_activa")
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS uq_facturacion_factura_activa
         ON facturacion_facturas (numero_factura, cliente, mes, anio)
         WHERE es_factura_activa = 1
+          AND numero_factura IS NOT NULL
+          AND TRIM(numero_factura) != ''
         """
     )
     conn.execute(
@@ -161,6 +170,25 @@ def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS facturacion_correo_cliente_map (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tipo TEXT NOT NULL CHECK (tipo IN ('EMAIL', 'DOMINIO')),
+            valor TEXT NOT NULL,
+            cliente_principal TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE (tipo, valor)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_facturacion_correo_map_valor
+        ON facturacion_correo_cliente_map (tipo, valor)
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS facturacion_cliente_credito (
             cliente_principal TEXT NOT NULL PRIMARY KEY,
             dias_credito INTEGER NOT NULL DEFAULT 0,
@@ -168,7 +196,40 @@ def ensure_facturacion_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS facturacion_cliente_plantilla (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            cliente TEXT NOT NULL,
+            orden INTEGER NOT NULL DEFAULT 0,
+            clasificacion TEXT,
+            planta_servicio TEXT,
+            usuario_contacto TEXT,
+            razon_social TEXT,
+            responsable_interno TEXT,
+            requiere_portal INTEGER NOT NULL DEFAULT 0,
+            notas_internas TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_facturacion_plantilla_cliente
+        ON facturacion_cliente_plantilla(cliente)
+        """
+    )
     _migrate_facturacion_columns(conn)
+    _migrate_facturacion_preinvoice_schema(conn)
+    conn.execute("DROP INDEX IF EXISTS uq_facturacion_plantilla_mes")
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_facturacion_plantilla_mes
+        ON facturacion_facturas (mes, anio, plantilla_linea_id)
+        WHERE es_factura_activa = 1 AND plantilla_linea_id IS NOT NULL
+        """
+    )
 
 
 def _table_column_names(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -179,6 +240,140 @@ def _migrate_facturacion_columns(conn: sqlite3.Connection) -> None:
     cols = _table_column_names(conn, "facturacion_facturas")
     if "razon_social" not in cols:
         conn.execute("ALTER TABLE facturacion_facturas ADD COLUMN razon_social TEXT")
+    if "plantilla_linea_id" not in cols:
+        conn.execute("ALTER TABLE facturacion_facturas ADD COLUMN plantilla_linea_id INTEGER")
+
+
+def _factura_numero_is_not_null(conn: sqlite3.Connection) -> bool:
+    for r in conn.execute("PRAGMA table_info(facturacion_facturas)").fetchall():
+        if str(r[1]) == "numero_factura":
+            return int(r[3]) == 1
+    return False
+
+
+def _rebuild_facturas_preinvoice(conn: sqlite3.Connection) -> None:
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        for idx in (
+            "uq_facturacion_factura_activa",
+            "idx_facturacion_facturas_mes_anio",
+            "idx_facturacion_facturas_cliente",
+        ):
+            conn.execute(f"DROP INDEX IF EXISTS {idx}")
+        conn.execute("ALTER TABLE facturacion_facturas RENAME TO _facturas_old")
+        conn.execute(DDL_FACTURAS_V2)
+        old_rows = conn.execute("SELECT * FROM _facturas_old").fetchall()
+        old_cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(_facturas_old)").fetchall()}
+        for r in old_rows:
+            d = dict(r)
+            raw_num = d.get("numero_factura")
+            num = None if raw_num is None or str(raw_num).strip() == "" else str(raw_num).strip()
+            es_pre = 1 if num is None else 0
+            rz = d.get("razon_social") if "razon_social" in old_cols else None
+            conn.execute(
+                """
+                INSERT INTO facturacion_facturas (
+                    id, mes, anio, asistencia_mes, asistencia_anio, cliente, razon_social, planta_servicio, concepto_servicio,
+                    usuario_contacto, responsable_interno, numero_factura, es_pre_factura, plantilla_linea_id, po_oc, requiere_po_oc, requiere_portal,
+                    subtotal, iva, total, fecha_factura, fecha_vencimiento,
+                    estatus_operativo, estatus_pago, alertas_json, comentarios,
+                    factura_original_id, factura_reemplazada_por_id,
+                    refacturacion_motivo, refacturacion_fecha, refacturacion_por,
+                    es_factura_activa, fecha_creacion, fecha_actualizacion, actualizado_por, creado_por
+                ) VALUES (
+                    ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+                )
+                """,
+                (
+                    int(d["id"]),
+                    int(d["mes"]),
+                    int(d["anio"]),
+                    d.get("asistencia_mes"),
+                    d.get("asistencia_anio"),
+                    str(d["cliente"]).strip(),
+                    (str(rz).strip() if rz else None) or None,
+                    d.get("planta_servicio"),
+                    d.get("concepto_servicio"),
+                    d.get("usuario_contacto"),
+                    d.get("responsable_interno"),
+                    num,
+                    es_pre,
+                    d.get("plantilla_linea_id") if "plantilla_linea_id" in old_cols else None,
+                    d.get("po_oc"),
+                    int(d.get("requiere_po_oc") or 0),
+                    int(d.get("requiere_portal") or 0),
+                    d.get("subtotal"),
+                    d.get("iva"),
+                    d.get("total"),
+                    d.get("fecha_factura"),
+                    d.get("fecha_vencimiento"),
+                    str(d["estatus_operativo"]).strip(),
+                    str(d.get("estatus_pago") or "PENDIENTE").strip(),
+                    d.get("alertas_json") or "[]",
+                    d.get("comentarios"),
+                    d.get("factura_original_id"),
+                    d.get("factura_reemplazada_por_id"),
+                    d.get("refacturacion_motivo"),
+                    d.get("refacturacion_fecha"),
+                    d.get("refacturacion_por"),
+                    int(d.get("es_factura_activa", 1)),
+                    str(d["fecha_creacion"]),
+                    str(d["fecha_actualizacion"]),
+                    d.get("actualizado_por"),
+                    d.get("creado_por"),
+                ),
+            )
+        conn.execute("DROP TABLE _facturas_old")
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_facturacion_factura_activa
+            ON facturacion_facturas (numero_factura, cliente, mes, anio)
+            WHERE es_factura_activa = 1
+              AND numero_factura IS NOT NULL
+              AND TRIM(numero_factura) != ''
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_facturacion_facturas_mes_anio
+            ON facturacion_facturas (anio, mes)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_facturacion_facturas_cliente
+            ON facturacion_facturas (cliente)
+            """
+        )
+        mx = conn.execute("SELECT MAX(id) FROM facturacion_facturas").fetchone()[0]
+        if mx is not None:
+            try:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name = 'facturacion_facturas'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence (name, seq) VALUES ('facturacion_facturas', ?)",
+                    (int(mx),),
+                )
+            except sqlite3.OperationalError:
+                pass
+    finally:
+        conn.execute("PRAGMA foreign_keys=ON")
+
+
+def _migrate_facturacion_preinvoice_schema(conn: sqlite3.Connection) -> None:
+    cols = _table_column_names(conn, "facturacion_facturas")
+    if _factura_numero_is_not_null(conn):
+        _rebuild_facturas_preinvoice(conn)
+        cols = _table_column_names(conn, "facturacion_facturas")
+    if "es_pre_factura" not in cols:
+        conn.execute(
+            "ALTER TABLE facturacion_facturas ADD COLUMN es_pre_factura INTEGER NOT NULL DEFAULT 0"
+        )
+        conn.execute(
+            """
+            UPDATE facturacion_facturas SET es_pre_factura = CASE
+                WHEN numero_factura IS NULL OR TRIM(numero_factura) = '' THEN 1 ELSE 0 END
+            """
+        )
 
 
 def _row_factura(r: sqlite3.Row) -> dict[str, Any]:
@@ -261,7 +456,11 @@ def refresh_archivo_alerta(conn: sqlite3.Connection, factura_id: int, *, now: st
     adj = adjuntos_for_facturas(conn, [factura_id]).get(factura_id, {})
     tiene_pdf = adj.get("pdf") is not None
     tiene_xml = adj.get("xml") is not None
-    manual = [a for a in parse_alertas_json(row["alertas_json"]) if a != "ARCHIVO FALTANTE" and a != "SIN PO/OC"]
+    manual = [
+        a
+        for a in parse_alertas_json(row["alertas_json"])
+        if a not in ("ARCHIVO FALTANTE", "SIN PO/OC", "SIN NÚMERO FACTURA")
+    ]
     auto = compute_auto_alertas(
         cliente=str(row["cliente"]),
         po_oc=row["po_oc"],
@@ -291,6 +490,7 @@ def list_facturas_filtradas(
     q_numero: str | None,
     q_po: str | None,
     solo_activas: bool = True,
+    solo_pre_factura: bool = False,
     limit: int = 500,
 ) -> list[dict[str, Any]]:
     wh: list[str] = ["1=1"]
@@ -318,6 +518,8 @@ def list_facturas_filtradas(
     if alerta:
         wh.append("alertas_json LIKE ?")
         args.append(f'%"{alerta.strip().upper()}"%')
+    if solo_pre_factura:
+        wh.append("(numero_factura IS NULL OR TRIM(numero_factura) = '')")
     if q_numero:
         wh.append("numero_factura LIKE ?")
         args.append(f"%{q_numero.strip()}%")
@@ -327,7 +529,9 @@ def list_facturas_filtradas(
     sql = f"""
         SELECT * FROM facturacion_facturas
         WHERE {' AND '.join(wh)}
-        ORDER BY anio DESC, mes DESC, cliente ASC, numero_factura ASC
+        ORDER BY anio DESC, mes DESC, cliente ASC,
+          CASE WHEN numero_factura IS NULL OR TRIM(numero_factura) = '' THEN 0 ELSE 1 END ASC,
+          COALESCE(numero_factura, '') ASC
         LIMIT ?
     """
     args.append(int(limit))
@@ -365,7 +569,9 @@ def find_factura_activa_por_numero_en_texto(
         wh.append("mes = ?")
         args.append(int(mes))
     rows = conn.execute(
-        f"SELECT id, numero_factura FROM facturacion_facturas WHERE {' AND '.join(wh)}", args
+        f"SELECT id, numero_factura FROM facturacion_facturas WHERE {' AND '.join(wh)} "
+        "AND numero_factura IS NOT NULL AND TRIM(numero_factura) != ''",
+        args,
     ).fetchall()
     best: int | None = None
     best_len = 0
@@ -390,6 +596,15 @@ def insert_factura(
     if "requiere_po_oc" in data and data["requiere_po_oc"] is not None:
         req_po = 1 if int(data["requiere_po_oc"]) else 0
     req_portal = 1 if int(data.get("requiere_portal") or 0) else 0
+    raw_num = data.get("numero_factura")
+    if raw_num is None or str(raw_num).strip() == "":
+        num_val: str | None = None
+    else:
+        num_val = str(raw_num).strip()
+    if "es_pre_factura" in data:
+        es_pre = int(data["es_pre_factura"])
+    else:
+        es_pre = 1 if num_val is None else 0
     alertas_manual = data.get("alertas") if isinstance(data.get("alertas"), list) else parse_alertas_json(
         data.get("alertas_json")
     )
@@ -399,21 +614,23 @@ def insert_factura(
         tiene_pdf=False,
         tiene_xml=False,
         estatus_operativo=str(data.get("estatus_operativo") or ""),
-        numero_factura=str(data.get("numero_factura") or ""),
+        numero_factura=num_val,
         manual_alertas=alertas_manual,
     )
     cur = conn.execute(
         """
         INSERT INTO facturacion_facturas (
             mes, anio, asistencia_mes, asistencia_anio, cliente, razon_social, planta_servicio, concepto_servicio,
-            usuario_contacto, responsable_interno, numero_factura, po_oc, requiere_po_oc, requiere_portal,
+            usuario_contacto, responsable_interno, numero_factura, es_pre_factura, plantilla_linea_id, po_oc, requiere_po_oc, requiere_portal,
             subtotal, iva, total, fecha_factura, fecha_vencimiento,
             estatus_operativo, estatus_pago, alertas_json, comentarios,
             factura_original_id, factura_reemplazada_por_id,
             refacturacion_motivo, refacturacion_fecha, refacturacion_por,
             es_factura_activa, fecha_creacion, fecha_actualizacion, actualizado_por, creado_por
         ) VALUES (
-            ?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?
+            """
+        + ",".join(["?"] * 35)
+        + """
         )
         """,
         (
@@ -427,7 +644,9 @@ def insert_factura(
             (data.get("concepto_servicio") or None) and str(data.get("concepto_servicio")).strip() or None,
             (data.get("usuario_contacto") or None) and str(data.get("usuario_contacto")).strip() or None,
             (data.get("responsable_interno") or None) and str(data.get("responsable_interno")).strip() or None,
-            str(data["numero_factura"]).strip(),
+            num_val,
+            es_pre,
+            data.get("plantilla_linea_id"),
             (data.get("po_oc") or None) and str(data.get("po_oc")).strip() or None,
             req_po,
             req_portal,
@@ -482,14 +701,22 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
         manual = parse_alertas_json(row["alertas_json"])
     adj = adjuntos_for_facturas(conn, [fid]).get(fid, {})
     op_eff = str(data.get("estatus_operativo", row["estatus_operativo"]) or "")
-    num_eff = str(data.get("numero_factura", row["numero_factura"]) or "")
+    if "numero_factura" in data:
+        rv = data.get("numero_factura")
+        new_num = None if rv is None or str(rv).strip() == "" else str(rv).strip()
+    else:
+        new_num = row["numero_factura"]
+    if "es_pre_factura" in data:
+        es_pre = int(data["es_pre_factura"])
+    else:
+        es_pre = 1 if new_num is None or str(new_num).strip() == "" else 0
     auto = compute_auto_alertas(
         cliente=str(data.get("cliente", row["cliente"])),
         po_oc=data.get("po_oc", row["po_oc"]),
         tiene_pdf=adj.get("pdf") is not None,
         tiene_xml=adj.get("xml") is not None,
         estatus_operativo=op_eff,
-        numero_factura=num_eff,
+        numero_factura=new_num,
         manual_alertas=manual,
     )
     conn.execute(
@@ -498,7 +725,7 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
             mes = ?, anio = ?, asistencia_mes = ?, asistencia_anio = ?,
             cliente = ?, razon_social = ?, planta_servicio = ?, concepto_servicio = ?,
             usuario_contacto = ?, responsable_interno = ?,
-            numero_factura = ?, po_oc = ?, requiere_po_oc = ?, requiere_portal = ?,
+            numero_factura = ?, es_pre_factura = ?, po_oc = ?, requiere_po_oc = ?, requiere_portal = ?,
             subtotal = ?, iva = ?, total = ?,
             fecha_factura = ?, fecha_vencimiento = ?,
             estatus_operativo = ?, estatus_pago = ?,
@@ -517,7 +744,8 @@ def update_factura(conn: sqlite3.Connection, fid: int, data: dict[str, Any], *, 
             data.get("concepto_servicio", row["concepto_servicio"]),
             data.get("usuario_contacto", row["usuario_contacto"]),
             data.get("responsable_interno", row["responsable_interno"]),
-            str(data.get("numero_factura", row["numero_factura"])).strip(),
+            new_num,
+            es_pre,
             data.get("po_oc", row["po_oc"]),
             req_po,
             1 if req_portal else 0,
@@ -637,6 +865,11 @@ def dashboard_stats_anual(conn: sqlite3.Connection, *, anio: int) -> dict[str, A
 
 def _stats_from_rows(rows: list[sqlite3.Row]) -> dict[str, Any]:
     total = len(rows)
+    sin_factura = sum(
+        1
+        for r in rows
+        if r["numero_factura"] is None or str(r["numero_factura"]).strip() == ""
+    )
     listo = sum(1 for r in rows if r["estatus_operativo"] == "LISTO")
     portal = sum(1 for r in rows if r["estatus_operativo"] == "PORTAL")
     pnr = sum(1 for r in rows if r["estatus_operativo"] == "PENDIENTE NR")
@@ -686,6 +919,7 @@ def _stats_from_rows(rows: list[sqlite3.Row]) -> dict[str, Any]:
         "avance_pct": round(avance, 2),
         "por_cliente": por_cliente,
         "por_operativo": por_op,
+        "sin_factura_emitida": sin_factura,
     }
 
 
@@ -806,6 +1040,184 @@ def insert_nota_credito(
     return int(cur.lastrowid)
 
 
+def list_cliente_plantillas(conn: sqlite3.Connection, *, cliente: str | None = None) -> list[dict[str, Any]]:
+    if cliente and str(cliente).strip():
+        cur = conn.execute(
+            """
+            SELECT * FROM facturacion_cliente_plantilla
+            WHERE TRIM(cliente) = TRIM(?)
+            ORDER BY orden ASC, id ASC
+            """,
+            (str(cliente).strip(),),
+        )
+    else:
+        cur = conn.execute(
+            """
+            SELECT * FROM facturacion_cliente_plantilla
+            ORDER BY cliente ASC, orden ASC, id ASC
+            """
+        )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def insert_cliente_plantilla(
+    conn: sqlite3.Connection,
+    *,
+    cliente: str,
+    orden: int,
+    clasificacion: str | None,
+    planta_servicio: str | None,
+    usuario_contacto: str | None,
+    razon_social: str | None,
+    responsable_interno: str | None,
+    requiere_portal: int,
+    notas_internas: str | None,
+    now: str,
+) -> int:
+    cli = (cliente or "").strip()
+    if not cli:
+        raise ValueError("cliente es obligatorio")
+    cur = conn.execute(
+        """
+        INSERT INTO facturacion_cliente_plantilla (
+            cliente, orden, clasificacion, planta_servicio, usuario_contacto,
+            razon_social, responsable_interno, requiere_portal, notas_internas,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            cli,
+            int(orden),
+            (clasificacion or "").strip() or None,
+            (planta_servicio or "").strip() or None,
+            (usuario_contacto or "").strip() or None,
+            (razon_social or "").strip() or None,
+            (responsable_interno or "").strip() or None,
+            1 if int(requiere_portal or 0) else 0,
+            (notas_internas or "").strip() or None,
+            now,
+            now,
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def update_cliente_plantilla(
+    conn: sqlite3.Connection,
+    row_id: int,
+    *,
+    cliente: str,
+    orden: int,
+    clasificacion: str | None,
+    planta_servicio: str | None,
+    usuario_contacto: str | None,
+    razon_social: str | None,
+    responsable_interno: str | None,
+    requiere_portal: int,
+    notas_internas: str | None,
+    now: str,
+) -> None:
+    cli = (cliente or "").strip()
+    if not cli:
+        raise ValueError("cliente es obligatorio")
+    conn.execute(
+        """
+        UPDATE facturacion_cliente_plantilla SET
+            cliente = ?, orden = ?, clasificacion = ?, planta_servicio = ?, usuario_contacto = ?,
+            razon_social = ?, responsable_interno = ?, requiere_portal = ?, notas_internas = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            cli,
+            int(orden),
+            (clasificacion or "").strip() or None,
+            (planta_servicio or "").strip() or None,
+            (usuario_contacto or "").strip() or None,
+            (razon_social or "").strip() or None,
+            (responsable_interno or "").strip() or None,
+            1 if int(requiere_portal or 0) else 0,
+            (notas_internas or "").strip() or None,
+            now,
+            int(row_id),
+        ),
+    )
+
+
+def delete_cliente_plantilla(conn: sqlite3.Connection, row_id: int) -> bool:
+    in_use = conn.execute(
+        "SELECT 1 FROM facturacion_facturas WHERE plantilla_linea_id = ? AND es_factura_activa = 1 LIMIT 1",
+        (int(row_id),),
+    ).fetchone()
+    if in_use:
+        return False
+    conn.execute("DELETE FROM facturacion_cliente_plantilla WHERE id = ?", (int(row_id),))
+    return True
+
+
+def fabricar_esqueleto_desde_plantillas(
+    conn: sqlite3.Connection,
+    *,
+    mes: int,
+    anio: int,
+    cliente: str | None,
+    user_id: int | None,
+    now: str,
+) -> dict[str, Any]:
+    """Crea filas pre-factura para el periodo según plantillas; idempotente por plantilla_linea_id."""
+    rows = list_cliente_plantillas(conn, cliente=cliente)
+    inserted = 0
+    skipped = 0
+    for p in rows:
+        pid = int(p["id"])
+        exists = conn.execute(
+            """
+            SELECT 1 FROM facturacion_facturas
+            WHERE es_factura_activa = 1 AND mes = ? AND anio = ? AND plantilla_linea_id = ?
+            """,
+            (int(mes), int(anio), pid),
+        ).fetchone()
+        if exists:
+            skipped += 1
+            continue
+        cli = str(p["cliente"] or "").strip()
+        clas = (str(p["clasificacion"]).strip() if p.get("clasificacion") else None) or None
+        data: dict[str, Any] = {
+            "mes": int(mes),
+            "anio": int(anio),
+            "cliente": cli,
+            "razon_social": (str(p["razon_social"]).strip() if p.get("razon_social") else None) or None,
+            "planta_servicio": (str(p["planta_servicio"]).strip() if p.get("planta_servicio") else None) or None,
+            "concepto_servicio": clas,
+            "usuario_contacto": (str(p["usuario_contacto"]).strip() if p.get("usuario_contacto") else None) or None,
+            "responsable_interno": (str(p["responsable_interno"]).strip() if p.get("responsable_interno") else None) or None,
+            "numero_factura": None,
+            "es_pre_factura": 1,
+            "plantilla_linea_id": pid,
+            "po_oc": None,
+            "requiere_portal": int(p.get("requiere_portal") or 0),
+            "subtotal": None,
+            "iva": None,
+            "total": None,
+            "fecha_factura": None,
+            "fecha_vencimiento": None,
+            "estatus_operativo": "PENDIENTE FACTURA",
+            "estatus_pago": "PENDIENTE",
+            "comentarios": None,
+            "alertas": [],
+            "_extra_eventos": [
+                {"tipo": "ESQUELETO_PLANTILLA", "detalle": {"plantilla_id": pid, "mes": mes, "anio": anio}}
+            ],
+        }
+        insert_factura(conn, data, user_id=user_id, now=now)
+        inserted += 1
+    return {
+        "inserted": inserted,
+        "skipped_y_existia": skipped,
+        "plantillas_encontradas": len(rows),
+    }
+
+
 def distinct_clientes(conn: sqlite3.Connection) -> list[str]:
     cur = conn.execute(
         """
@@ -817,6 +1229,12 @@ def distinct_clientes(conn: sqlite3.Connection) -> list[str]:
             WHERE TRIM(cliente_principal) != ''
             UNION
             SELECT DISTINCT TRIM(cliente_principal) AS c FROM facturacion_razon_social_map
+            WHERE TRIM(cliente_principal) != ''
+            UNION
+            SELECT DISTINCT TRIM(cliente) AS c FROM facturacion_cliente_plantilla
+            WHERE TRIM(cliente) != ''
+            UNION
+            SELECT DISTINCT TRIM(cliente_principal) AS c FROM facturacion_correo_cliente_map
             WHERE TRIM(cliente_principal) != ''
         ) ORDER BY c ASC
         """
@@ -942,6 +1360,170 @@ def delete_cliente_credito(conn: sqlite3.Connection, cliente_principal: str) -> 
         conn.execute("DELETE FROM facturacion_cliente_credito WHERE cliente_principal = ?", (cp,))
 
 
+def list_correo_cliente_map(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    cur = conn.execute(
+        """
+        SELECT * FROM facturacion_correo_cliente_map
+        ORDER BY tipo ASC, valor ASC
+        """
+    )
+    return [dict(r) for r in cur.fetchall()]
+
+
+def upsert_correo_cliente_map(
+    conn: sqlite3.Connection,
+    *,
+    tipo: str,
+    valor: str,
+    cliente_principal: str,
+    now: str,
+    row_id: int | None = None,
+) -> None:
+    from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
+
+    t = str(tipo or "").strip().upper()
+    if t not in ("EMAIL", "DOMINIO"):
+        raise ValueError("tipo debe ser EMAIL o DOMINIO")
+    v = str(valor or "").strip().lower()
+    cp = str(cliente_principal or "").strip()
+    if not v or not cp or cp.upper() == CLIENTE_POR_CLASIFICAR.upper():
+        raise ValueError("valor y cliente_principal son obligatorios")
+    if t == "DOMINIO" and "@" in v:
+        raise ValueError("DOMINIO no debe incluir @")
+    if row_id:
+        conn.execute(
+            """
+            UPDATE facturacion_correo_cliente_map
+            SET tipo = ?, valor = ?, cliente_principal = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (t, v, cp, now, int(row_id)),
+        )
+        return
+    conn.execute(
+        """
+        INSERT INTO facturacion_correo_cliente_map (tipo, valor, cliente_principal, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tipo, valor) DO UPDATE SET
+            cliente_principal = excluded.cliente_principal,
+            updated_at = excluded.updated_at
+        """,
+        (t, v, cp, now, now),
+    )
+
+
+def delete_correo_cliente_map(conn: sqlite3.Connection, row_id: int) -> None:
+    conn.execute("DELETE FROM facturacion_correo_cliente_map WHERE id = ?", (int(row_id),))
+
+
+def record_correo_learned_from_import(
+    conn: sqlite3.Connection,
+    *,
+    email: str | None,
+    cliente_principal: str,
+    now: str,
+) -> None:
+    """Aprende correo exacto → cliente si no hay conflicto con otro cliente ya guardado."""
+    from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
+
+    e = (email or "").strip().lower()
+    if "@" not in e:
+        return
+    cp = (cliente_principal or "").strip()
+    if not cp or cp.upper() == CLIENTE_POR_CLASIFICAR.upper():
+        return
+    row = conn.execute(
+        """
+        SELECT cliente_principal FROM facturacion_correo_cliente_map
+        WHERE tipo = 'EMAIL' AND valor = ?
+        """,
+        (e,),
+    ).fetchone()
+    if row:
+        prev = str(row["cliente_principal"] or "").strip()
+        if prev and prev.upper() != cp.upper():
+            return
+    upsert_correo_cliente_map(conn, tipo="EMAIL", valor=e, cliente_principal=cp, now=now)
+
+
+def enriquecer_factura_desde_adjunto(
+    conn: sqlite3.Connection,
+    *,
+    factura_id: int,
+    file_bytes: bytes,
+    ext: str,
+    user_id: int | None,
+    now: str,
+) -> bool:
+    """
+    Tras subir PDF/XML: completa campos vacíos (número, montos, fechas) desde el documento.
+    """
+    from modules.facturacion.cliente_catalog import (
+        add_days_to_iso_date,
+        dias_credito_para_cliente,
+        load_catalog_maps,
+    )
+    from modules.facturacion.doc_cfdi import extract_datos_desde_adjunto_bytes
+    from modules.facturacion.doc_fechas import extract_fecha_emision_from_bytes
+
+    row = conn.execute("SELECT * FROM facturacion_facturas WHERE id = ?", (int(factura_id),)).fetchone()
+    if not row:
+        return False
+    r = dict(row)
+    parsed = extract_datos_desde_adjunto_bytes(file_bytes, ext=str(ext))
+    fe = parsed.get("fecha")
+    if not fe:
+        fe = extract_fecha_emision_from_bytes(file_bytes, ext=str(ext))
+
+    def _empty(col: str) -> bool:
+        v = r.get(col)
+        return v is None or str(v).strip() == ""
+
+    upd: dict[str, Any] = {}
+    if parsed.get("numero") and _empty("numero_factura"):
+        upd["numero_factura"] = str(parsed["numero"]).strip()
+        upd["es_pre_factura"] = 0
+    for fld, key in (("subtotal", "subtotal"), ("iva", "iva"), ("total", "total")):
+        if parsed.get(key) is not None and _empty(fld):
+            try:
+                upd[fld] = float(parsed[key])
+            except (TypeError, ValueError):
+                pass
+    if fe:
+        fe_iso = str(fe).strip()[:10]
+        if len(fe_iso) >= 10 and _empty("fecha_factura"):
+            upd["fecha_factura"] = fe_iso
+
+    fe_eff = upd.get("fecha_factura") or r.get("fecha_factura")
+    if fe_eff and _empty("fecha_vencimiento"):
+        maps = load_catalog_maps(conn)
+        dias = dias_credito_para_cliente(maps, str(r.get("cliente") or ""))
+        if dias > 0:
+            venc = add_days_to_iso_date(str(fe_eff)[:10], dias)
+            if venc:
+                upd["fecha_vencimiento"] = venc
+
+    if not upd:
+        return False
+    keys = list(upd.keys())
+    set_sql = ", ".join(f"{k} = ?" for k in keys)
+    vals = [upd[k] for k in keys] + [now, user_id, int(factura_id)]
+    conn.execute(
+        f"UPDATE facturacion_facturas SET {set_sql}, fecha_actualizacion = ?, actualizado_por = ? WHERE id = ?",
+        vals,
+    )
+    log_evento(
+        conn,
+        factura_id=int(factura_id),
+        tipo="DATOS_DESDE_DOCUMENTO",
+        detalle={"ext": ext, "campos": upd},
+        user_id=user_id,
+        created_at=now,
+    )
+    refresh_archivo_alerta(conn, int(factura_id), now=now)
+    return True
+
+
 def apply_automatic_fechas_from_adjunto(
     conn: sqlite3.Connection,
     *,
@@ -951,46 +1533,12 @@ def apply_automatic_fechas_from_adjunto(
     user_id: int | None,
     now: str,
 ) -> bool:
-    """Si se detecta fecha de emisión en PDF/XML, actualiza factura y vencimiento según días de crédito."""
-    from modules.facturacion.cliente_catalog import (
-        add_days_to_iso_date,
-        dias_credito_para_cliente,
-        load_catalog_maps,
-    )
-    from modules.facturacion.doc_fechas import extract_fecha_emision_from_bytes
-
-    fe = extract_fecha_emision_from_bytes(file_bytes, ext=str(ext))
-    if not fe:
-        return False
-    row = conn.execute(
-        "SELECT cliente, fecha_vencimiento FROM facturacion_facturas WHERE id = ?",
-        (int(factura_id),),
-    ).fetchone()
-    if not row:
-        return False
-    maps = load_catalog_maps(conn)
-    dias = dias_credito_para_cliente(maps, str(row["cliente"] or ""))
-    if dias > 0:
-        venc = add_days_to_iso_date(fe, dias)
-    else:
-        venc = row["fecha_vencimiento"]
-    conn.execute(
-        """
-        UPDATE facturacion_facturas SET
-            fecha_factura = ?,
-            fecha_vencimiento = ?,
-            fecha_actualizacion = ?,
-            actualizado_por = ?
-        WHERE id = ?
-        """,
-        (fe, venc, now, user_id, int(factura_id)),
-    )
-    log_evento(
+    """Compatibilidad: delega en enriquecer_factura_desde_adjunto."""
+    return enriquecer_factura_desde_adjunto(
         conn,
-        factura_id=int(factura_id),
-        tipo="FECHAS_DESDE_DOCUMENTO",
-        detalle={"fecha_factura": fe, "fecha_vencimiento": venc, "ext": ext, "dias_credito": dias},
+        factura_id=factura_id,
+        file_bytes=file_bytes,
+        ext=ext,
         user_id=user_id,
-        created_at=now,
+        now=now,
     )
-    return True

@@ -4,6 +4,7 @@
   {% if current_user and current_user['role'] == 'admin' %}
   <a href="{{ url_for('facturacion.huerfanos') }}" class="{{ 'is-active' if fx_nav_active == 'huerfanos' else '' }}">Archivos sin relación</a>
   <a href="{{ url_for('facturacion.facturacion_catalogo') }}" class="{{ 'is-active' if fx_nav_active == 'catalogo' else '' }}">Catálogo clientes</a>
+  <a href="{{ url_for('facturacion.plantillas_cliente') }}" class="{{ 'is-active' if fx_nav_active == 'plantillas' else '' }}">Plantillas mes</a>
   <a href="{{ url_for('facturacion.import_excel') }}" class="{{ 'is-active' if fx_nav_active == 'import' else '' }}">Importar Excel</a>
   <a href="{{ url_for('facturacion.import_ultimo') }}">Último resumen import</a>
   <a href="{{ url_for('facturacion.revision_por_clasificar') }}">Por clasificar</a>

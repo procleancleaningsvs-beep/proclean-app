@@ -9,9 +9,9 @@ from typing import Any
 
 import openpyxl
 
-from modules.facturacion.cliente_catalog import load_catalog_maps, resolve_cliente_principal
-from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
-from modules.facturacion.db import insert_factura, insert_nota_credito
+from modules.facturacion.cliente_catalog import CatalogMaps, load_catalog_maps, resolve_cliente_principal
+from modules.facturacion.config import CLIENTE_POR_CLASIFICAR, DOMINIOS_CORREO_PUBLICO
+from modules.facturacion.db import insert_factura, insert_nota_credito, record_correo_learned_from_import
 from modules.facturacion.normalize import (
     alertas_desde_texto_excel,
     coerce_operativo_o_default,
@@ -65,7 +65,7 @@ def _float_val(val: Any) -> float | None:
 def _infer_cliente(usuario: str, mes_col: str) -> str | None:
     """
     Infiere cliente desde correo, bloques conocidos (CARRIER/GEPP) o texto en MES que no sea mes calendario.
-    Si no hay señal clara, devuelve None (el import usará POR CLASIFICAR).
+    Catálogo correo/dominio se aplica en resolve_cliente_principal; aquí solo heurísticas legacy.
     """
     u = (usuario or "").strip().lower()
     m_raw = (mes_col or "").strip()
@@ -79,16 +79,34 @@ def _infer_cliente(usuario: str, mes_col: str) -> str | None:
     if "@carrier.com" in u:
         return "CARRIER"
     if "@" in u:
-        dom = u.split("@", 1)[-1]
-        dom = dom.split(".")[0]
-        if dom:
-            return fix_cliente_name(dom.upper())
+        dom = u.split("@", 1)[-1].strip().lower()
+        if dom in DOMINIOS_CORREO_PUBLICO:
+            return None
+        dom_label = dom.split(".")[0]
+        if dom_label:
+            return fix_cliente_name(dom_label.upper())
     # Texto en columna MES que no sea un mes (p. ej. sección / cliente en layouts atípicos)
     if m_raw and parse_mes_num(m_raw) is None:
         mk = " ".join(m.split())
         if len(mk) >= 3 and mk not in ("TOTAL", "NONE", "CARRIER", "GEPP", "GEEP"):
             if re.search(r"[A-Za-z]", mk):
                 return fix_cliente_name(mk)
+    return None
+
+
+def _try_bloque_cliente_desde_mes(mes_txt: str, maps: CatalogMaps) -> str | None:
+    """Fila tipo encabezado: columna MES trae el cliente principal y no hay número de factura válido."""
+    from modules.facturacion.cliente_catalog import normalize_razon_key
+
+    raw = (mes_txt or "").strip()
+    if not raw or parse_mes_num(raw) is not None:
+        return None
+    cand = fix_cliente_name(raw)
+    nkb = normalize_razon_key(cand)
+    if not nkb:
+        return None
+    if nkb in maps.known_principales_norm or nkb in maps.bloque_hints_norm:
+        return cand
     return None
 
 
@@ -251,17 +269,23 @@ def import_facturacion_excel(
 
         hojas_procesadas.append(sheet_name)
         sheet_mes_num = parse_mes_num(key)
+        context_bloque: str | None = None
 
         for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
             rv = _row_vals(tuple(row), mapping)
             num_raw = _norm_cell(rv["factura"])
+            mes_txt = _norm_cell(rv["mes"])
+            usuario = _norm_cell(rv["usuario"])
+
             if _skip_numero(num_raw):
+                bloque = _try_bloque_cliente_desde_mes(mes_txt, maps)
+                if bloque:
+                    context_bloque = fix_cliente_name(bloque)
+                    continue
                 omitidas_sin_numero += 1
                 continue
 
             filas_leidas += 1
-            usuario = _norm_cell(rv["usuario"])
-            mes_txt = _norm_cell(rv["mes"])
             razon_excel = _norm_cell(rv.get("razon_social")) or None
             cli_infer = _infer_cliente(usuario, mes_txt)
             cli, razon_guardada = resolve_cliente_principal(
@@ -270,6 +294,8 @@ def import_facturacion_excel(
                 cli_infer=cli_infer,
                 fix_cliente_name_fn=fix_cliente_name,
                 por_clasificar=CLIENTE_POR_CLASIFICAR,
+                email_contacto=usuario or None,
+                bloque_cliente_excel=context_bloque,
             )
             if cli == CLIENTE_POR_CLASIFICAR:
                 por_clasificar += 1
@@ -357,6 +383,8 @@ def import_facturacion_excel(
                 insert_factura(conn, data, user_id=user_id, now=now)
                 inserted += 1
                 clientes_detectados.add(cli)
+                record_correo_learned_from_import(conn, email=usuario, cliente_principal=cli, now=now)
+                maps = load_catalog_maps(conn)
             except sqlite3.IntegrityError:
                 duplicados += 1
             except Exception as exc:  # noqa: BLE001

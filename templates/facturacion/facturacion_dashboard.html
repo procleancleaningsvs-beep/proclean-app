@@ -33,6 +33,18 @@
   <button type="submit" class="fx-btn fx-btn--primary">Actualizar</button>
 </form>
 
+{% if is_admin %}
+<form class="fx-toolbar" method="post" action="{{ url_for('facturacion.plantillas_generar_mes') }}" style="margin-top:0.5rem;padding:0.75rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;align-items:center">
+  <input type="hidden" name="next" value="dashboard">
+  <input type="hidden" name="mes" value="{{ mes }}">
+  <input type="hidden" name="anio" value="{{ anio }}">
+  <span class="fx-muted" style="font-size:0.9rem"><strong>Esqueleto del mes</strong> (desde plantillas):</span>
+  <label>Cliente opcional <input type="text" name="cliente" placeholder="vacío = todos" style="min-width:10rem"></label>
+  <button type="submit" class="fx-btn fx-btn--primary">Generar filas</button>
+  <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.plantillas_cliente') }}">Editar plantillas</a>
+</form>
+{% endif %}
+
 <div class="fx-grid">
   <div class="fx-card fx-card--ok">
     <p class="k">Avance mensual</p>
@@ -40,6 +52,11 @@
     <p class="sub">{{ mstats.listo }} de {{ mstats.total }} en LISTO</p>
     {% set ap = mstats.avance_pct if mstats.avance_pct < 100 else 100 %}
     <div class="fx-progress"><span style="width: {{ ap }}%"></span></div>
+  </div>
+  <div class="fx-card fx-card--calm">
+    <p class="k">Sin número / pre-factura</p>
+    <p class="v">{{ mstats.sin_factura_emitida }}</p>
+    <p class="sub">Filas de seguimiento aún sin factura emitida en el mes</p>
   </div>
   <div class="fx-card fx-card--calm">
     <p class="k">Total facturas (mes)</p>

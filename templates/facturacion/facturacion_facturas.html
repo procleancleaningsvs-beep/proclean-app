@@ -8,9 +8,19 @@
     <p>Consulta, filtra y da seguimiento. Los administradores pueden editar y cargar archivos.</p>
   </div>
   {% if is_admin %}
-  <div class="fx-toolbar" style="margin:0">
+  <div class="fx-toolbar" style="margin:0;flex-wrap:wrap">
     <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.factura_nuevo') }}">Nueva factura</a>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.export_excel', mes=filtros.mes or 5, anio=filtros.anio or 2026) }}">Exportar mes</a>
+    {% if filtros.mes and filtros.anio %}
+    <form method="post" action="{{ url_for('facturacion.plantillas_generar_mes') }}" style="display:inline-flex;align-items:center;gap:0.35rem">
+      <input type="hidden" name="next" value="facturas">
+      <input type="hidden" name="mes" value="{{ filtros.mes }}">
+      <input type="hidden" name="anio" value="{{ filtros.anio }}">
+      {% if filtros.cliente %}<input type="hidden" name="cliente" value="{{ filtros.cliente }}">{% endif %}
+      <button type="submit" class="fx-btn fx-btn--primary" title="Crea filas de seguimiento según plantillas por cliente">Generar esqueleto (plantillas)</button>
+    </form>
+    {% endif %}
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.plantillas_cliente', cliente=filtros.cliente) if filtros.cliente else url_for('facturacion.plantillas_cliente') }}">Plantillas</a>
   </div>
   {% endif %}
 </div>
@@ -43,14 +53,16 @@
   <label>Alerta <select name="alerta"><option value="">—</option>{% for a in alertas %}<option value="{{ a }}" {% if filtros.alerta == a %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></label>
   <label>Factura <input type="text" name="q" value="{{ filtros.q or '' }}" placeholder="número"></label>
   <label>PO/OC <input type="text" name="po" value="{{ filtros.po or '' }}"></label>
+  <label style="display:inline-flex;align-items:center;gap:0.35rem;white-space:nowrap"><input type="checkbox" name="solo_pendientes" value="1" {% if filtros.solo_pendientes %}checked{% endif %}> Solo sin número</label>
   <button type="submit" class="fx-btn fx-btn--primary">Filtrar</button>
 </form>
 
 {% if is_admin %}
 <form class="fx-toolbar" method="post" action="{{ url_for('facturacion.upload_adjuntos') }}" enctype="multipart/form-data" style="background:#f8fafc;padding:0.75rem;border-radius:12px;border:1px dashed var(--line)">
-  <label>Subir PDF/XML (auto-relación)
+  <label>Subir PDF/XML (auto-relación por nombre o por ID)
     <input type="file" name="archivos" multiple accept=".pdf,.xml,application/pdf,text/xml,application/xml">
   </label>
+  <label>ID factura / seguimiento <input type="number" name="factura_id" min="1" placeholder="opcional" title="Si el archivo no trae número en el nombre, vincula aquí el id de la fila (columna Ver/Editar en detalle)"></label>
   <label>Mes ref. <input type="number" name="mes" min="1" max="12" value="{{ filtros.mes or '' }}" placeholder="opcional"></label>
   <label>Año ref. <input type="number" name="anio" value="{{ filtros.anio or '' }}" placeholder="opcional"></label>
   <button type="submit" class="fx-btn fx-btn--primary">Subir</button>
@@ -63,7 +75,7 @@
       <tr>
         <th>Periodo</th>
         <th>Cliente</th>
-        <th>Factura</th>
+        <th>Factura / seguimiento</th>
         <th>PO/OC</th>
         <th>Subtotal</th>
         <th>IVA</th>
@@ -87,16 +99,24 @@
             {% if r.razon_social %}<span class="fx-secondary">Razón social: {{ r.razon_social }}</span>{% endif %}
             {% if r.usuario_contacto %}<span class="fx-secondary fx-cell-mono">{{ r.usuario_contacto }}</span>{% endif %}
             {% if r.planta_servicio %}<span class="fx-secondary">Planta: <strong>{{ r.planta_servicio }}</strong></span>{% else %}<span class="fx-secondary fx-muted">Planta: —</span>{% endif %}
+            {% if r.concepto_servicio %}<span class="fx-secondary">Clasificación: <strong>{{ r.concepto_servicio }}</strong></span>{% endif %}
           </div>
         </td>
-        <td><strong>{{ r.numero_factura }}</strong></td>
+        <td>
+          {% if r.numero_factura %}
+          <strong>{{ r.numero_factura }}</strong>
+          {% else %}
+          <span class="fx-muted" title="Seguimiento sin número de factura">Pendiente</span>
+          {% if r.es_pre_factura %}<span class="fx-pill fx-pill--op-pend-fact" style="margin-left:0.25rem;font-size:0.65rem">pre</span>{% endif %}
+          {% endif %}
+        </td>
         <td>{{ r.po_oc or '—' }}</td>
         <td class="fx-cell-mono">{{ r.subtotal|fx_money_mx }}</td>
         <td class="fx-cell-mono">{{ r.iva|fx_money_mx }}</td>
         <td class="fx-cell-mono"><strong>{{ r.total|fx_money_mx }}</strong></td>
         <td>
           {% set op = r.estatus_operativo %}
-          <span class="fx-pill {% if op == 'LISTO' %}fx-pill--op-listo{% elif op == 'PORTAL' %}fx-pill--op-portal{% elif op == 'PENDIENTE NR' %}fx-pill--op-pnr{% elif op == 'ENVIADO' %}fx-pill--op-env{% elif op == 'COTIZACIÓN ENVIADA' %}fx-pill--op-cot{% else %}fx-pill--op-en-cola{% endif %}">{{ op }}</span>
+          <span class="fx-pill {% if op == 'LISTO' %}fx-pill--op-listo{% elif op == 'PORTAL' %}fx-pill--op-portal{% elif op == 'PENDIENTE NR' %}fx-pill--op-pnr{% elif op == 'ENVIADO' %}fx-pill--op-env{% elif op == 'COTIZACIÓN ENVIADA' %}fx-pill--op-cot{% elif op == 'PENDIENTE FACTURA' %}fx-pill--op-pend-fact{% else %}fx-pill--op-en-cola{% endif %}">{{ op }}</span>
         </td>
         <td>
           {% set pg = r.estatus_pago %}

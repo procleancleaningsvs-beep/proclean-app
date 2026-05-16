@@ -3,11 +3,12 @@
 {% block fx_main %}
 <div class="fx-hero">
   <div>
-    <h1>Factura {{ row.numero_factura }}</h1>
+    <h1>{% if row.numero_factura %}Factura {{ row.numero_factura }}{% else %}Seguimiento (sin número){% endif %}</h1>
     <p class="fx-muted">
       <strong>{{ row.cliente }}</strong>
       {% if row.razon_social %} · <span class="fx-secondary">Razón social: {{ row.razon_social }}</span>{% endif %}
       · {{ row.mes }}/{{ row.anio }}{% if not row.es_factura_activa %} · <strong>Inactiva</strong>{% endif %}
+      {% if row.plantilla_linea_id %} · <span class="fx-secondary">Desde plantilla #{{ row.plantilla_linea_id }}</span>{% endif %}
     </p>
   </div>
   <div class="fx-actions">
@@ -29,6 +30,7 @@
   </div>
   <div class="fx-card">
     <p class="k">Referencia</p>
+    <p class="sub">{% if row.concepto_servicio %}Clasificación: <strong>{{ row.concepto_servicio }}</strong>{% else %}Clasificación: —{% endif %}</p>
     <p class="sub">{% if row.planta_servicio %}Planta: <strong>{{ row.planta_servicio }}</strong>{% else %}Planta: —{% endif %}</p>
     <p class="sub fx-cell-mono" style="word-break:break-all">{% if row.usuario_contacto %}{{ row.usuario_contacto }}{% else %}Correo: —{% endif %}</p>
   </div>

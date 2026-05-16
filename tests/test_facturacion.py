@@ -13,12 +13,19 @@ from flask import g
 from werkzeug.exceptions import Forbidden
 
 from modules.facturacion.config import cliente_requiere_po_oc
-from modules.facturacion.db import ensure_facturacion_tables, insert_factura
+from modules.facturacion.db import (
+    ensure_facturacion_tables,
+    fabricar_esqueleto_desde_plantillas,
+    insert_cliente_plantilla,
+    insert_factura,
+    list_facturas_filtradas,
+)
 from modules.facturacion.normalize import (
     fix_cliente_name,
     normalize_estatus_operativo,
     normalize_estatus_pago,
     split_operativo_y_pago,
+    validar_factura_payload,
 )
 
 
@@ -82,6 +89,131 @@ def test_archivo_faltante_sin_numero_valido():
     assert cliente_requiere_po_oc("GEPP") is True
     assert cliente_requiere_po_oc("carrier") is True
     assert cliente_requiere_po_oc("VITRO") is False
+
+
+def test_plantillas_fabricar_esqueleto_idempotente(tmp_path):
+    dbp = tmp_path / "pl.db"
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    now = "2026-06-01 10:00:00"
+    insert_cliente_plantilla(
+        conn,
+        cliente="AURIGA",
+        orden=0,
+        clasificacion="HOTEL",
+        planta_servicio="Monterrey",
+        usuario_contacto="h@auriga.test",
+        razon_social=None,
+        responsable_interno=None,
+        requiere_portal=0,
+        notas_internas=None,
+        now=now,
+    )
+    insert_cliente_plantilla(
+        conn,
+        cliente="AURIGA",
+        orden=1,
+        clasificacion="COMERCIO",
+        planta_servicio="Monterrey",
+        usuario_contacto="c@auriga.test",
+        razon_social=None,
+        responsable_interno=None,
+        requiere_portal=0,
+        notas_internas=None,
+        now=now,
+    )
+    conn.commit()
+    r1 = fabricar_esqueleto_desde_plantillas(
+        conn, mes=7, anio=2026, cliente="AURIGA", user_id=1, now=now
+    )
+    conn.commit()
+    assert r1["inserted"] == 2
+    assert r1["skipped_y_existia"] == 0
+    r2 = fabricar_esqueleto_desde_plantillas(
+        conn, mes=7, anio=2026, cliente="AURIGA", user_id=1, now=now
+    )
+    conn.commit()
+    assert r2["inserted"] == 0
+    assert r2["skipped_y_existia"] == 2
+    solo = list_facturas_filtradas(
+        conn,
+        mes=7,
+        anio=2026,
+        cliente="AURIGA",
+        cliente_eq=None,
+        estatus_operativo=None,
+        estatus_pago=None,
+        alerta=None,
+        q_numero=None,
+        q_po=None,
+        solo_pre_factura=True,
+    )
+    assert len(solo) == 2
+    assert all((not x.get("numero_factura")) for x in solo)
+    assert {x.get("concepto_servicio") for x in solo} == {"HOTEL", "COMERCIO"}
+    conn.close()
+
+
+def test_validar_factura_payload_pre_sin_numero_ok():
+    ok, err = validar_factura_payload(
+        {
+            "estatus_operativo": "PENDIENTE FACTURA",
+            "estatus_pago": "PENDIENTE",
+            "numero_factura": None,
+            "es_pre_factura": 1,
+        }
+    )
+    assert ok is True
+    assert err is None
+
+
+def test_validar_factura_payload_exige_numero_si_no_pre():
+    ok, err = validar_factura_payload(
+        {
+            "estatus_operativo": "EN COLA",
+            "estatus_pago": "PENDIENTE",
+            "numero_factura": "",
+            "es_pre_factura": 0,
+        }
+    )
+    assert ok is False
+    assert err
+
+
+def test_insert_dos_seguimientos_sin_numero_mismo_periodo(tmp_path):
+    dbp = tmp_path / "pre.db"
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    now = "2026-01-01 00:00:00"
+    base = {
+        "mes": 3,
+        "anio": 2026,
+        "cliente": "PEPSI",
+        "numero_factura": None,
+        "es_pre_factura": 1,
+        "estatus_operativo": "PENDIENTE FACTURA",
+        "estatus_pago": "PENDIENTE",
+    }
+    insert_factura(conn, base, user_id=1, now=now)
+    insert_factura(conn, dict(base, planta_servicio="Planta Norte"), user_id=1, now=now)
+    conn.commit()
+    solo = list_facturas_filtradas(
+        conn,
+        mes=3,
+        anio=2026,
+        cliente=None,
+        cliente_eq=None,
+        estatus_operativo=None,
+        estatus_pago=None,
+        alerta=None,
+        q_numero=None,
+        q_po=None,
+        solo_pre_factura=True,
+    )
+    assert len(solo) == 2
+    conn.close()
 
 
 def test_insert_and_duplicate_active(tmp_path):
@@ -312,6 +444,56 @@ def test_extract_fecha_from_xml_cfdi():
 
     xml = b'<?xml version="1.0"?><cfdi:Comprobante Fecha="2026-03-15T12:00:00" xmlns:cfdi="http://www.sat.gob.mx/cfd/4">'
     assert extract_fecha_emision_from_xml(xml) == "2026-03-15"
+
+
+def test_resolve_cliente_desde_correo_y_bloque_catalogo(tmp_path):
+    from modules.facturacion.cliente_catalog import load_catalog_maps, resolve_cliente_principal
+    from modules.facturacion.config import CLIENTE_POR_CLASIFICAR
+    from modules.facturacion.db import upsert_cliente_credito, upsert_correo_cliente_map
+    from modules.facturacion.normalize import fix_cliente_name
+
+    dbp = tmp_path / "mailmap.db"
+    conn = sqlite3.connect(dbp)
+    conn.row_factory = sqlite3.Row
+    ensure_facturacion_tables(conn)
+    upsert_cliente_credito(conn, cliente_principal="Carrier", dias_credito=30, now="2026-01-01 00:00:00")
+    upsert_correo_cliente_map(
+        conn, tipo="DOMINIO", valor="carrier.com", cliente_principal="Carrier", now="2026-01-01 00:00:00"
+    )
+    upsert_correo_cliente_map(
+        conn, tipo="EMAIL", valor="vip@vitro.com", cliente_principal="Vitro", now="2026-01-01 00:00:00"
+    )
+    conn.commit()
+    maps = load_catalog_maps(conn)
+    p1, _ = resolve_cliente_principal(
+        maps,
+        razon_social_excel=None,
+        cli_infer=None,
+        fix_cliente_name_fn=fix_cliente_name,
+        por_clasificar=CLIENTE_POR_CLASIFICAR,
+        email_contacto="x@sub.carrier.com",
+    )
+    assert p1 == "Carrier"
+    p2, _ = resolve_cliente_principal(
+        maps,
+        razon_social_excel=None,
+        cli_infer="CARRIER",
+        fix_cliente_name_fn=fix_cliente_name,
+        por_clasificar=CLIENTE_POR_CLASIFICAR,
+        email_contacto="vip@vitro.com",
+    )
+    assert p2 == "Vitro"
+    p3, _ = resolve_cliente_principal(
+        maps,
+        razon_social_excel=None,
+        cli_infer=None,
+        fix_cliente_name_fn=fix_cliente_name,
+        por_clasificar=CLIENTE_POR_CLASIFICAR,
+        email_contacto=None,
+        bloque_cliente_excel="Carrier",
+    )
+    assert p3 == "Carrier"
+    conn.close()
 
 
 def test_resolve_cliente_principal_map(tmp_path):

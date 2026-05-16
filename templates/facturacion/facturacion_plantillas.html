@@ -1,0 +1,85 @@
+{% extends "facturacion_shell.html" %}
+{% set fx_nav_active = 'plantillas' %}
+{% set _plant_post = url_for('facturacion.plantillas_cliente', cliente=filtro_cli) if filtro_cli else url_for('facturacion.plantillas_cliente') %}
+{% block fx_main %}
+<div class="fx-hero">
+  <div>
+    <h1>Plantillas por cliente</h1>
+    <p>Define la estructura recurrente (clasificación, planta, correo). Luego usa <strong>Generar esqueleto del mes</strong> en el dashboard o en Facturas para crear las filas de seguimiento sin número ni montos.</p>
+  </div>
+  <div class="fx-toolbar" style="margin:0">
+    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.facturas_list') }}">← Facturas</a>
+  </div>
+</div>
+
+<form class="fx-toolbar" method="get" action="{{ url_for('facturacion.plantillas_cliente') }}">
+  <label>Cliente
+    <select name="cliente">
+      <option value="">— Todos —</option>
+      {% for c in clientes %}<option value="{{ c }}" {% if filtro_cli == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="fx-btn fx-btn--primary">Filtrar</button>
+</form>
+
+<div class="fx-card" style="margin-bottom:1rem;padding:1rem">
+  <h2 style="margin-top:0;font-size:1.05rem">{% if edit_row %}Editar línea{% else %}Agregar línea{% endif %}</h2>
+  <form method="post" class="fx-form-grid" style="box-shadow:none;padding:0;border:0" action="{{ _plant_post }}">
+    <input type="hidden" name="action" value="save">
+    <input type="hidden" name="id" value="{{ edit_row.id if edit_row else '' }}">
+    <label>Cliente principal *<input type="text" name="cliente" required value="{{ edit_row.cliente if edit_row else (filtro_cli or '') }}" placeholder="AURIGA"></label>
+    <label>Orden (visual)<input type="number" name="orden" value="{{ edit_row.orden if edit_row else 0 }}" min="0" step="1"></label>
+    <label>Clasificación (p. ej. HOTEL)<input type="text" name="clasificacion" value="{{ edit_row.clasificacion if edit_row else '' }}" placeholder="HOTEL"></label>
+    <label>Planta / referencia<input type="text" name="planta_servicio" value="{{ edit_row.planta_servicio if edit_row else '' }}" placeholder="Monterrey"></label>
+    <label>Correo / contacto<input type="text" name="usuario_contacto" value="{{ edit_row.usuario_contacto if edit_row else '' }}"></label>
+    <label>Razón social (opcional)<input type="text" name="razon_social" value="{{ edit_row.razon_social if edit_row else '' }}"></label>
+    <label>Responsable interno<input type="text" name="responsable_interno" value="{{ edit_row.responsable_interno if edit_row else '' }}"></label>
+    <label style="grid-column:1/-1">Requiere portal <input type="checkbox" name="requiere_portal" value="1" {% if edit_row and edit_row.requiere_portal %}checked{% endif %}></label>
+    <label style="grid-column:1/-1">Notas internas (no se copian a la factura)<textarea name="notas_internas" rows="2" placeholder="Solo referencia para quien edita plantillas">{{ edit_row.notas_internas if edit_row else '' }}</textarea></label>
+    <div style="grid-column:1/-1;display:flex;gap:0.5rem;flex-wrap:wrap">
+      <button type="submit" class="fx-btn fx-btn--primary">{% if edit_row %}Guardar cambios{% else %}Agregar línea{% endif %}</button>
+      {% if edit_row %}<a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.plantillas_cliente', cliente=edit_row.cliente) }}">Cancelar edición</a>{% endif %}
+    </div>
+  </form>
+</div>
+
+<div class="fx-table-wrap">
+  <table class="fx-table">
+    <thead>
+      <tr>
+        <th>Orden</th>
+        <th>Cliente</th>
+        <th>Clasificación</th>
+        <th>Planta</th>
+        <th>Correo</th>
+        <th>Razón soc.</th>
+        <th>Portal</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td>{{ r.orden }}</td>
+        <td><strong>{{ r.cliente }}</strong></td>
+        <td>{{ r.clasificacion or '—' }}</td>
+        <td>{{ r.planta_servicio or '—' }}</td>
+        <td class="fx-cell-mono" style="font-size:0.8rem">{{ r.usuario_contacto or '—' }}</td>
+        <td>{{ r.razon_social or '—' }}</td>
+        <td>{% if r.requiere_portal %}Sí{% else %}—{% endif %}</td>
+        <td class="fx-actions">
+          <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.plantillas_cliente', cliente=r.cliente, edit=r.id) }}">Editar</a>
+          <form method="post" style="display:inline" action="{{ _plant_post }}" onsubmit="return confirm('¿Eliminar esta línea de plantilla?');">
+            <input type="hidden" name="action" value="del">
+            <input type="hidden" name="id" value="{{ r.id }}">
+            <button type="submit" class="fx-btn fx-btn--danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="fx-muted" style="padding:1.25rem">Sin plantillas{% if filtro_cli %} para este cliente{% endif %}. Agrega líneas arriba (ej. Auriga → HOTEL / COMERCIO / OFICINAS).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

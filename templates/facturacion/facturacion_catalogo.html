@@ -4,7 +4,7 @@
 <div class="fx-hero">
   <div>
     <h1>Catálogo de clientes</h1>
-    <p class="fx-muted">Asocia <strong>razones sociales</strong> al <strong>cliente principal</strong> (Pepsi, Carrier, Vitro, etc.) y define <strong>días de crédito</strong> para calcular automáticamente la <strong>fecha de vencimiento</strong> cuando se detecta la fecha de emisión en un PDF o XML relacionado.</p>
+    <p class="fx-muted">Asocia <strong>razones sociales</strong> y <strong>correos o dominios</strong> al <strong>cliente principal</strong> (Pepsi, Carrier, Vitro, etc.). Los días de crédito sirven para calcular la <strong>fecha de vencimiento</strong> al detectar emisión en PDF/XML. En el import Excel, el cliente se resuelve en este orden: catálogo de razón social → correo/dominio en catálogo → filas de bloque (nombre en columna MES) → heurísticas; los correos confirmados se pueden recordar automáticamente.</p>
   </div>
 </div>
 
@@ -27,6 +27,55 @@
       <button type="submit" class="fx-btn fx-btn--primary">Guardar crédito</button>
     </form>
   </div>
+  <div class="fx-card" style="grid-column:1/-1">
+    <p class="k">Correo exacto o dominio → cliente principal</p>
+    <p class="fx-muted" style="font-size:0.85rem;margin:0 0 0.5rem">Para <strong>dominio</strong> escribe solo el host (ej. <code>carrier.com</code>); aplica a <code>usuario@carrier.com</code> y subdominios. Los mapeos manuales tienen prioridad sobre la inferencia automática por dominio del archivo.</p>
+    <form method="post" class="fx-toolbar" style="margin:0.5rem 0 0;flex-wrap:wrap">
+      <input type="hidden" name="action" value="add_correo_map">
+      <label>Tipo
+        <select name="tipo_correo">
+          <option value="EMAIL">Correo exacto</option>
+          <option value="DOMINIO">Dominio</option>
+        </select>
+      </label>
+      <label>Valor<input type="text" name="valor_correo" required placeholder="correo@empresa.com o empresa.com" style="min-width:14rem"></label>
+      <label>Cliente principal<input type="text" name="cliente_principal_correo" required placeholder="Carrier" style="min-width:9rem"></label>
+      <button type="submit" class="fx-btn fx-btn--primary">Guardar mapeo</button>
+    </form>
+  </div>
+</div>
+
+<div class="fx-table-wrap" style="margin-bottom:1.5rem">
+  <h3 style="margin:0.75rem 1rem;font-size:1rem">Correo / dominio → cliente</h3>
+  <table class="fx-table">
+    <thead><tr><th>Tipo</th><th>Valor</th><th>Cliente principal</th><th style="width:8rem"></th></tr></thead>
+    <tbody>
+      {% for m in correos_map %}
+      <tr>
+        <td>{{ m.tipo }}</td>
+        <td class="fx-cell-mono" style="font-size:0.85rem">{{ m.valor }}</td>
+        <td><strong>{{ m.cliente_principal }}</strong></td>
+        <td>
+          <form method="post" class="fx-toolbar" style="margin:0;flex-direction:column;align-items:stretch;gap:0.35rem">
+            <input type="hidden" name="action" value="edit_correo_map">
+            <input type="hidden" name="id" value="{{ m.id }}">
+            <label style="font-size:0.75rem">Tipo<select name="tipo_correo"><option value="EMAIL" {% if m.tipo == 'EMAIL' %}selected{% endif %}>EMAIL</option><option value="DOMINIO" {% if m.tipo == 'DOMINIO' %}selected{% endif %}>DOMINIO</option></select></label>
+            <label style="font-size:0.75rem">Valor<input type="text" name="valor_correo" value="{{ m.valor }}" required></label>
+            <label style="font-size:0.75rem">Cliente<input type="text" name="cliente_principal_correo" value="{{ m.cliente_principal }}" required></label>
+            <button type="submit" class="fx-btn fx-btn--ghost">Actualizar</button>
+          </form>
+          <form method="post" style="margin-top:0.35rem" onsubmit="return confirm('¿Eliminar este mapeo?');">
+            <input type="hidden" name="action" value="del_correo_map">
+            <input type="hidden" name="id" value="{{ m.id }}">
+            <button type="submit" class="fx-btn fx-btn--danger">Eliminar</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="fx-muted" style="padding:1rem">Sin mapeos de correo. El import puede ir aprendiendo correos exactos cuando clasifica sin ambigüedad.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
 <div class="fx-table-wrap" style="margin-bottom:1.5rem">

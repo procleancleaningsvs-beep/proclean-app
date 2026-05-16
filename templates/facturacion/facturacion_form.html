@@ -14,14 +14,19 @@
   <label>Planta<input type="text" name="planta_servicio" value="{{ row.planta_servicio if row else '' }}" title="Columna PLANTAS del Excel / ubicación"></label>
   <label>Correo / usuario contacto<input type="text" name="usuario_contacto" value="{{ row.usuario_contacto if row else '' }}" placeholder="correo@empresa.com"></label>
   <label>Responsable interno<input type="text" name="responsable_interno" value="{{ row.responsable_interno if row else '' }}"></label>
-  <label>Número factura *<input type="text" name="numero_factura" required value="{{ row.numero_factura if row else '' }}"></label>
+  <label style="grid-column:1/-1;display:flex;align-items:center;gap:0.5rem;font-weight:600">
+    <input type="checkbox" name="es_seguimiento" value="1" id="fx_es_seg"
+      {% if row and (not row.numero_factura or row.es_pre_factura) %}checked{% endif %}>
+    Seguimiento sin factura emitida (número y montos se llenan al subir PDF/XML o al capturarlos)
+  </label>
+  <label style="grid-column:1/-1">Número factura <input type="text" name="numero_factura" id="fx_num_factura" value="{{ row.numero_factura if row and row.numero_factura else '' }}" placeholder="Opcional hasta timbrar"></label>
   <label>PO/OC<input type="text" name="po_oc" value="{{ row.po_oc if row else '' }}"></label>
   <label>Subtotal<input type="text" name="subtotal" value="{{ row.subtotal if row else '' }}"></label>
   <label>IVA<input type="text" name="iva" value="{{ row.iva if row else '' }}"></label>
   <label>Total<input type="text" name="total" value="{{ row.total if row else '' }}"></label>
   <label>Fecha de emisión<input type="date" name="fecha_factura" value="{{ row.fecha_factura if row and row.fecha_factura else '' }}"></label>
   <label>Fecha de vencimiento<input type="date" name="fecha_vencimiento" value="{{ row.fecha_vencimiento if row and row.fecha_vencimiento else '' }}"></label>
-  <label>Estatus operativo *<select name="estatus_operativo" required>{% for o in operativos %}<option value="{{ o }}" {% if row and row.estatus_operativo == o %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></label>
+  <label>Estatus operativo *<select name="estatus_operativo" required>{% for o in operativos %}<option value="{{ o }}" {% if row and row.estatus_operativo == o %}selected{% elif not row and o == 'PENDIENTE FACTURA' %}selected{% endif %}>{{ o }}</option>{% endfor %}</select></label>
   <label>Estatus pago *<select name="estatus_pago" required>{% for p in pagos %}<option value="{{ p }}" {% if row and row.estatus_pago == p %}selected{% elif not row and p == 'PENDIENTE' %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
   <label style="grid-column:1/-1">Requiere portal <input type="checkbox" name="requiere_portal" value="1" {% if row and row.requiere_portal %}checked{% endif %}></label>
   <label style="grid-column:1/-1">Alertas<br>
@@ -33,4 +38,18 @@
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.facturas_list') }}">Cancelar</a>
   </div>
 </form>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var cb = document.getElementById("fx_es_seg");
+  var num = document.getElementById("fx_num_factura");
+  if (!cb || !num) return;
+  function sync() {
+    var on = cb.checked;
+    num.required = !on;
+    if (on) num.value = "";
+  }
+  cb.addEventListener("change", sync);
+  sync();
+});
+</script>
 {% endblock %}
