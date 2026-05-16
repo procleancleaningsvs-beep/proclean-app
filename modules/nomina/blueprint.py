@@ -671,10 +671,14 @@ def importar_asistencia():
 
 
 @nomina_bp.post("/dashboard/asistencia-import/<int:import_id>/archivar")
-@_nomina_dashboard_required
 def dashboard_archivar_asistencia_import(import_id: int):
     """Soft delete desde Historial / Auditoría del dashboard. Solo admin (JSON)."""
-    if _current_role() != "admin":
+    if g.user is None:
+        return jsonify({"success": False, "message": "Sesión requerida."}), 401
+    role = _current_role()
+    if role not in _NOMINA_DASHBOARD_ROLES:
+        return jsonify({"success": False, "message": "No autorizado."}), 403
+    if role != "admin":
         return jsonify({"success": False, "message": "No autorizado."}), 403
     try:
         uid = int(g.user.get("id") or 0)
