@@ -1,81 +1,124 @@
 {% extends 'base.html' %}
 {% block extra_head %}
 <style>
-.nom-layout { display:grid; gap:1rem; }
+.nom-hub { display:grid; gap:1rem; max-width:1280px; margin:0 auto; }
+.nom-hub-top { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.75rem; align-items:flex-start; }
+.nom-hub-title h2 { margin:.2rem 0; }
+.nom-hub-title p { color:#64748b; margin:0; font-size:.95rem; }
 .nom-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; align-items:start; }
 .nom-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.nom-form { display:grid; gap:.65rem; }
-.nom-field { display:flex; flex-direction:column; gap:.25rem; }
-.nom-field label { font-weight:600; }
-.nom-help { color:#64748b; font-size:.9rem; margin-top:.1rem; }
-.nom-client-list { min-height:180px; }
-.nom-note { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.65rem; color:#334155; font-size:.9rem; }
+.nom-form { display:grid; gap:.55rem; }
+.nom-field { display:flex; flex-direction:column; gap:.2rem; }
+.nom-field label { font-weight:600; font-size:.9rem; }
+.nom-help { color:#64748b; font-size:.82rem; }
+.nom-note { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem .75rem; color:#334155; font-size:.86rem; }
+details.nom-adv { border:1px dashed #cbd5e1; border-radius:10px; padding:.35rem .65rem; background:#fafafa; }
+details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; color:#475569; }
+.nom-client-list { min-height:100px; max-height:140px; }
+.nom-history { margin-top:.25rem; }
+.nom-history table { width:100%; border-collapse:collapse; font-size:.86rem; }
+.nom-history th, .nom-history td { border-bottom:1px solid #e5e7eb; padding:.35rem .3rem; text-align:left; vertical-align:middle; }
+.nom-history-wrap { max-height:280px; overflow:auto; }
+.nomi-hub-viz { margin-top:1rem; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; background:#fff; }
+.nomi-hub-viz-head { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5rem; align-items:center; margin-bottom:.75rem; }
+.nomi-hub-viz-head h3 { margin:0; font-size:1.05rem; }
+.nomi-hub-viz-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+.nomi-hub-metrics { display:grid; grid-template-columns:1fr 1fr; gap:.65rem; margin:.5rem 0 1rem; }
+@media (max-width:900px){ .nomi-hub-metrics { grid-template-columns:1fr; } }
+.nomi-hub-metrics-title { font-size:.78rem; color:#64748b; text-transform:uppercase; letter-spacing:.02em; margin-bottom:.25rem; }
+.nomi-hub-metric-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
+.nomi-hub-metric-chips .chip { font-size:.78rem; padding:.2rem .45rem; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; }
+.nomi-hub-metric-chips .chip-warn { background:#fff7ed; border-color:#fed7aa; }
+.nomi-hub-metric-chips .chip-neutral { background:#f1f5f9; }
+.nomi-hub-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:.5rem; margin-bottom:.75rem; }
+@media (max-width:900px){ .nomi-hub-kpis { grid-template-columns:1fr 1fr; } }
+.nomi-hub-kpis .nomi-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.45rem; font-size:.82rem; }
+.nomi-hub-kpis .nomi-kpi span { display:block; color:#64748b; font-size:.75rem; }
+.nomi-hub-kpis .nomi-kpi strong { font-size:.88rem; word-break:break-word; }
+.nomi-hub-legend { margin:.5rem 0; font-size:.82rem; }
+.nomi-legend-grid { display:flex; flex-wrap:wrap; gap:.35rem; margin-top:.35rem; }
+.nomi-legend-item { padding:.15rem .4rem; border-radius:6px; font-size:.75rem; border:1px solid #e5e7eb; }
+.nomi-table-wrap { overflow:auto; max-height:62vh; border:1px solid #e5e7eb; border-radius:8px; }
+.nomi-table { width:100%; border-collapse:collapse; min-width:1200px; font-size:.82rem; }
+.nomi-table th, .nomi-table td { border-bottom:1px solid #e5e7eb; padding:.35rem; text-align:left; vertical-align:top; }
+.nomi-table thead tr:first-child th { position:sticky; top:0; background:#f8fafc; z-index:2; box-shadow:0 1px 0 #e5e7eb; }
+.nomi-filter-row th { position:sticky; top:2.1rem; background:#fff; z-index:1; padding:.2rem !important; }
+.nomi-filter { width:100%; font-size:.75rem; padding:.15rem .25rem; border:1px solid #e5e7eb; border-radius:6px; }
+.nomi-row-error { background:#fff1f2; }
+.nomi-row-warn { background:#fffbeb; }
+.nomi-msg { margin:.1rem 0; font-size:.75rem; }
+.nomi-msg.error { color:#be123c; }
+.nomi-msg.warn { color:#b45309; }
+.nomi-filter-actions { margin:.5rem 0 0; }
 @media (max-width: 980px) { .nom-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
 
 {% block content %}
-<section class="page-head">
-  <div>
+<section class="page-head nom-hub-top">
+  <div class="nom-hub-title">
     <span class="eyebrow">Nóminas</span>
-    <h2>Hub de Master de asistencia</h2>
-    <p>Descarga, importación, validación y desglose. Sin cálculo de nómina en esta fase.</p>
+    <h2>Hub de Master de Asistencia</h2>
+    <p>Descarga de plantilla, importación con detección automática de cliente(s) desde el archivo, validación contra Headcount y visualizador en esta misma página.</p>
   </div>
-  <div class="nom-note">Coordinador: <strong>{{ coordinador_display }}</strong></div>
+  <div class="nom-note">Sesión: <strong>{{ coordinador_display }}</strong></div>
 </section>
 
-<div class="nom-layout">
+<div class="nom-hub">
   {% if headcount_source == 'historial_fallback' %}
-  <div class="nom-note">La base se generó con la última información disponible.</div>
+  <div class="nom-note">Clientes desde historial interno (Headcount no disponible).</div>
   {% elif headcount_error %}
-  <div class="nom-note">No fue posible leer clientes desde Headcount: {{ headcount_error }}</div>
+  <div class="nom-note">Headcount: {{ headcount_error }}</div>
   {% endif %}
+
   <div class="nom-grid">
     <section class="nom-card">
-      <h3>Descargar Master de Asistencia</h3>
-      <p class="nom-help">La fecha fin se calcula automáticamente como fecha inicio + 6 días. Puedes seleccionar uno o varios clientes.</p>
+      <h3 style="margin-top:0;font-size:1rem;">Descargar plantilla</h3>
+      <p class="nom-help">Fecha fin = inicio + 6 días. Si no eliges clientes, se usarán todos los disponibles en Headcount.</p>
       <form class="nom-form" method="post" action="{{ url_for('nomina.descargar_plantilla') }}">
         <div class="nom-field">
-          <label for="fecha_inicio">Fecha inicio del periodo</label>
+          <label for="fecha_inicio">Fecha inicio</label>
           <input id="fecha_inicio" name="fecha_inicio" type="date" required>
         </div>
         <div class="nom-field">
-          <label for="fecha_fin">Fecha fin del periodo</label>
+          <label for="fecha_fin">Fecha fin</label>
           <input id="fecha_fin" type="date" readonly>
         </div>
-        <div class="nom-field">
-          <label for="clientes">Clientes{% if clientes %} (selección múltiple){% endif %}</label>
-          {% if clientes %}
-          <select id="clientes" name="clientes" class="nom-client-list" multiple required>
-            {% for c in clientes %}
-            <option value="{{ c }}">{{ c }}</option>
-            {% endfor %}
-          </select>
-          <p class="nom-help">Mantén Ctrl/Cmd para seleccionar varios clientes.</p>
-          {% else %}
-          <input id="cliente" name="cliente" type="text" placeholder="Cliente" required>
-          <p class="nom-help">No se detectaron clientes desde Headcount/historial; captura manualmente de forma temporal.</p>
-          {% endif %}
-        </div>
-        {% if clientes %}
-        <div class="nom-field">
-          <label for="grupo_clientes">Agrupación (opcional)</label>
-          <select id="grupo_clientes">
-            <option value="">Seleccionar agrupación…</option>
-            {% for gname, members in agrupaciones.items() %}
-            <option value="{{ gname }}" data-members="{{ members|join('||') }}">{{ gname }} ({{ members|length }})</option>
-            {% endfor %}
-          </select>
-          <p class="nom-help">Al elegir una agrupación, se preseleccionan sus clientes.</p>
-        </div>
-        {% endif %}
+        <details class="nom-adv">
+          <summary>Opciones avanzadas (clientes / agrupación)</summary>
+          <div style="margin-top:.5rem;display:grid;gap:.5rem;">
+            <div class="nom-field">
+              <label for="clientes">Clientes (opcional, múltiple)</label>
+              {% if clientes %}
+              <select id="clientes" name="clientes" class="nom-client-list" multiple size="5">
+                {% for c in clientes %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <input id="cliente" name="cliente" type="text" placeholder="Cliente manual">
+              {% endif %}
+            </div>
+            {% if clientes and agrupaciones %}
+            <div class="nom-field">
+              <label for="grupo_clientes">Agrupación</label>
+              <select id="grupo_clientes">
+                <option value="">—</option>
+                {% for gname, members in agrupaciones.items() %}
+                <option value="{{ gname }}" data-members="{{ members|join('||') }}">{{ gname }} ({{ members|length }})</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+          </div>
+        </details>
         <button type="submit" class="btn btn-primary">Descargar plantilla</button>
       </form>
     </section>
 
     <section class="nom-card">
-      <h3>Subir Master de Asistencia</h3>
-      <p class="nom-help">Se valida hoja Asistencia, encabezados, claves diarias y reglas operativas.</p>
+      <h3 style="margin-top:0;font-size:1rem;">Importar y validar</h3>
+      <p class="nom-help">No necesitas seleccionar cliente: se lee la columna <strong>CLIENTE</strong> del Excel, se normaliza y se cruza con Headcount.</p>
       <form class="nom-form" method="post" action="{{ url_for('nomina.importar_asistencia') }}" enctype="multipart/form-data">
         <div class="nom-field">
           <label for="excel_file">Archivo .xlsx</label>
@@ -85,9 +128,58 @@
       </form>
     </section>
   </div>
-  <div class="nom-note">
-    Edición web pendiente: <strong>Microfase 1.2: visualizador editable tipo Excel con guardado incremental</strong>.
-  </div>
+
+  <section class="nom-card nom-history">
+    <h3 style="margin-top:0;font-size:1rem;">Historial de cargas</h3>
+    {% set user_role = ((g.user.role if g.user else '') | string | lower) %}
+    <p class="nom-help">{% if user_role == 'coordinador' %}Solo tus importaciones.{% else %}Vista según tu rol (admin/nómina: todas).{% endif %}</p>
+    <div class="nom-history-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Periodo</th>
+            <th>Cliente(s)</th>
+            <th>Regs</th>
+            <th>Err</th>
+            <th>War</th>
+            <th>Archivo</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in asistencia_history %}
+          <tr>
+            <td>{{ h.created_at[:16] if h.created_at else '—' }}</td>
+            <td>{{ h.semana or (h.fecha_inicio ~ ' → ' ~ h.fecha_fin) }}</td>
+            <td>{% if h.clientes %}{{ h.clientes | join(', ') }}{% else %}{{ h.cliente }}{% endif %}</td>
+            <td>{{ h.total_rows }}</td>
+            <td>{{ h.error_count }}</td>
+            <td>{{ h.warning_count }}</td>
+            <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ h.original_filename or h.filename }}">{{ h.original_filename or h.filename }}</td>
+            <td style="white-space:nowrap;">
+              <a class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;" href="{{ url_for('nomina.master_hub', import_id=h.id) }}">Abrir</a>
+              {% if h.has_file_blob %}
+              <a class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;" href="{{ url_for('nomina.descargar_asistencia_original', import_id=h.id) }}">Descargar</a>
+              {% endif %}
+              {% if user_role == 'admin' %}
+              <form method="post" action="{{ url_for('nomina.eliminar_asistencia_import', import_id=h.id) }}" style="display:inline;" onsubmit="return confirm('¿Eliminar esta importación?');">
+                <button type="submit" class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;color:#b91c1c;">Eliminar</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="8" class="nom-help">Sin cargas aún.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if imp %}
+  {% include 'nomina/_asistencia_hub_visualizer.html' %}
+  {% endif %}
 </div>
 
 <script>
@@ -95,10 +187,8 @@
   const ini = document.getElementById("fecha_inicio");
   const fin = document.getElementById("fecha_fin");
   function syncEndDate() {
-    if (!ini.value) {
-      fin.value = "";
-      return;
-    }
+    if (!ini || !fin) return;
+    if (!ini.value) { fin.value = ""; return; }
     const dt = new Date(ini.value + "T00:00:00");
     dt.setDate(dt.getDate() + 6);
     fin.value = dt.toISOString().slice(0, 10);
@@ -116,7 +206,20 @@
       option.selected = members.includes(option.value);
     }
   });
+
+  const STYLES = {{ (asistencia_key_styles or {}) | tojson | safe }};
+  function paintMetricChips() {
+    document.querySelectorAll(".nomi-hub-metric-chips .chip[data-k]").forEach(function (el) {
+      const k = el.getAttribute("data-k");
+      const st = STYLES[k] || STYLES._neutral;
+      if (st && st.bg) {
+        el.style.background = st.bg;
+        el.style.borderColor = "transparent";
+        if (st.bold) el.style.fontWeight = "700";
+      }
+    });
+  }
+  paintMetricChips();
 })();
 </script>
 {% endblock %}
-

@@ -28,7 +28,7 @@ COL_PRIMA_VACACIONAL = 18
 COL_BONO = 19
 COL_DEDUCCIONES = 20
 COL_OBSERVACIONES = 21
-MAX_COL = 21
+BASE_MAX_COL = 21
 START_DATA_ROW = 5
 HEADER_ROW = 4
 
@@ -67,6 +67,24 @@ def _as_text_or_empty(value: Any) -> str:
     if value is None:
         return ""
     return _norm_text(value)
+
+
+def _normalize_cliente_cell(value: Any) -> str:
+    """Trim, mayúsculas, colapsa espacios (detección automática de cliente)."""
+    return " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
+
+
+def _find_column_by_header(ws: Worksheet, expected: str) -> int | None:
+    want = _norm_header(expected)
+    for col in range(1, (ws.max_column or BASE_MAX_COL) + 1):
+        if _norm_header(ws.cell(row=HEADER_ROW, column=col).value) == want:
+            return col
+    return None
+
+
+def _nss_digits(value: Any) -> str:
+    s = _as_text_or_empty(value)
+    return "".join(ch for ch in s if ch.isdigit())
 
 
 def _to_float(value: Any) -> float | None:
@@ -165,8 +183,8 @@ def _validate_header_structure(ws: Worksheet) -> None:
             )
 
 
-def _row_is_empty(ws: Worksheet, row_number: int) -> bool:
-    for col in range(1, MAX_COL + 1):
+def _row_is_empty(ws: Worksheet, row_number: int, *, max_col: int) -> bool:
+    for col in range(1, max_col + 1):
         if _as_text_or_empty(ws.cell(row=row_number, column=col).value):
             return False
     return True
@@ -179,19 +197,25 @@ def parse_and_validate_asistencia_excel(file_bytes: bytes, filename: str) -> dic
     ws = wb["Asistencia"]
     _validate_header_structure(ws)
     header_meta = _read_header_meta(ws)
+    nss_col = _find_column_by_header(ws, "NSS")
+    max_col_scan = max(BASE_MAX_COL, nss_col or 0)
 
     blocking_errors: list[str] = []
     rows: list[dict[str, Any]] = []
 
     for row_number in range(START_DATA_ROW, ws.max_row + 1):
-        if _row_is_empty(ws, row_number):
+        if _row_is_empty(ws, row_number, max_col=max_col_scan):
             continue
 
         nombre = _as_text_or_empty(ws.cell(row=row_number, column=COL_NOMBRE).value)
+        nss_raw = ""
+        if nss_col is not None:
+            nss_raw = _nss_digits(ws.cell(row=row_number, column=nss_col).value)
         row_data: dict[str, Any] = {
             "row_number": row_number,
             "nombre_empleado": nombre,
-            "cliente": _as_text_or_empty(ws.cell(row=row_number, column=COL_CLIENTE).value),
+            "cliente": _normalize_cliente_cell(ws.cell(row=row_number, column=COL_CLIENTE).value),
+            "nss": nss_raw,
             "planta": _as_text_or_empty(ws.cell(row=row_number, column=COL_PLANTA).value),
             "puesto": _as_text_or_empty(ws.cell(row=row_number, column=COL_PUESTO).value),
             "banco": _as_text_or_empty(ws.cell(row=row_number, column=COL_BANCO).value),
@@ -224,7 +248,7 @@ def parse_and_validate_asistencia_excel(file_bytes: bytes, filename: str) -> dic
 
         non_name_values = [
             row_data["cliente"], row_data["planta"], row_data["puesto"],
-            row_data["banco"], row_data["cuenta"],
+            row_data["banco"], row_data["cuenta"], nss_raw,
             row_data["dia_1_value"], row_data["dia_2_value"], row_data["dia_3_value"],
             row_data["dia_4_value"], row_data["dia_5_value"], row_data["dia_6_value"],
             row_data["dia_7_value"],

@@ -8,6 +8,7 @@ from functools import wraps
 from io import BytesIO
 from pathlib import Path
 import unicodedata
+from typing import Any
 
 from flask import (
     Blueprint,
@@ -15,6 +16,7 @@ from flask import (
     current_app,
     flash,
     g,
+    jsonify,
     redirect,
     render_template,
     request,
@@ -24,10 +26,15 @@ from flask import (
 from zoneinfo import ZoneInfo
 
 from modules.nomina.asistencia_excel import build_asistencia_template_file
+from modules.nomina.asistencia_metrics import compute_operative_metrics
+from modules.nomina.asistencia_palette import css_vars_for_json
 from modules.nomina.db import (
     get_asistencia_import,
     get_latest_import_base_rows,
     get_latest_import_base_rows_multi,
+    list_asistencia_imports_master_hub,
+    delete_asistencia_import,
+    fetch_asistencia_original_file,
     nomina_dashboard_overview,
     nomina_clientes_from_history,
     nomina_history_rows_for_headcount_fallback,
@@ -70,6 +77,7 @@ from modules.nomina.db import (
     update_nomina_calculo_row_manual,
     recount_calculo_run_totals,
     nomina_calculo_dashboard_kpis,
+    soft_delete_nomina_asistencia_import,
 )
 from modules.nomina.calc_service import (
     build_calculo_payload,
@@ -185,6 +193,35 @@ def _current_role() -> str:
         return ""
 
 
+def _user_can_view_asistencia_import(imp: dict | None) -> bool:
+    if imp is None or g.user is None:
+        return False
+    role = _current_role()
+    if role in _NOMINA_DASHBOARD_ROLES:
+        return True
+    if role != "coordinador":
+        return False
+    try:
+        uid = int(g.user.get("id"))
+    except Exception:
+        return False
+    owner = imp.get("created_by")
+    if owner is None:
+        return False
+    return int(owner) == uid
+
+
+def _maybe_load_asistencia_import_for_hub(import_id: int | None) -> dict | None:
+    if not import_id:
+        return None
+    imp = get_asistencia_import(_db_path(), import_id)
+    if imp is None or not _user_can_view_asistencia_import(imp):
+        return None
+    imp["operative_metrics"] = compute_operative_metrics(imp.get("rows") or [])
+    imp["has_original_file"] = fetch_asistencia_original_file(_db_path(), import_id) is not None
+    return imp
+
+
 def _coordinador_display_name() -> str:
     if g.user is None:
         return ""
@@ -228,68 +265,165 @@ def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], st
             )
         return [], {}, str(exc), "sin_fuente"
 
-def _enrich_rows_with_headcount(rows: list[dict], db_path: str) -> tuple[list[dict], str, int]:
-    indexed_by_cliente_nombre: dict[tuple[str, str], dict] = {}
-    indexed_by_nombre: dict[str, dict] = {}
+def _normalize_planta_key(value: str) -> str:
+    return " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
+
+
+def _cliente_key_loose(value: str) -> str:
+    return " ".join(str(value or "").strip().lower().split())
+
+
+def _nss_digits(value: str) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def _cliente_label_for_import(clientes: list[str]) -> str:
+    c = [str(x).strip() for x in clientes if str(x).strip()]
+    if not c:
+        return "NO_DETECTADO"
+    if len(c) == 1:
+        return c[0]
+    return "MULTICLIENTE: " + " + ".join(c)
+
+
+def _enrich_rows_with_headcount(
+    rows: list[dict], db_path: str
+) -> tuple[list[dict], str, int, list[str]]:
+    """Match NSS → nombre → cliente+planta; Headcount completo como fuente de verdad."""
+    hc_rows: list[dict] = []
     source = "headcount"
     try:
-        activos = obtener_activos()
-        for item in activos:
-            nombre = _normalize_name(str(item.get("nombre_completo") or ""))
-            cliente = str(item.get("cliente") or "").strip().casefold()
-            if not nombre:
-                continue
-            indexed_by_nombre.setdefault(nombre, item)
-            indexed_by_cliente_nombre.setdefault((cliente, nombre), item)
+        hc_rows = list(obtener_headcount_completo())
     except Exception:
         source = "historial_fallback"
         for item in nomina_history_rows_for_headcount_fallback(db_path):
-            nombre = _normalize_name(item.get("nombre_empleado") or "")
-            cliente = str(item.get("cliente") or "").strip().casefold()
-            if not nombre:
-                continue
-            indexed_by_cliente_nombre.setdefault(
-                (cliente, nombre),
-                {"nss": item.get("nss") or "", "nombre_completo": item.get("nombre_empleado") or "", "cliente": item.get("cliente") or ""},
+            hc_rows.append(
+                {
+                    "nss": item.get("nss") or "",
+                    "nombre_completo": item.get("nombre_empleado") or "",
+                    "cliente": item.get("cliente") or "",
+                    "patron": "",
+                    "puesto": "",
+                    "status_operacion": "ALTA",
+                    "status_imss": "NO_DISPONIBLE",
+                }
             )
-            indexed_by_nombre.setdefault(
-                nombre,
-                {"nss": item.get("nss") or "", "nombre_completo": item.get("nombre_empleado") or "", "cliente": item.get("cliente") or ""},
-            )
+
+    by_nss: dict[str, dict] = {}
+    by_name: dict[str, list[dict]] = {}
+    hc_cliente_keys: set[str] = set()
+    for item in hc_rows:
+        cliente_txt = str(item.get("cliente") or "").strip()
+        if cliente_txt:
+            hc_cliente_keys.add(_cliente_key_loose(cliente_txt))
+        nss_key = _nss_digits(str(item.get("nss") or ""))
+        if len(nss_key) >= 8 and nss_key not in by_nss:
+            by_nss[nss_key] = item
+        nombre = _normalize_name(str(item.get("nombre_completo") or ""))
+        if nombre:
+            by_name.setdefault(nombre, []).append(item)
+
+    clientes_en_archivo = sorted(
+        {str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()}
+    )
+    clientes_fuera: list[str] = []
+    seen_fuera: set[str] = set()
+    for c in clientes_en_archivo:
+        ck = _cliente_key_loose(c)
+        if ck and ck not in hc_cliente_keys:
+            if ck not in seen_fuera:
+                seen_fuera.add(ck)
+                clientes_fuera.append(c)
 
     pending = 0
     for row in rows:
-        nombre = _normalize_name(str(row.get("nombre_empleado") or ""))
-        cliente = str(row.get("cliente") or "").strip().casefold()
-        matched = indexed_by_cliente_nombre.get((cliente, nombre))
+        warnings = list(row.get("warnings") or [])
+        nombre_n = _normalize_name(str(row.get("nombre_empleado") or ""))
+        file_nss = _nss_digits(str(row.get("nss") or ""))
+        file_cliente_k = _cliente_key_loose(str(row.get("cliente") or ""))
+        file_planta = _normalize_planta_key(str(row.get("planta") or ""))
+
+        if file_cliente_k and file_cliente_k not in hc_cliente_keys:
+            warnings.append(
+                f"Warning: cliente «{row.get('cliente') or ''}» no aparece en Headcount; validar catálogo."
+            )
+
+        hc: dict | None = None
         match_status = "pending_review"
         score = 0.0
-        nss = ""
-        if matched:
-            nss = str(matched.get("nss") or "").strip()
-            if nss:
-                match_status = "exact_nss"
-                score = 1.0
-            else:
-                match_status = "name_match"
-                score = 0.75
+
+        if file_nss and file_nss in by_nss:
+            hc = by_nss[file_nss]
+            match_status = "exact_nss"
+            score = 1.0
         else:
-            generic = indexed_by_nombre.get(nombre)
-            if generic:
-                nss = str(generic.get("nss") or "").strip()
-                if nss:
-                    match_status = "headcount_ok"
-                    score = 0.9
+            candidates = by_name.get(nombre_n) or []
+            if len(candidates) == 1:
+                hc = candidates[0]
+                match_status = "name_match"
+                score = 0.86
+            elif len(candidates) > 1:
+                same_cliente = [
+                    x
+                    for x in candidates
+                    if _cliente_key_loose(str(x.get("cliente") or "")) == file_cliente_k
+                ]
+                if len(same_cliente) == 1:
+                    hc = same_cliente[0]
+                    match_status = "probable_match"
+                    score = 0.72
+                    warnings.append("Match por nombre y cliente; confirmar con NSS si aplica.")
                 else:
-                    match_status = "name_match"
-                    score = 0.7
-        if match_status == "pending_review":
+                    same_cp = [
+                        x
+                        for x in candidates
+                        if _cliente_key_loose(str(x.get("cliente") or "")) == file_cliente_k
+                        and _normalize_planta_key(str(x.get("patron") or "")) == file_planta
+                        and file_planta
+                    ]
+                    if len(same_cp) == 1:
+                        hc = same_cp[0]
+                        match_status = "probable_match"
+                        score = 0.68
+                        warnings.append("Match por nombre, cliente y planta (Headcount); revisar.")
+                    else:
+                        warnings.append(
+                            "Múltiples candidatos en Headcount por nombre; no se aplicó match automático."
+                        )
+            else:
+                warnings.append(
+                    "No se encontró el trabajador en Headcount; la fila se conserva para revisión manual."
+                )
+
+        nss_out = file_nss or ""
+        if hc is not None:
+            nss_out = _nss_digits(str(hc.get("nss") or "")) or nss_out
+            hc_cliente = str(hc.get("cliente") or "").strip()
+            hc_planta = str(hc.get("patron") or "").strip()
+            hc_puesto = str(hc.get("puesto") or "").strip()
+            if file_cliente_k and hc_cliente and _cliente_key_loose(hc_cliente) != file_cliente_k:
+                warnings.append(
+                    f"Cliente en archivo difiere del cliente en Headcount ({hc_cliente})."
+                )
+            if file_planta and hc_planta and _normalize_planta_key(hc_planta) != file_planta:
+                warnings.append("Planta en archivo difiere del PATRON en Headcount.")
+            if hc_puesto and str(row.get("puesto") or "").strip():
+                if _normalize_planta_key(str(row.get("puesto") or "")) != _normalize_planta_key(hc_puesto):
+                    warnings.append("Puesto en archivo difiere del puesto en Headcount.")
+            if not _is_headcount_active(hc):
+                warnings.append("Headcount indica trabajador inactivo o baja; revisar estatus.")
+                match_status = "inactive_match"
+                score = min(score, 0.55) if score > 0 else 0.55
+        else:
             pending += 1
-        row["nss"] = nss
+
+        row["warnings"] = warnings
+        row["nss"] = nss_out
         row["headcount_match_status"] = match_status
         row["headcount_match_score"] = score
         row["headcount_source"] = source
-    return rows, source, pending
+
+    return rows, source, pending, clientes_fuera
 
 
 def _extract_selected_clientes_from_form() -> list[str]:
@@ -340,6 +474,10 @@ def index():
             headcount_error=headcount_error,
             headcount_source=headcount_source,
         )
+    import_id = request.args.get("import_id", type=int)
+    imp = _maybe_load_asistencia_import_for_hub(import_id)
+    if import_id and imp is None:
+        flash("No se encontró la importación o no tienes permiso para verla.", "error")
     return render_template(
         "nomina/index.html",
         coordinador_display=_coordinador_display_name(),
@@ -347,12 +485,24 @@ def index():
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
         headcount_source=headcount_source,
+        asistencia_history=list_asistencia_imports_master_hub(
+            _db_path(),
+            viewer_user_id=int(g.user["id"]) if g.user else None,
+            role=_current_role(),
+            limit=50,
+        ),
+        imp=imp,
+        asistencia_key_styles=css_vars_for_json(),
     )
 
 
 @nomina_bp.get("/master")
 @_nomina_access_required
 def master_hub():
+    import_id = request.args.get("import_id", type=int)
+    imp = _maybe_load_asistencia_import_for_hub(import_id)
+    if import_id and imp is None:
+        flash("No se encontró la importación o no tienes permiso para verla.", "error")
     clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
     return render_template(
         "nomina/index.html",
@@ -361,6 +511,14 @@ def master_hub():
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
         headcount_source=headcount_source,
+        asistencia_history=list_asistencia_imports_master_hub(
+            _db_path(),
+            viewer_user_id=int(g.user["id"]) if g.user else None,
+            role=_current_role(),
+            limit=50,
+        ),
+        imp=imp,
+        asistencia_key_styles=css_vars_for_json(),
     )
 
 
@@ -374,8 +532,19 @@ def descargar_plantilla():
         flash("La fecha inicio del periodo es obligatoria.", "error")
         return redirect(url_for("nomina.master_hub"))
     if not clientes:
-        flash("Debes seleccionar al menos un cliente.", "error")
-        return redirect(url_for("nomina.master_hub"))
+        all_clientes, _, _, _ = _available_clientes_headcount()
+        if all_clientes:
+            clientes = list(all_clientes)
+            flash(
+                "Sin clientes seleccionados: se usaron todos los clientes disponibles en Headcount para la plantilla.",
+                "info",
+            )
+        else:
+            flash(
+                "Selecciona al menos un cliente o captura uno en opciones avanzadas (no hay lista desde Headcount).",
+                "error",
+            )
+            return redirect(url_for("nomina.master_hub"))
 
     fecha_fin = fecha_inicio + timedelta(days=6)
     duplicate_base_warnings: list[str] = []
@@ -450,27 +619,32 @@ def importar_asistencia():
         fecha_inicio, fecha_fin = range_detected
 
     parsed_rows = parsed.get("rows") or []
-    parsed_rows, headcount_source, pending_matches = _enrich_rows_with_headcount(parsed_rows, _db_path())
+    parsed_rows, headcount_source, pending_matches, clientes_fuera = _enrich_rows_with_headcount(
+        parsed_rows, _db_path()
+    )
     clientes_detectados = sorted(
         {str(r.get("cliente") or "").strip() for r in parsed_rows if str(r.get("cliente") or "").strip()}
     )
+    error_count = sum(len(r.get("errors") or []) for r in parsed_rows)
+    warning_count = sum(len(r.get("warnings") or []) for r in parsed_rows)
 
     payload = {
         "semana": parsed.get("semana") or "",
         "fecha_inicio": fecha_inicio.isoformat(),
         "fecha_fin": fecha_fin.isoformat(),
-        "cliente": parsed.get("cliente") or "",
+        "cliente": _cliente_label_for_import(clientes_detectados),
         "coordinador": _coordinador_display_name(),
         "filename": filename,
         "original_filename": filename,
         "file_hash": hashlib.sha256(file_bytes).hexdigest(),
         "status": "draft",
         "total_rows": parsed.get("total_rows") or 0,
-        "error_count": parsed.get("error_count") or 0,
-        "warning_count": parsed.get("warning_count") or 0,
+        "error_count": error_count,
+        "warning_count": warning_count,
         "rows": parsed_rows,
         "clientes": clientes_detectados,
         "headcount_source": headcount_source,
+        "original_file_blob": file_bytes,
         "raw_json": {
             "dias_headers": parsed.get("dias_headers") or [],
             "semana": parsed.get("semana") or "",
@@ -478,6 +652,7 @@ def importar_asistencia():
             "coordinador_archivo": parsed.get("coordinador") or "",
             "coordinador_session": _coordinador_display_name(),
             "clientes_detectados": clientes_detectados,
+            "clientes_fuera_headcount": clientes_fuera,
             "headcount_source": headcount_source,
             "pending_headcount_matches": pending_matches,
         },
@@ -485,17 +660,76 @@ def importar_asistencia():
     created_by = int(g.user["id"]) if g.user is not None else None
     import_id = save_asistencia_import(_db_path(), payload, created_by=created_by, now_iso=_now_iso())
     flash("Archivo importado y guardado como borrador.", "success")
-    return redirect(url_for("nomina.asistencia_importada", import_id=import_id))
+    if clientes_fuera:
+        flash(
+            "Clientes en el archivo sin coincidencia en catálogo Headcount: "
+            + ", ".join(clientes_fuera[:6])
+            + ("…" if len(clientes_fuera) > 6 else ""),
+            "warning",
+        )
+    return redirect(url_for("nomina.master_hub", import_id=import_id))
+
+
+@nomina_bp.post("/dashboard/asistencia-import/<int:import_id>/archivar")
+@_nomina_dashboard_required
+def dashboard_archivar_asistencia_import(import_id: int):
+    """Soft delete desde Historial / Auditoría del dashboard. Solo admin (JSON)."""
+    if _current_role() != "admin":
+        return jsonify({"success": False, "message": "No autorizado."}), 403
+    try:
+        uid = int(g.user.get("id") or 0)
+    except (TypeError, ValueError):
+        uid = 0
+    if uid <= 0:
+        return jsonify({"success": False, "message": "Sesión inválida."}), 403
+    ok = soft_delete_nomina_asistencia_import(
+        _db_path(),
+        import_id,
+        deleted_by_user_id=uid,
+        deleted_at_iso=_now_iso(),
+    )
+    if ok:
+        return jsonify({"success": True, "message": "Registro eliminado correctamente."})
+    return jsonify({"success": False, "message": "No se pudo eliminar el registro."}), 400
 
 
 @nomina_bp.get("/imports/<int:import_id>")
 @_nomina_access_required
 def asistencia_importada(import_id: int):
+    return redirect(url_for("nomina.master_hub", import_id=import_id))
+
+
+@nomina_bp.get("/imports/<int:import_id>/archivo")
+@_nomina_access_required
+def descargar_asistencia_original(import_id: int):
     imp = get_asistencia_import(_db_path(), import_id)
-    if imp is None:
-        flash("No se encontró la importación solicitada.", "error")
-        return redirect(url_for("nomina.index"))
-    return render_template("nomina/asistencia_importada.html", imp=imp)
+    if imp is None or not _user_can_view_asistencia_import(imp):
+        abort(404)
+    got = fetch_asistencia_original_file(_db_path(), import_id)
+    if got is None:
+        flash("No hay archivo original almacenado para esta carga.", "warning")
+        return redirect(url_for("nomina.master_hub", import_id=import_id))
+    name, blob = got
+    bio = BytesIO(blob)
+    bio.seek(0)
+    return send_file(
+        bio,
+        as_attachment=True,
+        download_name=name,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@nomina_bp.post("/imports/<int:import_id>/eliminar")
+@_nomina_access_required
+def eliminar_asistencia_import(import_id: int):
+    if _current_role() != "admin":
+        abort(403)
+    if delete_asistencia_import(_db_path(), import_id):
+        flash("Importación eliminada.", "success")
+    else:
+        flash("No se pudo eliminar la importación.", "error")
+    return redirect(url_for("nomina.master_hub"))
 
 
 def _iso_to_ordinal(value: str) -> int | None:

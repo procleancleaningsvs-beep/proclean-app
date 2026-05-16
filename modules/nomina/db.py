@@ -65,6 +65,17 @@ def _migrate_nomina_imports_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN clientes_json TEXT")
     if "headcount_source" not in cols:
         conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN headcount_source TEXT")
+    if "original_file_blob" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN original_file_blob BLOB")
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN deleted_at TEXT")
+    if "deleted_by" not in cols:
+        conn.execute("ALTER TABLE nomina_asistencia_imports ADD COLUMN deleted_by INTEGER")
+
+
+def _asistencia_import_activa_sql(alias: str) -> str:
+    """Importación no oculta por soft delete desde dashboard (auditoría)."""
+    return f"(COALESCE(TRIM({alias}.deleted_at), '') = '')"
 
 
 def _migrate_nomina_rows_schema(conn: sqlite3.Connection) -> None:
@@ -508,8 +519,8 @@ def save_asistencia_import(
                 filename, original_filename, file_hash,
                 clientes_json, headcount_source,
                 status, total_rows, error_count, warning_count,
-                created_by, created_at, updated_at, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_by, created_at, updated_at, raw_json, original_file_blob
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(payload.get("semana") or ""),
@@ -530,6 +541,7 @@ def save_asistencia_import(
                 now_iso,
                 now_iso,
                 json.dumps(payload.get("raw_json"), ensure_ascii=False),
+                payload.get("original_file_blob"),
             ),
         )
         import_id = int(cur.lastrowid)
@@ -593,12 +605,120 @@ def save_asistencia_import(
         conn.close()
 
 
+def list_asistencia_imports_master_hub(
+    db_path: str,
+    *,
+    viewer_user_id: int | None,
+    role: str,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Historial de Master de Asistencia: coordinador solo ve sus cargas; admin/nómina ven todo."""
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        role_l = (role or "").strip().lower()
+        if role_l in {"admin", "nomina"}:
+            rows = conn.execute(
+                f"""
+                SELECT id, semana, fecha_inicio, fecha_fin, cliente, coordinador, filename,
+                       original_filename, clientes_json, total_rows, error_count, warning_count,
+                       created_by, created_at,
+                       CASE WHEN original_file_blob IS NULL THEN 0 ELSE 1 END AS has_file_blob
+                FROM nomina_asistencia_imports
+                WHERE {_asistencia_import_activa_sql("nomina_asistencia_imports")}
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""
+                SELECT id, semana, fecha_inicio, fecha_fin, cliente, coordinador, filename,
+                       original_filename, clientes_json, total_rows, error_count, warning_count,
+                       created_by, created_at,
+                       CASE WHEN original_file_blob IS NULL THEN 0 ELSE 1 END AS has_file_blob
+                FROM nomina_asistencia_imports
+                WHERE created_by IS NOT NULL AND created_by = ?
+                  AND {_asistencia_import_activa_sql("nomina_asistencia_imports")}
+                ORDER BY datetime(created_at) DESC, id DESC
+                LIMIT ?
+                """,
+                (int(viewer_user_id or 0), int(limit)),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["clientes"] = json.loads(d.get("clientes_json") or "[]")
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def delete_asistencia_import(db_path: str, import_id: int) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.execute("DELETE FROM nomina_asistencia_imports WHERE id = ?", (int(import_id),))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def soft_delete_nomina_asistencia_import(
+    db_path: str,
+    import_id: int,
+    *,
+    deleted_by_user_id: int,
+    deleted_at_iso: str,
+) -> bool:
+    """Oculta la importación del historial dashboard (soft delete); no borra filas ni BLOB."""
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA foreign_keys = ON")
+        cur = conn.execute(
+            """
+            UPDATE nomina_asistencia_imports
+            SET deleted_at = ?, deleted_by = ?
+            WHERE id = ?
+              AND (COALESCE(TRIM(deleted_at), '') = '')
+            """,
+            (str(deleted_at_iso), int(deleted_by_user_id), int(import_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def fetch_asistencia_original_file(db_path: str, import_id: int) -> tuple[str, bytes] | None:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """
+            SELECT COALESCE(NULLIF(original_filename,''), filename) AS fn, original_file_blob AS blob
+            FROM nomina_asistencia_imports
+            WHERE id = ?
+              AND (COALESCE(TRIM(deleted_at), '') = '')
+            """,
+            (int(import_id),),
+        ).fetchone()
+        if row is None or row["blob"] is None:
+            return None
+        return str(row["fn"] or "asistencia.xlsx"), bytes(row["blob"])
+    finally:
+        conn.close()
+
+
 def get_asistencia_import(db_path: str, import_id: int) -> dict[str, Any] | None:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         imp = conn.execute(
-            "SELECT * FROM nomina_asistencia_imports WHERE id = ?",
+            "SELECT * FROM nomina_asistencia_imports WHERE id = ? AND (COALESCE(TRIM(deleted_at), '') = '')",
             (import_id,),
         ).fetchone()
         if imp is None:
@@ -636,6 +756,7 @@ def get_latest_import_base_rows(
             WHERE LOWER(TRIM(r.cliente)) = LOWER(TRIM(?))
               AND i.status = 'draft'
               AND date(i.fecha_inicio) < date(?)
+              AND (COALESCE(TRIM(i.deleted_at), '') = '')
             ORDER BY date(i.fecha_inicio) DESC, i.id DESC
             LIMIT 1
             """,
@@ -710,17 +831,23 @@ def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str,
     conn.row_factory = sqlite3.Row
     try:
         total_imports = int(
-            conn.execute("SELECT COUNT(*) FROM nomina_asistencia_imports").fetchone()[0]
+            conn.execute(
+                "SELECT COUNT(*) FROM nomina_asistencia_imports WHERE (COALESCE(TRIM(deleted_at), '') = '')"
+            ).fetchone()[0]
         )
         pending_warnings = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_asistencia_imports WHERE warning_count > 0"
+                """
+                SELECT COUNT(*) FROM nomina_asistencia_imports
+                WHERE warning_count > 0 AND (COALESCE(TRIM(deleted_at), '') = '')
+                """
             ).fetchone()[0]
         )
         recientes = conn.execute(
             """
             SELECT id, semana, cliente, coordinador, status, total_rows, error_count, warning_count, created_at
             FROM nomina_asistencia_imports
+            WHERE (COALESCE(TRIM(deleted_at), '') = '')
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
             """,
@@ -741,9 +868,11 @@ def nomina_clientes_from_history(db_path: str) -> list[str]:
     try:
         rows = conn.execute(
             """
-            SELECT DISTINCT TRIM(cliente) AS cliente
-            FROM nomina_asistencia_rows
-            WHERE TRIM(COALESCE(cliente, '')) <> ''
+            SELECT DISTINCT TRIM(r.cliente) AS cliente
+            FROM nomina_asistencia_rows r
+            INNER JOIN nomina_asistencia_imports i ON i.id = r.import_id
+            WHERE TRIM(COALESCE(r.cliente, '')) <> ''
+              AND (COALESCE(TRIM(i.deleted_at), '') = '')
             ORDER BY cliente
             """
         ).fetchall()
@@ -758,11 +887,13 @@ def nomina_history_rows_for_headcount_fallback(db_path: str) -> list[dict[str, s
     try:
         rows = conn.execute(
             """
-            SELECT nombre_empleado, cliente, nss
-            FROM nomina_asistencia_rows
-            WHERE TRIM(COALESCE(nombre_empleado, '')) <> ''
-              AND TRIM(COALESCE(nss, '')) <> ''
-            ORDER BY id DESC
+            SELECT r.nombre_empleado, r.cliente, r.nss
+            FROM nomina_asistencia_rows r
+            INNER JOIN nomina_asistencia_imports i ON i.id = r.import_id
+            WHERE TRIM(COALESCE(r.nombre_empleado, '')) <> ''
+              AND TRIM(COALESCE(r.nss, '')) <> ''
+              AND (COALESCE(TRIM(i.deleted_at), '') = '')
+            ORDER BY r.id DESC
             """
         ).fetchall()
         out: list[dict[str, str]] = []
@@ -1980,6 +2111,7 @@ def list_asistencia_imports_for_calculo(db_path: str, *, limit: int = 80) -> lis
             SELECT id, semana, fecha_inicio, fecha_fin, cliente, coordinador, status,
                    total_rows, error_count, warning_count, created_at, headcount_source
             FROM nomina_asistencia_imports
+            WHERE (COALESCE(TRIM(deleted_at), '') = '')
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
             """,

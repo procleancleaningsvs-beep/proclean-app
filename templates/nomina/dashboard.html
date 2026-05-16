@@ -13,6 +13,17 @@
 .nd-table th, .nd-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
 .nd-soon { color:#64748b; font-size:.9rem; }
 .nd-link { margin-top:.6rem; display:inline-block; }
+.nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
+.nd-del-hint { font-size:.8rem; color:#64748b; margin:.35rem 0 0; }
+.nd-modal { border:none; border-radius:12px; padding:0; max-width:min(440px, 94vw); box-shadow:0 12px 40px rgba(15,23,42,.18); }
+.nd-modal::backdrop { background:rgba(15,23,42,.35); }
+.nd-modal-inner { padding:1rem 1.1rem; }
+.nd-modal h4 { margin:0 0 .5rem; font-size:1rem; }
+.nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
+.nd-modal dt { color:#64748b; }
+.nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
+.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid #e5e7eb; border-radius:8px; font-size:.95rem; margin-top:.35rem; }
+.nd-modal-step[hidden] { display:none !important; }
 @media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -111,9 +122,9 @@
 
   <section class="nd-card">
     <h3>Historial / Auditoría</h3>
-    <p class="nd-soon">Auditoría avanzada: próximamente.</p>
+    <p class="nd-soon">Importaciones de asistencia. Los registros archivados por administrador dejan de mostrarse aquí (soft delete).</p>
     <div class="nd-table-wrap">
-      <table class="nd-table">
+      <table class="nd-table" id="nd-historial-imports">
         <thead>
           <tr>
             <th>ID</th>
@@ -123,12 +134,12 @@
             <th>Total</th>
             <th>Warnings</th>
             <th>Creado</th>
-            <th>Ver</th>
+            <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for item in dash.recent_imports %}
-          <tr>
+          <tr data-import-id="{{ item.id }}">
             <td>{{ item.id }}</td>
             <td>{{ item.semana }}</td>
             <td>{{ item.cliente }}</td>
@@ -136,7 +147,21 @@
             <td>{{ item.total_rows }}</td>
             <td>{{ item.warning_count }}</td>
             <td>{{ item.created_at }}</td>
-            <td><a class="btn btn-secondary" href="{{ url_for('nomina.asistencia_importada', import_id=item.id) }}">Abrir</a></td>
+            <td>
+              <div class="nd-act">
+                <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.master_hub', import_id=item.id) }}">Abrir</a>
+                {% if current_user and current_user.role == 'admin' %}
+                <button type="button" class="btn btn-danger btn-sm js-nd-archivar"
+                  data-id="{{ item.id }}"
+                  data-semana="{{ item.semana | e }}"
+                  data-cliente="{{ item.cliente | e }}"
+                  data-coordinador="{{ item.coordinador | e }}"
+                  data-total="{{ item.total_rows }}"
+                  data-creado="{{ item.created_at | e }}"
+                  data-url="{{ url_for('nomina.dashboard_archivar_asistencia_import', import_id=item.id) }}">Eliminar</button>
+                {% endif %}
+              </div>
+            </td>
           </tr>
           {% endfor %}
           {% if not dash.recent_imports %}
@@ -147,5 +172,122 @@
     </div>
   </section>
 </div>
+
+{% if current_user and current_user.role == 'admin' %}
+<dialog id="nd-archivar-dialog" class="nd-modal" aria-labelledby="nd-archivar-title">
+  <div class="nd-modal-inner">
+    <div class="nd-modal-step" id="nd-archivar-step1">
+      <h4 id="nd-archivar-title">Confirmar eliminación del historial</h4>
+      <dl>
+        <dt>ID</dt><dd id="nd-archivar-f-id"></dd>
+        <dt>Semana</dt><dd id="nd-archivar-f-semana"></dd>
+        <dt>Cliente</dt><dd id="nd-archivar-f-cliente"></dd>
+        <dt>Coordinador</dt><dd id="nd-archivar-f-coord"></dd>
+        <dt>Total registros</dt><dd id="nd-archivar-f-total"></dd>
+        <dt>Creado</dt><dd id="nd-archivar-f-creado"></dd>
+      </dl>
+      <p class="nd-del-hint">¿Seguro que deseas eliminar este registro del historial? Esta acción lo ocultará del dashboard.</p>
+      <div class="nd-modal-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="nd-archivar-cancel-all">Cancelar</button>
+        <button type="button" class="btn btn-primary btn-sm" id="nd-archivar-to-step2">Continuar</button>
+      </div>
+    </div>
+    <div class="nd-modal-step" id="nd-archivar-step2" hidden>
+      <h4>Confirmación final</h4>
+      <p class="nd-del-hint">Esta acción no se puede deshacer desde la interfaz. Escribe <strong>ELIMINAR</strong> para habilitar el botón.</p>
+      <label for="nd-archivar-confirm-input" class="nd-soon">Confirmación</label>
+      <input type="text" id="nd-archivar-confirm-input" autocomplete="off" spellcheck="false" placeholder="ELIMINAR">
+      <div class="nd-modal-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="nd-archivar-back">Atrás</button>
+        <button type="button" class="btn btn-danger btn-sm" id="nd-archivar-submit" disabled>Eliminar definitivamente</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+<script>
+(function () {
+  var dialog = document.getElementById('nd-archivar-dialog');
+  if (!dialog) return;
+  var step1 = document.getElementById('nd-archivar-step1');
+  var step2 = document.getElementById('nd-archivar-step2');
+  var inp = document.getElementById('nd-archivar-confirm-input');
+  var btnGo = document.getElementById('nd-archivar-to-step2');
+  var btnBack = document.getElementById('nd-archivar-back');
+  var btnCancel = document.getElementById('nd-archivar-cancel-all');
+  var btnSubmit = document.getElementById('nd-archivar-submit');
+  var pendingUrl = '';
+
+  function showStep(n) {
+    step1.hidden = n !== 1;
+    step2.hidden = n !== 2;
+    if (n === 2) {
+      inp.value = '';
+      btnSubmit.disabled = true;
+      setTimeout(function () { inp.focus(); }, 50);
+    }
+  }
+
+  function openFor(btn) {
+    document.getElementById('nd-archivar-f-id').textContent = btn.getAttribute('data-id') || '';
+    document.getElementById('nd-archivar-f-semana').textContent = btn.getAttribute('data-semana') || '';
+    document.getElementById('nd-archivar-f-cliente').textContent = btn.getAttribute('data-cliente') || '';
+    document.getElementById('nd-archivar-f-coord').textContent = btn.getAttribute('data-coordinador') || '';
+    document.getElementById('nd-archivar-f-total').textContent = btn.getAttribute('data-total') || '';
+    document.getElementById('nd-archivar-f-creado').textContent = btn.getAttribute('data-creado') || '';
+    pendingUrl = btn.getAttribute('data-url') || '';
+    showStep(1);
+    dialog.showModal();
+  }
+
+  function closeAll() {
+    dialog.close();
+    pendingUrl = '';
+  }
+
+  document.querySelectorAll('.js-nd-archivar').forEach(function (btn) {
+    btn.addEventListener('click', function () { openFor(btn); });
+  });
+
+  btnCancel.addEventListener('click', closeAll);
+  dialog.addEventListener('cancel', function (e) { e.preventDefault(); closeAll(); });
+
+  btnGo.addEventListener('click', function () { showStep(2); });
+  btnBack.addEventListener('click', function () { showStep(1); });
+
+  inp.addEventListener('input', function () {
+    btnSubmit.disabled = inp.value.trim() !== 'ELIMINAR';
+  });
+
+  btnSubmit.addEventListener('click', function () {
+    if (!pendingUrl || inp.value.trim() !== 'ELIMINAR') return;
+    btnSubmit.disabled = true;
+    fetch(pendingUrl, { method: 'POST', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (x) {
+        if (x.j && x.j.success) {
+          var id = document.getElementById('nd-archivar-f-id').textContent;
+          var row = document.querySelector('#nd-historial-imports tr[data-import-id="' + id + '"]');
+          if (row) row.remove();
+          var tbody = document.querySelector('#nd-historial-imports tbody');
+          if (tbody && !tbody.querySelector('tr[data-import-id]')) {
+            var tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="8">Sin importaciones registradas todavía.</td>';
+            tbody.appendChild(tr);
+          }
+          closeAll();
+          alert(x.j.message || 'Registro eliminado correctamente.');
+        } else {
+          alert((x.j && x.j.message) || 'No se pudo eliminar el registro.');
+          btnSubmit.disabled = false;
+        }
+      })
+      .catch(function () {
+        alert('No se pudo eliminar el registro.');
+        btnSubmit.disabled = false;
+      });
+  });
+})();
+</script>
+{% endif %}
 {% endblock %}
 

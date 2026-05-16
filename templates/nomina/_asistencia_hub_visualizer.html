@@ -1,0 +1,308 @@
+{# Requiere: imp, asistencia_key_styles (dict JSON-serializable) #}
+{% set m = imp.operative_metrics %}
+{% set styles_json = asistencia_key_styles | tojson %}
+<section id="asistencia-viz-root" class="nomi-hub-viz" data-import-id="{{ imp.id }}">
+  <div class="nomi-hub-viz-head">
+    <h3>Visualizador de asistencia</h3>
+    <div class="nomi-hub-viz-actions">
+      <a class="btn btn-secondary" href="{{ url_for('nomina.master_hub') }}">Cerrar visualizador</a>
+      {% if imp.has_original_file %}
+      <a class="btn btn-secondary" href="{{ url_for('nomina.descargar_asistencia_original', import_id=imp.id) }}">Descargar original</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="nomi-hub-metrics">
+    <div class="nomi-hub-metrics-block">
+      <div class="nomi-hub-metrics-title">Totales del archivo</div>
+      <div id="metrics-global" class="nomi-hub-metric-chips">
+        <span class="chip chip-neutral">Registros <strong>{{ m.total_registros }}</strong></span>
+        <span class="chip" data-k="A">A <strong>{{ m.per_key.A }}</strong></span>
+        <span class="chip" data-k="F">F <strong>{{ m.per_key.F }}</strong></span>
+        <span class="chip" data-k="V">V <strong>{{ m.per_key.V }}</strong></span>
+        <span class="chip" data-k="PSS">PSS <strong>{{ m.per_key.PSS }}</strong></span>
+        <span class="chip" data-k="PCS">PCS <strong>{{ m.per_key.PCS }}</strong></span>
+        <span class="chip" data-k="I">I <strong>{{ m.per_key.I }}</strong></span>
+        <span class="chip" data-k="D">D <strong>{{ m.per_key.D }}</strong></span>
+        <span class="chip chip-warn">Errores <strong>{{ m.errors_total }}</strong></span>
+        <span class="chip chip-warn">Warnings <strong>{{ m.warnings_total }}</strong></span>
+      </div>
+    </div>
+    <div class="nomi-hub-metrics-block">
+      <div class="nomi-hub-metrics-title">Totales filtrados</div>
+      <div id="metrics-filtered" class="nomi-hub-metric-chips">
+        <span class="chip chip-neutral">Registros visibles <strong id="mf-rows">—</strong></span>
+        <span class="chip" data-k="A">A <strong id="mf-A">—</strong></span>
+        <span class="chip" data-k="F">F <strong id="mf-F">—</strong></span>
+        <span class="chip" data-k="V">V <strong id="mf-V">—</strong></span>
+        <span class="chip" data-k="PSS">PSS <strong id="mf-PSS">—</strong></span>
+        <span class="chip" data-k="PCS">PCS <strong id="mf-PCS">—</strong></span>
+        <span class="chip" data-k="I">I <strong id="mf-I">—</strong></span>
+        <span class="chip" data-k="D">D <strong id="mf-D">—</strong></span>
+        <span class="chip chip-warn">Errores <strong id="mf-err">—</strong></span>
+        <span class="chip chip-warn">Warnings <strong id="mf-warn">—</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="nomi-hub-kpis">
+    <div class="nomi-kpi"><span>Semana</span><strong>{{ imp.semana or '—' }}</strong></div>
+    <div class="nomi-kpi"><span>Cliente(s)</span><strong>{% if imp.clientes %}{{ imp.clientes | join(', ') }}{% else %}{{ imp.cliente or '—' }}{% endif %}</strong></div>
+    <div class="nomi-kpi"><span>Coordinador</span><strong>{{ imp.coordinador or '—' }}</strong></div>
+    <div class="nomi-kpi"><span>Archivo</span><strong>{{ imp.original_filename or imp.filename }}</strong></div>
+  </div>
+
+  <details class="nomi-hub-legend">
+    <summary>Leyenda de claves</summary>
+    <div class="nomi-legend-grid" id="nomi-legend-host"></div>
+  </details>
+
+  <div class="nomi-table-wrap">
+    <table class="nomi-table" id="asistencia-viz-table">
+      <thead>
+        <tr>
+          <th>Fila</th>
+          <th>Empleado</th>
+          <th>Cliente</th>
+          <th>Planta</th>
+          <th>Puesto</th>
+          <th>Banco</th>
+          <th>Cuenta</th>
+          {% set h0 = imp.rows[0] if imp.rows else none %}
+          <th>{{ h0.dia_1_header if h0 else 'D1' }}</th>
+          <th>{{ h0.dia_2_header if h0 else 'D2' }}</th>
+          <th>{{ h0.dia_3_header if h0 else 'D3' }}</th>
+          <th>{{ h0.dia_4_header if h0 else 'D4' }}</th>
+          <th>{{ h0.dia_5_header if h0 else 'D5' }}</th>
+          <th>{{ h0.dia_6_header if h0 else 'D6' }}</th>
+          <th>{{ h0.dia_7_header if h0 else 'D7' }}</th>
+          <th>Horas extra</th>
+          <th>Horas extra normales</th>
+          <th>Días cubiertos</th>
+          <th>Vacaciones</th>
+          <th>Prima vac.</th>
+          <th>Bono</th>
+          <th>Deducciones</th>
+          <th>Observaciones</th>
+          <th>Mensajes</th>
+        </tr>
+        <tr class="nomi-filter-row">
+          <th><input type="text" data-col="0" class="nomi-filter" placeholder="Fila"></th>
+          <th><input type="text" data-col="1" class="nomi-filter" placeholder="Texto"></th>
+          <th><select data-col="2" class="nomi-filter"><option value="">Todos</option></select></th>
+          <th><select data-col="3" class="nomi-filter"><option value="">Todos</option></select></th>
+          <th><select data-col="4" class="nomi-filter"><option value="">Todos</option></select></th>
+          <th><select data-col="5" class="nomi-filter"><option value="">Todos</option></select></th>
+          <th><input type="text" data-col="6" class="nomi-filter" placeholder="Texto"></th>
+          {% for i in range(7) %}
+          <th><select data-col="{{ 7 + i }}" class="nomi-filter"><option value="">Todos</option></select></th>
+          {% endfor %}
+          <th><input type="text" data-col="14" class="nomi-filter" placeholder="HE"></th>
+          <th><input type="text" data-col="15" class="nomi-filter" placeholder="HEN"></th>
+          <th><input type="text" data-col="16" class="nomi-filter" placeholder="DC"></th>
+          <th><input type="text" data-col="17" class="nomi-filter" placeholder="Vac"></th>
+          <th><select data-col="18" class="nomi-filter"><option value="">Todos</option></select></th>
+          <th><input type="text" data-col="19" class="nomi-filter" placeholder="Bono"></th>
+          <th><input type="text" data-col="20" class="nomi-filter" placeholder="Ded"></th>
+          <th><input type="text" data-col="21" class="nomi-filter" placeholder="Obs"></th>
+          <th><input type="text" data-col="22" class="nomi-filter" placeholder="Msg"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in imp.rows %}
+        {% set has_errors = (row.errors|length) > 0 %}
+        {% set has_warnings = (row.warnings|length) > 0 %}
+        {% set msgs = (row.errors + row.warnings) %}
+        <tr class="nomi-data-row {% if has_errors %}nomi-row-error{% elif has_warnings %}nomi-row-warn{% endif %}"
+            data-mensajes="{{ (msgs | join(' || ')) | e }}">
+          <td>{{ row.row_number }}</td>
+          <td>{{ row.nombre_empleado }}</td>
+          <td>{{ row.cliente }}</td>
+          <td>{{ row.planta }}</td>
+          <td>{{ row.puesto }}</td>
+          <td>{{ row.banco }}</td>
+          <td>{{ row.cuenta }}</td>
+          <td>{{ row.dia_1_value }}</td>
+          <td>{{ row.dia_2_value }}</td>
+          <td>{{ row.dia_3_value }}</td>
+          <td>{{ row.dia_4_value }}</td>
+          <td>{{ row.dia_5_value }}</td>
+          <td>{{ row.dia_6_value }}</td>
+          <td>{{ row.dia_7_value }}</td>
+          <td>{{ row.he }}</td>
+          <td>{{ row.horas_extra_normales }}</td>
+          <td>{{ row.dias_cubiertos_normales }}</td>
+          <td>{{ row.vacaciones_laboradas }}</td>
+          <td>{{ row.prima_vacacional }}</td>
+          <td>{{ row.bono }}</td>
+          <td>{{ row.deducciones }}</td>
+          <td>{{ row.observaciones }}</td>
+          <td class="nomi-msg-cell">
+            {% for msg in row.errors %}<div class="nomi-msg error">E: {{ msg }}</div>{% endfor %}
+            {% for msg in row.warnings %}<div class="nomi-msg warn">W: {{ msg }}</div>{% endfor %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="nomi-filter-actions"><button type="button" class="btn btn-secondary" id="nomi-clear-filters">Limpiar filtros</button></p>
+</section>
+
+<script>
+(function () {
+  const STYLES = {{ styles_json | safe }};
+  const DAILY_KEYS = ["A","F","V","PSS","PCS","I","D","DL","FE","FL","NI","B","R","S","OT"];
+  const table = document.getElementById("asistencia-viz-table");
+  if (!table) return;
+
+  function norm(s) { return (s || "").toString().replace(/\u00a0/g, " ").trim().toUpperCase(); }
+
+  function cellStyle(code) {
+    const k = norm(code);
+    const st = STYLES[k] || STYLES._neutral;
+    return { background: st.bg, fontWeight: st.bold ? "700" : "500" };
+  }
+
+  function paintDailyCells() {
+    table.querySelectorAll("tbody tr").forEach(function (tr) {
+      for (let c = 7; c <= 13; c++) {
+        const td = tr.children[c];
+        if (!td) continue;
+        const ccode = norm(td.textContent);
+        const st = cellStyle(ccode);
+        td.style.background = st.background;
+        td.style.fontWeight = st.fontWeight;
+        td.style.textAlign = "center";
+        td.style.borderRadius = "6px";
+      }
+    });
+  }
+
+  const legendHost = document.getElementById("nomi-legend-host");
+  if (legendHost) {
+    DAILY_KEYS.forEach(function (k) {
+      const st = cellStyle(k);
+      const el = document.createElement("span");
+      el.className = "nomi-legend-item";
+      el.style.background = st.background;
+      el.style.fontWeight = st.fontWeight;
+      el.textContent = k;
+      legendHost.appendChild(el);
+    });
+  }
+
+    const per = { A:0,F:0,V:0,PSS:0,PCS:0,I:0,D:0,DL:0,FE:0,FL:0,NI:0,B:0,R:0,S:0,OT:0 };
+    let unk = 0, err = 0, warn = 0;
+    visibleRows.forEach(function (tr) {
+      for (let c = 7; c <= 13; c++) {
+        const td = tr.children[c];
+        if (!td) continue;
+        const ccode = norm(td.textContent);
+        if (!ccode) continue;
+        if (Object.prototype.hasOwnProperty.call(per, ccode)) per[ccode] += 1;
+        else unk += 1;
+      }
+      err += tr.querySelectorAll(".nomi-msg.error").length;
+      warn += tr.querySelectorAll(".nomi-msg.warn").length;
+    });
+    return {
+      total_registros: visibleRows.length,
+      per_key: per,
+      unknown_keys_total: unk,
+      errors_total: err,
+      warnings_total: warn
+    };
+  }
+
+  function applyFilteredMetrics(visibleRows) {
+    const mf = countFiltered(visibleRows);
+    const set = function (id, v) {
+      const n = document.getElementById(id);
+      if (n) n.textContent = v;
+    };
+    set("mf-rows", mf.total_registros);
+    set("mf-A", mf.per_key.A); set("mf-F", mf.per_key.F); set("mf-V", mf.per_key.V);
+    set("mf-PSS", mf.per_key.PSS); set("mf-PCS", mf.per_key.PCS);
+    set("mf-I", mf.per_key.I); set("mf-D", mf.per_key.D);
+    set("mf-err", mf.errors_total); set("mf-warn", mf.warnings_total);
+  }
+
+  function uniqCol(colIdx) {
+    const out = new Set();
+    table.querySelectorAll("tbody tr").forEach(function (tr) {
+      const cell = tr.children[colIdx];
+      if (!cell) return;
+      let t = (cell.textContent || "").trim();
+      if (colIdx >= 7 && colIdx <= 13) t = norm(cell.textContent);
+      if (t) out.add(t);
+    });
+    return Array.from(out).sort();
+  }
+
+  function fillSelect(sel, values) {
+    const cur = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    values.forEach(function (v) {
+      const o = document.createElement("option");
+      o.value = v; o.textContent = v;
+      sel.appendChild(o);
+    });
+    sel.value = cur;
+  }
+
+  [2,3,4,5,18].forEach(function (ci) {
+    const sel = table.querySelector('select.nomi-filter[data-col="' + ci + '"]');
+    if (sel) fillSelect(sel, uniqCol(ci));
+  });
+  for (let i = 0; i < 7; i++) {
+    const ci = 7 + i;
+    const sel = table.querySelector('select.nomi-filter[data-col="' + ci + '"]');
+    if (sel) fillSelect(sel, uniqCol(ci));
+  }
+
+  function rowMatches(tr) {
+    const filters = table.querySelectorAll(".nomi-filter");
+    for (let i = 0; i < filters.length; i++) {
+      const f = filters[i];
+      const col = parseInt(f.getAttribute("data-col"), 10);
+      const raw = (f.value || "").trim();
+      if (!raw) continue;
+      const cell = tr.children[col];
+      if (!cell) continue;
+      let hay = (cell.textContent || "").trim();
+      if (col >= 7 && col <= 13) hay = norm(cell.textContent);
+      if (f.tagName === "SELECT") {
+        if (hay !== raw) return false;
+      } else {
+        if (col === 22) {
+          const pack = (tr.getAttribute("data-mensajes") || "").toLowerCase();
+          if (!pack.includes(raw.toLowerCase())) return false;
+        } else if (!hay.toLowerCase().includes(raw.toLowerCase())) return false;
+      }
+    }
+    return true;
+  }
+
+  function runFilters() {
+    const rows = Array.from(table.querySelectorAll("tbody tr"));
+    rows.forEach(function (tr) {
+      tr.style.display = rowMatches(tr) ? "" : "none";
+    });
+    const vis = rows.filter(function (tr) { return tr.style.display !== "none"; });
+    applyFilteredMetrics(vis);
+  }
+
+  table.querySelectorAll(".nomi-filter").forEach(function (el) {
+    el.addEventListener("input", runFilters);
+    el.addEventListener("change", runFilters);
+  });
+  document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {
+    table.querySelectorAll(".nomi-filter").forEach(function (el) { el.value = ""; });
+    runFilters();
+  });
+
+  paintDailyCells();
+  runFilters();
+})();
+</script>

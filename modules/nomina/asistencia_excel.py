@@ -6,8 +6,13 @@ from pathlib import Path
 from typing import Iterable
 
 from openpyxl import load_workbook
+from openpyxl.formatting.formatting import ConditionalFormattingList
+from openpyxl.formatting.rule import FormulaRule
+from openpyxl.styles import Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from modules.nomina.asistencia_palette import CF_RULE_KEY_ORDER, ATTENDANCE_KEY_STYLES
 from modules.nomina.config import get_holidays_for_year
 from modules.nomina.db import NominaBaseRow
 
@@ -121,6 +126,27 @@ def _write_base_rows(
     return written
 
 
+def _apply_daily_conditional_formatting(ws: Worksheet, *, data_end_row: int) -> None:
+    """Regenera formato condicional en columnas diarias (G:M) para todo el periodo generado."""
+    last_row = max(int(data_end_row or START_DATA_ROW), START_DATA_ROW + 250)
+    c1 = get_column_letter(COL_DAY_START)
+    c2 = get_column_letter(COL_DAY_END)
+    top_left = f"{c1}{START_DATA_ROW}"
+    cell_range = f"{c1}{START_DATA_ROW}:{c2}{last_row}"
+    ws.conditional_formatting = ConditionalFormattingList()
+    for code in CF_RULE_KEY_ORDER:
+        st = ATTENDANCE_KEY_STYLES.get(code)
+        if st is None:
+            continue
+        fill = PatternFill("solid", fgColor=st.fill_hex)
+        font: Font | None = Font(bold=True) if st.font_bold else None
+        formula = [f'EXACT(UPPER(TRIM({top_left})),"{code}")']
+        ws.conditional_formatting.add(
+            cell_range,
+            FormulaRule(formula=formula, fill=fill, font=font, stopIfTrue=True),
+        )
+
+
 def build_asistencia_template_file(
     *,
     fecha_inicio: date,
@@ -138,7 +164,9 @@ def build_asistencia_template_file(
     _write_superior_fields(ws, week_label(fecha_inicio, fecha_fin), cliente.strip(), coordinador.strip())
     _write_daily_headers(ws, build_daily_headers(fecha_inicio))
     holiday_map = _holidays_in_range(fecha_inicio)
-    _write_base_rows(ws, base_rows, sorted(holiday_map.keys()))
+    written = _write_base_rows(ws, base_rows, sorted(holiday_map.keys()))
+    data_end = START_DATA_ROW + written - 1 if written else START_DATA_ROW - 1
+    _apply_daily_conditional_formatting(ws, data_end_row=data_end)
 
     output = BytesIO()
     wb.save(output)
