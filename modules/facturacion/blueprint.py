@@ -67,6 +67,7 @@ from modules.facturacion.excel_export import build_facturacion_export_bytes
 from modules.facturacion.excel_import import import_facturacion_excel
 from modules.facturacion.normalize import extraer_numero_factura_desde_nombre_archivo, validar_factura_payload
 from services.app_activity import log_app_activity
+from modules.roles_access import can_access_facturacion, normalized_role
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "facturacion"
@@ -77,6 +78,14 @@ facturacion_bp = Blueprint(
     url_prefix="/facturacion",
     template_folder=str(_TEMPLATE_DIR),
 )
+
+
+@facturacion_bp.before_request
+def _facturacion_module_role_guard() -> None:
+    if g.user is None:
+        return
+    if not can_access_facturacion(normalized_role(g.user)):
+        abort(403)
 
 
 def _current_user_role() -> str | None:

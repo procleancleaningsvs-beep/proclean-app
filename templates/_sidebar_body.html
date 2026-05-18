@@ -21,6 +21,7 @@
     <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link">Movimientos IMSS</a>
   </div>
 
+  {% if current_user.role != 'cobranza' %}
   <div class="nav-group">
     <span class="nav-group-label">Carrier</span>
     <a href="{{ url_for('carrier_curso.index') }}" class="nav-link">Cursos</a>
@@ -34,27 +35,45 @@
     <a href="{{ url_for('examenes_medicos.index') }}" class="nav-link">Exámenes médicos</a>
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="nav-link">Historial exámenes</a>
   </div>
+  {% endif %}
 
+  {% if current_user.role in ['admin', 'nomina', 'usuario'] %}
   <div class="nav-group">
     <span class="nav-group-label">Finiquitos</span>
     <a href="{{ url_for('finiquitos.pagina_finiquito') }}" class="nav-link">Finiquito</a>
     <a href="{{ url_for('finiquitos.pagina_historial') }}" class="nav-link">Historial finiquitos</a>
   </div>
+  {% endif %}
 
+  {% if current_user.role in ['admin', 'cobranza'] %}
   <div class="nav-group">
     <span class="nav-group-label">Facturación</span>
     <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link">Facturación</a>
   </div>
+  {% endif %}
 
+  {% if current_user.role in ['admin', 'nomina', 'coordinador'] %}
   <div class="nav-group">
-    <span class="nav-group-label">Herramientas</span>
-    <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
-    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
-    <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link">Reporte mensual</a>
-    {% if current_user.role in ['admin', 'coordinador', 'nomina'] %}
-    <a href="{{ url_for('nomina.index') }}" class="nav-link">Nóminas</a>
+    <span class="nav-group-label">Nóminas</span>
+    {% if current_user.role in ['admin', 'nomina'] %}
+    <a href="{{ url_for('nomina.index') }}" class="nav-link">Dashboard de nómina</a>
+    <a href="{{ url_for('nomina.master_hub') }}" class="nav-link">Hub de asistencia</a>
+    {% else %}
+    <a href="{{ url_for('nomina.master_hub') }}" class="nav-link">Hub de asistencia</a>
     {% endif %}
   </div>
+  {% endif %}
+
+  {% if current_user.role != 'cobranza' %}
+  <div class="nav-group">
+    <span class="nav-group-label">Herramientas</span>
+    {% if current_user.role in ['admin', 'nomina', 'coordinador', 'usuario'] %}
+    <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
+    {% endif %}
+    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
+    <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link">Reporte mensual</a>
+  </div>
+  {% endif %}
 
   {% if current_user.role == 'admin' %}
   <div class="nav-group">

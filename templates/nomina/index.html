@@ -45,7 +45,8 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
 .nomi-filter-row th { position:sticky; top:2.1rem; background:#fff; z-index:1; padding:.2rem !important; }
 .nomi-filter { width:100%; font-size:.75rem; padding:.15rem .25rem; border:1px solid #e5e7eb; border-radius:6px; }
 .nomi-row-error { background:#fff1f2; }
-.nomi-row-warn { background:#fffbeb; }
+.nomi-row-has-warn { border-left:3px solid #f59e0b; }
+.nomi-msg-warn-bg { background:#fffbeb; }
 .nomi-msg { margin:.1rem 0; font-size:.75rem; }
 .nomi-msg.error { color:#be123c; }
 .nomi-msg.warn { color:#b45309; }
@@ -61,14 +62,20 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
     <h2>Hub de Master de Asistencia</h2>
     <p>Descarga de plantilla, importación con detección automática de cliente(s) desde el archivo, validación contra Headcount y visualizador en esta misma página.</p>
   </div>
-  <div class="nom-note">Sesión: <strong>{{ coordinador_display }}</strong></div>
+  <div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;">
+    {% set user_role = ((g.user.role if g.user else '') | string | lower) %}
+    {% if user_role in ['admin', 'nomina'] %}
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Regresar al dashboard</a>
+    {% endif %}
+    <div class="nom-note">Sesión: <strong>{{ coordinador_display }}</strong></div>
+  </div>
 </section>
 
 <div class="nom-hub">
   {% if headcount_source == 'historial_fallback' %}
-  <div class="nom-note">Clientes desde historial interno (Headcount no disponible).</div>
+  <div class="nom-note" role="alert">Headcount no disponible: la validación contra catálogo se omitió. Las filas se conservan sin cruce automático con Headcount en vivo.</div>
   {% elif headcount_error %}
-  <div class="nom-note">Headcount: {{ headcount_error }}</div>
+  <div class="nom-note" role="alert">Headcount no disponible ({{ headcount_error }}). La validación contra catálogo se omitió.</div>
   {% endif %}
 
   <div class="nom-grid">

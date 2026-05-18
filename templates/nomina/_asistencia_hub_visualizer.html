@@ -24,8 +24,17 @@
         <span class="chip" data-k="PCS">PCS <strong>{{ m.per_key.PCS }}</strong></span>
         <span class="chip" data-k="I">I <strong>{{ m.per_key.I }}</strong></span>
         <span class="chip" data-k="D">D <strong>{{ m.per_key.D }}</strong></span>
+        <span class="chip" data-k="DL">DL <strong>{{ m.per_key.DL }}</strong></span>
+        <span class="chip" data-k="FE">FE <strong>{{ m.per_key.FE }}</strong></span>
+        <span class="chip" data-k="FL">FL <strong>{{ m.per_key.FL }}</strong></span>
+        <span class="chip" data-k="NI">NI <strong>{{ m.per_key.NI }}</strong></span>
+        <span class="chip" data-k="B">B <strong>{{ m.per_key.B }}</strong></span>
+        <span class="chip" data-k="R">R <strong>{{ m.per_key.R }}</strong></span>
+        <span class="chip" data-k="S">S <strong>{{ m.per_key.S }}</strong></span>
+        <span class="chip" data-k="OT">OT <strong>{{ m.per_key.OT }}</strong></span>
         <span class="chip chip-warn">Errores <strong>{{ m.errors_total }}</strong></span>
         <span class="chip chip-warn">Warnings <strong>{{ m.warnings_total }}</strong></span>
+        <span class="chip chip-warn">Claves descon. <strong>{{ m.unknown_keys_total }}</strong></span>
       </div>
     </div>
     <div class="nomi-hub-metrics-block">
@@ -39,8 +48,17 @@
         <span class="chip" data-k="PCS">PCS <strong id="mf-PCS">—</strong></span>
         <span class="chip" data-k="I">I <strong id="mf-I">—</strong></span>
         <span class="chip" data-k="D">D <strong id="mf-D">—</strong></span>
+        <span class="chip" data-k="DL">DL <strong id="mf-DL">—</strong></span>
+        <span class="chip" data-k="FE">FE <strong id="mf-FE">—</strong></span>
+        <span class="chip" data-k="FL">FL <strong id="mf-FL">—</strong></span>
+        <span class="chip" data-k="NI">NI <strong id="mf-NI">—</strong></span>
+        <span class="chip" data-k="B">B <strong id="mf-B">—</strong></span>
+        <span class="chip" data-k="R">R <strong id="mf-R">—</strong></span>
+        <span class="chip" data-k="S">S <strong id="mf-S">—</strong></span>
+        <span class="chip" data-k="OT">OT <strong id="mf-OT">—</strong></span>
         <span class="chip chip-warn">Errores <strong id="mf-err">—</strong></span>
         <span class="chip chip-warn">Warnings <strong id="mf-warn">—</strong></span>
+        <span class="chip chip-warn">Claves descon. <strong id="mf-unk">—</strong></span>
       </div>
     </div>
   </div>
@@ -113,7 +131,7 @@
         {% set has_errors = (row.errors|length) > 0 %}
         {% set has_warnings = (row.warnings|length) > 0 %}
         {% set msgs = (row.errors + row.warnings) %}
-        <tr class="nomi-data-row {% if has_errors %}nomi-row-error{% elif has_warnings %}nomi-row-warn{% endif %}"
+        <tr class="nomi-data-row{% if has_errors %} nomi-row-error{% endif %}{% if has_warnings %} nomi-row-has-warn{% endif %}"
             data-mensajes="{{ (msgs | join(' || ')) | e }}">
           <td>{{ row.row_number }}</td>
           <td>{{ row.nombre_empleado }}</td>
@@ -137,7 +155,7 @@
           <td>{{ row.bono }}</td>
           <td>{{ row.deducciones }}</td>
           <td>{{ row.observaciones }}</td>
-          <td class="nomi-msg-cell">
+          <td class="nomi-msg-cell{% if has_warnings %} nomi-msg-warn-bg{% endif %}">
             {% for msg in row.errors %}<div class="nomi-msg error">E: {{ msg }}</div>{% endfor %}
             {% for msg in row.warnings %}<div class="nomi-msg warn">W: {{ msg }}</div>{% endfor %}
           </td>
@@ -192,6 +210,7 @@
     });
   }
 
+  function countFiltered(visibleRows) {
     const per = { A:0,F:0,V:0,PSS:0,PCS:0,I:0,D:0,DL:0,FE:0,FL:0,NI:0,B:0,R:0,S:0,OT:0 };
     let unk = 0, err = 0, warn = 0;
     visibleRows.forEach(function (tr) {
@@ -222,10 +241,12 @@
       if (n) n.textContent = v;
     };
     set("mf-rows", mf.total_registros);
-    set("mf-A", mf.per_key.A); set("mf-F", mf.per_key.F); set("mf-V", mf.per_key.V);
-    set("mf-PSS", mf.per_key.PSS); set("mf-PCS", mf.per_key.PCS);
-    set("mf-I", mf.per_key.I); set("mf-D", mf.per_key.D);
-    set("mf-err", mf.errors_total); set("mf-warn", mf.warnings_total);
+    DAILY_KEYS.forEach(function (k) {
+      set("mf-" + k, mf.per_key[k] != null ? mf.per_key[k] : 0);
+    });
+    set("mf-err", mf.errors_total);
+    set("mf-warn", mf.warnings_total);
+    set("mf-unk", mf.unknown_keys_total);
   }
 
   function uniqCol(colIdx) {
@@ -248,7 +269,8 @@
       o.value = v; o.textContent = v;
       sel.appendChild(o);
     });
-    sel.value = cur;
+    if (values.indexOf(cur) >= 0) sel.value = cur;
+    else sel.value = "";
   }
 
   [2,3,4,5,18].forEach(function (ci) {
@@ -273,7 +295,11 @@
       let hay = (cell.textContent || "").trim();
       if (col >= 7 && col <= 13) hay = norm(cell.textContent);
       if (f.tagName === "SELECT") {
-        if (hay !== raw) return false;
+        if (col >= 7 && col <= 13) {
+          if (hay !== norm(raw)) return false;
+        } else if (hay.toLowerCase() !== raw.toLowerCase()) {
+          return false;
+        }
       } else {
         if (col === 22) {
           const pack = (tr.getAttribute("data-mensajes") || "").toLowerCase();
@@ -291,10 +317,17 @@
     });
     const vis = rows.filter(function (tr) { return tr.style.display !== "none"; });
     applyFilteredMetrics(vis);
+    paintDailyCells();
+  }
+
+  let debTimer = null;
+  function scheduleRun() {
+    if (debTimer) clearTimeout(debTimer);
+    debTimer = setTimeout(runFilters, 120);
   }
 
   table.querySelectorAll(".nomi-filter").forEach(function (el) {
-    el.addEventListener("input", runFilters);
+    el.addEventListener("input", scheduleRun);
     el.addEventListener("change", runFilters);
   });
   document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {

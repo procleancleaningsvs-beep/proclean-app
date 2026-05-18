@@ -44,6 +44,8 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from modules.roles_access import VALID_USER_ROLES, can_access_checkid, normalized_role
+
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
 from services.checkid_client import (
@@ -275,6 +277,29 @@ def create_app() -> Flask:
         user_id = session.get("user_id")
         g.user = get_user_by_id(user_id) if user_id else None
 
+    @app.before_request
+    def _cobranza_allowed_paths_guard():
+        """Rol cobranza: solo Facturación, exportación IMSS y flujo de movimientos en app principal."""
+        u = g.get("user")
+        if not u:
+            return
+        if normalized_role(u) != "cobranza":
+            return
+        path = request.path or ""
+        if path.startswith("/static/") or path == "/favicon.ico":
+            return
+        if path in ("/", "/inicio", "/login", "/logout"):
+            return
+        if path.startswith("/facturacion"):
+            return
+        if path.startswith("/exportacion-imss"):
+            return
+        if path.startswith("/formatos/nuevo"):
+            return
+        if path.startswith("/historial") or path.startswith("/descargar/"):
+            return
+        abort(403)
+
     @app.route("/")
     def index():
         if g.user:
@@ -494,6 +519,8 @@ def create_app() -> Flask:
     @app.route("/checkid")
     @login_required
     def checkid_consulta():
+        if not can_access_checkid(normalized_role(g.user)):
+            abort(403)
         ensure_row_id = None
         raw_focus = request.args.get("focus")
         if raw_focus is not None and str(raw_focus).strip() != "":
@@ -602,7 +629,7 @@ def create_app() -> Flask:
                     flash("Usuario no válido.", "error")
                 elif not username:
                     flash("El usuario es obligatorio.", "error")
-                elif role not in {"admin", "usuario", "coordinador", "nomina"}:
+                elif role not in VALID_USER_ROLES:
                     flash("Rol no válido.", "error")
                 elif g.user["id"] == user_id and role != "admin":
                     flash("No puedes quitarte el rol de administrador a ti mismo.", "error")
@@ -634,7 +661,7 @@ def create_app() -> Flask:
 
                 if not username:
                     flash("El usuario es obligatorio.", "error")
-                elif role not in {"admin", "usuario", "coordinador", "nomina"}:
+                elif role not in VALID_USER_ROLES:
                     flash("Rol no válido.", "error")
                 else:
                     if not password:
@@ -685,6 +712,8 @@ def create_app() -> Flask:
     @login_required
     @limiter.limit(CHECKID_BUSCAR_RATE_LIMIT)
     def api_checkid_buscar():
+        if not can_access_checkid(normalized_role(g.user)):
+            abort(403)
         payload = request.get_json(silent=True)
         if payload is None:
             _log_checkid_struct(
@@ -841,6 +870,8 @@ def create_app() -> Flask:
     @app.get("/api/checkid/historial/<int:entry_id>/detalle")
     @login_required
     def api_checkid_historial_detalle(entry_id: int):
+        if not can_access_checkid(normalized_role(g.user)):
+            abort(403)
         bundle = get_checkid_detail_bundle_for_row(str(DB_PATH), entry_id)
         if bundle is None:
             return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
@@ -850,6 +881,8 @@ def create_app() -> Flask:
     @login_required
     @limiter.limit(CHECKID_BUSCAR_RATE_LIMIT)
     def api_checkid_historial_actualizar(entry_id: int):
+        if not can_access_checkid(normalized_role(g.user)):
+            abort(403)
         enriched_preview = get_checkid_success_row_by_id(str(DB_PATH), entry_id)
         if not enriched_preview:
             return jsonify({"ok": False, "message": "Registro no encontrado."}), 404
@@ -1045,17 +1078,17 @@ def _migrate_users_role_constraint(conn: sqlite3.Connection) -> None:
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
     ).fetchone()
     table_sql = str(row[0] if row else "")
-    if "CHECK(role IN ('admin','usuario','coordinador','nomina'))" in table_sql:
+    if "cobranza" in table_sql:
         return
 
     conn.execute("DROP TABLE IF EXISTS users_new")
     conn.execute(
         """
-        CREATE TABLE IF NOT EXISTS users_new (
+        CREATE TABLE users_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
-            role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina')),
+            role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina','cobranza')),
             created_at TEXT NOT NULL
         )
         """
@@ -1080,7 +1113,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina')),
+                role TEXT NOT NULL CHECK(role IN ('admin','usuario','coordinador','nomina','cobranza')),
                 created_at TEXT NOT NULL
             )
             """

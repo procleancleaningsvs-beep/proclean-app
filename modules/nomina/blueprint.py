@@ -4,6 +4,7 @@ import hashlib
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from difflib import SequenceMatcher
 from functools import wraps
 from io import BytesIO
 from pathlib import Path
@@ -87,6 +88,7 @@ from modules.nomina.calc_service import (
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
 from modules.nomina.headcount_bridge import obtener_headcount_completo
+from modules.roles_access import normalized_role
 from modules.nomina.infonavit_pdf import parse_infonavit_pdf
 from modules.nomina.config import (
     get_exento_he_for_year,
@@ -106,6 +108,9 @@ from modules.comparativo.headcount_service import obtener_activos
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "nomina"
 
+_NOMINA_ALLOWED_ROLES = {"admin", "nomina", "coordinador"}
+_NOMINA_DASHBOARD_ROLES = {"admin", "nomina"}
+
 nomina_bp = Blueprint(
     "nomina",
     __name__,
@@ -113,8 +118,18 @@ nomina_bp = Blueprint(
     template_folder=str(_TEMPLATE_DIR),
 )
 
-_NOMINA_ALLOWED_ROLES = {"admin", "nomina", "coordinador"}
-_NOMINA_DASHBOARD_ROLES = {"admin", "nomina"}
+
+@nomina_bp.before_request
+def _nomina_module_access_guard() -> None:
+    """Bloquea módulo Nóminas a roles no autorizados (no solo el menú)."""
+    ep = str(getattr(request, "endpoint", "") or "")
+    if not ep.startswith("nomina."):
+        return
+    if g.user is None:
+        return
+    r = normalized_role(g.user)
+    if r not in _NOMINA_ALLOWED_ROLES:
+        abort(403)
 
 
 def _login_required_page(view):
@@ -289,7 +304,11 @@ def _cliente_label_for_import(clientes: list[str]) -> str:
 def _enrich_rows_with_headcount(
     rows: list[dict], db_path: str
 ) -> tuple[list[dict], str, int, list[str]]:
-    """Match NSS → nombre → cliente+planta; Headcount completo como fuente de verdad."""
+    """Match NSS → nombre → cliente+planta; Headcount como fuente de verdad.
+
+    Cliente y trabajador se comparan con normalización robusta (mayúsculas, acentos, espacios).
+    Si Headcount no está disponible (fallback interno), no se generan warnings masivos por fila.
+    """
     hc_rows: list[dict] = []
     source = "headcount"
     try:
@@ -309,13 +328,17 @@ def _enrich_rows_with_headcount(
                 }
             )
 
+    hc_unavailable = source != "headcount"
+
     by_nss: dict[str, dict] = {}
     by_name: dict[str, list[dict]] = {}
-    hc_cliente_keys: set[str] = set()
+    hc_client_norm_to_canonical: dict[str, str] = {}
     for item in hc_rows:
         cliente_txt = str(item.get("cliente") or "").strip()
         if cliente_txt:
-            hc_cliente_keys.add(_cliente_key_loose(cliente_txt))
+            cn = _normalize_name(cliente_txt)
+            if cn and cn not in hc_client_norm_to_canonical:
+                hc_client_norm_to_canonical[cn] = cliente_txt
         nss_key = _nss_digits(str(item.get("nss") or ""))
         if len(nss_key) >= 8 and nss_key not in by_nss:
             by_nss[nss_key] = item
@@ -323,16 +346,42 @@ def _enrich_rows_with_headcount(
         if nombre:
             by_name.setdefault(nombre, []).append(item)
 
+    hc_cliente_keys = set(hc_client_norm_to_canonical.keys())
+
+    # Resolver cliente del archivo → clave normalizada de catálogo Headcount (exacta o fuzzy ≥ 0.88).
+    cliente_file_norm_resolve: dict[str, str] = {}
+    for nk in hc_cliente_keys:
+        cliente_file_norm_resolve[nk] = nk
+
     clientes_en_archivo = sorted(
         {str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()}
     )
+    for c in clientes_en_archivo:
+        fnk = _normalize_name(c)
+        if not fnk or fnk in cliente_file_norm_resolve:
+            continue
+        if fnk in hc_cliente_keys:
+            cliente_file_norm_resolve[fnk] = fnk
+            continue
+        best_hk: str | None = None
+        best_r = 0.0
+        for hk in hc_cliente_keys:
+            r = SequenceMatcher(None, fnk, hk).ratio()
+            if r > best_r:
+                best_r = r
+                best_hk = hk
+        if best_hk is not None and best_r >= 0.88:
+            cliente_file_norm_resolve[fnk] = best_hk
+
     clientes_fuera: list[str] = []
     seen_fuera: set[str] = set()
     for c in clientes_en_archivo:
-        ck = _cliente_key_loose(c)
-        if ck and ck not in hc_cliente_keys:
-            if ck not in seen_fuera:
-                seen_fuera.add(ck)
+        fnk = _normalize_name(c)
+        if not fnk:
+            continue
+        if fnk not in cliente_file_norm_resolve:
+            if fnk not in seen_fuera:
+                seen_fuera.add(fnk)
                 clientes_fuera.append(c)
 
     pending = 0
@@ -340,13 +389,9 @@ def _enrich_rows_with_headcount(
         warnings = list(row.get("warnings") or [])
         nombre_n = _normalize_name(str(row.get("nombre_empleado") or ""))
         file_nss = _nss_digits(str(row.get("nss") or ""))
-        file_cliente_k = _cliente_key_loose(str(row.get("cliente") or ""))
+        file_cliente_k = _normalize_name(str(row.get("cliente") or ""))
+        resolved_cliente_k = cliente_file_norm_resolve.get(file_cliente_k, file_cliente_k)
         file_planta = _normalize_planta_key(str(row.get("planta") or ""))
-
-        if file_cliente_k and file_cliente_k not in hc_cliente_keys:
-            warnings.append(
-                f"Warning: cliente «{row.get('cliente') or ''}» no aparece en Headcount; validar catálogo."
-            )
 
         hc: dict | None = None
         match_status = "pending_review"
@@ -366,18 +411,20 @@ def _enrich_rows_with_headcount(
                 same_cliente = [
                     x
                     for x in candidates
-                    if _cliente_key_loose(str(x.get("cliente") or "")) == file_cliente_k
+                    if _normalize_name(str(x.get("cliente") or "")) == resolved_cliente_k
+                    and resolved_cliente_k
                 ]
                 if len(same_cliente) == 1:
                     hc = same_cliente[0]
                     match_status = "probable_match"
                     score = 0.72
-                    warnings.append("Match por nombre y cliente; confirmar con NSS si aplica.")
+                    if not hc_unavailable:
+                        warnings.append("Match por nombre y cliente; confirmar con NSS si aplica.")
                 else:
                     same_cp = [
                         x
                         for x in candidates
-                        if _cliente_key_loose(str(x.get("cliente") or "")) == file_cliente_k
+                        if _normalize_name(str(x.get("cliente") or "")) == resolved_cliente_k
                         and _normalize_planta_key(str(x.get("patron") or "")) == file_planta
                         and file_planta
                     ]
@@ -385,15 +432,22 @@ def _enrich_rows_with_headcount(
                         hc = same_cp[0]
                         match_status = "probable_match"
                         score = 0.68
-                        warnings.append("Match por nombre, cliente y planta (Headcount); revisar.")
+                        if not hc_unavailable:
+                            warnings.append("Match por nombre, cliente y planta (Headcount); revisar.")
                     else:
-                        warnings.append(
-                            "Múltiples candidatos en Headcount por nombre; no se aplicó match automático."
-                        )
+                        if not hc_unavailable:
+                            warnings.append(
+                                "Múltiples candidatos en Headcount por nombre; no se aplicó match automático."
+                            )
             else:
-                warnings.append(
-                    "No se encontró el trabajador en Headcount; la fila se conserva para revisión manual."
-                )
+                if hc_unavailable:
+                    match_status = "pending_headcount_unavailable"
+                    score = 0.0
+                else:
+                    match_status = "no_match_headcount"
+                    warnings.append(
+                        "Trabajador no encontrado en Headcount por nombre completo/NSS. Revisar manualmente."
+                    )
 
         nss_out = file_nss or ""
         if hc is not None:
@@ -401,21 +455,31 @@ def _enrich_rows_with_headcount(
             hc_cliente = str(hc.get("cliente") or "").strip()
             hc_planta = str(hc.get("patron") or "").strip()
             hc_puesto = str(hc.get("puesto") or "").strip()
-            if file_cliente_k and hc_cliente and _cliente_key_loose(hc_cliente) != file_cliente_k:
+            if (
+                not hc_unavailable
+                and file_cliente_k
+                and hc_cliente
+                and _normalize_name(hc_cliente) != file_cliente_k
+            ):
                 warnings.append(
                     f"Cliente en archivo difiere del cliente en Headcount ({hc_cliente})."
                 )
-            if file_planta and hc_planta and _normalize_planta_key(hc_planta) != file_planta:
+            if not hc_unavailable and file_planta and hc_planta and _normalize_planta_key(hc_planta) != file_planta:
                 warnings.append("Planta en archivo difiere del PATRON en Headcount.")
-            if hc_puesto and str(row.get("puesto") or "").strip():
-                if _normalize_planta_key(str(row.get("puesto") or "")) != _normalize_planta_key(hc_puesto):
-                    warnings.append("Puesto en archivo difiere del puesto en Headcount.")
-            if not _is_headcount_active(hc):
+            if (
+                not hc_unavailable
+                and hc_puesto
+                and str(row.get("puesto") or "").strip()
+                and _normalize_planta_key(str(row.get("puesto") or "")) != _normalize_planta_key(hc_puesto)
+            ):
+                warnings.append("Puesto en archivo difiere del puesto en Headcount.")
+            if not hc_unavailable and not _is_headcount_active(hc):
                 warnings.append("Headcount indica trabajador inactivo o baja; revisar estatus.")
                 match_status = "inactive_match"
                 score = min(score, 0.55) if score > 0 else 0.55
         else:
-            pending += 1
+            if hc is None and not (hc_unavailable and match_status == "pending_headcount_unavailable"):
+                pending += 1
 
         row["warnings"] = warnings
         row["nss"] = nss_out

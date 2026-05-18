@@ -11,7 +11,8 @@
 .nomi-table { width:100%; border-collapse:collapse; min-width:1400px; }
 .nomi-table th, .nomi-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
 .nomi-row-error { background:#fff1f2; }
-.nomi-row-warn { background:#fff7ed; }
+.nomi-row-has-warn { border-left:3px solid #f59e0b; }
+.nomi-msg-warn-bg { background:#fffbeb; }
 .nomi-msg { margin:.15rem 0; font-size:.82rem; }
 .nomi-msg.error { color:#be123c; }
 .nomi-msg.warn { color:#b45309; }
@@ -82,7 +83,7 @@
           {% for row in imp.rows %}
           {% set has_errors = (row.errors|length) > 0 %}
           {% set has_warnings = (row.warnings|length) > 0 %}
-          <tr class="{% if has_errors %}nomi-row-error{% elif has_warnings %}nomi-row-warn{% endif %}">
+          <tr class="{% if has_errors %}nomi-row-error{% elif has_warnings %}nomi-row-has-warn{% endif %}">
             <td>{{ row.row_number }}</td>
             <td>{{ row.nombre_empleado }}</td>
             <td>{{ row.cliente }}</td>
@@ -105,7 +106,7 @@
             <td>{{ row.bono }}</td>
             <td>{{ row.deducciones }}</td>
             <td>{{ row.observaciones }}</td>
-            <td>
+            <td class="{% if has_warnings %}nomi-msg-warn-bg{% endif %}">
               {% for msg in row.errors %}
               <div class="nomi-msg error">Error: {{ msg }}</div>
               {% endfor %}

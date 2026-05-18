@@ -12,7 +12,7 @@ from typing import Any
 
 from functools import wraps
 
-from flask import Blueprint, Response, current_app, g, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Blueprint, Response, abort, current_app, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from modules.finiquitos import config as fincfg
 from modules.finiquitos.calc import (
@@ -40,6 +40,7 @@ from services.finiquitos_history import (
     insert_finiquito_history,
     list_finiquito_history,
 )
+from modules.roles_access import can_access_finiquitos, normalized_role
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "finiquitos"
@@ -53,6 +54,17 @@ finiquitos_bp = Blueprint(
     url_prefix="/finiquitos",
     template_folder=str(_TEMPLATE_DIR),
 )
+
+
+@finiquitos_bp.before_request
+def _finiquitos_role_guard() -> None:
+    ep = str(getattr(request, "endpoint", "") or "")
+    if not ep.startswith("finiquitos."):
+        return
+    if g.user is None:
+        return
+    if not can_access_finiquitos(normalized_role(g.user)):
+        abort(403)
 
 
 def _login_required_json():
