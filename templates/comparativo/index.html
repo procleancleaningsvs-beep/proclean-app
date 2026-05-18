@@ -57,6 +57,10 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 </section>
 
 <div class="cmp-layout">
+  {% if headcount_warning %}
+  <div class="cmp-inline-err" role="alert" style="margin-bottom:1rem;">Headcount no disponible: la validación contra catálogo se omitió. {{ headcount_warning }}</div>
+  {% endif %}
+
   <section class="cmp-top">
     <h3>Base de datos de personal</h3>
     <div class="cmp-stats">
@@ -581,7 +585,8 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   async function cargarHistorial(page) {
     const p = page || 1;
     const perPage = 10;
-    const data = await fetchJson(`{{ url_for('comparativo.historial_paginado') }}?page=${p}&per_page=${perPage}`);
+    try {
+      const data = await fetchJson(`{{ url_for('comparativo.historial_paginado') }}?page=${p}&per_page=${perPage}`);
     state.historialPage = data.current_page || 1;
     state.historialPages = data.pages || 1;
     const q = $("hist-search").value || "";
@@ -603,6 +608,10 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       </tr>`
     )).join("") || '<tr><td colspan="6">Sin registros.</td></tr>';
     $("hist-page").textContent = `${state.historialPage} / ${state.historialPages}`;
+    } catch (e) {
+      $("hist-tbody").innerHTML = '<tr><td colspan="6">No hay registros suficientes para generar el comparativo semanal.</td></tr>';
+      $("hist-page").textContent = "1 / 1";
+    }
   }
 
   async function eliminarHistorial(id) {

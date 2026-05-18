@@ -19,7 +19,7 @@
       <button type="button" class="mobile-nav-toggle" data-nav-toggle aria-controls="app-sidebar" aria-expanded="false" aria-label="Abrir menú de navegación">
         <span class="mobile-nav-toggle-bars" aria-hidden="true"></span>
       </button>
-      <a class="app-mobile-header-brand" href="{% if current_user.role == 'admin' %}{{ url_for('dashboard') }}{% else %}{{ url_for('home_usuario') }}{% endif %}">
+      <a class="app-mobile-header-brand" href="{% if user_role == 'admin' %}{{ url_for('dashboard') }}{% elif user_role in ['nomina', 'coordinador'] %}{{ url_for(login_home_endpoint(user_role)) }}{% elif user_role == 'cobranza' %}{{ url_for('facturacion.dashboard') }}{% else %}{{ url_for('home_usuario') }}{% endif %}">
         <img src="{{ url_for('static', filename='branding/proclean-isotype.png') }}" width="36" height="36" alt="">
         <span>{{ app_name }}</span>
       </a>

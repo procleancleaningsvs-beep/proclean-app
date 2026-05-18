@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import math
 import os
 from functools import wraps
 from urllib.parse import unquote
 
-from flask import Blueprint, g, jsonify, redirect, render_template, request, send_file, flash, url_for
+from flask import Blueprint, abort, g, jsonify, redirect, render_template, request, send_file, flash, url_for
 from openpyxl import Workbook
 
 from modules.comparativo import alias_service
@@ -27,6 +28,7 @@ from modules.comparativo.comparativo_service import (
     parsear_nomina,
 )
 from modules.comparativo.headcount_service import actualizar_headcount, obtener_activos, obtener_metadata_headcount
+from modules.roles_access import can_access_comparativo, normalized_role
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 COMPARATIVOS_DIR = os.path.join(DATA_DIR, "comparativos")
@@ -39,6 +41,16 @@ comparativo_bp = Blueprint(
     url_prefix="/comparativo",
     template_folder=_TEMPLATE_DIR,
 )
+
+logger = logging.getLogger(__name__)
+
+
+@comparativo_bp.before_request
+def _comparativo_role_guard() -> None:
+    if g.user is None:
+        return
+    if not can_access_comparativo(normalized_role(g.user)):
+        abort(403)
 
 
 def _login_required_page(view):
@@ -63,22 +75,30 @@ def _ensure_dirs() -> None:
 
 
 def _clientes_disponibles() -> list[str]:
-    return sorted({a.get("cliente", "") for a in obtener_activos() if a.get("cliente")})
+    try:
+        return sorted({a.get("cliente", "") for a in obtener_activos() if a.get("cliente")})
+    except Exception as exc:
+        logger.warning("comparativo: no se pudieron listar clientes desde headcount: %s", exc)
+        return []
 
 
 def _resolver_activos_por_selector(cliente_selector: str) -> list[dict]:
-    agrupaciones = alias_service.obtener_agrupaciones()
-    if cliente_selector in agrupaciones:
-        activos: list[dict] = []
-        for c in agrupaciones.get(cliente_selector, []):
-            activos.extend(obtener_activos(cliente=str(c)))
-        dedup: dict[str, dict] = {}
-        for item in activos:
-            key = str(item.get("nombre_completo", "")).strip().upper()
-            if key:
-                dedup[key] = item
-        return list(dedup.values())
-    return obtener_activos(cliente=cliente_selector)
+    try:
+        agrupaciones = alias_service.obtener_agrupaciones()
+        if cliente_selector in agrupaciones:
+            activos: list[dict] = []
+            for c in agrupaciones.get(cliente_selector, []):
+                activos.extend(obtener_activos(cliente=str(c)))
+            dedup: dict[str, dict] = {}
+            for item in activos:
+                key = str(item.get("nombre_completo", "")).strip().upper()
+                if key:
+                    dedup[key] = item
+            return list(dedup.values())
+        return obtener_activos(cliente=cliente_selector)
+    except Exception as exc:
+        logger.warning("comparativo: no se pudieron resolver activos (%s): %s", cliente_selector, exc)
+        return []
 
 
 def _buscar_comparativo_duplicado(cliente: str, periodo_inicio: str, periodo_fin: str) -> tuple[dict | None, str | None]:
@@ -102,7 +122,19 @@ def _buscar_comparativo_duplicado(cliente: str, periodo_inicio: str, periodo_fin
 
 
 def _headcount_meta() -> dict:
-    activos = obtener_activos()
+    meta_base = obtener_metadata_headcount()
+    try:
+        activos = obtener_activos()
+    except Exception as exc:
+        logger.warning("comparativo: headcount no disponible: %s", exc)
+        return {
+            "exists": bool(meta_base.get("url_configurada")),
+            "total_activos": 0,
+            "fecha_actualizacion": meta_base.get("fecha_actualizacion"),
+            "clientes_detectados": [],
+            "activos_por_cliente": {},
+            "headcount_error": str(exc),
+        }
     clientes = sorted({a.get("cliente", "") for a in activos if a.get("cliente")})
     por_cliente: dict[str, int] = {}
     for item in activos:
@@ -110,13 +142,13 @@ def _headcount_meta() -> dict:
         if not cliente:
             continue
         por_cliente[cliente] = por_cliente.get(cliente, 0) + 1
-    meta = obtener_metadata_headcount()
     return {
-        "exists": bool(meta.get("url_configurada")),
+        "exists": bool(meta_base.get("url_configurada")),
         "total_activos": len(activos),
-        "fecha_actualizacion": meta.get("fecha_actualizacion"),
+        "fecha_actualizacion": meta_base.get("fecha_actualizacion"),
         "clientes_detectados": clientes,
         "activos_por_cliente": por_cliente,
+        "headcount_error": None,
     }
 
 
@@ -160,20 +192,29 @@ def index():
     _ensure_dirs()
     try:
         meta = _headcount_meta()
-    except Exception:
-        meta = {
-            "exists": False,
-            "total_activos": 0,
-            "fecha_actualizacion": None,
-            "clientes_detectados": [],
-            "activos_por_cliente": {},
-        }
-    clientes = meta["clientes_detectados"] or _clientes_disponibles()
-    return render_template(
-        "comparativo/index.html",
-        clientes=clientes,
-        headcount=meta,
-    )
+        clientes = meta.get("clientes_detectados") or _clientes_disponibles()
+        headcount_warning = meta.get("headcount_error")
+        return render_template(
+            "comparativo/index.html",
+            clientes=clientes,
+            headcount=meta,
+            headcount_warning=headcount_warning,
+        )
+    except Exception as exc:
+        logger.exception("comparativo index failed")
+        flash("No se pudo cargar el comparativo semanal. Revisa la configuración de Headcount.", "error")
+        return render_template(
+            "comparativo/index.html",
+            clientes=[],
+            headcount={
+                "exists": False,
+                "total_activos": 0,
+                "fecha_actualizacion": None,
+                "clientes_detectados": [],
+                "activos_por_cliente": {},
+            },
+            headcount_warning=str(exc),
+        )
 
 
 @comparativo_bp.post("/actualizar-headcount")
@@ -200,10 +241,21 @@ def activos_por_cliente():
                 "fecha_actualizacion": meta.get("fecha_actualizacion"),
                 "clientes": meta.get("clientes_detectados", []),
                 "activos_por_cliente": meta.get("activos_por_cliente", {}),
+                "headcount_error": meta.get("headcount_error"),
             }
         )
     except Exception as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
+        logger.warning("activos_por_cliente failed: %s", exc)
+        return jsonify(
+            {
+                "ok": True,
+                "total_activos": 0,
+                "fecha_actualizacion": None,
+                "clientes": [],
+                "activos_por_cliente": {},
+                "headcount_error": str(exc),
+            }
+        )
 
 
 @comparativo_bp.post("/preview-nomina")
@@ -291,6 +343,15 @@ def comparativo_semanal():
             return jsonify({"error": "nombres_json debe contener una lista JSON."}), 400
 
         activos_cliente = _resolver_activos_por_selector(cliente)
+        if not activos_cliente:
+            return jsonify(
+                {
+                    "error": (
+                        "No hay registros suficientes en Headcount para este cliente. "
+                        "Verifica la configuración o selecciona otro cliente."
+                    )
+                }
+            ), 400
         lista_activos = [item.get("nombre_completo", "") for item in activos_cliente]
         resultado = aplicar_aliases_y_comparar(lista_nomina_raw, lista_activos)
         guardar_nomina_semana(cliente, periodo_inicio, periodo_fin, lista_nomina_raw)

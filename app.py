@@ -44,7 +44,24 @@ from flask_limiter.errors import RateLimitExceeded
 from flask_limiter.util import get_remote_address
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from modules.roles_access import VALID_USER_ROLES, can_access_checkid, normalized_role
+from modules.roles_access import (
+    VALID_USER_ROLES,
+    can_access_checkid,
+    can_access_comparativo,
+    can_access_imss_movimientos,
+    login_home_endpoint,
+    nav_show_administration,
+    nav_show_carrier_vitroflex,
+    nav_show_checkid,
+    nav_show_comparativo,
+    nav_show_facturacion,
+    nav_show_finiquitos,
+    nav_show_imss_movimientos,
+    nav_show_nomina_dashboard,
+    nav_show_nomina_hub,
+    nav_show_nomina_module,
+    normalized_role,
+)
 
 from generator import TEMPLATE_FILENAMES, generate_constancia, movimientos_from_form, parse_movimientos
 from services.checkid_cache import get_cached_busqueda, set_cached_busqueda
@@ -270,7 +287,28 @@ def create_app() -> Flask:
 
     @app.context_processor
     def inject_globals():
-        return {"app_name": APP_NAME, "current_user": current_user()}
+        user = current_user()
+        role = normalized_role(user)
+        return {
+            "app_name": APP_NAME,
+            "current_user": user,
+            "user_role": role,
+            "nav_show_administration": nav_show_administration(role),
+            "nav_show_nomina_module": nav_show_nomina_module(role),
+            "nav_show_nomina_dashboard": nav_show_nomina_dashboard(role),
+            "nav_show_nomina_hub": nav_show_nomina_hub(role),
+            "nav_show_finiquitos": nav_show_finiquitos(role),
+            "nav_show_facturacion": nav_show_facturacion(role),
+            "nav_show_imss_movimientos": nav_show_imss_movimientos(role),
+            "nav_show_carrier_vitroflex": nav_show_carrier_vitroflex(role),
+            "nav_show_checkid": nav_show_checkid(role),
+            "nav_show_comparativo": nav_show_comparativo(role),
+            "login_home_endpoint": login_home_endpoint,
+        }
+
+    def _post_login_redirect(user_row):
+        role = normalized_role(user_row)
+        return redirect(url_for(login_home_endpoint(role)))
 
     @app.before_request
     def load_logged_in_user():
@@ -300,20 +338,36 @@ def create_app() -> Flask:
             return
         abort(403)
 
+    @app.before_request
+    def _imss_movimientos_role_guard():
+        """Bloquea Movimientos IMSS (app principal) a roles no autorizados."""
+        u = g.get("user")
+        if not u:
+            return
+        path = request.path or ""
+        if path.startswith("/static/") or path == "/favicon.ico":
+            return
+        imss_paths = (
+            path.startswith("/formatos/"),
+            path.startswith("/historial"),
+            path.startswith("/descargar/"),
+        )
+        if not any(imss_paths):
+            return
+        if can_access_imss_movimientos(normalized_role(u)):
+            return
+        abort(403)
+
     @app.route("/")
     def index():
         if g.user:
-            if g.user["role"] == "admin":
-                return redirect(url_for("dashboard"))
-            return redirect(url_for("home_usuario"))
+            return _post_login_redirect(g.user)
         return redirect(url_for("login"))
 
     @app.route("/login", methods=["GET", "POST"])
     def login():
         if g.user:
-            if g.user["role"] == "admin":
-                return redirect(url_for("dashboard"))
-            return redirect(url_for("home_usuario"))
+            return _post_login_redirect(g.user)
 
         if request.method == "POST":
             username = (request.form.get("username") or "").strip()
@@ -336,9 +390,7 @@ def create_app() -> Flask:
                 ref=None,
                 detail=None,
             )
-            if user["role"] == "admin":
-                return redirect(url_for("dashboard"))
-            return redirect(url_for("home_usuario"))
+            return _post_login_redirect(user)
 
         return render_template("login.html")
 
@@ -354,8 +406,11 @@ def create_app() -> Flask:
     @app.route("/inicio")
     @login_required
     def home_usuario():
-        if g.user["role"] == "admin":
+        role = normalized_role(g.user)
+        if role == "admin":
             return redirect(url_for("dashboard"))
+        if role in {"nomina", "coordinador", "cobranza"}:
+            return redirect(url_for(login_home_endpoint(role)))
         return render_template("home_usuario.html")
 
     @app.route("/dashboard")

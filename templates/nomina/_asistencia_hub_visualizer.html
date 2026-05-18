@@ -79,51 +79,30 @@
     <table class="nomi-table" id="asistencia-viz-table">
       <thead>
         <tr>
-          <th>Fila</th>
-          <th>Empleado</th>
-          <th>Cliente</th>
-          <th>Planta</th>
-          <th>Puesto</th>
-          <th>Banco</th>
-          <th>Cuenta</th>
+          <th><div class="nomi-th-inner"><span>Fila</span><button type="button" class="nomi-fbtn" data-col="0" data-filter-kind="text" aria-label="Filtrar fila">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Empleado</span><button type="button" class="nomi-fbtn" data-col="1" data-filter-kind="text" aria-label="Filtrar empleado">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Cliente</span><button type="button" class="nomi-fbtn" data-col="2" data-filter-kind="set" aria-label="Filtrar cliente">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Planta</span><button type="button" class="nomi-fbtn" data-col="3" data-filter-kind="set" aria-label="Filtrar planta">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Puesto</span><button type="button" class="nomi-fbtn" data-col="4" data-filter-kind="set" aria-label="Filtrar puesto">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Banco</span><button type="button" class="nomi-fbtn" data-col="5" data-filter-kind="set" aria-label="Filtrar banco">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Cuenta</span><button type="button" class="nomi-fbtn" data-col="6" data-filter-kind="text" aria-label="Filtrar cuenta">▾</button></div></th>
           {% set h0 = imp.rows[0] if imp.rows else none %}
-          <th>{{ h0.dia_1_header if h0 else 'D1' }}</th>
-          <th>{{ h0.dia_2_header if h0 else 'D2' }}</th>
-          <th>{{ h0.dia_3_header if h0 else 'D3' }}</th>
-          <th>{{ h0.dia_4_header if h0 else 'D4' }}</th>
-          <th>{{ h0.dia_5_header if h0 else 'D5' }}</th>
-          <th>{{ h0.dia_6_header if h0 else 'D6' }}</th>
-          <th>{{ h0.dia_7_header if h0 else 'D7' }}</th>
-          <th>Horas extra</th>
-          <th>Horas extra normales</th>
-          <th>Días cubiertos</th>
-          <th>Vacaciones</th>
-          <th>Prima vac.</th>
-          <th>Bono</th>
-          <th>Deducciones</th>
-          <th>Observaciones</th>
-          <th>Mensajes</th>
-        </tr>
-        <tr class="nomi-filter-row">
-          <th><input type="text" data-col="0" class="nomi-filter" placeholder="Fila"></th>
-          <th><input type="text" data-col="1" class="nomi-filter" placeholder="Texto"></th>
-          <th><select data-col="2" class="nomi-filter"><option value="">Todos</option></select></th>
-          <th><select data-col="3" class="nomi-filter"><option value="">Todos</option></select></th>
-          <th><select data-col="4" class="nomi-filter"><option value="">Todos</option></select></th>
-          <th><select data-col="5" class="nomi-filter"><option value="">Todos</option></select></th>
-          <th><input type="text" data-col="6" class="nomi-filter" placeholder="Texto"></th>
-          {% for i in range(7) %}
-          <th><select data-col="{{ 7 + i }}" class="nomi-filter"><option value="">Todos</option></select></th>
-          {% endfor %}
-          <th><input type="text" data-col="14" class="nomi-filter" placeholder="HE"></th>
-          <th><input type="text" data-col="15" class="nomi-filter" placeholder="HEN"></th>
-          <th><input type="text" data-col="16" class="nomi-filter" placeholder="DC"></th>
-          <th><input type="text" data-col="17" class="nomi-filter" placeholder="Vac"></th>
-          <th><select data-col="18" class="nomi-filter"><option value="">Todos</option></select></th>
-          <th><input type="text" data-col="19" class="nomi-filter" placeholder="Bono"></th>
-          <th><input type="text" data-col="20" class="nomi-filter" placeholder="Ded"></th>
-          <th><input type="text" data-col="21" class="nomi-filter" placeholder="Obs"></th>
-          <th><input type="text" data-col="22" class="nomi-filter" placeholder="Msg"></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_1_header if h0 else 'D1' }}</span><button type="button" class="nomi-fbtn" data-col="7" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 1">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_2_header if h0 else 'D2' }}</span><button type="button" class="nomi-fbtn" data-col="8" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 2">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_3_header if h0 else 'D3' }}</span><button type="button" class="nomi-fbtn" data-col="9" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 3">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_4_header if h0 else 'D4' }}</span><button type="button" class="nomi-fbtn" data-col="10" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 4">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_5_header if h0 else 'D5' }}</span><button type="button" class="nomi-fbtn" data-col="11" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 5">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_6_header if h0 else 'D6' }}</span><button type="button" class="nomi-fbtn" data-col="12" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 6">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>{{ h0.dia_7_header if h0 else 'D7' }}</span><button type="button" class="nomi-fbtn" data-col="13" data-filter-kind="set" data-daily="1" aria-label="Filtrar día 7">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Horas extra</span><button type="button" class="nomi-fbtn" data-col="14" data-filter-kind="text" aria-label="Filtrar horas extra">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Horas extra normales</span><button type="button" class="nomi-fbtn" data-col="15" data-filter-kind="text" aria-label="Filtrar horas extra normales">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Días cubiertos</span><button type="button" class="nomi-fbtn" data-col="16" data-filter-kind="text" aria-label="Filtrar días cubiertos">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Vacaciones</span><button type="button" class="nomi-fbtn" data-col="17" data-filter-kind="text" aria-label="Filtrar vacaciones">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Prima vac.</span><button type="button" class="nomi-fbtn" data-col="18" data-filter-kind="set" aria-label="Filtrar prima vacacional">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Bono</span><button type="button" class="nomi-fbtn" data-col="19" data-filter-kind="text" aria-label="Filtrar bono">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Deducciones</span><button type="button" class="nomi-fbtn" data-col="20" data-filter-kind="text" aria-label="Filtrar deducciones">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Observaciones</span><button type="button" class="nomi-fbtn" data-col="21" data-filter-kind="text" aria-label="Filtrar observaciones">▾</button></div></th>
+          <th><div class="nomi-th-inner"><span>Mensajes</span><button type="button" class="nomi-fbtn" data-col="22" data-filter-kind="text" data-messages="1" aria-label="Filtrar mensajes">▾</button></div></th>
         </tr>
       </thead>
       <tbody>
@@ -167,6 +146,25 @@
   <p class="nomi-filter-actions"><button type="button" class="btn btn-secondary" id="nomi-clear-filters">Limpiar filtros</button></p>
 </section>
 
+<div id="nomi-xfilter-panel" class="nomi-xfilter-panel" hidden role="dialog" aria-modal="true">
+  <div class="nomi-xfilter-title" id="nomi-xfilter-title">Filtrar</div>
+  <div id="nomi-xfilter-set-mode" hidden>
+    <input type="search" id="nomi-xfilter-search" class="nomi-xfilter-search" placeholder="Buscar valor…">
+    <label class="nomi-xfilter-all"><input type="checkbox" id="nomi-xfilter-all" checked> Seleccionar todo</label>
+    <div class="nomi-xfilter-list" id="nomi-xfilter-list"></div>
+    <div class="nomi-xfilter-actions">
+      <button type="button" id="nomi-xfilter-clear-col">Limpiar filtro</button>
+      <button type="button" id="nomi-xfilter-apply">Aplicar</button>
+    </div>
+  </div>
+  <div id="nomi-xfilter-text-mode" hidden>
+    <input type="text" id="nomi-xfilter-text" class="nomi-xfilter-text" placeholder="Contiene…">
+    <div class="nomi-xfilter-actions">
+      <button type="button" id="nomi-xfilter-clear-text">Limpiar filtro</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   const STYLES = {{ styles_json | safe }};
@@ -174,7 +172,31 @@
   const table = document.getElementById("asistencia-viz-table");
   if (!table) return;
 
+  const panel = document.getElementById("nomi-xfilter-panel");
+  const panelTitle = document.getElementById("nomi-xfilter-title");
+  const setMode = document.getElementById("nomi-xfilter-set-mode");
+  const textMode = document.getElementById("nomi-xfilter-text-mode");
+  const setSearch = document.getElementById("nomi-xfilter-search");
+  const setAll = document.getElementById("nomi-xfilter-all");
+  const setList = document.getElementById("nomi-xfilter-list");
+  const textInput = document.getElementById("nomi-xfilter-text");
+
+  const columnFilters = {};
+  let activeCol = null;
+  let activeBtn = null;
+  let activeKind = "set";
+  let debTimer = null;
+
   function norm(s) { return (s || "").toString().replace(/\u00a0/g, " ").trim().toUpperCase(); }
+  function normDaily(s) { return norm(s); }
+  function cellText(tr, col) {
+    const cell = tr.children[col];
+    return cell ? (cell.textContent || "").trim() : "";
+  }
+  function cellValue(tr, col, isDaily) {
+    const raw = cellText(tr, col);
+    return isDaily ? normDaily(raw) : raw;
+  }
 
   function cellStyle(code) {
     const k = norm(code);
@@ -187,8 +209,7 @@
       for (let c = 7; c <= 13; c++) {
         const td = tr.children[c];
         if (!td) continue;
-        const ccode = norm(td.textContent);
-        const st = cellStyle(ccode);
+        const st = cellStyle(td.textContent);
         td.style.background = st.background;
         td.style.fontWeight = st.fontWeight;
         td.style.textAlign = "center";
@@ -215,9 +236,7 @@
     let unk = 0, err = 0, warn = 0;
     visibleRows.forEach(function (tr) {
       for (let c = 7; c <= 13; c++) {
-        const td = tr.children[c];
-        if (!td) continue;
-        const ccode = norm(td.textContent);
+        const ccode = norm(cellText(tr, c));
         if (!ccode) continue;
         if (Object.prototype.hasOwnProperty.call(per, ccode)) per[ccode] += 1;
         else unk += 1;
@@ -225,115 +244,235 @@
       err += tr.querySelectorAll(".nomi-msg.error").length;
       warn += tr.querySelectorAll(".nomi-msg.warn").length;
     });
-    return {
-      total_registros: visibleRows.length,
-      per_key: per,
-      unknown_keys_total: unk,
-      errors_total: err,
-      warnings_total: warn
-    };
+    return { total_registros: visibleRows.length, per_key: per, unknown_keys_total: unk, errors_total: err, warnings_total: warn };
   }
 
   function applyFilteredMetrics(visibleRows) {
     const mf = countFiltered(visibleRows);
-    const set = function (id, v) {
-      const n = document.getElementById(id);
-      if (n) n.textContent = v;
-    };
+    const set = function (id, v) { const n = document.getElementById(id); if (n) n.textContent = v; };
     set("mf-rows", mf.total_registros);
-    DAILY_KEYS.forEach(function (k) {
-      set("mf-" + k, mf.per_key[k] != null ? mf.per_key[k] : 0);
-    });
+    DAILY_KEYS.forEach(function (k) { set("mf-" + k, mf.per_key[k] != null ? mf.per_key[k] : 0); });
     set("mf-err", mf.errors_total);
     set("mf-warn", mf.warnings_total);
     set("mf-unk", mf.unknown_keys_total);
   }
 
-  function uniqCol(colIdx) {
+  function uniqColValues(col, isDaily) {
     const out = new Set();
     table.querySelectorAll("tbody tr").forEach(function (tr) {
-      const cell = tr.children[colIdx];
-      if (!cell) return;
-      let t = (cell.textContent || "").trim();
-      if (colIdx >= 7 && colIdx <= 13) t = norm(cell.textContent);
-      if (t) out.add(t);
+      const v = cellValue(tr, col, isDaily);
+      out.add(v || (isDaily ? "" : "(vacío)"));
     });
-    return Array.from(out).sort();
+    if (!isDaily && out.has("")) {
+      out.delete("");
+      out.add("(vacío)");
+    }
+    return Array.from(out).sort(function (a, b) {
+      return String(a).localeCompare(String(b), "es", { sensitivity: "base" });
+    });
   }
 
-  function fillSelect(sel, values) {
-    const cur = sel.value;
-    while (sel.options.length > 1) sel.remove(1);
-    values.forEach(function (v) {
-      const o = document.createElement("option");
-      o.value = v; o.textContent = v;
-      sel.appendChild(o);
-    });
-    if (values.indexOf(cur) >= 0) sel.value = cur;
-    else sel.value = "";
+  function isDailyCol(col) { return col >= 7 && col <= 13; }
+
+  function filterIsActive(col) {
+    const f = columnFilters[col];
+    if (!f) return false;
+    if (f.kind === "text") return Boolean((f.query || "").trim());
+    return f.values && f.values.size > 0;
   }
 
-  [2,3,4,5,18].forEach(function (ci) {
-    const sel = table.querySelector('select.nomi-filter[data-col="' + ci + '"]');
-    if (sel) fillSelect(sel, uniqCol(ci));
-  });
-  for (let i = 0; i < 7; i++) {
-    const ci = 7 + i;
-    const sel = table.querySelector('select.nomi-filter[data-col="' + ci + '"]');
-    if (sel) fillSelect(sel, uniqCol(ci));
+  function syncFilterButtons() {
+    table.querySelectorAll(".nomi-fbtn").forEach(function (btn) {
+      const col = parseInt(btn.getAttribute("data-col"), 10);
+      btn.classList.toggle("is-active", filterIsActive(col));
+    });
   }
 
   function rowMatches(tr) {
-    const filters = table.querySelectorAll(".nomi-filter");
-    for (let i = 0; i < filters.length; i++) {
-      const f = filters[i];
-      const col = parseInt(f.getAttribute("data-col"), 10);
-      const raw = (f.value || "").trim();
-      if (!raw) continue;
-      const cell = tr.children[col];
-      if (!cell) continue;
-      let hay = (cell.textContent || "").trim();
-      if (col >= 7 && col <= 13) hay = norm(cell.textContent);
-      if (f.tagName === "SELECT") {
-        if (col >= 7 && col <= 13) {
-          if (hay !== norm(raw)) return false;
-        } else if (hay.toLowerCase() !== raw.toLowerCase()) {
-          return false;
-        }
-      } else {
+    for (const colStr of Object.keys(columnFilters)) {
+      const col = parseInt(colStr, 10);
+      const f = columnFilters[col];
+      if (!f) continue;
+      const isDaily = isDailyCol(col);
+      if (f.kind === "text") {
+        const q = (f.query || "").trim().toLowerCase();
+        if (!q) continue;
         if (col === 22) {
           const pack = (tr.getAttribute("data-mensajes") || "").toLowerCase();
-          if (!pack.includes(raw.toLowerCase())) return false;
-        } else if (!hay.toLowerCase().includes(raw.toLowerCase())) return false;
+          if (!pack.includes(q)) return false;
+        } else if (!cellText(tr, col).toLowerCase().includes(q)) {
+          return false;
+        }
+        continue;
       }
+      const val = cellValue(tr, col, isDaily);
+      const cmp = val || (isDaily ? "" : "(vacío)");
+      if (!f.values || !f.values.has(cmp)) return false;
     }
     return true;
   }
 
   function runFilters() {
     const rows = Array.from(table.querySelectorAll("tbody tr"));
-    rows.forEach(function (tr) {
-      tr.style.display = rowMatches(tr) ? "" : "none";
-    });
-    const vis = rows.filter(function (tr) { return tr.style.display !== "none"; });
-    applyFilteredMetrics(vis);
+    rows.forEach(function (tr) { tr.style.display = rowMatches(tr) ? "" : "none"; });
+    applyFilteredMetrics(rows.filter(function (tr) { return tr.style.display !== "none"; }));
+    syncFilterButtons();
     paintDailyCells();
   }
 
-  let debTimer = null;
-  function scheduleRun() {
-    if (debTimer) clearTimeout(debTimer);
-    debTimer = setTimeout(runFilters, 120);
+  function closePanel() {
+    if (panel) panel.hidden = true;
+    activeCol = null;
+    activeBtn = null;
   }
 
-  table.querySelectorAll(".nomi-filter").forEach(function (el) {
-    el.addEventListener("input", scheduleRun);
-    el.addEventListener("change", runFilters);
+  function positionPanel(btn) {
+    if (!panel || !btn) return;
+    const r = btn.getBoundingClientRect();
+    panel.hidden = false;
+    const pw = panel.offsetWidth || 240;
+    let left = Math.min(r.left, window.innerWidth - pw - 8);
+    let top = r.bottom + 4;
+    if (top + panel.offsetHeight > window.innerHeight - 8) top = Math.max(8, r.top - panel.offsetHeight - 4);
+    panel.style.left = Math.max(8, left) + "px";
+    panel.style.top = top + "px";
+  }
+
+  function renderSetList(col, isDaily) {
+    const allValues = uniqColValues(col, isDaily);
+    const f = columnFilters[col];
+    const selected = f && f.kind === "set" && f.values ? f.values : new Set(allValues);
+    const q = (setSearch.value || "").trim().toLowerCase();
+    setList.innerHTML = "";
+    allValues.forEach(function (v) {
+      if (q && String(v).toLowerCase().indexOf(q) < 0) return;
+      const id = "xf-" + col + "-" + String(v).replace(/[^a-z0-9]+/gi, "_");
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = v;
+      cb.checked = selected.has(v);
+      cb.dataset.value = v;
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(" " + (v || "(vacío)")));
+      setList.appendChild(label);
+    });
+    const visible = setList.querySelectorAll("input[type=checkbox]");
+    const checked = Array.from(visible).filter(function (c) { return c.checked; });
+    setAll.checked = visible.length > 0 && checked.length === visible.length;
+    setAll.indeterminate = checked.length > 0 && checked.length < visible.length;
+  }
+
+  function applySetFilter(col, isDaily) {
+    const allValues = uniqColValues(col, isDaily);
+    const checked = Array.from(setList.querySelectorAll("input[type=checkbox]:checked")).map(function (c) { return c.dataset.value; });
+    if (!checked.length) {
+      columnFilters[col] = { kind: "set", values: new Set() };
+    } else if (checked.length >= allValues.length) {
+      delete columnFilters[col];
+    } else {
+      columnFilters[col] = { kind: "set", values: new Set(checked) };
+    }
+    runFilters();
+  }
+
+  function openSetPanel(col, btn, label) {
+    activeCol = col;
+    activeBtn = btn;
+    activeKind = "set";
+    panelTitle.textContent = "Filtrar: " + label;
+    setMode.hidden = false;
+    textMode.hidden = true;
+    setSearch.value = "";
+    renderSetList(col, isDailyCol(col));
+    positionPanel(btn);
+  }
+
+  function openTextPanel(col, btn, label) {
+    activeCol = col;
+    activeBtn = btn;
+    activeKind = "text";
+    panelTitle.textContent = "Filtrar: " + label;
+    setMode.hidden = true;
+    textMode.hidden = false;
+    const f = columnFilters[col];
+    textInput.value = f && f.kind === "text" ? (f.query || "") : "";
+    positionPanel(btn);
+    textInput.focus();
+  }
+
+  table.querySelectorAll(".nomi-fbtn").forEach(function (btn) {
+    btn.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      const col = parseInt(btn.getAttribute("data-col"), 10);
+      const kind = btn.getAttribute("data-filter-kind") || "text";
+      const label = btn.closest(".nomi-th-inner")?.querySelector("span")?.textContent || "Columna";
+      if (activeCol === col && panel && !panel.hidden) { closePanel(); return; }
+      if (kind === "set") openSetPanel(col, btn, label);
+      else openTextPanel(col, btn, label);
+    });
   });
-  document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {
-    table.querySelectorAll(".nomi-filter").forEach(function (el) { el.value = ""; });
+
+  setSearch.addEventListener("input", function () {
+    if (activeCol == null) return;
+    renderSetList(activeCol, isDailyCol(activeCol));
+  });
+
+  setAll.addEventListener("change", function () {
+    const checks = setList.querySelectorAll("input[type=checkbox]");
+    checks.forEach(function (c) { c.checked = setAll.checked; });
+    if (activeCol != null) applySetFilter(activeCol, isDailyCol(activeCol));
+  });
+
+  setList.addEventListener("change", function () {
+    if (activeCol != null) applySetFilter(activeCol, isDailyCol(activeCol));
+  });
+
+  document.getElementById("nomi-xfilter-apply")?.addEventListener("click", function () {
+    if (activeCol != null) applySetFilter(activeCol, isDailyCol(activeCol));
+    closePanel();
+  });
+
+  document.getElementById("nomi-xfilter-clear-col")?.addEventListener("click", function () {
+    if (activeCol != null) delete columnFilters[activeCol];
+    closePanel();
     runFilters();
   });
+
+  textInput.addEventListener("input", function () {
+    if (activeCol == null) return;
+    if (debTimer) clearTimeout(debTimer);
+    debTimer = setTimeout(function () {
+      const q = textInput.value || "";
+      if (!q.trim()) delete columnFilters[activeCol];
+      else columnFilters[activeCol] = { kind: "text", query: q };
+      runFilters();
+    }, 120);
+  });
+
+  document.getElementById("nomi-xfilter-clear-text")?.addEventListener("click", function () {
+    if (activeCol != null) delete columnFilters[activeCol];
+    textInput.value = "";
+    closePanel();
+    runFilters();
+  });
+
+  document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {
+    Object.keys(columnFilters).forEach(function (k) { delete columnFilters[k]; });
+    textInput.value = "";
+    setSearch.value = "";
+    closePanel();
+    runFilters();
+  });
+
+  document.addEventListener("click", function (ev) {
+    if (!panel || panel.hidden) return;
+    if (panel.contains(ev.target)) return;
+    if (ev.target.closest(".nomi-fbtn")) return;
+    closePanel();
+  });
+  window.addEventListener("scroll", closePanel, true);
+  window.addEventListener("resize", closePanel);
 
   paintDailyCells();
   runFilters();
