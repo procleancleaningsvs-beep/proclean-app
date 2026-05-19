@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block extra_head %}{% include 'headcount/_styles.html' %}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Headcount</span>
+    <h2>Auditoría SUA vs Headcount</h2>
+    <p>Comparación contra Headcount con patrón RAFAEL. El conteo debe coincidir con Total de Cotizantes.</p>
+  </div>
+</section>
+
+{% if show_duplicate_warning %}
+<div class="hc-alert info">
+  <strong>Posible duplicado:</strong> ya existe auditoría para registro {{ pending_registro }} con fecha de corte {{ pending_fecha_corte }}.
+  <ul>
+    {% for d in duplicados %}
+    <li>{{ d.created_at }} — {{ d.archivo_original_nombre }}</li>
+    {% endfor %}
+  </ul>
+  <p>Vuelve a subir el PDF marcando confirmación para guardar una nueva versión.</p>
+</div>
+{% endif %}
+
+<div class="hc-panel form-card">
+  <form method="post" action="{{ url_for('headcount.auditoria_sua_procesar') }}" enctype="multipart/form-data">
+    <label>PDF SUA (Cédula de determinación)
+      <input type="file" name="pdf_sua" accept="application/pdf" required>
+    </label>
+    <label style="margin-top:.75rem;display:block;">Fecha de corte del SUA
+      <input type="date" name="fecha_corte_sua" value="{{ pending_fecha_corte or '' }}" required>
+    </label>
+    {% if show_duplicate_warning %}
+    <label style="margin-top:.75rem;display:flex;gap:.4rem;align-items:center;">
+      <input type="checkbox" name="confirmar_duplicado" value="1">
+      Confirmo guardar nueva versión aunque exista registro previo
+    </label>
+    {% endif %}
+    <div class="hc-actions">
+      <button type="submit" class="btn btn-primary">Procesar auditoría</button>
+      <a class="btn btn-secondary" href="{{ url_for('headcount.index') }}">Volver</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

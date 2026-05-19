@@ -54,6 +54,9 @@ from modules.roles_access import (
     nav_show_carrier_vitroflex,
     nav_show_checkid,
     nav_show_comparativo,
+    nav_show_headcount_auditoria,
+    nav_show_headcount_cliente,
+    nav_show_headcount_module,
     nav_show_facturacion,
     nav_show_finiquitos,
     nav_show_imss_movimientos,
@@ -303,6 +306,9 @@ def create_app() -> Flask:
             "nav_show_carrier_vitroflex": nav_show_carrier_vitroflex(role),
             "nav_show_checkid": nav_show_checkid(role),
             "nav_show_comparativo": nav_show_comparativo(role),
+            "nav_show_headcount_module": nav_show_headcount_module(role),
+            "nav_show_headcount_auditoria": nav_show_headcount_auditoria(role),
+            "nav_show_headcount_cliente": nav_show_headcount_cliente(role),
             "login_home_endpoint": login_home_endpoint,
         }
 
@@ -1048,6 +1054,9 @@ def create_app() -> Flask:
     register_examenes_medicos(app)
     register_nomina(app)
     register_facturacion(app)
+    from modules.headcount.blueprint import register_headcount
+
+    register_headcount(app)
     app.register_blueprint(comparativo_bp)
     app.register_blueprint(exportacion_imss_bp)
 

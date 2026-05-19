@@ -1,0 +1,51 @@
+<div class="hc-table-wrap">
+  <table class="hc-table" id="hc-cliente-table">
+    <thead>
+      <tr>
+        <th>Cliente</th><th>Ubicación</th><th>Puesto</th><th>Patrón</th><th>Ingreso</th>
+        <th>St. Op.</th><th>St. IMSS</th><th>RFC</th><th>CURP</th><th>NSS</th>
+        <th>Ap. Pat.</th><th>Ap. Mat.</th><th>Nombre</th><th>Nombre completo</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in registros %}
+      <tr>
+        <td>{{ r.cliente }}</td>
+        <td>{{ r.ubicacion }}</td>
+        <td>{{ r.puesto }}</td>
+        <td>{{ r.patron }}</td>
+        <td>{{ r.fecha_ingreso }}</td>
+        <td>{{ r.status_operacion }}</td>
+        <td>{{ r.status_imss }}</td>
+        <td>{{ r.rfc_homoclave }}</td>
+        <td>{{ r.curp }}</td>
+        <td>{{ r.nss }}</td>
+        <td>{{ r.apellido_paterno }}</td>
+        <td>{{ r.apellido_materno }}</td>
+        <td>{{ r.nombre }}</td>
+        <td>{{ r.nombre_completo }}</td>
+        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="hc-row-{{ loop.index }}">Ver más</button></td>
+      </tr>
+      <tr class="hc-detail-row" id="hc-row-{{ loop.index }}">
+        <td colspan="15">
+          <div class="hc-detail-inner">
+            Sueldo diario: {{ r.sueldo_diario or '—' }} · Sueldo semanal: {{ r.sueldo_semanal or '—' }} ·
+            Género: {{ r.genero or '—' }} · Nacimiento: {{ r.fecha_nacimiento or '—' }} ·
+            Lugar: {{ r.lugar_nacimiento or '—' }} · CP fiscal: {{ r.cp_fiscal or '—' }}
+          </div>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="15">Sin registros. Ajusta filtros o selecciona cliente.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+document.querySelectorAll('.hc-toggle-detail').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var row = document.getElementById(btn.getAttribute('data-target'));
+    if (row) row.classList.toggle('open');
+  });
+});
+</script>

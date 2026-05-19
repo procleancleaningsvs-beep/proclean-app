@@ -72,6 +72,21 @@
   </div>
   {% endif %}
 
+  {% if nav_show_headcount_module %}
+  <div class="nav-group">
+    <span class="nav-group-label">Headcount</span>
+    {% if nav_show_headcount_auditoria %}
+    <a href="{{ url_for('headcount.index') }}" class="nav-link">Headcount</a>
+    <a href="{{ url_for('headcount.auditoria_sua') }}" class="nav-link">Auditoría SUA</a>
+    <a href="{{ url_for('headcount.historial_sua') }}" class="nav-link">Historial SUA</a>
+    <a href="{{ url_for('headcount.headcount_desglose') }}" class="nav-link">Desglose general</a>
+    {% endif %}
+    {% if nav_show_headcount_cliente %}
+    <a href="{{ url_for('headcount.headcount_cliente') }}" class="nav-link">Headcount por cliente</a>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% if nav_show_checkid or nav_show_comparativo %}
   <div class="nav-group">
     <span class="nav-group-label">Herramientas</span>

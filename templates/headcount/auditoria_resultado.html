@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+{% block extra_head %}{% include 'headcount/_styles.html' %}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Headcount</span>
+    {% if modo == 'diagnostico' %}
+    <h2>Diagnóstico de lectura SUA</h2>
+  <p>El conteo extraído no coincide con Total de Cotizantes.</p>
+    {% else %}
+    <h2>Resultado auditoría SUA</h2>
+    <p>Comparación contra Headcount patrón RAFAEL.</p>
+    {% endif %}
+  </div>
+</section>
+
+{% if modo == 'diagnostico' %}
+<div class="hc-alert error">
+  <p>{{ diagnostico.mensaje }}</p>
+</div>
+<div class="hc-panel">
+  <div class="hc-cards">
+    <div class="hc-card"><span>Total cotizantes</span><strong>{{ diagnostico.total_cotizantes }}</strong></div>
+    <div class="hc-card"><span>Extraídos</span><strong>{{ diagnostico.trabajadores_extraidos }}</strong></div>
+    <div class="hc-card"><span>Diferencia</span><strong>{{ diagnostico.diferencia }}</strong></div>
+    <div class="hc-card"><span>Páginas</span><strong>{{ diagnostico.paginas_procesadas }}</strong></div>
+  </div>
+  <p><strong>Por página:</strong> {{ diagnostico.registros_por_pagina|join(', ') }}</p>
+  {% if diagnostico.ultimos_registros %}
+  <h4>Últimos registros leídos</h4>
+  <ul>
+    {% for u in diagnostico.ultimos_registros %}
+    <li>{{ u.nss_sua_original }} — {{ u.nombre_sua_original }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <a class="btn btn-primary" href="{{ url_for('headcount.auditoria_sua') }}">Volver a intentar</a>
+</div>
+{% else %}
+<div class="hc-actions">
+  <a class="btn btn-primary" href="{{ url_for('headcount.auditoria_sua_exportar_excel', audit_id=audit_id) }}">Exportar Excel</a>
+  <a class="btn btn-secondary" href="{{ url_for('headcount.historial_sua') }}">Historial</a>
+  {% if can_delete %}
+  <form method="post" action="{{ url_for('headcount.auditoria_sua_eliminar', audit_id=audit_id) }}" onsubmit="return confirm('¿Eliminar esta auditoría?');" style="display:inline;">
+    <button type="submit" class="btn btn-secondary">Eliminar</button>
+  </form>
+  {% endif %}
+</div>
+
+{% include 'headcount/partials/_sua_summary_cards.html' %}
+
+<div class="hc-panel">
+  <h3>Agrupado por cliente / ubicación</h3>
+  <div class="hc-table-wrap">
+    <table class="hc-table">
+      <thead>
+        <tr><th>Cliente</th><th>Ubicación</th><th>Total SUA</th><th>Match HC</th><th>Bajas HC</th><th>Sin match</th><th>Warnings</th></tr>
+      </thead>
+      <tbody>
+        {% for g in agrupado %}
+        <tr>
+          <td>{{ g.cliente }}</td><td>{{ g.ubicacion }}</td><td>{{ g.total_sua }}</td>
+          <td>{{ g.match_hc }}</td><td>{{ g.bajas_hc }}</td><td>{{ g.sin_match }}</td><td>{{ g.warnings }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="hc-panel">
+  <h3>Detalle SUA vs Headcount</h3>
+  {% include 'headcount/partials/_sua_filters.html' %}
+  {% if filtros.solo_hc_sin_sua %}
+  <div class="hc-table-wrap">
+    <table class="hc-table">
+      <thead><tr><th>Nombre</th><th>NSS</th><th>CURP</th><th>Cliente</th><th>Ubicación</th><th>St. Op.</th><th>St. IMSS</th></tr></thead>
+      <tbody>
+        {% for row in headcount_sin_sua %}
+        <tr>
+          <td>{{ row.nombre_completo }}</td><td>{{ row.nss }}</td><td>{{ row.curp }}</td>
+          <td>{{ row.cliente }}</td><td>{{ row.ubicacion }}</td>
+          <td>{{ row.status_operacion }}</td><td>{{ row.status_imss }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  {% include 'headcount/partials/_sua_table.html' %}
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

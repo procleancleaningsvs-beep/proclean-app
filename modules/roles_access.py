@@ -16,6 +16,11 @@ IMSS_MOVIMIENTOS_ROLES = frozenset({"admin", "coordinador", "cobranza", "usuario
 CARRIER_VITROFLEX_ROLES = frozenset({"admin", "usuario"})
 COMPARATIVO_ROLES = frozenset({"admin", "usuario"})
 
+HEADCOUNT_MODULE_ROLES = frozenset({"admin", "nomina", "usuario", "coordinador"})
+HEADCOUNT_AUDITORIA_ROLES = frozenset({"admin", "nomina"})
+HEADCOUNT_CLIENTE_ROLES = frozenset({"admin", "nomina", "usuario", "coordinador"})
+HEADCOUNT_DESGLOSE_ROLES = frozenset({"admin", "nomina"})
+
 
 def normalized_role(user: Any) -> str:
     if not user:
@@ -60,6 +65,38 @@ def can_access_carrier_vitroflex(role: str) -> bool:
 
 def can_access_comparativo(role: str) -> bool:
     return role in COMPARATIVO_ROLES
+
+
+def can_access_headcount_module(role: str) -> bool:
+    return role in HEADCOUNT_MODULE_ROLES
+
+
+def can_access_headcount_auditoria(role: str) -> bool:
+    return role in HEADCOUNT_AUDITORIA_ROLES
+
+
+def can_access_headcount_cliente(role: str) -> bool:
+    return role in HEADCOUNT_CLIENTE_ROLES
+
+
+def can_access_headcount_desglose(role: str) -> bool:
+    return role in HEADCOUNT_DESGLOSE_ROLES
+
+
+def can_delete_headcount_audit(role: str) -> bool:
+    return role == "admin"
+
+
+def nav_show_headcount_module(role: str) -> bool:
+    return role in HEADCOUNT_MODULE_ROLES
+
+
+def nav_show_headcount_auditoria(role: str) -> bool:
+    return role in HEADCOUNT_AUDITORIA_ROLES
+
+
+def nav_show_headcount_cliente(role: str) -> bool:
+    return role in HEADCOUNT_CLIENTE_ROLES
 
 
 def nav_show_administration(role: str) -> bool:

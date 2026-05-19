@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% block extra_head %}{% include 'headcount/_styles.html' %}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Headcount</span>
+    <h2>Módulo Headcount</h2>
+    <p>Auditoría SUA vs catálogo OneDrive y consulta por cliente.</p>
+  </div>
+</section>
+
+<div class="hc-link-grid">
+  {% if can_auditoria %}
+  <a class="hc-link-card" href="{{ url_for('headcount.auditoria_sua') }}">
+    <strong>Auditoría SUA vs Headcount</strong>
+    <p>Sube PDF SUA y compara contra Headcount patrón RAFAEL.</p>
+  </a>
+  <a class="hc-link-card" href="{{ url_for('headcount.historial_sua') }}">
+    <strong>Historial SUA</strong>
+    <p>Consulta auditorías guardadas por fecha de corte.</p>
+  </a>
+  {% endif %}
+  {% if can_cliente %}
+  <a class="hc-link-card" href="{{ url_for('headcount.headcount_cliente') }}">
+    <strong>Headcount por cliente</strong>
+    <p>Visualiza trabajadores por cliente y ubicación.</p>
+  </a>
+  {% endif %}
+  {% if can_desglose %}
+  <a class="hc-link-card" href="{{ url_for('headcount.headcount_desglose') }}">
+    <strong>Desglose general</strong>
+    <p>Vista completa del catálogo con filtros avanzados.</p>
+  </a>
+  {% endif %}
+</div>
+{% endblock %}

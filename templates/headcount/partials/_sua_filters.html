@@ -1,0 +1,58 @@
+<form class="hc-filters" method="get" action="{{ request.path }}">
+  <div>
+    <label>Cliente</label>
+    <select name="cliente">
+      <option value="">Todos</option>
+      {% for c in (resumen.clientes_detectados or []) %}
+      <option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Ubicación</label>
+    <input type="text" name="ubicacion" value="{{ filtros.ubicacion }}" placeholder="Planta / ubicación">
+  </div>
+  <div>
+    <label>Match status</label>
+    <select name="match_status">
+      <option value="">Todos</option>
+      {% for st in ['MATCH_CURP','MATCH_NSS','MATCH_NOMBRE','POSIBLE_MATCH','SIN_MATCH'] %}
+      <option value="{{ st }}" {% if filtros.match_status == st %}selected{% endif %}>{{ st }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Warning</label>
+    <select name="warning">
+      <option value="">Todos</option>
+      {% for code, label in (warnings_catalog or {}).items() %}
+      <option value="{{ code }}" {% if filtros.warning == code %}selected{% endif %}>{{ code }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label>Movimiento SUA</label>
+    <input type="text" name="movimiento" value="{{ filtros.movimiento }}" placeholder="Alta, Baja, Rein">
+  </div>
+  <div>
+    <label>Status Operación</label>
+    <input type="text" name="status_operacion" value="{{ filtros.status_operacion }}">
+  </div>
+  <div>
+    <label>Status IMSS</label>
+    <input type="text" name="status_imss" value="{{ filtros.status_imss }}">
+  </div>
+  <div>
+    <label>Buscador</label>
+    <input type="search" name="q" value="{{ filtros.busqueda }}" placeholder="NSS, CURP, nombre">
+  </div>
+  <div>
+    <label><input type="checkbox" name="solo_bajas_hc" value="1" {% if filtros.solo_bajas_hc %}checked{% endif %}> SUA con baja en HC</label>
+    <label><input type="checkbox" name="solo_sin_match" value="1" {% if filtros.solo_sin_match %}checked{% endif %}> Sin match HC</label>
+    <label><input type="checkbox" name="solo_hc_sin_sua" value="1" {% if filtros.solo_hc_sin_sua %}checked{% endif %}> Activos HC no en SUA</label>
+  </div>
+  <div>
+    <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+    <a class="btn btn-secondary btn-sm" href="{{ request.path }}">Limpiar</a>
+  </div>
+</form>

@@ -1,0 +1,50 @@
+<div class="hc-table-wrap">
+  <table class="hc-table">
+    <thead>
+      <tr>
+        <th>NSS SUA</th><th>CURP</th><th>Nombre SUA</th><th>Cliente HC</th><th>Ubicación</th>
+        <th>St. Op.</th><th>St. IMSS</th><th>Patrón</th><th>Match</th><th>Días</th><th>SDI</th><th>Mov.</th><th>Warnings</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in detalle %}
+      <tr>
+        <td>{{ row.nss_sua_original }}</td>
+        <td>{{ row.curp }}</td>
+        <td>{{ row.nombre_sua_original }}</td>
+        <td>{{ row.cliente_headcount }}</td>
+        <td>{{ row.ubicacion_headcount }}</td>
+        <td>{{ row.status_operacion_headcount }}</td>
+        <td>{{ row.status_imss_headcount }}</td>
+        <td>{{ row.patron_headcount }}</td>
+        <td><span class="hc-badge {% if row.match_status == 'SIN_MATCH' %}err{% elif row.match_status == 'POSIBLE_MATCH' %}warn{% else %}ok{% endif %}">{{ row.match_por or row.match_status }}</span></td>
+        <td>{{ row.dias or '' }}</td>
+        <td>{{ row.sdi or '' }}</td>
+        <td>{{ row.movimiento_clave or '' }}</td>
+        <td>
+          {% for w in row.warnings or [] %}
+          <span class="hc-badge warn" title="{{ warning_label(w) }}">{{ w }}</span>
+          {% endfor %}
+        </td>
+        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ loop.index }}">Ver</button></td>
+      </tr>
+      <tr class="hc-detail-row" id="det-{{ loop.index }}">
+        <td colspan="14"><div class="hc-detail-inner">
+          <strong>Detalle:</strong> Fecha mov. {{ row.movimiento_fecha or '—' }} · Página {{ row.pagina_origen or '—' }} ·
+          Nombre HC: {{ row.nombre_headcount or '—' }} · RFC: {{ row.rfc_headcount or '—' }}
+        </div></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="14">Sin registros con los filtros actuales.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<script>
+document.querySelectorAll('.hc-toggle-detail').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var row = document.getElementById(btn.getAttribute('data-target'));
+    if (row) row.classList.toggle('open');
+  });
+});
+</script>
