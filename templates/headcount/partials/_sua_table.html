@@ -9,7 +9,7 @@
         <th>NSS SUA</th><th>CURP</th><th>Nombre SUA</th>
         <th>Estado SUA</th><th>Movimiento</th><th>Fecha mov.</th><th>Activo corte</th>
         <th>Cliente HC</th><th>Ubicación</th>
-        <th>St. Op.</th><th>Match</th><th>Días</th><th>SDI</th>
+        <th>St. Op.</th><th>Fecha ingreso</th><th>Match</th><th>Días</th><th>SDI</th>
         <th>Warnings / Info</th><th></th>
       </tr>
     </thead>
@@ -29,6 +29,7 @@
         <td>{{ hc_display_cliente(row.cliente_headcount) }}</td>
         <td>{{ hc_display_ubicacion(row.ubicacion_headcount) }}</td>
         <td>{{ hc_display(row.status_operacion_headcount) }}</td>
+        <td>{{ hc_display_fecha_ingreso(row.fecha_ingreso_headcount) }}</td>
         <td><span class="hc-badge {% if row.match_status == 'SIN_MATCH' %}err{% elif row.match_status == 'POSIBLE_MATCH' %}warn{% else %}ok{% endif %}">{{ row.match_por or row.match_status }}</span></td>
         <td>{{ hc_display(row.dias, empty='') }}</td>
         <td>{{ hc_display(row.sdi, empty='') }}</td>
@@ -45,12 +46,12 @@
         <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ row.registro_no or loop.index }}">Ver</button></td>
       </tr>
       <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}">
-        <td colspan="15"><div class="hc-detail-inner">
+        <td colspan="17"><div class="hc-detail-inner">
           Patrón HC: {{ hc_display(row.patron_headcount) }} · Nombre HC: {{ hc_display(row.nombre_headcount) }} · Página {{ hc_display(row.pagina_origen) }}
         </div></td>
       </tr>
       {% else %}
-      <tr><td colspan="15">Sin registros con los filtros actuales.</td></tr>
+      <tr><td colspan="17">Sin registros con los filtros actuales.</td></tr>
       {% endfor %}
     </tbody>
   </table>

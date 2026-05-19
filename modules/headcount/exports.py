@@ -8,7 +8,7 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from modules.headcount.matching import info_estado_label, warning_label
-from modules.headcount.ui_format import display_cell, display_cliente, display_ubicacion
+from modules.headcount.ui_format import display_cell, display_cliente, display_fecha_ingreso, display_ubicacion
 
 _WARNINGS_OMIT_EXCEL = frozenset({"STATUS_IMSS_INCONSISTENTE"})
 
@@ -24,7 +24,7 @@ _DET_HEADERS = [
     "Cliente HC",
     "Ubicación HC",
     "St. Op.",
-    "Patrón HC",
+    "Fecha ingreso",
     "Match por",
     "Match status",
     "Días SUA",
@@ -84,7 +84,7 @@ def _write_detalle_rows(ws, rows: list[dict[str, Any]], start_row: int = 2) -> N
         ws.cell(ri, 9, display_cliente(row.get("cliente_headcount", "")))
         ws.cell(ri, 10, display_ubicacion(row.get("ubicacion_headcount", "")))
         ws.cell(ri, 11, display_cell(row.get("status_operacion_headcount", "")))
-        ws.cell(ri, 12, display_cell(row.get("patron_headcount", "")))
+        ws.cell(ri, 12, display_fecha_ingreso(row.get("fecha_ingreso_headcount", "")))
         ws.cell(ri, 13, display_cell(row.get("match_por", "")))
         ws.cell(ri, 14, display_cell(row.get("match_status", "")))
         ws.cell(ri, 15, row.get("dias", ""))
@@ -123,6 +123,8 @@ def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
         ("Bajas conciliadas", resumen.get("bajas_conciliadas", "")),
         ("Warnings críticos", resumen.get("warnings_criticos", "")),
         ("Patrón filtro", resumen.get("patron_filtro", "RAFAEL")),
+        ("DESARROLLO IN F +6 meses (HC activos)", resumen.get("desarrollo_inf_mas_6_meses", "")),
+        ("DESARROLLO IN F +1 año (HC activos)", resumen.get("desarrollo_inf_mas_1_anio", "")),
     ]
     for i, (k, v) in enumerate(rows_resumen, start=1):
         ws_r.cell(i, 1, k).font = Font(bold=True)

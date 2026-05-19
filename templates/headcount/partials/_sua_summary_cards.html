@@ -1,5 +1,15 @@
 <div class="hc-cards">
   <div class="hc-card"><span>Total cotizantes SUA</span><strong>{{ resumen.total_cotizantes_sua or resumen.total_cotizantes or 0 }}</strong></div>
+  <div class="hc-card" title="Activos Headcount patrón DESARROLLO IN F, STATUS OPERACION ALTA, antigüedad ≥ 6 meses al corte SUA">
+    <span>DESARROLLO IN F +6 meses</span>
+    <strong>{{ resumen.desarrollo_inf_mas_6_meses or 0 }}</strong>
+    <span class="hc-card-metric-hint">Headcount activos al corte</span>
+  </div>
+  <div class="hc-card" title="Activos Headcount patrón DESARROLLO IN F, STATUS OPERACION ALTA, antigüedad ≥ 1 año al corte SUA">
+    <span>DESARROLLO IN F +1 año</span>
+    <strong>{{ resumen.desarrollo_inf_mas_1_anio or 0 }}</strong>
+    <span class="hc-card-metric-hint">Headcount activos al corte</span>
+  </div>
   <div class="hc-card"><span>Activos SUA al corte</span><strong>{{ resumen.total_sua_activos_al_corte or 0 }}</strong></div>
   <div class="hc-card"><span>Bajas SUA del periodo</span><strong>{{ resumen.total_sua_bajas_periodo or 0 }}</strong></div>
   <div class="hc-card"><span>Headcount RAFAEL activo</span><strong>{{ resumen.headcount_rafael_activo or 0 }}</strong></div>

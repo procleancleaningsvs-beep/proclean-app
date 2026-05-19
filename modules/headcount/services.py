@@ -30,10 +30,16 @@ from modules.headcount.matching import (
 )
 from modules.headcount.sua_parser import SuaParseResult, parse_sua_pdf_bytes
 from modules.headcount.ui_format import (
+    _months_before,
     agrupar_resumen_por_cliente,
+    build_cliente_cards_for_ui,
     clientes_detectados_labels,
     display_ubicacion,
+    parse_fecha_corte_auditoria,
+    parse_fecha_ingreso,
 )
+
+DESARROLLO_INF_PATRON = "DESARROLLO IN F"
 
 _HEADCOUNT_COLUMNS = [
     "CLIENTE",
@@ -160,6 +166,45 @@ def listar_ubicaciones_headcount(cliente: str | None = None, *, solo_activos: bo
     return ubicaciones
 
 
+def calc_metricas_desarrollo_inf(
+    fecha_corte_sua: str,
+    *,
+    fecha_proceso_sua: str = "",
+) -> dict[str, Any]:
+    corte = parse_fecha_corte_auditoria(fecha_corte_sua, fecha_proceso_sua)
+    if not corte:
+        return {
+            "desarrollo_inf_mas_6_meses": 0,
+            "desarrollo_inf_mas_1_anio": 0,
+            "fecha_corte_usada": "",
+        }
+
+    limite_6 = _months_before(corte, 6)
+    limite_12 = _months_before(corte, 12)
+    patron_objetivo = normalize_text(DESARROLLO_INF_PATRON)
+    mas_6 = 0
+    mas_1 = 0
+
+    for rec in obtener_registros_headcount(solo_activos=False):
+        if normalize_text(rec.get("patron")) != patron_objetivo:
+            continue
+        if normalize_text(rec.get("status_operacion")) != "ALTA":
+            continue
+        ingreso = parse_fecha_ingreso(rec.get("fecha_ingreso"))
+        if not ingreso:
+            continue
+        if ingreso <= limite_6:
+            mas_6 += 1
+        if ingreso <= limite_12:
+            mas_1 += 1
+
+    return {
+        "desarrollo_inf_mas_6_meses": mas_6,
+        "desarrollo_inf_mas_1_anio": mas_1,
+        "fecha_corte_usada": corte.isoformat(),
+    }
+
+
 def resumen_cliente_view(
     registros: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -269,8 +314,12 @@ def ejecutar_auditoria_sua(
     ) + len(hc_sin_sua)
 
     agrupado = _agrupar_detalle(detalle)
-    resumen_clientes = agrupar_resumen_por_cliente(detalle)
+    resumen_clientes, sin_cliente_card = build_cliente_cards_for_ui(detalle)
     clientes_opts = clientes_detectados_labels(detalle)
+    metricas_desarrollo_inf = calc_metricas_desarrollo_inf(
+        fecha_corte_sua,
+        fecha_proceso_sua=parsed.metadatos.get("fecha_proceso", "") or "",
+    )
     ubicaciones = sorted(
         {
             str(r.get("ubicacion_headcount") or "").strip()
@@ -308,6 +357,8 @@ def ejecutar_auditoria_sua(
         "clientes_detectados_opts": clientes_opts,
         "ubicaciones_detectadas": ubicaciones,
         "patron_filtro": PATRON_AUDITORIA,
+        "desarrollo_inf_mas_6_meses": metricas_desarrollo_inf.get("desarrollo_inf_mas_6_meses", 0),
+        "desarrollo_inf_mas_1_anio": metricas_desarrollo_inf.get("desarrollo_inf_mas_1_anio", 0),
     }
 
     all_warning_codes = {w for r in detalle for w in r.get("warnings", [])}
@@ -320,6 +371,7 @@ def ejecutar_auditoria_sua(
         "detalle": detalle,
         "agrupado": agrupado,
         "resumen_clientes": resumen_clientes,
+        "sin_cliente_card": sin_cliente_card,
         "headcount_sin_sua": hc_sin_sua,
         "sua_activos": sua_activos,
         "sua_bajas": sua_bajas,
@@ -383,6 +435,7 @@ def filtrar_detalle(
     *,
     cliente: str = "",
     ubicacion: str = "",
+    ubicacion_provided: bool = False,
     match_status: str = "",
     warning: str = "",
     movimiento: str = "",
@@ -396,9 +449,12 @@ def filtrar_detalle(
     if cliente:
         cf = cliente.strip().casefold()
         out = [r for r in out if str(r.get("cliente_headcount", "")).strip().casefold() == cf]
-    if ubicacion:
+    if ubicacion_provided:
         uf = ubicacion.strip().casefold()
-        out = [r for r in out if str(r.get("ubicacion_headcount", "")).strip().casefold() == uf]
+        if uf:
+            out = [r for r in out if str(r.get("ubicacion_headcount", "")).strip().casefold() == uf]
+        else:
+            out = [r for r in out if not str(r.get("ubicacion_headcount") or "").strip()]
     if match_status:
         out = [r for r in out if r.get("match_status") == match_status]
     if warning:

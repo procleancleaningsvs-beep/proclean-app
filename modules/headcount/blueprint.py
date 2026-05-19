@@ -23,14 +23,17 @@ from flask import (
 from modules.headcount.exports import build_auditoria_excel_bytes
 from modules.headcount.matching import info_estado_label, warning_label
 from modules.headcount.ui_format import (
+    build_cliente_cards_for_ui,
     display_cell,
     display_cliente,
+    display_fecha_ingreso,
     display_periodo_corte,
     display_registro_patronal,
     display_ubicacion,
 )
 from modules.headcount.privacy import mask_registro_for_display, should_mask_sensitive_data
 from modules.headcount.services import (
+    calc_metricas_desarrollo_inf,
     ejecutar_auditoria_sua,
     filtrar_detalle,
     listar_clientes_headcount,
@@ -253,18 +256,25 @@ def auditoria_sua_resultado(audit_id: str):
     detalle_full = payload.get("detalle") or []
     detalle = _apply_filters(detalle_full)
     resumen_clientes = payload.get("resumen_clientes") or []
+    sin_cliente_card = payload.get("sin_cliente_card") or {}
     if not resumen_clientes and detalle_full:
-        from modules.headcount.ui_format import agrupar_resumen_por_cliente
+        resumen_clientes, sin_cliente_card = build_cliente_cards_for_ui(detalle_full)
+    elif not sin_cliente_card and detalle_full:
+        _, sin_cliente_card = build_cliente_cards_for_ui(detalle_full)
 
-        resumen_clientes = agrupar_resumen_por_cliente(detalle_full)
+    resumen = dict(resumen)
+    if not resumen.get("desarrollo_inf_mas_6_meses") and not resumen.get("desarrollo_inf_mas_1_anio"):
+        metricas_di = calc_metricas_desarrollo_inf(
+            resumen.get("fecha_corte_sua") or audit.get("fecha_corte_sua") or "",
+            fecha_proceso_sua=resumen.get("fecha_proceso_sua") or audit.get("fecha_proceso_sua") or "",
+        )
+        resumen["desarrollo_inf_mas_6_meses"] = metricas_di.get("desarrollo_inf_mas_6_meses", 0)
+        resumen["desarrollo_inf_mas_1_anio"] = metricas_di.get("desarrollo_inf_mas_1_anio", 0)
     if not resumen.get("registro_patronal_sua"):
-        resumen = dict(resumen)
         resumen["registro_patronal_sua"] = audit.get("registro_patronal_sua") or ""
     if not resumen.get("periodo_proceso_sua"):
-        resumen = dict(resumen)
         resumen["periodo_proceso_sua"] = audit.get("periodo_proceso_sua") or ""
     if not resumen.get("fecha_corte_sua"):
-        resumen = dict(resumen)
         resumen["fecha_corte_sua"] = audit.get("fecha_corte_sua") or ""
     clientes_opts = resumen.get("clientes_detectados_opts")
     if not clientes_opts:
@@ -277,6 +287,7 @@ def auditoria_sua_resultado(audit_id: str):
         audit_id=audit_id,
         resumen=resumen,
         resumen_clientes=resumen_clientes,
+        sin_cliente_card=sin_cliente_card,
         detalle=detalle,
         detalle_total=len(detalle_full),
         detalle_filtrado=len(detalle),
@@ -300,7 +311,19 @@ def auditoria_sua_resultado(audit_id: str):
 @_login_required_page
 def auditoria_sua_exportar_excel(audit_id: str):
     _require_auditoria()
-    payload = _load_payload_from_audit(audit_id)
+    audit = get_sua_audit(_db_path(), audit_id)
+    if not audit:
+        abort(404)
+    payload = json.loads(audit["detalle_json"])
+    resumen = dict(payload.get("resumen") or {})
+    if not resumen.get("desarrollo_inf_mas_6_meses") and not resumen.get("desarrollo_inf_mas_1_anio"):
+        metricas_di = calc_metricas_desarrollo_inf(
+            resumen.get("fecha_corte_sua") or audit.get("fecha_corte_sua") or "",
+            fecha_proceso_sua=resumen.get("fecha_proceso_sua") or audit.get("fecha_proceso_sua") or "",
+        )
+        resumen["desarrollo_inf_mas_6_meses"] = metricas_di.get("desarrollo_inf_mas_6_meses", 0)
+        resumen["desarrollo_inf_mas_1_anio"] = metricas_di.get("desarrollo_inf_mas_1_anio", 0)
+    payload["resumen"] = resumen
     data = build_auditoria_excel_bytes(payload)
     from io import BytesIO
 
@@ -414,6 +437,7 @@ def _current_filters() -> dict:
     return {
         "cliente": (request.args.get("cliente") or "").strip(),
         "ubicacion": (request.args.get("ubicacion") or "").strip(),
+        "ubicacion_provided": "ubicacion" in request.args,
         "match_status": (request.args.get("match_status") or "").strip(),
         "warning": (request.args.get("warning") or "").strip(),
         "movimiento": (request.args.get("movimiento") or "").strip(),
@@ -452,6 +476,7 @@ def _apply_filters(detalle: list) -> list:
         detalle,
         cliente=f["cliente"],
         ubicacion=f["ubicacion"],
+        ubicacion_provided=bool(f.get("ubicacion_provided")),
         match_status=f["match_status"],
         warning=f["warning"],
         movimiento=f["movimiento"],
@@ -471,6 +496,7 @@ def _headcount_template_helpers():
         "hc_display_ubicacion": display_ubicacion,
         "hc_display_registro_patronal": display_registro_patronal,
         "hc_display_periodo_corte": display_periodo_corte,
+        "hc_display_fecha_ingreso": display_fecha_ingreso,
     }
 
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from modules.headcount.matching import es_warning_critico, normalize_text
+
+SIN_CLIENTE_CARD_KEY = "__SIN_CLIENTE__"
 
 
 def is_empty_ui_value(value: Any) -> bool:
@@ -49,6 +52,61 @@ def display_registro_patronal(*values: Any) -> str:
     return "No detectado"
 
 
+def parse_fecha_ingreso(value: Any) -> date | None:
+    if is_empty_ui_value(value):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        import pandas as pd
+
+        if isinstance(value, pd.Timestamp):
+            if pd.isna(value):
+                return None
+            return value.date()
+    except ImportError:
+        pass
+    if isinstance(value, (int, float)):
+        try:
+            serial = float(value)
+            if 1 < serial < 100000:
+                base = datetime(1899, 12, 30)
+                return (base + timedelta(days=serial)).date()
+        except (ValueError, OverflowError, TypeError):
+            pass
+    s = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(s[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def display_fecha_ingreso(value: Any) -> str:
+    parsed = parse_fecha_ingreso(value)
+    if not parsed:
+        return "—"
+    return parsed.strftime("%d/%m/%Y")
+
+
+def parse_fecha_corte_auditoria(fecha_corte: Any, fecha_proceso: Any = "") -> date | None:
+    return parse_fecha_ingreso(fecha_corte) or parse_fecha_ingreso(fecha_proceso)
+
+
+def _months_before(corte: date, months: int) -> date:
+    year = corte.year
+    month = corte.month - months
+    while month <= 0:
+        month += 12
+        year -= 1
+    days_in_month = [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    day = min(corte.day, days_in_month[month - 1])
+    return date(year, month, day)
+
+
 def display_periodo_corte(periodo: Any, fecha_corte: Any) -> str:
     p = display_cell(periodo, empty="")
     f = display_cell(fecha_corte, empty="")
@@ -61,46 +119,81 @@ def display_periodo_corte(periodo: Any, fecha_corte: Any) -> str:
     return "—"
 
 
+def _accumulate_cliente_bucket(buckets: dict[str, dict[str, Any]], row: dict[str, Any], *, key: str) -> None:
+    raw_cliente = key
+    if key not in buckets:
+        buckets[key] = {
+            "cliente_key": key,
+            "cliente_label": display_cliente(raw_cliente),
+            "activos_sua": 0,
+            "bajas_sua": 0,
+            "match_activos": 0,
+            "activos_sin_match": 0,
+            "bajas_conciliadas": 0,
+            "warnings": 0,
+            "ubicaciones": {},
+            "es_sin_cliente_virtual": False,
+        }
+    b = buckets[key]
+    if row.get("sua_es_activo_al_corte"):
+        b["activos_sua"] += 1
+        if row.get("match_status") in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"}:
+            b["match_activos"] += 1
+        if "SUA_ACTIVO_SIN_MATCH_HEADCOUNT" in (row.get("warnings") or []):
+            b["activos_sin_match"] += 1
+    else:
+        b["bajas_sua"] += 1
+    if row.get("info_estado") == "BAJA_CONCILIADA":
+        b["bajas_conciliadas"] += 1
+    b["warnings"] += len([w for w in (row.get("warnings") or []) if es_warning_critico(w)])
+
+    raw_ubic = str(row.get("ubicacion_headcount") or "").strip()
+    ubic_map = b["ubicaciones"]
+    if raw_ubic not in ubic_map:
+        ubic_map[raw_ubic] = {
+            "ubicacion_key": raw_ubic,
+            "ubicacion_label": display_ubicacion(raw_ubic),
+            "total": 0,
+        }
+    ubic_map[raw_ubic]["total"] += 1
+
+
+def resumen_sin_cliente_card(detalle: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [r for r in detalle if r.get("match_status") == "SIN_MATCH"]
+    card = {
+        "cliente_key": SIN_CLIENTE_CARD_KEY,
+        "cliente_label": "Sin cliente",
+        "activos_sua": 0,
+        "bajas_sua": 0,
+        "match_activos": 0,
+        "activos_sin_match": 0,
+        "bajas_conciliadas": 0,
+        "warnings": 0,
+        "ubicaciones_list": [],
+        "es_sin_cliente_virtual": True,
+        "total_registros": len(rows),
+    }
+    for row in rows:
+        if row.get("sua_es_activo_al_corte"):
+            card["activos_sua"] += 1
+            card["activos_sin_match"] += 1
+        else:
+            card["bajas_sua"] += 1
+        if row.get("info_estado") == "BAJA_CONCILIADA":
+            card["bajas_conciliadas"] += 1
+        card["warnings"] += len([w for w in (row.get("warnings") or []) if es_warning_critico(w)])
+    return card
+
+
 def agrupar_resumen_por_cliente(detalle: list[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[str, dict[str, Any]] = {}
 
     for row in detalle:
         raw_cliente = str(row.get("cliente_headcount") or "").strip()
+        if not raw_cliente:
+            continue
         key = raw_cliente
-        if key not in buckets:
-            buckets[key] = {
-                "cliente_key": key,
-                "cliente_label": display_cliente(raw_cliente),
-                "activos_sua": 0,
-                "bajas_sua": 0,
-                "match_activos": 0,
-                "activos_sin_match": 0,
-                "bajas_conciliadas": 0,
-                "warnings": 0,
-                "ubicaciones": {},
-            }
-        b = buckets[key]
-        if row.get("sua_es_activo_al_corte"):
-            b["activos_sua"] += 1
-            if row.get("match_status") in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"}:
-                b["match_activos"] += 1
-            if "SUA_ACTIVO_SIN_MATCH_HEADCOUNT" in (row.get("warnings") or []):
-                b["activos_sin_match"] += 1
-        else:
-            b["bajas_sua"] += 1
-        if row.get("info_estado") == "BAJA_CONCILIADA":
-            b["bajas_conciliadas"] += 1
-        b["warnings"] += len([w for w in (row.get("warnings") or []) if es_warning_critico(w)])
-
-        raw_ubic = str(row.get("ubicacion_headcount") or "").strip()
-        ubic_map = b["ubicaciones"]
-        if raw_ubic not in ubic_map:
-            ubic_map[raw_ubic] = {
-                "ubicacion_key": raw_ubic,
-                "ubicacion_label": display_ubicacion(raw_ubic),
-                "total": 0,
-            }
-        ubic_map[raw_ubic]["total"] += 1
+        _accumulate_cliente_bucket(buckets, row, key=key)
 
     out: list[dict[str, Any]] = []
     for b in buckets.values():
@@ -113,9 +206,17 @@ def agrupar_resumen_por_cliente(detalle: list[dict[str, Any]]) -> list[dict[str,
     return sorted(out, key=lambda x: (x["cliente_label"].casefold(), x["cliente_key"].casefold()))
 
 
+def build_cliente_cards_for_ui(detalle: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    clientes = agrupar_resumen_por_cliente(detalle)
+    sin_cliente = resumen_sin_cliente_card(detalle)
+    return clientes, sin_cliente
+
+
 def clientes_detectados_labels(detalle: list[dict[str, Any]]) -> list[dict[str, str]]:
     seen: dict[str, str] = {}
     for row in detalle:
         key = str(row.get("cliente_headcount") or "").strip()
+        if not key:
+            continue
         seen[key] = display_cliente(key)
     return [{"key": k, "label": v} for k, v in sorted(seen.items(), key=lambda item: item[1].casefold())]
