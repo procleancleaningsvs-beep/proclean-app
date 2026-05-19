@@ -112,21 +112,27 @@ def test_auditoria_paths_blocked_for_limited_roles():
             return False
         if path.startswith("/headcount/auditoria-sua") or path.startswith("/headcount/historial-sua"):
             return True
-        if path.startswith("/headcount/desglose") or "/exportar-excel" in path:
+        if "/exportar-excel" in path:
             return True
         return False
+
+    def conteo_allowed(role: str, path: str) -> bool:
+        return path.startswith("/headcount/conteo-personal") and can_access_headcount_cliente(role)
 
     for path in (
         "/headcount/auditoria-sua",
         "/headcount/auditoria-sua/procesar",
         "/headcount/historial-sua",
-        "/headcount/desglose",
         "/headcount/auditoria-sua/abc/exportar-excel",
     ):
         assert blocked("usuario", path)
         assert blocked("coordinador", path)
         assert not blocked("admin", path)
         assert not blocked("nomina", path)
+
+    assert conteo_allowed("usuario", "/headcount/conteo-personal")
+    assert conteo_allowed("coordinador", "/headcount/conteo-personal")
+    assert not conteo_allowed("cobranza", "/headcount/conteo-personal")
 
 
 def test_mask_sensitive_for_limited_roles():

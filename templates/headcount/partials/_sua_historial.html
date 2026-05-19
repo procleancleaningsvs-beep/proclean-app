@@ -1,0 +1,64 @@
+<section id="historial" class="hc-historial-section">
+  <h3>Historial de auditorías SUA</h3>
+  <p class="hc-historial-lead">Consulta, exporta o elimina auditorías guardadas.</p>
+
+  <form class="hc-filters" method="get" action="{{ url_for('headcount.auditoria_sua') }}#historial">
+    <div>
+      <label>Fecha de corte SUA</label>
+      <select name="fecha_corte">
+        <option value="">Todas</option>
+        {% for f in historial_fechas %}
+        <option value="{{ f }}" {% if historial_fecha_filtro == f %}selected{% endif %}>{{ f }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><button type="submit" class="btn btn-primary btn-sm">Filtrar</button></div>
+  </form>
+
+  <div class="hc-table-wrap">
+    <table class="hc-table history-table">
+      <thead>
+        <tr>
+          <th>Cargado</th>
+          <th>Usuario</th>
+          <th>Corte SUA</th>
+          <th>Periodo SUA</th>
+          <th>Registro patronal</th>
+          <th>Cotizantes</th>
+          <th>Activos corte</th>
+          <th>Bajas periodo</th>
+          <th>Warnings</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in historial_rows %}
+        <tr>
+          <td>{{ row.created_at }}</td>
+          <td>{{ row.username }}</td>
+          <td>{{ row.fecha_corte_sua }}</td>
+          <td>{{ hc_display(row.periodo_proceso_sua) }}</td>
+          <td>{{ hc_display_registro_patronal(row.registro_patronal_sua) }}</td>
+          <td>{{ row.total_cotizantes }}</td>
+          <td>{{ row.activos_corte if row.activos_corte is not none else '—' }}</td>
+          <td>{{ row.bajas_periodo if row.bajas_periodo is not none else '—' }}</td>
+          <td>{{ row.total_warnings }}</td>
+          <td class="hc-historial-actions">
+            <a href="{{ url_for('headcount.auditoria_sua_resultado', audit_id=row.audit_id) }}">Ver auditoría</a>
+            ·
+            <a href="{{ url_for('headcount.auditoria_sua_exportar_excel', audit_id=row.audit_id) }}">Exportar Excel</a>
+            {% if can_delete %}
+            ·
+            <form method="post" action="{{ url_for('headcount.auditoria_sua_eliminar', audit_id=row.audit_id) }}" class="hc-inline-form" onsubmit="return confirm('¿Eliminar esta auditoría?');">
+              <button type="submit" class="btn-link-danger">Eliminar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10">Sin auditorías guardadas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

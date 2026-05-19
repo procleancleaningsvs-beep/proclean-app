@@ -4,8 +4,8 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Headcount</span>
-    <h2>Auditoría SUA vs Headcount</h2>
-    <p>Comparación contra Headcount con patrón RAFAEL. El conteo debe coincidir con Total de Cotizantes.</p>
+    <h2>Auditoría SUA</h2>
+    <p>Comparación de cédulas SUA contra Headcount por patrón.</p>
   </div>
 </section>
 
@@ -22,6 +22,7 @@
 {% endif %}
 
 <div class="hc-panel form-card">
+  <h3>Nueva auditoría</h3>
   <form method="post" action="{{ url_for('headcount.auditoria_sua_procesar') }}" enctype="multipart/form-data">
     <label>PDF SUA (Cédula de determinación)
       <input type="file" name="pdf_sua" accept="application/pdf" required>
@@ -37,8 +38,11 @@
     {% endif %}
     <div class="hc-actions">
       <button type="submit" class="btn btn-primary">Procesar auditoría</button>
-      <a class="btn btn-secondary" href="{{ url_for('headcount.index') }}">Volver</a>
     </div>
   </form>
+</div>
+
+<div class="hc-panel hc-panel-historial">
+  {% include 'headcount/partials/_sua_historial.html' %}
 </div>
 {% endblock %}

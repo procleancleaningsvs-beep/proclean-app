@@ -89,7 +89,10 @@ def _headcount_module_guard() -> None:
     if not can_access_headcount_auditoria(role):
         if path.startswith("/headcount/auditoria-sua") or path.startswith("/headcount/historial-sua"):
             abort(403)
-        if path.startswith("/headcount/desglose") or "/exportar-excel" in path:
+        if "/exportar-excel" in path:
+            abort(403)
+    if not can_access_headcount_cliente(role):
+        if path.startswith("/headcount/conteo-personal"):
             abort(403)
 
 
@@ -138,22 +141,26 @@ def _load_payload_from_audit(audit_id: str) -> dict:
 @_login_required_page
 def index():
     role = _role()
-    if role in {"usuario", "coordinador"}:
-        return redirect(url_for("headcount.headcount_cliente"))
-    return render_template(
-        "headcount/index.html",
-        role=role,
-        can_auditoria=can_access_headcount_auditoria(role),
-        can_desglose=can_access_headcount_desglose(role),
-        can_cliente=can_access_headcount_cliente(role),
-    )
+    if can_access_headcount_auditoria(role):
+        return redirect(url_for("headcount.auditoria_sua"))
+    if can_access_headcount_cliente(role):
+        return redirect(url_for("headcount.conteo_personal"))
+    abort(403)
 
 
 @headcount_bp.route("/auditoria-sua")
 @_login_required_page
 def auditoria_sua():
     _require_auditoria()
-    return render_template("headcount/auditoria_sua.html")
+    fecha_filtro = (request.args.get("fecha_corte") or "").strip()
+    historial_rows, historial_fechas = _historial_rows(fecha_filtro or None)
+    return render_template(
+        "headcount/auditoria_sua.html",
+        historial_rows=historial_rows,
+        historial_fechas=historial_fechas,
+        historial_fecha_filtro=fecha_filtro,
+        can_delete=can_delete_headcount_audit(_role()),
+    )
 
 
 @headcount_bp.route("/auditoria-sua/procesar", methods=["POST"])
@@ -318,33 +325,37 @@ def auditoria_sua_eliminar(audit_id: str):
         flash("Auditoría eliminada.", "success")
     else:
         flash("No se encontró la auditoría.", "error")
-    return redirect(url_for("headcount.historial_sua"))
+    return redirect(url_for("headcount.auditoria_sua") + "#historial")
 
 
 @headcount_bp.route("/historial-sua")
 @_login_required_page
 def historial_sua():
     _require_auditoria()
-    fecha_filtro = (request.args.get("fecha_corte") or "").strip()
-    rows = list_sua_audits(_db_path(), fecha_corte=fecha_filtro or None)
-    fechas = sorted({r["fecha_corte_sua"] for r in list_sua_audits(_db_path(), limit=500)}, reverse=True)
-    return render_template(
-        "headcount/historial_sua.html",
-        rows=rows,
-        fechas=fechas,
-        fecha_filtro=fecha_filtro,
-        can_delete=can_delete_headcount_audit(_role()),
-    )
+    return redirect(url_for("headcount.auditoria_sua") + "#historial")
 
 
 @headcount_bp.route("/cliente")
 @_login_required_page
 def headcount_cliente():
+    return redirect(url_for("headcount.conteo_personal", **request.args))
+
+
+@headcount_bp.route("/desglose")
+@_login_required_page
+def headcount_desglose():
+    return redirect(url_for("headcount.conteo_personal", **request.args))
+
+
+@headcount_bp.route("/conteo-personal")
+@_login_required_page
+def conteo_personal():
     _require_cliente()
     solo_activos = _solo_activos_for_role()
     cliente = (request.args.get("cliente") or "").strip()
     ubicacion = (request.args.get("ubicacion") or "").strip()
-    status = (request.args.get("status") or "").strip()
+    patron = (request.args.get("patron") or "").strip()
+    status = (request.args.get("status_operacion") or "").strip()
     busqueda = (request.args.get("q") or "").strip()
 
     registros = obtener_registros_headcount(solo_activos=solo_activos)
@@ -354,6 +365,9 @@ def headcount_cliente():
     if ubicacion:
         uf = ubicacion.casefold()
         registros = [r for r in registros if str(r.get("ubicacion", "")).strip().casefold() == uf]
+    if patron and not solo_activos:
+        pf = patron.casefold()
+        registros = [r for r in registros if str(r.get("patron", "")).strip().casefold() == pf]
     if status and not solo_activos:
         sf = status.upper()
         registros = [r for r in registros if str(r.get("status_operacion", "")).upper() == sf]
@@ -367,97 +381,31 @@ def headcount_cliente():
             if q in normalize_text(r.get("nombre_completo"))
             or q in normalize_text(r.get("nss"))
             or q in normalize_text(r.get("curp"))
+            or q in normalize_text(r.get("cliente"))
         ]
+
+    resumen = resumen_cliente_view(registros)
+    if not solo_activos:
+        resumen["clientes"] = len({r.get("cliente") for r in registros if r.get("cliente")})
+        resumen["ubicaciones"] = len({r.get("ubicacion") for r in registros if r.get("ubicacion")})
 
     if should_mask_sensitive_data(_role()):
         registros = [mask_registro_for_display(r, role=_role()) for r in registros]
 
     return render_template(
-        "headcount/headcount_cliente.html",
+        "headcount/conteo_personal.html",
         registros=registros,
-        resumen=resumen_cliente_view(registros),
+        resumen=resumen,
         clientes=listar_clientes_headcount(solo_activos=solo_activos),
         ubicaciones=listar_ubicaciones_headcount(cliente or None, solo_activos=solo_activos),
         cliente_sel=cliente,
         ubicacion_sel=ubicacion,
+        patron_sel=patron,
         status_sel=status,
         busqueda=busqueda,
         solo_activos=solo_activos,
         can_status_filter=not solo_activos,
-        show_desglose_link=can_access_headcount_desglose(_role()),
-        mask_sensitive=should_mask_sensitive_data(_role()),
-    )
-
-
-@headcount_bp.route("/desglose")
-@_login_required_page
-def headcount_desglose():
-    _require_desglose()
-    cliente = (request.args.get("cliente") or "").strip()
-    ubicacion = (request.args.get("ubicacion") or "").strip()
-    patron = (request.args.get("patron") or "").strip()
-    status_op = (request.args.get("status_operacion") or "").strip()
-    status_imss = (request.args.get("status_imss") or "").strip()
-    busqueda = (request.args.get("q") or "").strip()
-
-    registros = obtener_registros_headcount()
-    if cliente:
-        cf = cliente.casefold()
-        registros = [r for r in registros if str(r.get("cliente", "")).strip().casefold() == cf]
-    if ubicacion:
-        uf = ubicacion.casefold()
-        registros = [r for r in registros if str(r.get("ubicacion", "")).strip().casefold() == uf]
-    if patron:
-        pf = patron.casefold()
-        registros = [r for r in registros if str(r.get("patron", "")).strip().casefold() == pf]
-    if status_op:
-        registros = [r for r in registros if str(r.get("status_operacion", "")).upper() == status_op.upper()]
-    if status_imss:
-        registros = [r for r in registros if str(r.get("status_imss", "")).upper() == status_imss.upper()]
-    if busqueda:
-        from modules.headcount.matching import normalize_text
-
-        q = normalize_text(busqueda)
-        registros = [
-            r
-            for r in registros
-            if q in normalize_text(r.get("nombre_completo"))
-            or q in normalize_text(r.get("nss"))
-            or q in normalize_text(r.get("curp"))
-            or q in normalize_text(r.get("cliente"))
-        ]
-
-    incompletos = sum(
-        1
-        for r in registros
-        if not str(r.get("curp") or "").strip()
-        or not str(r.get("nss") or "").strip()
-        or not str(r.get("ubicacion") or "").strip()
-    )
-    resumen = resumen_cliente_view(registros)
-    resumen["clientes"] = len({r.get("cliente") for r in registros if r.get("cliente")})
-    resumen["ubicaciones"] = len({r.get("ubicacion") for r in registros if r.get("ubicacion")})
-    resumen["incompletos"] = incompletos
-
-    if should_mask_sensitive_data(_role()):
-        registros = [mask_registro_for_display(r, role=_role()) for r in registros]
-
-    return render_template(
-        "headcount/headcount_cliente.html",
-        registros=registros,
-        resumen=resumen,
-        clientes=listar_clientes_headcount(solo_activos=False),
-        ubicaciones=listar_ubicaciones_headcount(cliente or None, solo_activos=False),
-        cliente_sel=cliente,
-        ubicacion_sel=ubicacion,
-        patron_sel=patron,
-        status_sel=status_op,
-        status_imss_sel=status_imss,
-        busqueda=busqueda,
-        solo_activos=False,
-        can_status_filter=True,
-        show_desglose_link=False,
-        modo_desglose=True,
+        can_patron_filter=not solo_activos,
         mask_sensitive=should_mask_sensitive_data(_role()),
     )
 
@@ -476,6 +424,24 @@ def _current_filters() -> dict:
         "solo_hc_sin_sua": request.args.get("solo_hc_sin_sua") == "1",
         "busqueda": (request.args.get("q") or "").strip(),
     }
+
+
+def _historial_rows(fecha_corte: str | None = None) -> tuple[list[dict], list[str]]:
+    db = _db_path()
+    rows = list_sua_audits(db, fecha_corte=fecha_corte)
+    fechas = sorted({r["fecha_corte_sua"] for r in list_sua_audits(db, limit=500)}, reverse=True)
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        try:
+            resumen = json.loads(row["resumen_json"])
+            item["activos_corte"] = resumen.get("total_sua_activos_al_corte")
+            item["bajas_periodo"] = resumen.get("total_sua_bajas_periodo")
+        except (json.JSONDecodeError, TypeError, KeyError):
+            item["activos_corte"] = None
+            item["bajas_periodo"] = None
+        out.append(item)
+    return out, fechas
 
 
 def _apply_filters(detalle: list) -> list:

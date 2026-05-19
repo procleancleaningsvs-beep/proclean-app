@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block extra_head %}{% include 'headcount/_styles.html' %}{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Headcount</span>
+    <h2>Conteo de personal activo</h2>
+    <p>Consulta compacta del personal por cliente, ubicación y patrón.</p>
+  </div>
+</section>
+
+<div class="hc-panel">
+  <form class="hc-filters" method="get" action="{{ url_for('headcount.conteo_personal') }}">
+    <div>
+      <label>Cliente</label>
+      <select name="cliente">
+        <option value="">Todos</option>
+        {% for c in clientes %}
+        <option value="{{ c }}" {% if cliente_sel == c %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Ubicación / planta</label>
+      <select name="ubicacion">
+        <option value="">Todas</option>
+        {% for u in ubicaciones %}
+        <option value="{{ u }}" {% if ubicacion_sel == u %}selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% if can_patron_filter %}
+    <div>
+      <label>Patrón</label>
+      <input type="text" name="patron" value="{{ patron_sel or '' }}" placeholder="Ej. RAFAEL">
+    </div>
+    {% endif %}
+    {% if can_status_filter %}
+    <div>
+      <label>Status operación</label>
+      <input type="text" name="status_operacion" value="{{ status_sel or '' }}" placeholder="ALTA, BAJA">
+    </div>
+    {% endif %}
+    <div>
+      <label>Buscador</label>
+      <input type="search" name="q" value="{{ busqueda or '' }}" placeholder="Nombre, NSS, CURP">
+    </div>
+    <div>
+      <button type="submit" class="btn btn-primary btn-sm">Aplicar</button>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('headcount.conteo_personal') }}">Limpiar</a>
+    </div>
+  </form>
+
+  <div class="hc-cards">
+    <div class="hc-card"><span>Total</span><strong>{{ resumen.total }}</strong></div>
+    <div class="hc-card"><span>Activos</span><strong>{{ resumen.activos }}</strong></div>
+    {% if not solo_activos %}
+    <div class="hc-card"><span>Bajas</span><strong>{{ resumen.bajas }}</strong></div>
+    <div class="hc-card"><span>Clientes</span><strong>{{ resumen.clientes }}</strong></div>
+    <div class="hc-card"><span>Ubicaciones</span><strong>{{ resumen.ubicaciones }}</strong></div>
+    {% endif %}
+    <div class="hc-card"><span>Sin CURP</span><strong>{{ resumen.sin_curp }}</strong></div>
+    <div class="hc-card"><span>Sin NSS</span><strong>{{ resumen.sin_nss }}</strong></div>
+    <div class="hc-card"><span>Sin ubicación</span><strong>{{ resumen.sin_ubicacion }}</strong></div>
+  </div>
+
+  {% include 'headcount/partials/_headcount_cliente_table.html' %}
+</div>
+{% endblock %}

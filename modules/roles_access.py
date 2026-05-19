@@ -99,6 +99,10 @@ def nav_show_headcount_cliente(role: str) -> bool:
     return role in HEADCOUNT_CLIENTE_ROLES
 
 
+def nav_show_headcount_conteo(role: str) -> bool:
+    return role in HEADCOUNT_CLIENTE_ROLES
+
+
 def nav_show_administration(role: str) -> bool:
     return role == "admin"
 

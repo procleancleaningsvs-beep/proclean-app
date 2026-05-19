@@ -56,6 +56,7 @@ from modules.roles_access import (
     nav_show_comparativo,
     nav_show_headcount_auditoria,
     nav_show_headcount_cliente,
+    nav_show_headcount_conteo,
     nav_show_headcount_module,
     nav_show_facturacion,
     nav_show_finiquitos,
@@ -309,6 +310,7 @@ def create_app() -> Flask:
             "nav_show_headcount_module": nav_show_headcount_module(role),
             "nav_show_headcount_auditoria": nav_show_headcount_auditoria(role),
             "nav_show_headcount_cliente": nav_show_headcount_cliente(role),
+            "nav_show_headcount_conteo": nav_show_headcount_conteo(role),
             "login_home_endpoint": login_home_endpoint,
         }
 

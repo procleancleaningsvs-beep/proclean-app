@@ -41,7 +41,7 @@
 {% else %}
 <div class="hc-actions">
   <a class="btn btn-primary" href="{{ url_for('headcount.auditoria_sua_exportar_excel', audit_id=audit_id) }}">Exportar Excel</a>
-  <a class="btn btn-secondary" href="{{ url_for('headcount.historial_sua') }}">Historial</a>
+  <a class="btn btn-secondary" href="{{ url_for('headcount.auditoria_sua') }}#historial">Volver a auditoría</a>
   {% if can_delete %}
   <form method="post" action="{{ url_for('headcount.auditoria_sua_eliminar', audit_id=audit_id) }}" onsubmit="return confirm('¿Eliminar esta auditoría?');" style="display:inline;">
     <button type="submit" class="btn btn-secondary">Eliminar</button>
