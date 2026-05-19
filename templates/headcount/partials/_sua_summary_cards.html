@@ -7,6 +7,12 @@
   <div class="hc-card"><span>HC activos no en SUA</span><strong>{{ resumen.headcount_activos_no_en_sua or 0 }}</strong></div>
   <div class="hc-card"><span>HC activo + Baja SUA</span><strong>{{ resumen.headcount_activos_con_baja_en_sua or 0 }}</strong></div>
   <div class="hc-card"><span>Bajas conciliadas</span><strong>{{ resumen.bajas_conciliadas or 0 }}</strong></div>
-  <div class="hc-card"><span>Registro patronal</span><strong>{{ resumen.registro_patronal_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Periodo / corte</span><strong>{{ resumen.periodo_proceso_sua or '—' }} · {{ resumen.fecha_corte_sua or '—' }}</strong></div>
+  <div class="hc-card hc-card-wide">
+    <span>Registro patronal</span>
+    <strong>{{ hc_display_registro_patronal(resumen.registro_patronal_sua, row_meta.registro_patronal_sua if row_meta is defined else '') }}</strong>
+  </div>
+  <div class="hc-card hc-card-wide">
+    <span>Periodo / corte</span>
+    <strong>{{ hc_display_periodo_corte(resumen.periodo_proceso_sua or (row_meta.periodo_proceso_sua if row_meta is defined else ''), resumen.fecha_corte_sua or (row_meta.fecha_corte_sua if row_meta is defined else '')) }}</strong>
+  </div>
 </div>

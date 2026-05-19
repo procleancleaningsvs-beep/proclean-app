@@ -20,7 +20,6 @@ _WARNING_LABELS: dict[str, str] = {
     "HEADCOUNT_BAJA_APARECE_ACTIVO_EN_SUA": (
         "El trabajador aparece activo/cotizando en SUA, pero en Headcount está marcado como baja."
     ),
-    "STATUS_IMSS_INCONSISTENTE": "STATUS IMSS no activo en Headcount",
     "STATUS_OPERACION_INCONSISTENTE": "STATUS OPERACIÓN no activo en Headcount",
     "PATRON_DIFERENTE": "Match en Headcount con patrón distinto de RAFAEL",
     "CLIENTE_VACIO": "CLIENTE vacío en Headcount",
@@ -43,10 +42,6 @@ _INFO_ESTADOS = frozenset({"BAJA_CONCILIADA"})
 
 _STATUS_ACTIVO_OPERACION = frozenset({"ALTA", "ACTIVO", "ACTIVA", "OPERATIVO", "OPERATIVA"})
 _STATUS_BAJA_OPERACION = frozenset({"BAJA", "INACTIVO", "INACTIVA", "SUSPENDIDO", "SUSPENDIDA"})
-_STATUS_ACTIVO_IMSS = frozenset({"ALTA", "ACTIVO", "ACTIVA", "COTIZANDO", "COTIZANTE"})
-_STATUS_BAJA_IMSS = frozenset({"BAJA", "INACTIVO", "INACTIVA", "NO COTIZA", "SIN IMSS"})
-
-
 def normalize_text(value: Any) -> str:
     s = str(value or "").strip().upper()
     s = unicodedata.normalize("NFKD", s)
@@ -143,27 +138,15 @@ def _is_status_baja_operacion(status: str) -> bool:
     return n in _STATUS_BAJA_OPERACION or (n and n not in _STATUS_ACTIVO_OPERACION and "BAJA" in n)
 
 
-def _is_status_activo_imss(status: str) -> bool:
-    return normalize_text(status) in _STATUS_ACTIVO_IMSS
-
-
-def _is_status_baja_imss(status: str) -> bool:
-    n = normalize_text(status)
-    return n in _STATUS_BAJA_IMSS or (n and "BAJA" in n)
-
-
 def _hc_es_activo(row: dict[str, Any]) -> bool:
     st_op = row.get("status_operacion_headcount", "")
-    st_imss = row.get("status_imss_headcount", "")
-    if _is_status_baja_operacion(st_op) or _is_status_baja_imss(st_imss):
+    if _is_status_baja_operacion(st_op):
         return False
-    return _is_status_activo_operacion(st_op) or _is_status_activo_imss(st_imss)
+    return _is_status_activo_operacion(st_op)
 
 
 def _hc_es_baja(row: dict[str, Any]) -> bool:
-    return _is_status_baja_operacion(row.get("status_operacion_headcount", "")) or _is_status_baja_imss(
-        row.get("status_imss_headcount", "")
-    )
+    return _is_status_baja_operacion(row.get("status_operacion_headcount", ""))
 
 
 def patron_es_rafael(patron: Any) -> bool:
@@ -374,12 +357,6 @@ def enrich_row_warnings(
         elif es_activo_sua:
             if not _is_status_activo_operacion(row.get("status_operacion_headcount", "")) and not hc_baja:
                 warnings.append("STATUS_OPERACION_INCONSISTENTE")
-            st_imss = row.get("status_imss_headcount", "")
-            if (
-                not _is_status_activo_imss(st_imss)
-                and not _is_status_baja_imss(st_imss)
-            ):
-                warnings.append("STATUS_IMSS_INCONSISTENTE")
 
     try:
         dias_sua = int(row.get("dias") or 0)

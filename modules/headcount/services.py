@@ -17,6 +17,7 @@ from modules.comparativo.headcount_service import (
 )
 from modules.headcount.matching import (
     PATRON_AUDITORIA,
+    _hc_es_activo,
     build_headcount_rafael_indexes,
     collect_duplicate_warnings,
     enrich_row_warnings,
@@ -28,6 +29,11 @@ from modules.headcount.matching import (
     warning_label,
 )
 from modules.headcount.sua_parser import SuaParseResult, parse_sua_pdf_bytes
+from modules.headcount.ui_format import (
+    agrupar_resumen_por_cliente,
+    clientes_detectados_labels,
+    display_ubicacion,
+)
 
 _HEADCOUNT_COLUMNS = [
     "CLIENTE",
@@ -221,9 +227,10 @@ def ejecutar_auditoria_sua(
         if row.get("nss_normalizado"):
             nss_sua_todos.add(row["nss_normalizado"])
 
-    hc_activos_rafael = [
-        r for r in rafael if normalize_text(r.get("status_operacion")) == "ALTA"
-    ]
+    for idx, row in enumerate(detalle, start=1):
+        row["registro_no"] = idx
+
+    hc_activos_rafael = [r for r in rafael if _hc_es_activo({"status_operacion_headcount": r.get("status_operacion", "")})]
     hc_sin_sua: list[dict[str, Any]] = []
     for rec in hc_activos_rafael:
         nss_n = str(rec.get("nss_normalizado") or "")
@@ -235,6 +242,7 @@ def ejecutar_auditoria_sua(
                     "ubicacion": rec.get("ubicacion", ""),
                     "nombre_completo": rec.get("nombre_completo", ""),
                     "nss": rec.get("nss", ""),
+                    "nss_normalizado": normalize_nss(rec.get("nss", "")),
                     "curp": rec.get("curp", ""),
                     "status_operacion": rec.get("status_operacion", ""),
                     "status_imss": rec.get("status_imss", ""),
@@ -261,9 +269,15 @@ def ejecutar_auditoria_sua(
     ) + len(hc_sin_sua)
 
     agrupado = _agrupar_detalle(detalle)
-    clientes = sorted({r.get("cliente_headcount") or "SIN CLIENTE" for r in detalle if r.get("cliente_headcount")})
+    resumen_clientes = agrupar_resumen_por_cliente(detalle)
+    clientes_opts = clientes_detectados_labels(detalle)
     ubicaciones = sorted(
-        {r.get("ubicacion_headcount") or "SIN UBICACION" for r in detalle if r.get("ubicacion_headcount")}
+        {
+            str(r.get("ubicacion_headcount") or "").strip()
+            for r in detalle
+            if str(r.get("ubicacion_headcount") or "").strip()
+        },
+        key=lambda x: display_ubicacion(x).casefold(),
     )
 
     total_activos_sua = parsed.total_sua_activos_al_corte
@@ -290,19 +304,22 @@ def ejecutar_auditoria_sua(
         "matches_activos": matches_activos,
         "diferencia_activa_sua_vs_headcount": diff_activa,
         "warnings_criticos": warnings_criticos,
-        "clientes_detectados": clientes,
+        "clientes_detectados": [c["key"] for c in clientes_opts],
+        "clientes_detectados_opts": clientes_opts,
         "ubicaciones_detectadas": ubicaciones,
         "patron_filtro": PATRON_AUDITORIA,
     }
 
     all_warning_codes = {w for r in detalle for w in r.get("warnings", [])}
     all_warning_codes.update(w for r in hc_sin_sua for w in r.get("warnings", []))
+    all_warning_codes.discard("STATUS_IMSS_INCONSISTENTE")
 
     payload = {
         "resumen": resumen,
         "metadatos": parsed.metadatos,
         "detalle": detalle,
         "agrupado": agrupado,
+        "resumen_clientes": resumen_clientes,
         "headcount_sin_sua": hc_sin_sua,
         "sua_activos": sua_activos,
         "sua_bajas": sua_bajas,
@@ -413,11 +430,13 @@ def filtrar_detalle(
         out = [r for r in out if r.get("info_estado") == "BAJA_CONCILIADA"]
     if busqueda:
         q = normalize_text(busqueda)
+        q_digits = normalize_nss(busqueda)
         out = [
             r
             for r in out
             if q in normalize_text(r.get("nombre_sua_original"))
             or q in normalize_text(r.get("nss_sua_original"))
+            or (q_digits and q_digits in str(r.get("nss_normalizado") or ""))
             or q in normalize_text(r.get("curp"))
             or q in normalize_text(r.get("nombre_headcount"))
         ]

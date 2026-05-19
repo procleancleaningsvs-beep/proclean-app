@@ -22,6 +22,13 @@ from flask import (
 
 from modules.headcount.exports import build_auditoria_excel_bytes
 from modules.headcount.matching import info_estado_label, warning_label
+from modules.headcount.ui_format import (
+    display_cell,
+    display_cliente,
+    display_periodo_corte,
+    display_registro_patronal,
+    display_ubicacion,
+)
 from modules.headcount.privacy import mask_registro_for_display, should_mask_sensitive_data
 from modules.headcount.services import (
     ejecutar_auditoria_sua,
@@ -236,21 +243,49 @@ def auditoria_sua_resultado(audit_id: str):
         abort(404)
     payload = json.loads(row["detalle_json"])
     resumen = json.loads(row["resumen_json"])
-    detalle = _apply_filters(payload.get("detalle") or [])
+    detalle_full = payload.get("detalle") or []
+    detalle = _apply_filters(detalle_full)
+    resumen_clientes = payload.get("resumen_clientes") or []
+    if not resumen_clientes and detalle_full:
+        from modules.headcount.ui_format import agrupar_resumen_por_cliente
+
+        resumen_clientes = agrupar_resumen_por_cliente(detalle_full)
+    if not resumen.get("registro_patronal_sua"):
+        resumen = dict(resumen)
+        resumen["registro_patronal_sua"] = row.get("registro_patronal_sua") or ""
+    if not resumen.get("periodo_proceso_sua"):
+        resumen = dict(resumen)
+        resumen["periodo_proceso_sua"] = row.get("periodo_proceso_sua") or ""
+    if not resumen.get("fecha_corte_sua"):
+        resumen = dict(resumen)
+        resumen["fecha_corte_sua"] = row.get("fecha_corte_sua") or ""
+    clientes_opts = resumen.get("clientes_detectados_opts")
+    if not clientes_opts:
+        from modules.headcount.ui_format import clientes_detectados_labels
+
+        clientes_opts = clientes_detectados_labels(detalle_full)
     return render_template(
         "headcount/auditoria_resultado.html",
         modo="resultado",
         audit_id=audit_id,
         resumen=resumen,
-        agrupado=payload.get("agrupado") or [],
+        resumen_clientes=resumen_clientes,
         detalle=detalle,
+        detalle_total=len(detalle_full),
+        detalle_filtrado=len(detalle),
         headcount_sin_sua=payload.get("headcount_sin_sua") or [],
         warnings_catalog=payload.get("warnings_catalog") or {},
+        clientes_opts=clientes_opts,
         row_meta=row,
         can_delete=can_delete_headcount_audit(_role()),
         warning_label=warning_label,
         info_estado_label=info_estado_label,
         filtros=_current_filters(),
+        hc_display=display_cell,
+        hc_display_cliente=display_cliente,
+        hc_display_ubicacion=display_ubicacion,
+        hc_display_registro_patronal=display_registro_patronal,
+        hc_display_periodo_corte=display_periodo_corte,
     )
 
 
@@ -460,6 +495,17 @@ def _apply_filters(detalle: list) -> list:
         conciliacion=f["conciliacion"],
         busqueda=f["busqueda"],
     )
+
+
+@headcount_bp.app_context_processor
+def _headcount_template_helpers():
+    return {
+        "hc_display": display_cell,
+        "hc_display_cliente": display_cliente,
+        "hc_display_ubicacion": display_ubicacion,
+        "hc_display_registro_patronal": display_registro_patronal,
+        "hc_display_periodo_corte": display_periodo_corte,
+    }
 
 
 def register_headcount(app) -> None:

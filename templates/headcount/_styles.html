@@ -25,4 +25,27 @@
 .hc-link-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.75rem; }
 .hc-link-card { display:block; padding:1rem; border:1px solid var(--line); border-radius:10px; text-decoration:none; color:inherit; background:var(--panel-soft); }
 .hc-link-card:hover { border-color:var(--brand-blue); }
+.hc-card-wide { grid-column: span 2; min-width: 200px; }
+.hc-panel-clientes { padding-top: .5rem; }
+.hc-cliente-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.65rem; }
+.hc-cliente-toolbar h3 { margin:0; font-size:1.05rem; }
+.hc-filter-active { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; font-size:.85rem; padding:.35rem .6rem; border-radius:8px; background:#eff6ff; border:1px solid #bfdbfe; }
+.hc-cliente-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.65rem; }
+.hc-cliente-card { display:block; text-decoration:none; color:inherit; background:var(--panel-soft); border:1px solid var(--line); border-radius:10px; padding:.65rem .7rem; transition:border-color .15s, box-shadow .15s; }
+.hc-cliente-card:hover { border-color:var(--brand-blue); box-shadow:0 2px 8px rgba(0,0,0,.06); }
+.hc-cliente-card.is-active { border-color:var(--brand-blue); background:#f0f9ff; box-shadow:0 0 0 1px var(--brand-blue); }
+.hc-cliente-card-title { font-weight:700; font-size:.92rem; margin-bottom:.35rem; }
+.hc-cliente-card-meta { font-size:.78rem; color:var(--muted); }
+.hc-cliente-stats { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.2rem .45rem; font-size:.76rem; }
+.hc-cliente-stats li { display:flex; justify-content:space-between; gap:.35rem; }
+.hc-cliente-stats span { color:var(--muted); }
+.hc-cliente-card-tag { display:inline-block; margin-top:.35rem; font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--brand-blue); }
+.hc-ubic-chips { display:flex; flex-wrap:wrap; gap:.25rem; margin-top:.45rem; }
+.hc-ubic-chip { display:inline-block; font-size:.7rem; padding:.12rem .4rem; border-radius:999px; border:1px solid var(--line); background:#fff; text-decoration:none; color:inherit; }
+.hc-ubic-chip.is-active { border-color:var(--brand-blue); background:#dbeafe; font-weight:600; }
+.hc-detalle-meta { font-size:.82rem; color:var(--muted); margin-bottom:.45rem; }
+@media (max-width: 640px) {
+  .hc-card-wide { grid-column: span 1; }
+  .hc-cliente-grid { grid-template-columns:1fr; }
+}
 </style>

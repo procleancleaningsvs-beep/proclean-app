@@ -1,50 +1,56 @@
+<div class="hc-detalle-meta">
+  <span>Mostrando <strong>{{ detalle_filtrado|default(detalle|length) }}</strong> de <strong>{{ detalle_total|default(detalle|length) }}</strong> registros SUA</span>
+</div>
 <div class="hc-table-wrap">
   <table class="hc-table">
     <thead>
       <tr>
+        <th>No.</th>
         <th>NSS SUA</th><th>CURP</th><th>Nombre SUA</th>
         <th>Estado SUA</th><th>Movimiento</th><th>Fecha mov.</th><th>Activo corte</th>
         <th>Cliente HC</th><th>Ubicación</th>
-        <th>St. Op.</th><th>St. IMSS</th><th>Match</th><th>Días</th><th>SDI</th>
+        <th>St. Op.</th><th>Match</th><th>Días</th><th>SDI</th>
         <th>Warnings / Info</th><th></th>
       </tr>
     </thead>
     <tbody>
       {% for row in detalle %}
       <tr>
-        <td>{{ row.nss_sua_original }}</td>
-        <td>{{ row.curp }}</td>
-        <td>{{ row.nombre_sua_original }}</td>
+        <td>{{ row.registro_no or loop.index }}</td>
+        <td>{{ row.nss_normalizado or hc_display(row.nss_sua_original) }}</td>
+        <td>{{ hc_display(row.curp) }}</td>
+        <td>{{ hc_display(row.nombre_sua_original) }}</td>
         <td>
-          <span class="hc-badge {% if row.sua_tiene_baja %}warn{% else %}ok{% endif %}">{{ row.estado_sua_al_corte }}</span>
+          <span class="hc-badge {% if row.sua_tiene_baja %}warn{% else %}ok{% endif %}">{{ hc_display(row.estado_sua_al_corte) }}</span>
         </td>
-        <td>{{ row.sua_movimiento_clave or '—' }}</td>
-        <td>{{ row.movimiento_fecha or '—' }}</td>
-        <td>{{ row.es_activo_al_corte_label }}</td>
-        <td>{{ row.cliente_headcount }}</td>
-        <td>{{ row.ubicacion_headcount }}</td>
-        <td>{{ row.status_operacion_headcount }}</td>
-        <td>{{ row.status_imss_headcount }}</td>
+        <td>{{ hc_display(row.sua_movimiento_clave, empty='—') }}</td>
+        <td>{{ hc_display(row.movimiento_fecha, empty='—') }}</td>
+        <td>{{ hc_display(row.es_activo_al_corte_label) }}</td>
+        <td>{{ hc_display_cliente(row.cliente_headcount) }}</td>
+        <td>{{ hc_display_ubicacion(row.ubicacion_headcount) }}</td>
+        <td>{{ hc_display(row.status_operacion_headcount) }}</td>
         <td><span class="hc-badge {% if row.match_status == 'SIN_MATCH' %}err{% elif row.match_status == 'POSIBLE_MATCH' %}warn{% else %}ok{% endif %}">{{ row.match_por or row.match_status }}</span></td>
-        <td>{{ row.dias or '' }}</td>
-        <td>{{ row.sdi or '' }}</td>
+        <td>{{ hc_display(row.dias, empty='') }}</td>
+        <td>{{ hc_display(row.sdi, empty='') }}</td>
         <td>
           {% for w in row.warnings or [] %}
+          {% if w != 'STATUS_IMSS_INCONSISTENTE' %}
           <span class="hc-badge {% if w == 'SUA_ACTIVO_SIN_MATCH_HEADCOUNT' or w == 'HEADCOUNT_ACTIVO_APARECE_BAJA_EN_SUA' %}err{% else %}warn{% endif %}" title="{{ warning_label(w) }}">{{ w }}</span>
+          {% endif %}
           {% endfor %}
           {% if row.info_estado %}
           <span class="hc-badge ok" title="{{ info_estado_label(row.info_estado) }}">{{ row.info_estado }}</span>
           {% endif %}
         </td>
-        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ loop.index }}">Ver</button></td>
+        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ row.registro_no or loop.index }}">Ver</button></td>
       </tr>
-      <tr class="hc-detail-row" id="det-{{ loop.index }}">
-        <td colspan="16"><div class="hc-detail-inner">
-          Patrón HC: {{ row.patron_headcount or '—' }} · Nombre HC: {{ row.nombre_headcount or '—' }} · Página {{ row.pagina_origen or '—' }}
+      <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}">
+        <td colspan="15"><div class="hc-detail-inner">
+          Patrón HC: {{ hc_display(row.patron_headcount) }} · Nombre HC: {{ hc_display(row.nombre_headcount) }} · Página {{ hc_display(row.pagina_origen) }}
         </div></td>
       </tr>
       {% else %}
-      <tr><td colspan="16">Sin registros con los filtros actuales.</td></tr>
+      <tr><td colspan="15">Sin registros con los filtros actuales.</td></tr>
       {% endfor %}
     </tbody>
   </table>

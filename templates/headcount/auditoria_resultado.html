@@ -51,24 +51,8 @@
 
 {% include 'headcount/partials/_sua_summary_cards.html' %}
 
-<div class="hc-panel">
-  <h3>Agrupado por cliente / ubicación</h3>
-  <div class="hc-table-wrap">
-    <table class="hc-table">
-      <thead>
-        <tr><th>Cliente</th><th>Ubicación</th><th>Activos SUA</th><th>Bajas SUA</th><th>Match activos</th><th>Activos sin match</th><th>Bajas conciliadas</th><th>Warnings</th></tr>
-      </thead>
-      <tbody>
-        {% for g in agrupado %}
-        <tr>
-          <td>{{ g.cliente }}</td><td>{{ g.ubicacion }}</td><td>{{ g.activos_sua }}</td>
-          <td>{{ g.bajas_sua }}</td><td>{{ g.match_activos }}</td><td>{{ g.activos_sin_match }}</td>
-          <td>{{ g.bajas_conciliadas }}</td><td>{{ g.warnings }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+<div class="hc-panel hc-panel-clientes">
+  {% include 'headcount/partials/_sua_cliente_cards.html' %}
 </div>
 
 <div class="hc-panel">
@@ -77,13 +61,16 @@
   {% if filtros.solo_hc_sin_sua %}
   <div class="hc-table-wrap">
     <table class="hc-table">
-      <thead><tr><th>Nombre</th><th>NSS</th><th>CURP</th><th>Cliente</th><th>Ubicación</th><th>St. Op.</th><th>St. IMSS</th></tr></thead>
+      <thead><tr><th>Nombre</th><th>NSS</th><th>CURP</th><th>Cliente</th><th>Ubicación</th><th>St. Op.</th></tr></thead>
       <tbody>
         {% for row in headcount_sin_sua %}
         <tr>
-          <td>{{ row.nombre_completo }}</td><td>{{ row.nss }}</td><td>{{ row.curp }}</td>
-          <td>{{ row.cliente }}</td><td>{{ row.ubicacion }}</td>
-          <td>{{ row.status_operacion }}</td><td>{{ row.status_imss }}</td>
+          <td>{{ hc_display(row.nombre_completo) }}</td>
+          <td>{{ row.nss_normalizado }}</td>
+          <td>{{ hc_display(row.curp) }}</td>
+          <td>{{ hc_display_cliente(row.cliente) }}</td>
+          <td>{{ hc_display_ubicacion(row.ubicacion) }}</td>
+          <td>{{ hc_display(row.status_operacion) }}</td>
         </tr>
         {% endfor %}
       </tbody>

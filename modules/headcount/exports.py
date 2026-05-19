@@ -8,8 +8,12 @@ from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 from modules.headcount.matching import info_estado_label, warning_label
+from modules.headcount.ui_format import display_cell, display_cliente, display_ubicacion
+
+_WARNINGS_OMIT_EXCEL = frozenset({"STATUS_IMSS_INCONSISTENTE"})
 
 _DET_HEADERS = [
+    "No.",
     "NSS SUA",
     "CURP",
     "Nombre SUA",
@@ -19,8 +23,7 @@ _DET_HEADERS = [
     "Activo al corte",
     "Cliente HC",
     "Ubicación HC",
-    "Status Operación",
-    "Status IMSS",
+    "St. Op.",
     "Patrón HC",
     "Match por",
     "Match status",
@@ -50,25 +53,43 @@ def _freeze_and_filter(ws, last_col: int, last_row: int) -> None:
         ws.auto_filter.ref = f"A1:{get_column_letter(last_col)}{last_row}"
 
 
+def _warning_labels_for_export(codes: list[str] | None) -> str:
+    labels = []
+    for code in codes or []:
+        if code in _WARNINGS_OMIT_EXCEL:
+            continue
+        labels.append(warning_label(code))
+    return "; ".join(labels)
+
+
+def _nss_export(row: dict[str, Any]) -> str:
+    nss = str(row.get("nss_normalizado") or "").strip()
+    if nss:
+        return nss
+    from modules.headcount.matching import normalize_nss
+
+    return normalize_nss(row.get("nss_sua_original", ""))
+
+
 def _write_detalle_rows(ws, rows: list[dict[str, Any]], start_row: int = 2) -> None:
     for ri, row in enumerate(rows, start=start_row):
-        ws.cell(ri, 1, row.get("nss_sua_original", ""))
-        ws.cell(ri, 2, row.get("curp", ""))
-        ws.cell(ri, 3, row.get("nombre_sua_original", ""))
-        ws.cell(ri, 4, row.get("estado_sua_al_corte", ""))
-        ws.cell(ri, 5, row.get("sua_movimiento_clave", ""))
-        ws.cell(ri, 6, row.get("movimiento_fecha", ""))
-        ws.cell(ri, 7, row.get("es_activo_al_corte_label", ""))
-        ws.cell(ri, 8, row.get("cliente_headcount", ""))
-        ws.cell(ri, 9, row.get("ubicacion_headcount", ""))
-        ws.cell(ri, 10, row.get("status_operacion_headcount", ""))
-        ws.cell(ri, 11, row.get("status_imss_headcount", ""))
-        ws.cell(ri, 12, row.get("patron_headcount", ""))
-        ws.cell(ri, 13, row.get("match_por", ""))
-        ws.cell(ri, 14, row.get("match_status", ""))
+        ws.cell(ri, 1, row.get("registro_no", ri - 1))
+        ws.cell(ri, 2, _nss_export(row))
+        ws.cell(ri, 3, display_cell(row.get("curp", "")))
+        ws.cell(ri, 4, display_cell(row.get("nombre_sua_original", "")))
+        ws.cell(ri, 5, display_cell(row.get("estado_sua_al_corte", "")))
+        ws.cell(ri, 6, display_cell(row.get("sua_movimiento_clave", "")))
+        ws.cell(ri, 7, display_cell(row.get("movimiento_fecha", "")))
+        ws.cell(ri, 8, display_cell(row.get("es_activo_al_corte_label", "")))
+        ws.cell(ri, 9, display_cliente(row.get("cliente_headcount", "")))
+        ws.cell(ri, 10, display_ubicacion(row.get("ubicacion_headcount", "")))
+        ws.cell(ri, 11, display_cell(row.get("status_operacion_headcount", "")))
+        ws.cell(ri, 12, display_cell(row.get("patron_headcount", "")))
+        ws.cell(ri, 13, display_cell(row.get("match_por", "")))
+        ws.cell(ri, 14, display_cell(row.get("match_status", "")))
         ws.cell(ri, 15, row.get("dias", ""))
         ws.cell(ri, 16, row.get("sdi", ""))
-        ws.cell(ri, 17, "; ".join(warning_label(w) for w in (row.get("warnings") or [])))
+        ws.cell(ri, 17, _warning_labels_for_export(row.get("warnings")))
         info = row.get("info_estado") or ""
         ws.cell(ri, 18, info_estado_label(info) if info else "")
 
@@ -76,7 +97,7 @@ def _write_detalle_rows(ws, rows: list[dict[str, Any]], start_row: int = 2) -> N
 def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
     resumen = payload.get("resumen") or {}
     detalle = payload.get("detalle") or []
-    agrupado = payload.get("agrupado") or []
+    resumen_clientes = payload.get("resumen_clientes") or []
     hc_sin_sua = payload.get("headcount_sin_sua") or []
     sua_activos = payload.get("sua_activos") or [r for r in detalle if r.get("sua_es_activo_al_corte")]
     sua_bajas = payload.get("sua_bajas") or [r for r in detalle if r.get("sua_tiene_baja")]
@@ -86,11 +107,11 @@ def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
     ws_r = wb.active
     ws_r.title = "Resumen"
     rows_resumen = [
-        ("Registro patronal SUA", resumen.get("registro_patronal_sua", "")),
-        ("Razón social SUA", resumen.get("razon_social_sua", "")),
-        ("Periodo SUA", resumen.get("periodo_proceso_sua", "")),
-        ("Fecha proceso SUA", resumen.get("fecha_proceso_sua", "")),
-        ("Fecha corte reportada", resumen.get("fecha_corte_sua", "")),
+        ("Registro patronal SUA", display_cell(resumen.get("registro_patronal_sua", ""), empty="No detectado")),
+        ("Razón social SUA", display_cell(resumen.get("razon_social_sua", ""))),
+        ("Periodo SUA", display_cell(resumen.get("periodo_proceso_sua", ""))),
+        ("Fecha proceso SUA", display_cell(resumen.get("fecha_proceso_sua", ""))),
+        ("Fecha corte reportada", display_cell(resumen.get("fecha_corte_sua", ""))),
         ("Total cotizantes SUA", resumen.get("total_cotizantes_sua", "")),
         ("Activos SUA al corte", resumen.get("total_sua_activos_al_corte", "")),
         ("Bajas SUA del periodo", resumen.get("total_sua_bajas_periodo", "")),
@@ -132,16 +153,17 @@ def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
     _freeze_and_filter(ws_asm, len(_DET_HEADERS), max(len(activos_sin) + 1, 1))
 
     ws_hc = wb.create_sheet("HC activos no en SUA")
-    hc_headers = ["Nombre", "NSS", "CURP", "Cliente", "Ubicación", "Status Op", "Status IMSS"]
+    hc_headers = ["Nombre", "NSS", "CURP", "Cliente", "Ubicación", "St. Op."]
     _write_sheet_headers(ws_hc, hc_headers)
     for ri, row in enumerate(hc_sin_sua, start=2):
-        ws_hc.cell(ri, 1, row.get("nombre_completo", ""))
-        ws_hc.cell(ri, 2, row.get("nss", ""))
-        ws_hc.cell(ri, 3, row.get("curp", ""))
-        ws_hc.cell(ri, 4, row.get("cliente", ""))
-        ws_hc.cell(ri, 5, row.get("ubicacion", ""))
-        ws_hc.cell(ri, 6, row.get("status_operacion", ""))
-        ws_hc.cell(ri, 7, row.get("status_imss", ""))
+        ws_hc.cell(ri, 1, display_cell(row.get("nombre_completo", "")))
+        from modules.headcount.matching import normalize_nss
+
+        ws_hc.cell(ri, 2, normalize_nss(row.get("nss", "")))
+        ws_hc.cell(ri, 3, display_cell(row.get("curp", "")))
+        ws_hc.cell(ri, 4, display_cliente(row.get("cliente", "")))
+        ws_hc.cell(ri, 5, display_ubicacion(row.get("ubicacion", "")))
+        ws_hc.cell(ri, 6, display_cell(row.get("status_operacion", "")))
     _freeze_and_filter(ws_hc, len(hc_headers), max(len(hc_sin_sua) + 1, 1))
 
     ws_hcb = wb.create_sheet("HC activos Baja en SUA")
@@ -156,28 +178,31 @@ def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
     _write_detalle_rows(ws_bc, bajas_ok)
     _freeze_and_filter(ws_bc, len(_DET_HEADERS), max(len(bajas_ok) + 1, 1))
 
-    ws_g = wb.create_sheet("Agrupado Cliente Ubicación")
+    ws_g = wb.create_sheet("Resumen por cliente")
     g_headers = [
         "Cliente",
-        "Ubicación",
         "Activos SUA",
         "Bajas SUA",
         "Match activos",
         "Activos sin match",
         "Bajas conciliadas",
         "Warnings",
+        "Ubicaciones",
     ]
     _write_sheet_headers(ws_g, g_headers)
-    for ri, g in enumerate(agrupado, start=2):
-        ws_g.cell(ri, 1, g.get("cliente", ""))
-        ws_g.cell(ri, 2, g.get("ubicacion", ""))
-        ws_g.cell(ri, 3, g.get("activos_sua", 0))
-        ws_g.cell(ri, 4, g.get("bajas_sua", 0))
-        ws_g.cell(ri, 5, g.get("match_activos", 0))
-        ws_g.cell(ri, 6, g.get("activos_sin_match", 0))
-        ws_g.cell(ri, 7, g.get("bajas_conciliadas", 0))
-        ws_g.cell(ri, 8, g.get("warnings", 0))
-    _freeze_and_filter(ws_g, len(g_headers), max(len(agrupado) + 1, 1))
+    for ri, g in enumerate(resumen_clientes, start=2):
+        ubics = ", ".join(
+            f"{u.get('ubicacion_label', '')} ({u.get('total', 0)})" for u in (g.get("ubicaciones_list") or [])
+        )
+        ws_g.cell(ri, 1, g.get("cliente_label", ""))
+        ws_g.cell(ri, 2, g.get("activos_sua", 0))
+        ws_g.cell(ri, 3, g.get("bajas_sua", 0))
+        ws_g.cell(ri, 4, g.get("match_activos", 0))
+        ws_g.cell(ri, 5, g.get("activos_sin_match", 0))
+        ws_g.cell(ri, 6, g.get("bajas_conciliadas", 0))
+        ws_g.cell(ri, 7, g.get("warnings", 0))
+        ws_g.cell(ri, 8, ubics)
+    _freeze_and_filter(ws_g, len(g_headers), max(len(resumen_clientes) + 1, 1))
 
     ws_w = wb.create_sheet("Warnings")
     w_headers = ["Tipo", "NSS", "CURP", "Nombre", "Cliente", "Ubicación", "Descripción"]
@@ -185,22 +210,28 @@ def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:
     wr = 2
     for row in detalle:
         for code in row.get("warnings") or []:
+            if code in _WARNINGS_OMIT_EXCEL:
+                continue
             ws_w.cell(wr, 1, code)
-            ws_w.cell(wr, 2, row.get("nss_sua_original", ""))
-            ws_w.cell(wr, 3, row.get("curp", ""))
-            ws_w.cell(wr, 4, row.get("nombre_sua_original", ""))
-            ws_w.cell(wr, 5, row.get("cliente_headcount", ""))
-            ws_w.cell(wr, 6, row.get("ubicacion_headcount", ""))
+            ws_w.cell(wr, 2, _nss_export(row))
+            ws_w.cell(wr, 3, display_cell(row.get("curp", "")))
+            ws_w.cell(wr, 4, display_cell(row.get("nombre_sua_original", "")))
+            ws_w.cell(wr, 5, display_cliente(row.get("cliente_headcount", "")))
+            ws_w.cell(wr, 6, display_ubicacion(row.get("ubicacion_headcount", "")))
             ws_w.cell(wr, 7, warning_label(code))
             wr += 1
     for row in hc_sin_sua:
         for code in row.get("warnings") or []:
+            if code in _WARNINGS_OMIT_EXCEL:
+                continue
+            from modules.headcount.matching import normalize_nss
+
             ws_w.cell(wr, 1, code)
-            ws_w.cell(wr, 2, row.get("nss", ""))
-            ws_w.cell(wr, 3, row.get("curp", ""))
-            ws_w.cell(wr, 4, row.get("nombre_completo", ""))
-            ws_w.cell(wr, 5, row.get("cliente", ""))
-            ws_w.cell(wr, 6, row.get("ubicacion", ""))
+            ws_w.cell(wr, 2, normalize_nss(row.get("nss", "")))
+            ws_w.cell(wr, 3, display_cell(row.get("curp", "")))
+            ws_w.cell(wr, 4, display_cell(row.get("nombre_completo", "")))
+            ws_w.cell(wr, 5, display_cliente(row.get("cliente", "")))
+            ws_w.cell(wr, 6, display_ubicacion(row.get("ubicacion", "")))
             ws_w.cell(wr, 7, warning_label(code))
             wr += 1
     _freeze_and_filter(ws_w, len(w_headers), max(wr - 1, 1))

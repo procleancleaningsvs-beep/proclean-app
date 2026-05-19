@@ -1,0 +1,48 @@
+{% set base_url = url_for('headcount.auditoria_sua_resultado', audit_id=audit_id) %}
+{% set filtro_cliente = filtros.cliente or '' %}
+{% set filtro_ubic = filtros.ubicacion or '' %}
+{% set todos_activo = not filtro_cliente and not filtro_ubic %}
+
+<div class="hc-cliente-toolbar">
+  <h3>Resumen por cliente</h3>
+  {% if filtro_cliente or filtro_ubic %}
+  <div class="hc-filter-active">
+    <span>Filtro activo:</span>
+    <strong>{{ hc_display_cliente(filtro_cliente) }}{% if filtro_ubic %} · {{ hc_display_ubicacion(filtro_ubic) }}{% endif %}</strong>
+    <a class="btn btn-secondary btn-sm" href="{{ base_url }}">Limpiar</a>
+  </div>
+  {% endif %}
+</div>
+
+<div class="hc-cliente-grid">
+  <a href="{{ base_url }}" class="hc-cliente-card {% if todos_activo %}is-active{% endif %}" title="Ver todos los registros">
+    <div class="hc-cliente-card-title">Todos</div>
+    <div class="hc-cliente-card-meta">{{ detalle_total or 0 }} registros SUA</div>
+    {% if todos_activo %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
+  </a>
+  {% for c in resumen_clientes %}
+  {% set card_active = (filtro_cliente == c.cliente_key) and not filtro_ubic %}
+  <a href="{{ base_url }}?cliente={{ c.cliente_key|urlencode }}" class="hc-cliente-card {% if card_active %}is-active{% endif %}">
+    <div class="hc-cliente-card-title">{{ c.cliente_label }}</div>
+    <ul class="hc-cliente-stats">
+      <li><span>Activos SUA</span><strong>{{ c.activos_sua }}</strong></li>
+      <li><span>Bajas SUA</span><strong>{{ c.bajas_sua }}</strong></li>
+      <li><span>Match</span><strong>{{ c.match_activos }}</strong></li>
+      <li><span>Sin match</span><strong>{{ c.activos_sin_match }}</strong></li>
+      <li><span>Conciliadas</span><strong>{{ c.bajas_conciliadas }}</strong></li>
+      <li><span>Warnings</span><strong>{{ c.warnings }}</strong></li>
+    </ul>
+    {% if c.ubicaciones_list %}
+    <div class="hc-ubic-chips" onclick="event.preventDefault(); event.stopPropagation();">
+      {% for u in c.ubicaciones_list %}
+      {% set chip_active = filtro_cliente == c.cliente_key and filtro_ubic == u.ubicacion_key %}
+      <a href="{{ base_url }}?cliente={{ c.cliente_key|urlencode }}&ubicacion={{ u.ubicacion_key|urlencode }}"
+         class="hc-ubic-chip {% if chip_active %}is-active{% endif %}"
+         title="{{ u.total }} registro(s)">{{ u.ubicacion_label }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if card_active %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
+  </a>
+  {% endfor %}
+</div>

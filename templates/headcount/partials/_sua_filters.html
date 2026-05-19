@@ -1,16 +1,21 @@
 <form class="hc-filters" method="get" action="{{ request.path }}">
   <div>
     <label>Cliente</label>
-    <select name="cliente">
+    <select name="cliente" id="hc-filter-cliente">
       <option value="">Todos</option>
-      {% for c in (resumen.clientes_detectados or []) %}
-      <option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ c }}</option>
+      {% for c in (clientes_opts or []) %}
+      <option value="{{ c.key }}" {% if filtros.cliente == c.key %}selected{% endif %}>{{ c.label }}</option>
       {% endfor %}
+      {% if not clientes_opts %}
+      {% for c in (resumen.clientes_detectados or []) %}
+      <option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ hc_display_cliente(c) }}</option>
+      {% endfor %}
+      {% endif %}
     </select>
   </div>
   <div>
     <label>Ubicación</label>
-    <input type="text" name="ubicacion" value="{{ filtros.ubicacion }}" placeholder="Planta / ubicación">
+    <input type="text" name="ubicacion" id="hc-filter-ubicacion" value="{{ filtros.ubicacion }}" placeholder="Planta / ubicación">
   </div>
   <div>
     <label>Estado SUA al corte</label>
@@ -53,7 +58,9 @@
     <select name="warning">
       <option value="">Todos</option>
       {% for code, label in (warnings_catalog or {}).items() %}
+      {% if code != 'STATUS_IMSS_INCONSISTENTE' %}
       <option value="{{ code }}" {% if filtros.warning == code %}selected{% endif %}>{{ code }}</option>
+      {% endif %}
       {% endfor %}
     </select>
   </div>
@@ -66,6 +73,6 @@
   </div>
   <div>
     <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
-    <a class="btn btn-secondary btn-sm" href="{{ request.path }}">Limpiar</a>
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('headcount.auditoria_sua_resultado', audit_id=audit_id) }}">Limpiar</a>
   </div>
 </form>
