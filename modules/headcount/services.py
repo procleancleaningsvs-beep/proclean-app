@@ -20,9 +20,11 @@ from modules.headcount.matching import (
     build_headcount_rafael_indexes,
     collect_duplicate_warnings,
     enrich_row_warnings,
+    es_warning_critico,
+    info_estado_label,
     match_trabajador_sua,
+    normalize_nss,
     normalize_text,
-    patron_es_rafael,
     warning_label,
 )
 from modules.headcount.sua_parser import SuaParseResult, parse_sua_pdf_bytes
@@ -205,7 +207,7 @@ def ejecutar_auditoria_sua(
     dias_periodo = _dias_periodo_from_meta(parsed.metadatos)
 
     detalle: list[dict[str, Any]] = []
-    nss_sua_matched: set[str] = set()
+    nss_sua_todos: set[str] = set()
     for trab in parsed.trabajadores:
         row = match_trabajador_sua(
             trab,
@@ -217,17 +219,15 @@ def ejecutar_auditoria_sua(
         enrich_row_warnings(row, dias_periodo=dias_periodo, dup_warnings=dup_warnings)
         detalle.append(row)
         if row.get("nss_normalizado"):
-            nss_sua_matched.add(row["nss_normalizado"])
+            nss_sua_todos.add(row["nss_normalizado"])
 
     hc_activos_rafael = [
-        r
-        for r in rafael
-        if normalize_text(r.get("status_operacion")) == "ALTA"
+        r for r in rafael if normalize_text(r.get("status_operacion")) == "ALTA"
     ]
     hc_sin_sua: list[dict[str, Any]] = []
     for rec in hc_activos_rafael:
         nss_n = str(rec.get("nss_normalizado") or "")
-        if nss_n and nss_n not in nss_sua_matched:
+        if nss_n and nss_n not in nss_sua_todos:
             hc_sin_sua.append(
                 {
                     "headcount_id": rec.get("headcount_id"),
@@ -242,9 +242,23 @@ def ejecutar_auditoria_sua(
                 }
             )
 
-    matches_ok = sum(1 for r in detalle if r["match_status"] in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"})
-    sin_match = sum(1 for r in detalle if r["match_status"] == "SIN_MATCH")
-    warnings_count = sum(len(r.get("warnings") or []) for r in detalle) + len(hc_sin_sua)
+    sua_activos = [r for r in detalle if r.get("sua_es_activo_al_corte")]
+    sua_bajas = [r for r in detalle if r.get("sua_tiene_baja")]
+    matches_activos = sum(
+        1
+        for r in sua_activos
+        if r["match_status"] in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"}
+    )
+    sua_activos_sin_match = sum(
+        1 for r in sua_activos if "SUA_ACTIVO_SIN_MATCH_HEADCOUNT" in (r.get("warnings") or [])
+    )
+    hc_activos_baja_en_sua = sum(
+        1 for r in detalle if "HEADCOUNT_ACTIVO_APARECE_BAJA_EN_SUA" in (r.get("warnings") or [])
+    )
+    bajas_conciliadas = sum(1 for r in detalle if r.get("info_estado") == "BAJA_CONCILIADA")
+    warnings_criticos = sum(
+        len([w for w in (r.get("warnings") or []) if es_warning_critico(w)]) for r in detalle
+    ) + len(hc_sin_sua)
 
     agrupado = _agrupar_detalle(detalle)
     clientes = sorted({r.get("cliente_headcount") or "SIN CLIENTE" for r in detalle if r.get("cliente_headcount")})
@@ -252,22 +266,37 @@ def ejecutar_auditoria_sua(
         {r.get("ubicacion_headcount") or "SIN UBICACION" for r in detalle if r.get("ubicacion_headcount")}
     )
 
+    total_activos_sua = parsed.total_sua_activos_al_corte
+    total_bajas_sua = parsed.total_sua_bajas_periodo
+    diff_activa = total_activos_sua - len(hc_activos_rafael)
+
     resumen = {
         "registro_patronal_sua": parsed.metadatos.get("registro_patronal", ""),
         "razon_social_sua": parsed.metadatos.get("razon_social", ""),
         "periodo_proceso_sua": parsed.metadatos.get("periodo_proceso", ""),
         "fecha_proceso_sua": parsed.metadatos.get("fecha_proceso", ""),
         "fecha_corte_sua": fecha_corte_sua,
+        "total_cotizantes_sua": parsed.total_cotizantes,
         "total_cotizantes": parsed.total_cotizantes,
         "trabajadores_extraidos": parsed.trabajadores_extraidos,
+        "total_sua_activos_al_corte": total_activos_sua,
+        "total_sua_bajas_periodo": total_bajas_sua,
         "headcount_rafael_activo": len(hc_activos_rafael),
-        "matches_correctos": matches_ok,
-        "sin_match": sin_match,
-        "warnings_criticos": warnings_count,
+        "sua_activos_sin_match_headcount": sua_activos_sin_match,
+        "headcount_activos_no_en_sua": len(hc_sin_sua),
+        "headcount_activos_con_baja_en_sua": hc_activos_baja_en_sua,
+        "bajas_conciliadas": bajas_conciliadas,
+        "matches_correctos": matches_activos,
+        "matches_activos": matches_activos,
+        "diferencia_activa_sua_vs_headcount": diff_activa,
+        "warnings_criticos": warnings_criticos,
         "clientes_detectados": clientes,
         "ubicaciones_detectadas": ubicaciones,
         "patron_filtro": PATRON_AUDITORIA,
     }
+
+    all_warning_codes = {w for r in detalle for w in r.get("warnings", [])}
+    all_warning_codes.update(w for r in hc_sin_sua for w in r.get("warnings", []))
 
     payload = {
         "resumen": resumen,
@@ -275,7 +304,10 @@ def ejecutar_auditoria_sua(
         "detalle": detalle,
         "agrupado": agrupado,
         "headcount_sin_sua": hc_sin_sua,
-        "warnings_catalog": {k: warning_label(k) for k in sorted({w for r in detalle for w in r.get("warnings", [])})},
+        "sua_activos": sua_activos,
+        "sua_bajas": sua_bajas,
+        "warnings_catalog": {k: warning_label(k) for k in sorted(all_warning_codes)},
+        "info_catalog": {k: info_estado_label(k) for k in sorted({r.get("info_estado") for r in detalle if r.get("info_estado")})},
     }
     file_hash = hashlib.sha256(pdf_bytes).hexdigest()
     return {
@@ -291,9 +323,9 @@ def ejecutar_auditoria_sua(
         "fecha_proceso_sua": parsed.metadatos.get("fecha_proceso", ""),
         "total_cotizantes": parsed.total_cotizantes,
         "trabajadores_extraidos": parsed.trabajadores_extraidos,
-        "total_matches": matches_ok,
-        "total_sin_match": sin_match,
-        "total_warnings": warnings_count,
+        "total_matches": matches_activos,
+        "total_sin_match": sua_activos_sin_match,
+        "total_warnings": warnings_criticos,
     }
 
 
@@ -307,21 +339,25 @@ def _agrupar_detalle(detalle: list[dict[str, Any]]) -> list[dict[str, Any]]:
             buckets[key] = {
                 "cliente": cliente,
                 "ubicacion": ubic,
-                "total_sua": 0,
-                "match_hc": 0,
-                "bajas_hc": 0,
-                "sin_match": 0,
+                "activos_sua": 0,
+                "bajas_sua": 0,
+                "match_activos": 0,
+                "activos_sin_match": 0,
+                "bajas_conciliadas": 0,
                 "warnings": 0,
             }
         b = buckets[key]
-        b["total_sua"] += 1
-        if row["match_status"] in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"}:
-            b["match_hc"] += 1
-        elif row["match_status"] == "SIN_MATCH":
-            b["sin_match"] += 1
-        if "HEADCOUNT_BAJA_APARECE_EN_SUA" in (row.get("warnings") or []):
-            b["bajas_hc"] += 1
-        b["warnings"] += len(row.get("warnings") or [])
+        if row.get("sua_es_activo_al_corte"):
+            b["activos_sua"] += 1
+            if row["match_status"] in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE"}:
+                b["match_activos"] += 1
+            if "SUA_ACTIVO_SIN_MATCH_HEADCOUNT" in (row.get("warnings") or []):
+                b["activos_sin_match"] += 1
+        else:
+            b["bajas_sua"] += 1
+        if row.get("info_estado") == "BAJA_CONCILIADA":
+            b["bajas_conciliadas"] += 1
+        b["warnings"] += len([w for w in (row.get("warnings") or []) if es_warning_critico(w)])
     return sorted(buckets.values(), key=lambda x: (x["cliente"].casefold(), x["ubicacion"].casefold()))
 
 
@@ -335,8 +371,8 @@ def filtrar_detalle(
     movimiento: str = "",
     status_operacion: str = "",
     status_imss: str = "",
-    solo_bajas_hc: bool = False,
-    solo_sin_match: bool = False,
+    estado_sua: str = "",
+    conciliacion: str = "",
     busqueda: str = "",
 ) -> list[dict[str, Any]]:
     out = detalle
@@ -351,18 +387,30 @@ def filtrar_detalle(
     if warning:
         out = [r for r in out if warning in (r.get("warnings") or [])]
     if movimiento:
-        mf = normalize_text(movimiento)
-        out = [r for r in out if normalize_text(r.get("movimiento_clave")) == mf]
+        from modules.headcount.matching import normalize_movimiento_clave
+
+        mf = normalize_movimiento_clave(movimiento)
+        out = [r for r in out if r.get("sua_movimiento_clave") == mf]
     if status_operacion:
         sf = normalize_text(status_operacion)
         out = [r for r in out if normalize_text(r.get("status_operacion_headcount")) == sf]
     if status_imss:
         sf = normalize_text(status_imss)
         out = [r for r in out if normalize_text(r.get("status_imss_headcount")) == sf]
-    if solo_bajas_hc:
-        out = [r for r in out if "HEADCOUNT_BAJA_APARECE_EN_SUA" in (r.get("warnings") or [])]
-    if solo_sin_match:
-        out = [r for r in out if r.get("match_status") == "SIN_MATCH"]
+    if estado_sua == "activo":
+        out = [r for r in out if r.get("sua_es_activo_al_corte")]
+    elif estado_sua == "baja":
+        out = [r for r in out if r.get("sua_tiene_baja")]
+    if conciliacion == "activos_sin_match":
+        out = [r for r in out if "SUA_ACTIVO_SIN_MATCH_HEADCOUNT" in (r.get("warnings") or [])]
+    elif conciliacion == "hc_activo_no_sua":
+        out = []
+    elif conciliacion == "hc_activo_baja_sua":
+        out = [r for r in out if "HEADCOUNT_ACTIVO_APARECE_BAJA_EN_SUA" in (r.get("warnings") or [])]
+    elif conciliacion == "hc_baja_activo_sua":
+        out = [r for r in out if "HEADCOUNT_BAJA_APARECE_ACTIVO_EN_SUA" in (r.get("warnings") or [])]
+    elif conciliacion == "baja_conciliada":
+        out = [r for r in out if r.get("info_estado") == "BAJA_CONCILIADA"]
     if busqueda:
         q = normalize_text(busqueda)
         out = [

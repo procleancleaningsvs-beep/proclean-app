@@ -6,7 +6,14 @@ from typing import Any
 
 import fitz  # PyMuPDF
 
-from modules.headcount.matching import normalize_curp, normalize_nss, normalize_text
+from modules.headcount.matching import (
+    enrich_sua_worker_fields,
+    normalize_curp,
+    normalize_nss,
+    normalize_text,
+    sua_es_activo_al_corte,
+    sua_tiene_baja,
+)
 
 _ANCHORS = (
     "SISTEMA UNICO DE AUTODETERMINACION",
@@ -68,6 +75,8 @@ class SuaParseResult:
     trabajadores: list[dict[str, Any]] = field(default_factory=list)
     total_cotizantes: int | None = None
     trabajadores_extraidos: int = 0
+    total_sua_activos_al_corte: int = 0
+    total_sua_bajas_periodo: int = 0
     paginas_procesadas: int = 0
     registros_por_pagina: list[int] = field(default_factory=list)
     ultimos_registros: list[dict[str, Any]] = field(default_factory=list)
@@ -147,9 +156,7 @@ def _parse_worker_line(line: str, pagina: int) -> dict[str, Any] | None:
     mov_fecha = ""
     mov_m = _MOV_RE.search(rest)
     if mov_m:
-        mov = mov_m.group(1).upper().replace(" ", "")
-        if mov in {"PCV", "PIV"}:
-            mov = f"P/{mov[1:]}"
+        mov = _normalize_mov_token(mov_m.group(1))
         rest = (rest[: mov_m.start()] + rest[mov_m.end() :]).strip()
 
     fechas = _FECHA_RE.findall(rest)
@@ -190,6 +197,39 @@ def _parse_worker_line(line: str, pagina: int) -> dict[str, Any] | None:
     }
 
 
+def _normalize_mov_token(raw: str) -> str:
+    mov = raw.upper().replace(" ", "")
+    if mov in {"PCV", "PIV"}:
+        return f"P/{mov[1:]}"
+    return mov
+
+
+def _parse_orphan_movement_line(line: str) -> tuple[str, str] | None:
+    """Línea solo con movimiento (p. ej. 'Baja 29/04/2026') sin NSS — va al trabajador anterior."""
+    if _NSS_RE.search(line) or _line_is_header(line):
+        return None
+    mov_m = _MOV_RE.search(line)
+    if not mov_m:
+        return None
+    rest = line
+    for m in _MOV_RE.finditer(line):
+        rest = rest.replace(m.group(0), " ", 1)
+    for f in _FECHA_RE.findall(line):
+        rest = rest.replace(f, " ", 1)
+    rest = normalize_text(rest)
+    if len(rest) > 10:
+        return None
+    mov = _normalize_mov_token(mov_m.group(1))
+    fechas = _FECHA_RE.findall(line)
+    mov_fecha = fechas[0] if fechas else ""
+    return mov, mov_fecha
+
+
+def _apply_movement_to_worker(worker: dict[str, Any], mov: str, mov_fecha: str) -> None:
+    worker["movimiento_clave"] = mov
+    worker["movimiento_fecha"] = mov_fecha
+
+
 def _parse_workers_from_pages(pages_text: list[str]) -> tuple[list[dict[str, Any]], list[int]]:
     trabajadores: list[dict[str, Any]] = []
     por_pagina: list[int] = []
@@ -201,6 +241,14 @@ def _parse_workers_from_pages(pages_text: list[str]) -> tuple[list[dict[str, Any
             line = raw_line.strip()
             if not line or _line_is_header(line):
                 continue
+
+            orphan = _parse_orphan_movement_line(line)
+            if orphan is not None:
+                if trabajadores:
+                    mov, mov_fecha = orphan
+                    _apply_movement_to_worker(trabajadores[-1], mov, mov_fecha)
+                continue
+
             worker = _parse_worker_line(line, pi)
             if not worker:
                 continue
@@ -246,10 +294,13 @@ def parse_sua_pdf_bytes(pdf_bytes: bytes) -> SuaParseResult:
 
     result.metadatos = _extract_metadata(full_text)
     result.total_cotizantes = result.metadatos.get("total_cotizantes")
-    trabajadores, por_pagina = _parse_workers_from_pages(pages_text)
+    trabajadores_raw, por_pagina = _parse_workers_from_pages(pages_text)
+    trabajadores = [enrich_sua_worker_fields(w) for w in trabajadores_raw]
     result.trabajadores = trabajadores
     result.registros_por_pagina = por_pagina
     result.trabajadores_extraidos = len(trabajadores)
+    result.total_sua_activos_al_corte = sum(1 for w in trabajadores if sua_es_activo_al_corte(w.get("sua_movimiento_clave")))
+    result.total_sua_bajas_periodo = sum(1 for w in trabajadores if sua_tiene_baja(w.get("sua_movimiento_clave")))
     result.ultimos_registros = trabajadores[-5:]
 
     if result.total_cotizantes is None:
@@ -272,9 +323,13 @@ def parse_sua_pdf_bytes(pdf_bytes: bytes) -> SuaParseResult:
 def _build_diagnostico(result: SuaParseResult) -> dict[str, Any]:
     total = result.total_cotizantes or 0
     extraidos = result.trabajadores_extraidos
+    activos = sum(1 for w in result.trabajadores if w.get("sua_es_activo_al_corte"))
+    bajas = sum(1 for w in result.trabajadores if w.get("sua_tiene_baja"))
     return {
         "total_cotizantes": total,
         "trabajadores_extraidos": extraidos,
+        "total_sua_activos_al_corte": activos,
+        "total_sua_bajas_periodo": bajas,
         "diferencia": extraidos - total,
         "paginas_procesadas": result.paginas_procesadas,
         "registros_por_pagina": result.registros_por_pagina,

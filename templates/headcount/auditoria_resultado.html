@@ -21,7 +21,9 @@
 <div class="hc-panel">
   <div class="hc-cards">
     <div class="hc-card"><span>Total cotizantes</span><strong>{{ diagnostico.total_cotizantes }}</strong></div>
-    <div class="hc-card"><span>Extraídos</span><strong>{{ diagnostico.trabajadores_extraidos }}</strong></div>
+    <div class="hc-card"><span>Extraídos (incl. bajas)</span><strong>{{ diagnostico.trabajadores_extraidos }}</strong></div>
+    <div class="hc-card"><span>Activos al corte</span><strong>{{ diagnostico.total_sua_activos_al_corte or '—' }}</strong></div>
+    <div class="hc-card"><span>Bajas del periodo</span><strong>{{ diagnostico.total_sua_bajas_periodo or '—' }}</strong></div>
     <div class="hc-card"><span>Diferencia</span><strong>{{ diagnostico.diferencia }}</strong></div>
     <div class="hc-card"><span>Páginas</span><strong>{{ diagnostico.paginas_procesadas }}</strong></div>
   </div>
@@ -54,13 +56,14 @@
   <div class="hc-table-wrap">
     <table class="hc-table">
       <thead>
-        <tr><th>Cliente</th><th>Ubicación</th><th>Total SUA</th><th>Match HC</th><th>Bajas HC</th><th>Sin match</th><th>Warnings</th></tr>
+        <tr><th>Cliente</th><th>Ubicación</th><th>Activos SUA</th><th>Bajas SUA</th><th>Match activos</th><th>Activos sin match</th><th>Bajas conciliadas</th><th>Warnings</th></tr>
       </thead>
       <tbody>
         {% for g in agrupado %}
         <tr>
-          <td>{{ g.cliente }}</td><td>{{ g.ubicacion }}</td><td>{{ g.total_sua }}</td>
-          <td>{{ g.match_hc }}</td><td>{{ g.bajas_hc }}</td><td>{{ g.sin_match }}</td><td>{{ g.warnings }}</td>
+          <td>{{ g.cliente }}</td><td>{{ g.ubicacion }}</td><td>{{ g.activos_sua }}</td>
+          <td>{{ g.bajas_sua }}</td><td>{{ g.match_activos }}</td><td>{{ g.activos_sin_match }}</td>
+          <td>{{ g.bajas_conciliadas }}</td><td>{{ g.warnings }}</td>
         </tr>
         {% endfor %}
       </tbody>

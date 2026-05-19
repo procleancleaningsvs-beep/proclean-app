@@ -1,14 +1,12 @@
 <div class="hc-cards">
+  <div class="hc-card"><span>Total cotizantes SUA</span><strong>{{ resumen.total_cotizantes_sua or resumen.total_cotizantes or 0 }}</strong></div>
+  <div class="hc-card"><span>Activos SUA al corte</span><strong>{{ resumen.total_sua_activos_al_corte or 0 }}</strong></div>
+  <div class="hc-card"><span>Bajas SUA del periodo</span><strong>{{ resumen.total_sua_bajas_periodo or 0 }}</strong></div>
+  <div class="hc-card"><span>Headcount RAFAEL activo</span><strong>{{ resumen.headcount_rafael_activo or 0 }}</strong></div>
+  <div class="hc-card"><span>SUA activos sin match</span><strong>{{ resumen.sua_activos_sin_match_headcount or 0 }}</strong></div>
+  <div class="hc-card"><span>HC activos no en SUA</span><strong>{{ resumen.headcount_activos_no_en_sua or 0 }}</strong></div>
+  <div class="hc-card"><span>HC activo + Baja SUA</span><strong>{{ resumen.headcount_activos_con_baja_en_sua or 0 }}</strong></div>
+  <div class="hc-card"><span>Bajas conciliadas</span><strong>{{ resumen.bajas_conciliadas or 0 }}</strong></div>
   <div class="hc-card"><span>Registro patronal</span><strong>{{ resumen.registro_patronal_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Razón social</span><strong>{{ resumen.razon_social_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Periodo SUA</span><strong>{{ resumen.periodo_proceso_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Fecha proceso</span><strong>{{ resumen.fecha_proceso_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Fecha corte</span><strong>{{ resumen.fecha_corte_sua or '—' }}</strong></div>
-  <div class="hc-card"><span>Total cotizantes</span><strong>{{ resumen.total_cotizantes or 0 }}</strong></div>
-  <div class="hc-card"><span>Extraídos</span><strong>{{ resumen.trabajadores_extraidos or 0 }}</strong></div>
-  <div class="hc-card"><span>HC RAFAEL activo</span><strong>{{ resumen.headcount_rafael_activo or 0 }}</strong></div>
-  <div class="hc-card"><span>Matches</span><strong>{{ resumen.matches_correctos or 0 }}</strong></div>
-  <div class="hc-card"><span>Sin match</span><strong>{{ resumen.sin_match or 0 }}</strong></div>
-  <div class="hc-card"><span>Warnings</span><strong>{{ resumen.warnings_criticos or 0 }}</strong></div>
-  <div class="hc-card"><span>Clientes</span><strong>{{ (resumen.clientes_detectados or [])|length }}</strong></div>
+  <div class="hc-card"><span>Periodo / corte</span><strong>{{ resumen.periodo_proceso_sua or '—' }} · {{ resumen.fecha_corte_sua or '—' }}</strong></div>
 </div>

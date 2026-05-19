@@ -21,7 +21,8 @@ from flask import (
 )
 
 from modules.headcount.exports import build_auditoria_excel_bytes
-from modules.headcount.matching import warning_label
+from modules.headcount.matching import info_estado_label, warning_label
+from modules.headcount.privacy import mask_registro_for_display, should_mask_sensitive_data
 from modules.headcount.services import (
     ejecutar_auditoria_sua,
     filtrar_detalle,
@@ -74,8 +75,15 @@ def _login_required_page(view):
 def _headcount_module_guard() -> None:
     if g.user is None:
         return
-    if not can_access_headcount_module(normalized_role(g.user)):
+    role = normalized_role(g.user)
+    if not can_access_headcount_module(role):
         abort(403)
+    path = request.path or ""
+    if not can_access_headcount_auditoria(role):
+        if path.startswith("/headcount/auditoria-sua") or path.startswith("/headcount/historial-sua"):
+            abort(403)
+        if path.startswith("/headcount/desglose") or "/exportar-excel" in path:
+            abort(403)
 
 
 def _require_auditoria() -> None:
@@ -123,6 +131,8 @@ def _load_payload_from_audit(audit_id: str) -> dict:
 @_login_required_page
 def index():
     role = _role()
+    if role in {"usuario", "coordinador"}:
+        return redirect(url_for("headcount.headcount_cliente"))
     return render_template(
         "headcount/index.html",
         role=role,
@@ -239,6 +249,7 @@ def auditoria_sua_resultado(audit_id: str):
         row_meta=row,
         can_delete=can_delete_headcount_audit(_role()),
         warning_label=warning_label,
+        info_estado_label=info_estado_label,
         filtros=_current_filters(),
     )
 
@@ -323,6 +334,9 @@ def headcount_cliente():
             or q in normalize_text(r.get("curp"))
         ]
 
+    if should_mask_sensitive_data(_role()):
+        registros = [mask_registro_for_display(r, role=_role()) for r in registros]
+
     return render_template(
         "headcount/headcount_cliente.html",
         registros=registros,
@@ -336,6 +350,7 @@ def headcount_cliente():
         solo_activos=solo_activos,
         can_status_filter=not solo_activos,
         show_desglose_link=can_access_headcount_desglose(_role()),
+        mask_sensitive=should_mask_sensitive_data(_role()),
     )
 
 
@@ -389,6 +404,9 @@ def headcount_desglose():
     resumen["ubicaciones"] = len({r.get("ubicacion") for r in registros if r.get("ubicacion")})
     resumen["incompletos"] = incompletos
 
+    if should_mask_sensitive_data(_role()):
+        registros = [mask_registro_for_display(r, role=_role()) for r in registros]
+
     return render_template(
         "headcount/headcount_cliente.html",
         registros=registros,
@@ -405,6 +423,7 @@ def headcount_desglose():
         can_status_filter=True,
         show_desglose_link=False,
         modo_desglose=True,
+        mask_sensitive=should_mask_sensitive_data(_role()),
     )
 
 
@@ -417,8 +436,8 @@ def _current_filters() -> dict:
         "movimiento": (request.args.get("movimiento") or "").strip(),
         "status_operacion": (request.args.get("status_operacion") or "").strip(),
         "status_imss": (request.args.get("status_imss") or "").strip(),
-        "solo_bajas_hc": request.args.get("solo_bajas_hc") == "1",
-        "solo_sin_match": request.args.get("solo_sin_match") == "1",
+        "estado_sua": (request.args.get("estado_sua") or "").strip(),
+        "conciliacion": (request.args.get("conciliacion") or "").strip(),
         "solo_hc_sin_sua": request.args.get("solo_hc_sin_sua") == "1",
         "busqueda": (request.args.get("q") or "").strip(),
     }
@@ -437,8 +456,8 @@ def _apply_filters(detalle: list) -> list:
         movimiento=f["movimiento"],
         status_operacion=f["status_operacion"],
         status_imss=f["status_imss"],
-        solo_bajas_hc=f["solo_bajas_hc"],
-        solo_sin_match=f["solo_sin_match"],
+        estado_sua=f["estado_sua"],
+        conciliacion=f["conciliacion"],
         busqueda=f["busqueda"],
     )
 

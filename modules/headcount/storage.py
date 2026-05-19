@@ -1,3 +1,5 @@
+"""Auditorías SUA en SQLite vía ``app.config['DATABASE']`` (persistente en Railway: /app/data/instance)."""
+
 from __future__ import annotations
 
 import json
