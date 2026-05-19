@@ -11,6 +11,9 @@ instance/proclean.db-journal
 instance/proclean.db-wal
 instance/proclean.db-shm
 
+# Headcount SUA real PDFs (private local fixtures only)
+private_fixtures/
+
 # INFONAVIT sample PDFs (real data, never commit)
 AVI_*.PDF
 AVI_*.pdf
