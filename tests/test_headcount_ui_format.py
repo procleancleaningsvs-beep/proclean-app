@@ -3,7 +3,7 @@ from __future__ import annotations
 from modules.headcount.matching import enrich_row_warnings
 from datetime import date
 
-from modules.headcount.services import calc_metricas_desarrollo_inf, filtrar_detalle
+from modules.headcount.services import _row_warnings_list, calc_metricas_desarrollo_inf, filtrar_detalle
 from modules.headcount.ui_format import (
     agrupar_resumen_por_cliente,
     build_cliente_cards_for_ui,
@@ -12,6 +12,7 @@ from modules.headcount.ui_format import (
     display_fecha_ingreso,
     display_registro_patronal,
     display_ubicacion,
+    es_cliente_bucket_invalido,
     parse_fecha_ingreso,
     resumen_sin_cliente_card,
 )
@@ -87,6 +88,63 @@ def test_filtrar_detalle_ubicacion_vacia_requires_provided():
     out = filtrar_detalle(detalle, cliente="Carrier", ubicacion="", ubicacion_provided=True)
     assert len(out) == 1
     assert out[0]["ubicacion_headcount"] == ""
+
+
+def test_es_cliente_bucket_invalido_detects_sin_cliente_labels():
+    assert es_cliente_bucket_invalido("")
+    assert es_cliente_bucket_invalido("Sin cliente")
+    assert es_cliente_bucket_invalido("nan")
+    assert not es_cliente_bucket_invalido("Carrier")
+
+
+def test_agrupar_excludes_sin_match_and_sin_cliente_literal():
+    detalle = [
+        {
+            "cliente_headcount": "Carrier",
+            "ubicacion_headcount": "A",
+            "sua_es_activo_al_corte": True,
+            "match_status": "MATCH_NSS",
+            "warnings": [],
+            "info_estado": "",
+        },
+        {
+            "cliente_headcount": "Sin cliente",
+            "ubicacion_headcount": "",
+            "sua_es_activo_al_corte": True,
+            "match_status": "MATCH_NSS",
+            "warnings": [],
+            "info_estado": "",
+        },
+        {
+            "cliente_headcount": "",
+            "match_status": "SIN_MATCH",
+            "sua_es_activo_al_corte": True,
+            "warnings": ["SUA_ACTIVO_SIN_MATCH_HEADCOUNT"],
+            "info_estado": "",
+        },
+    ]
+    groups = agrupar_resumen_por_cliente(detalle)
+    assert len(groups) == 1
+    assert groups[0]["cliente_key"] == "Carrier"
+    clientes, sin_card = build_cliente_cards_for_ui(detalle)
+    assert len(clientes) == 1
+    assert sin_card["total_registros"] == 1
+
+
+def test_filtrar_detalle_warning_tokens():
+    detalle = [
+        {"warnings": ["MOVIMIENTO_EN_SUA", "SUA_ACTIVO_SIN_MATCH_HEADCOUNT"]},
+        {"warnings": '["MOVIMIENTO_EN_SUA"]'},
+        {"warnings": []},
+    ]
+    out = filtrar_detalle(detalle, warning="MOVIMIENTO_EN_SUA")
+    assert len(out) == 2
+    out2 = filtrar_detalle(detalle, warning="SUA_ACTIVO_SIN_MATCH_HEADCOUNT")
+    assert len(out2) == 1
+
+
+def test_row_warnings_list_parses_json_string():
+    assert _row_warnings_list({"warnings": '["MOVIMIENTO_EN_SUA"]'}) == ["MOVIMIENTO_EN_SUA"]
 
 
 def test_build_cliente_cards_excludes_empty_cliente_from_grid():

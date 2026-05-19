@@ -1,14 +1,18 @@
-<form class="hc-filters" method="get" action="{{ request.path }}">
+<form class="hc-filters" id="hc-filters-form" method="get" action="{{ request.path }}">
   <div>
     <label>Cliente</label>
     <select name="cliente" id="hc-filter-cliente">
       <option value="">Todos</option>
       {% for c in (clientes_opts or []) %}
+      {% if c.key and c.label|lower != 'sin cliente' %}
       <option value="{{ c.key }}" {% if filtros.cliente == c.key %}selected{% endif %}>{{ c.label }}</option>
+      {% endif %}
       {% endfor %}
       {% if not clientes_opts %}
       {% for c in (resumen.clientes_detectados or []) %}
+      {% if c and hc_display_cliente(c)|lower != 'sin cliente' %}
       <option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ hc_display_cliente(c) }}</option>
+      {% endif %}
       {% endfor %}
       {% endif %}
     </select>
@@ -19,7 +23,7 @@
   </div>
   <div>
     <label>Estado SUA al corte</label>
-    <select name="estado_sua">
+    <select name="estado_sua" id="hc-filter-estado-sua">
       <option value="">Todos</option>
       <option value="activo" {% if filtros.estado_sua == 'activo' %}selected{% endif %}>Activo SUA</option>
       <option value="baja" {% if filtros.estado_sua == 'baja' %}selected{% endif %}>Baja SUA</option>
@@ -27,7 +31,7 @@
   </div>
   <div>
     <label>Movimiento SUA</label>
-    <select name="movimiento">
+    <select name="movimiento" id="hc-filter-movimiento">
       <option value="">Todos</option>
       {% for m in ['ALTA','BAJA','REIN','P/CV','P/IV'] %}
       <option value="{{ m }}" {% if filtros.movimiento == m %}selected{% endif %}>{{ m }}</option>
@@ -36,7 +40,7 @@
   </div>
   <div>
     <label>Match status</label>
-    <select name="match_status">
+    <select name="match_status" id="hc-filter-match-status">
       <option value="">Todos</option>
       {% for st in ['MATCH_CURP','MATCH_NSS','MATCH_NOMBRE','POSIBLE_MATCH','SIN_MATCH'] %}
       <option value="{{ st }}" {% if filtros.match_status == st %}selected{% endif %}>{{ st }}</option>
@@ -45,7 +49,7 @@
   </div>
   <div>
     <label>Conciliación</label>
-    <select name="conciliacion">
+    <select name="conciliacion" id="hc-filter-conciliacion">
       <option value="">Todas</option>
       <option value="activos_sin_match" {% if filtros.conciliacion == 'activos_sin_match' %}selected{% endif %}>Activos SUA sin match HC</option>
       <option value="hc_activo_baja_sua" {% if filtros.conciliacion == 'hc_activo_baja_sua' %}selected{% endif %}>HC activo aparece Baja en SUA</option>
@@ -55,7 +59,7 @@
   </div>
   <div>
     <label>Warning</label>
-    <select name="warning">
+    <select name="warning" id="hc-filter-warning">
       <option value="">Todos</option>
       {% for code, label in (warnings_catalog or {}).items() %}
       {% if code != 'STATUS_IMSS_INCONSISTENTE' %}
@@ -66,13 +70,73 @@
   </div>
   <div>
     <label>Buscador</label>
-    <input type="search" name="q" value="{{ filtros.busqueda }}" placeholder="NSS, CURP, nombre">
+    <input type="search" name="q" id="hc-filter-q" value="{{ filtros.busqueda }}" placeholder="NSS, CURP, nombre" autocomplete="off">
   </div>
   <div>
-    <label><input type="checkbox" name="solo_hc_sin_sua" value="1" {% if filtros.solo_hc_sin_sua %}checked{% endif %}> HC activos no en SUA</label>
+    <label><input type="checkbox" name="solo_hc_sin_sua" id="hc-filter-solo-hc" value="1" {% if filtros.solo_hc_sin_sua %}checked{% endif %}> HC activos no en SUA</label>
   </div>
-  <div>
-    <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+  <div class="hc-filters-actions">
     <a class="btn btn-secondary btn-sm" href="{{ url_for('headcount.auditoria_sua_resultado', audit_id=audit_id) }}">Limpiar</a>
   </div>
 </form>
+<script>
+(function () {
+  var form = document.getElementById('hc-filters-form');
+  if (!form) return;
+
+  var debounceTimer = null;
+  var DEBOUNCE_MS = 320;
+
+  function collectParams() {
+    var params = new URLSearchParams();
+    form.querySelectorAll('select, input[type="search"], input[type="text"]').forEach(function (el) {
+      if (!el.name) return;
+      var val = (el.value || '').trim();
+      if (val) params.set(el.name, val);
+    });
+    var solo = document.getElementById('hc-filter-solo-hc');
+    if (solo && solo.checked) params.set('solo_hc_sin_sua', '1');
+    return params;
+  }
+
+  function applyFilters() {
+    var qs = collectParams().toString();
+    window.location.href = form.action + (qs ? '?' + qs : '');
+  }
+
+  function debouncedApply() {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(applyFilters, DEBOUNCE_MS);
+  }
+
+  form.querySelectorAll('select').forEach(function (el) {
+    el.addEventListener('change', applyFilters);
+  });
+
+  var solo = document.getElementById('hc-filter-solo-hc');
+  if (solo) solo.addEventListener('change', applyFilters);
+
+  var ubic = document.getElementById('hc-filter-ubicacion');
+  if (ubic) {
+    ubic.addEventListener('input', debouncedApply);
+    ubic.addEventListener('change', applyFilters);
+  }
+
+  var q = document.getElementById('hc-filter-q');
+  if (q) {
+    q.addEventListener('input', debouncedApply);
+    q.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(debounceTimer);
+        applyFilters();
+      }
+    });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    applyFilters();
+  });
+})();
+</script>

@@ -7,6 +7,33 @@ from typing import Any
 from modules.headcount.matching import es_warning_critico, normalize_text
 
 SIN_CLIENTE_CARD_KEY = "__SIN_CLIENTE__"
+_SIN_CLIENTE_BUCKET_KEYS = frozenset(
+    {
+        "",
+        "SIN CLIENTE",
+        "SIN CLIENTE HC",
+        "S O",
+        "N A",
+        "NA",
+        "NAN",
+        "NONE",
+        "NULL",
+        "NAT",
+    }
+)
+
+
+def es_cliente_bucket_invalido(cliente_key: str) -> bool:
+    """True si el bucket no debe mostrarse como tarjeta de cliente (va en Sin cliente / SIN_MATCH)."""
+    if cliente_key == SIN_CLIENTE_CARD_KEY:
+        return True
+    raw = str(cliente_key or "").strip()
+    if is_empty_ui_value(raw):
+        return True
+    norm = normalize_text(raw)
+    if norm in _SIN_CLIENTE_BUCKET_KEYS:
+        return True
+    return normalize_text(display_cliente(raw)) in _SIN_CLIENTE_BUCKET_KEYS
 
 
 def is_empty_ui_value(value: Any) -> bool:
@@ -90,6 +117,20 @@ def display_fecha_ingreso(value: Any) -> str:
     if not parsed:
         return "—"
     return parsed.strftime("%d/%m/%Y")
+
+
+def sort_value_date(value: Any) -> str:
+    parsed = parse_fecha_ingreso(value)
+    return parsed.isoformat() if parsed else ""
+
+
+def sort_value_number(value: Any) -> str:
+    if is_empty_ui_value(value):
+        return ""
+    try:
+        return f"{float(value):015.4f}"
+    except (TypeError, ValueError):
+        return ""
 
 
 def parse_fecha_corte_auditoria(fecha_corte: Any, fecha_proceso: Any = "") -> date | None:
@@ -189,8 +230,10 @@ def agrupar_resumen_por_cliente(detalle: list[dict[str, Any]]) -> list[dict[str,
     buckets: dict[str, dict[str, Any]] = {}
 
     for row in detalle:
+        if row.get("match_status") == "SIN_MATCH":
+            continue
         raw_cliente = str(row.get("cliente_headcount") or "").strip()
-        if not raw_cliente:
+        if es_cliente_bucket_invalido(raw_cliente):
             continue
         key = raw_cliente
         _accumulate_cliente_bucket(buckets, row, key=key)
@@ -207,7 +250,11 @@ def agrupar_resumen_por_cliente(detalle: list[dict[str, Any]]) -> list[dict[str,
 
 
 def build_cliente_cards_for_ui(detalle: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    clientes = agrupar_resumen_por_cliente(detalle)
+    clientes = [
+        c
+        for c in agrupar_resumen_por_cliente(detalle)
+        if not c.get("es_sin_cliente_virtual") and not es_cliente_bucket_invalido(c.get("cliente_key", ""))
+    ]
     sin_cliente = resumen_sin_cliente_card(detalle)
     return clientes, sin_cliente
 
@@ -215,8 +262,10 @@ def build_cliente_cards_for_ui(detalle: list[dict[str, Any]]) -> tuple[list[dict
 def clientes_detectados_labels(detalle: list[dict[str, Any]]) -> list[dict[str, str]]:
     seen: dict[str, str] = {}
     for row in detalle:
+        if row.get("match_status") == "SIN_MATCH":
+            continue
         key = str(row.get("cliente_headcount") or "").strip()
-        if not key:
+        if es_cliente_bucket_invalido(key):
             continue
         seen[key] = display_cliente(key)
     return [{"key": k, "label": v} for k, v in sorted(seen.items(), key=lambda item: item[1].casefold())]

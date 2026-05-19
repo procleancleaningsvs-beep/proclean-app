@@ -1,21 +1,57 @@
-<div class="hc-detalle-meta">
-  <span>Mostrando <strong>{{ detalle_filtrado|default(detalle|length) }}</strong> de <strong>{{ detalle_total|default(detalle|length) }}</strong> registros SUA</span>
+<div class="hc-detalle-meta" id="hc-detalle-meta">
+  <span>Mostrando <strong id="hc-detalle-count">{{ detalle_filtrado|default(detalle|length) }}</strong> de <strong>{{ detalle_total|default(detalle|length) }}</strong> registros SUA</span>
 </div>
 <div class="hc-table-wrap">
-  <table class="hc-table">
+  <table class="hc-table" id="hc-detalle-table">
     <thead>
       <tr>
-        <th>No.</th>
-        <th>NSS SUA</th><th>CURP</th><th>Nombre SUA</th>
-        <th>Estado SUA</th><th>Movimiento</th><th>Fecha mov.</th><th>Activo corte</th>
-        <th>Cliente HC</th><th>Ubicación</th>
-        <th>St. Op.</th><th>Fecha ingreso</th><th>Match</th><th>Días</th><th>SDI</th>
-        <th>Warnings / Info</th><th></th>
+        <th class="hc-sortable" data-col="no" data-type="num">No.</th>
+        <th class="hc-sortable" data-col="nss" data-type="text">NSS SUA</th>
+        <th class="hc-sortable" data-col="curp" data-type="text">CURP</th>
+        <th class="hc-sortable" data-col="nombre" data-type="text">Nombre SUA</th>
+        <th class="hc-sortable" data-col="estado" data-type="text">Estado SUA</th>
+        <th class="hc-sortable" data-col="movimiento" data-type="text">Movimiento</th>
+        <th class="hc-sortable" data-col="fecha_mov" data-type="date">Fecha mov.</th>
+        <th class="hc-sortable" data-col="activo" data-type="text">Activo corte</th>
+        <th class="hc-sortable" data-col="cliente" data-type="text">Cliente HC</th>
+        <th class="hc-sortable" data-col="ubicacion" data-type="text">Ubicación</th>
+        <th class="hc-sortable" data-col="st_op" data-type="text">St. Op.</th>
+        <th class="hc-sortable" data-col="fecha_ingreso" data-type="date">Fecha ingreso</th>
+        <th class="hc-sortable" data-col="match" data-type="text">Match</th>
+        <th class="hc-sortable" data-col="dias" data-type="num">Días</th>
+        <th class="hc-sortable" data-col="sdi" data-type="num">SDI</th>
+        <th class="hc-sortable" data-col="warnings" data-type="text">Warnings / Info</th>
+        <th></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="hc-detalle-tbody">
       {% for row in detalle %}
-      <tr>
+      {% set ns = namespace(warn_tokens=[]) %}
+      {% for w in row.warnings or [] %}
+      {% if w != 'STATUS_IMSS_INCONSISTENTE' %}
+      {% set ns.warn_tokens = ns.warn_tokens + [w] %}
+      {% endif %}
+      {% endfor %}
+      {% set warn_tokens = ns.warn_tokens %}
+      <tr class="hc-data-row"
+          data-registro-no="{{ row.registro_no or loop.index }}"
+          data-sort-no="{{ row.registro_no or loop.index }}"
+          data-sort-nss="{{ row.nss_normalizado or row.nss_sua_original or '' }}"
+          data-sort-curp="{{ row.curp or '' }}"
+          data-sort-nombre="{{ row.nombre_sua_original or '' }}"
+          data-sort-estado="{{ row.estado_sua_al_corte or '' }}"
+          data-sort-movimiento="{{ row.sua_movimiento_clave or '' }}"
+          data-sort-fecha_mov="{{ hc_sort_value_date(row.movimiento_fecha) }}"
+          data-sort-activo="{{ row.es_activo_al_corte_label or '' }}"
+          data-sort-cliente="{{ row.cliente_headcount or '' }}"
+          data-sort-ubicacion="{{ row.ubicacion_headcount or '' }}"
+          data-sort-st_op="{{ row.status_operacion_headcount or '' }}"
+          data-sort-fecha_ingreso="{{ hc_sort_value_date(row.fecha_ingreso_headcount) }}"
+          data-sort-match="{{ row.match_por or row.match_status or '' }}"
+          data-sort-dias="{{ hc_sort_value_number(row.dias) }}"
+          data-sort-sdi="{{ hc_sort_value_number(row.sdi) }}"
+          data-sort-warnings="{{ warn_tokens|join(' ') }} {{ row.info_estado or '' }}"
+          data-warnings="{{ warn_tokens|join(' ') }}">
         <td>{{ row.registro_no or loop.index }}</td>
         <td>{{ row.nss_normalizado or hc_display(row.nss_sua_original) }}</td>
         <td>{{ hc_display(row.curp) }}</td>
@@ -34,10 +70,8 @@
         <td>{{ hc_display(row.dias, empty='') }}</td>
         <td>{{ hc_display(row.sdi, empty='') }}</td>
         <td>
-          {% for w in row.warnings or [] %}
-          {% if w != 'STATUS_IMSS_INCONSISTENTE' %}
+          {% for w in warn_tokens %}
           <span class="hc-badge {% if w == 'SUA_ACTIVO_SIN_MATCH_HEADCOUNT' or w == 'HEADCOUNT_ACTIVO_APARECE_BAJA_EN_SUA' %}err{% else %}warn{% endif %}" title="{{ warning_label(w) }}">{{ w }}</span>
-          {% endif %}
           {% endfor %}
           {% if row.info_estado %}
           <span class="hc-badge ok" title="{{ info_estado_label(row.info_estado) }}">{{ row.info_estado }}</span>
@@ -45,7 +79,7 @@
         </td>
         <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ row.registro_no or loop.index }}">Ver</button></td>
       </tr>
-      <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}">
+      <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}" data-detail-for="{{ row.registro_no or loop.index }}">
         <td colspan="17"><div class="hc-detail-inner">
           Patrón HC: {{ hc_display(row.patron_headcount) }} · Nombre HC: {{ hc_display(row.nombre_headcount) }} · Página {{ hc_display(row.pagina_origen) }}
         </div></td>
@@ -57,10 +91,98 @@
   </table>
 </div>
 <script>
-document.querySelectorAll('.hc-toggle-detail').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    var row = document.getElementById(btn.getAttribute('data-target'));
-    if (row) row.classList.toggle('open');
+(function () {
+  document.querySelectorAll('.hc-toggle-detail').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var row = document.getElementById(btn.getAttribute('data-target'));
+      if (row) row.classList.toggle('open');
+    });
   });
-});
+
+  var table = document.getElementById('hc-detalle-table');
+  var tbody = document.getElementById('hc-detalle-tbody');
+  if (!table || !tbody) return;
+
+  var sortState = { col: null, asc: true };
+
+  function isEmpty(v) {
+    return v === null || v === undefined || String(v).trim() === '';
+  }
+
+  function compareValues(a, b, type) {
+    if (isEmpty(a) && isEmpty(b)) return 0;
+    if (isEmpty(a)) return 1;
+    if (isEmpty(b)) return -1;
+    if (type === 'num') {
+      var na = parseFloat(a);
+      var nb = parseFloat(b);
+      if (isNaN(na) && isNaN(nb)) return 0;
+      if (isNaN(na)) return 1;
+      if (isNaN(nb)) return -1;
+      return na - nb;
+    }
+    if (type === 'date') {
+      return String(a).localeCompare(String(b));
+    }
+    return String(a).toLocaleLowerCase().localeCompare(String(b).toLocaleLowerCase(), 'es');
+  }
+
+  function rowPairs() {
+    var pairs = [];
+    var rows = Array.from(tbody.querySelectorAll('tr.hc-data-row'));
+    rows.forEach(function (dataRow) {
+      var id = dataRow.getAttribute('data-registro-no');
+      var detail = tbody.querySelector('tr.hc-detail-row[data-detail-for="' + id + '"]');
+      pairs.push({ data: dataRow, detail: detail });
+    });
+    return pairs;
+  }
+
+  function updateSortIndicators(th, asc) {
+    table.querySelectorAll('th.hc-sortable').forEach(function (h) {
+      h.classList.remove('is-sorted', 'is-sorted-asc', 'is-sorted-desc');
+      var icon = h.querySelector('.hc-sort-icon');
+      if (icon) icon.textContent = '';
+    });
+    th.classList.add('is-sorted', asc ? 'is-sorted-asc' : 'is-sorted-desc');
+    var icon = th.querySelector('.hc-sort-icon');
+    if (!icon) {
+      icon = document.createElement('span');
+      icon.className = 'hc-sort-icon';
+      th.appendChild(document.createTextNode(' '));
+      th.appendChild(icon);
+    }
+    icon.textContent = asc ? '▲' : '▼';
+  }
+
+  table.querySelectorAll('th.hc-sortable').forEach(function (th) {
+    if (!th.querySelector('.hc-sort-icon')) {
+      th.appendChild(document.createTextNode(' '));
+      var icon = document.createElement('span');
+      icon.className = 'hc-sort-icon';
+      th.appendChild(icon);
+    }
+    th.addEventListener('click', function () {
+      var col = th.getAttribute('data-col');
+      var type = th.getAttribute('data-type') || 'text';
+      var asc = sortState.col === col ? !sortState.asc : true;
+      sortState = { col: col, asc: asc };
+
+      var attr = 'data-sort-' + col;
+      var pairs = rowPairs();
+      pairs.sort(function (pa, pb) {
+        var av = pa.data.getAttribute(attr) || '';
+        var bv = pb.data.getAttribute(attr) || '';
+        var cmp = compareValues(av, bv, type);
+        return asc ? cmp : -cmp;
+      });
+
+      pairs.forEach(function (p) {
+        tbody.appendChild(p.data);
+        if (p.detail) tbody.appendChild(p.detail);
+      });
+      updateSortIndicators(th, asc);
+    });
+  });
+})();
 </script>

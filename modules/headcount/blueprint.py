@@ -30,6 +30,8 @@ from modules.headcount.ui_format import (
     display_periodo_corte,
     display_registro_patronal,
     display_ubicacion,
+    sort_value_date,
+    sort_value_number,
 )
 from modules.headcount.privacy import mask_registro_for_display, should_mask_sensitive_data
 from modules.headcount.services import (
@@ -255,12 +257,11 @@ def auditoria_sua_resultado(audit_id: str):
     resumen = json.loads(audit["resumen_json"])
     detalle_full = payload.get("detalle") or []
     detalle = _apply_filters(detalle_full)
-    resumen_clientes = payload.get("resumen_clientes") or []
-    sin_cliente_card = payload.get("sin_cliente_card") or {}
-    if not resumen_clientes and detalle_full:
+    if detalle_full:
         resumen_clientes, sin_cliente_card = build_cliente_cards_for_ui(detalle_full)
-    elif not sin_cliente_card and detalle_full:
-        _, sin_cliente_card = build_cliente_cards_for_ui(detalle_full)
+    else:
+        resumen_clientes = payload.get("resumen_clientes") or []
+        sin_cliente_card = payload.get("sin_cliente_card") or {}
 
     resumen = dict(resumen)
     if not resumen.get("desarrollo_inf_mas_6_meses") and not resumen.get("desarrollo_inf_mas_1_anio"):
@@ -497,6 +498,8 @@ def _headcount_template_helpers():
         "hc_display_registro_patronal": display_registro_patronal,
         "hc_display_periodo_corte": display_periodo_corte,
         "hc_display_fecha_ingreso": display_fecha_ingreso,
+        "hc_sort_value_date": sort_value_date,
+        "hc_sort_value_number": sort_value_number,
     }
 
 

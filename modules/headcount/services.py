@@ -398,6 +398,29 @@ def ejecutar_auditoria_sua(
     }
 
 
+def _row_warnings_list(row: dict[str, Any]) -> list[str]:
+    raw = row.get("warnings")
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return [str(w).strip() for w in raw if w and str(w).strip()]
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                import json
+
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(w).strip() for w in parsed if w and str(w).strip()]
+            except json.JSONDecodeError:
+                pass
+        return [p.strip() for p in re.split(r"[,;]+", s) if p.strip()]
+    return []
+
+
 def _agrupar_detalle(detalle: list[dict[str, Any]]) -> list[dict[str, Any]]:
     buckets: dict[tuple[str, str], dict[str, Any]] = {}
     for row in detalle:
@@ -458,7 +481,8 @@ def filtrar_detalle(
     if match_status:
         out = [r for r in out if r.get("match_status") == match_status]
     if warning:
-        out = [r for r in out if warning in (r.get("warnings") or [])]
+        wf = warning.strip()
+        out = [r for r in out if wf in _row_warnings_list(r)]
     if movimiento:
         from modules.headcount.matching import normalize_movimiento_clave
 

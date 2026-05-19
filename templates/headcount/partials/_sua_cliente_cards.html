@@ -41,6 +41,7 @@
   </a>
 
   {% for c in resumen_clientes %}
+  {% if c.es_sin_cliente_virtual or (c.cliente_label|lower == 'sin cliente') %}{% continue %}{% endif %}
   {% set cliente_match = c.cliente_key and (filtro_cliente == c.cliente_key) and not sin_cliente_activo %}
   {% set card_active = cliente_match and not filtros.ubicacion_provided %}
   {% set chip_row_active = cliente_match and filtros.ubicacion_provided %}
