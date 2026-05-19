@@ -10,7 +10,7 @@ from modules.headcount.config import get_patron_auditoria_aliases, patron_matche
 from modules.headcount.matching import enrich_sua_worker_fields, sua_es_activo_al_corte, sua_tiene_baja
 from modules.headcount.privacy import mask_curp, mask_nss, should_mask_sensitive_data
 from modules.headcount.services import ejecutar_auditoria_sua
-from modules.headcount.storage import ensure_headcount_tables, insert_sua_audit
+from modules.headcount.storage import ensure_headcount_tables, get_sua_audit, insert_sua_audit, row_to_dict
 from modules.headcount.sua_parser import _parse_workers_from_pages, parse_sua_pdf_bytes
 from modules.roles_access import (
     can_access_headcount_auditoria,
@@ -188,6 +188,69 @@ def _minimal_sua_pdf_text(text: str) -> bytes | None:
     page = doc.new_page()
     page.insert_text((72, 72), text, fontsize=9)
     return doc.tobytes()
+
+
+def _ensure_users_table(db: str) -> None:
+    conn = sqlite3.connect(db)
+    try:
+        conn.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT NOT NULL)")
+        conn.execute("INSERT OR IGNORE INTO users (id, username) VALUES (1, 'test_admin')")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_row_to_dict_sqlite_row_supports_get():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("CREATE TABLE t (a TEXT)")
+        conn.execute("INSERT INTO t VALUES ('x')")
+        raw = conn.execute("SELECT * FROM t").fetchone()
+        assert not hasattr(type(raw), "get") or not callable(getattr(raw, "get", None))
+        converted = row_to_dict(raw)
+        assert converted.get("a") == "x"
+    finally:
+        conn.close()
+
+
+def test_get_sua_audit_returns_dict_with_get(tmp_path: Path):
+    db = str(tmp_path / "proclean.db")
+    ensure_headcount_tables(db)
+    _ensure_users_table(db)
+    insert_sua_audit(
+        db,
+        audit_id="test-audit-resultado",
+        user_id=1,
+        created_at="2026-05-19 10:00:00",
+        fecha_corte_sua="2026-05-19",
+        archivo_original_nombre="sua.pdf",
+        registro_patronal_sua="Y37-52430-10-2",
+        razon_social_sua="TEST SA",
+        rfc_patronal_sua="",
+        periodo_proceso_sua="Mayo-2026",
+        fecha_proceso_sua="19/05/2026",
+        total_cotizantes=185,
+        trabajadores_extraidos=185,
+        total_matches=150,
+        total_sin_match=5,
+        total_warnings=3,
+        resumen={
+            "total_cotizantes_sua": 185,
+            "total_sua_activos_al_corte": 180,
+            "total_sua_bajas_periodo": 5,
+        },
+        payload={"detalle": [{"registro_no": 1, "nss_normalizado": "123"}]},
+        hash_archivo="hash123",
+    )
+    audit = get_sua_audit(db, "test-audit-resultado")
+    assert audit is not None
+    assert isinstance(audit, dict)
+    assert audit.get("periodo_proceso_sua") == "Mayo-2026"
+    assert audit.get("registro_patronal_sua") == "Y37-52430-10-2"
+    assert audit.get("username") == "test_admin"
+    resumen = json.loads(audit["resumen_json"])
+    assert resumen.get("total_sua_activos_al_corte") == 180
 
 
 def test_insert_audit_json_only_no_pdf_path(tmp_path: Path):

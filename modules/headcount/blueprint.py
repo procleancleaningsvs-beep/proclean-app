@@ -128,11 +128,11 @@ def _solo_activos_for_role() -> bool:
 
 
 def _load_payload_from_audit(audit_id: str) -> dict:
-    row = get_sua_audit(_db_path(), audit_id)
-    if not row:
+    audit = get_sua_audit(_db_path(), audit_id)
+    if not audit:
         abort(404)
     try:
-        return json.loads(row["detalle_json"])
+        return json.loads(audit["detalle_json"])
     except json.JSONDecodeError:
         abort(500)
 
@@ -245,11 +245,11 @@ def auditoria_sua_procesar():
 @_login_required_page
 def auditoria_sua_resultado(audit_id: str):
     _require_auditoria()
-    row = get_sua_audit(_db_path(), audit_id)
-    if not row:
+    audit = get_sua_audit(_db_path(), audit_id)
+    if not audit:
         abort(404)
-    payload = json.loads(row["detalle_json"])
-    resumen = json.loads(row["resumen_json"])
+    payload = json.loads(audit["detalle_json"])
+    resumen = json.loads(audit["resumen_json"])
     detalle_full = payload.get("detalle") or []
     detalle = _apply_filters(detalle_full)
     resumen_clientes = payload.get("resumen_clientes") or []
@@ -259,13 +259,13 @@ def auditoria_sua_resultado(audit_id: str):
         resumen_clientes = agrupar_resumen_por_cliente(detalle_full)
     if not resumen.get("registro_patronal_sua"):
         resumen = dict(resumen)
-        resumen["registro_patronal_sua"] = row.get("registro_patronal_sua") or ""
+        resumen["registro_patronal_sua"] = audit.get("registro_patronal_sua") or ""
     if not resumen.get("periodo_proceso_sua"):
         resumen = dict(resumen)
-        resumen["periodo_proceso_sua"] = row.get("periodo_proceso_sua") or ""
+        resumen["periodo_proceso_sua"] = audit.get("periodo_proceso_sua") or ""
     if not resumen.get("fecha_corte_sua"):
         resumen = dict(resumen)
-        resumen["fecha_corte_sua"] = row.get("fecha_corte_sua") or ""
+        resumen["fecha_corte_sua"] = audit.get("fecha_corte_sua") or ""
     clientes_opts = resumen.get("clientes_detectados_opts")
     if not clientes_opts:
         from modules.headcount.ui_format import clientes_detectados_labels
@@ -283,7 +283,7 @@ def auditoria_sua_resultado(audit_id: str):
         headcount_sin_sua=payload.get("headcount_sin_sua") or [],
         warnings_catalog=payload.get("warnings_catalog") or {},
         clientes_opts=clientes_opts,
-        row_meta=row,
+        row_meta=audit,
         can_delete=can_delete_headcount_audit(_role()),
         warning_label=warning_label,
         info_estado_label=info_estado_label,
@@ -434,7 +434,7 @@ def _historial_rows(fecha_corte: str | None = None) -> tuple[list[dict], list[st
     for row in rows:
         item = dict(row)
         try:
-            resumen = json.loads(row["resumen_json"])
+            resumen = json.loads(item["resumen_json"])
             item["activos_corte"] = resumen.get("total_sua_activos_al_corte")
             item["bajas_periodo"] = resumen.get("total_sua_bajas_periodo")
         except (json.JSONDecodeError, TypeError, KeyError):

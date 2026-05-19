@@ -7,6 +7,14 @@ import sqlite3
 from typing import Any
 
 
+def row_to_dict(row: sqlite3.Row | dict[str, Any] | None) -> dict[str, Any]:
+    if row is None:
+        return {}
+    if isinstance(row, dict):
+        return row
+    return dict(row)
+
+
 def ensure_headcount_tables(db_path: str) -> None:
     conn = sqlite3.connect(db_path)
     try:
@@ -52,11 +60,11 @@ def find_duplicate_audit(
     *,
     fecha_corte_sua: str,
     registro_patronal: str,
-) -> list[sqlite3.Row]:
+) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        return conn.execute(
+        rows = conn.execute(
             """
             SELECT audit_id, created_at, archivo_original_nombre, user_id
             FROM headcount_sua_audits
@@ -66,6 +74,7 @@ def find_duplicate_audit(
             """,
             (fecha_corte_sua, registro_patronal),
         ).fetchall()
+        return [row_to_dict(r) for r in rows]
     finally:
         conn.close()
 
@@ -130,11 +139,11 @@ def insert_sua_audit(
         conn.close()
 
 
-def get_sua_audit(db_path: str, audit_id: str) -> sqlite3.Row | None:
+def get_sua_audit(db_path: str, audit_id: str) -> dict[str, Any] | None:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        return conn.execute(
+        row = conn.execute(
             """
             SELECT a.*, u.username
             FROM headcount_sua_audits a
@@ -143,6 +152,7 @@ def get_sua_audit(db_path: str, audit_id: str) -> sqlite3.Row | None:
             """,
             (audit_id,),
         ).fetchone()
+        return row_to_dict(row) if row is not None else None
     finally:
         conn.close()
 
@@ -152,12 +162,12 @@ def list_sua_audits(
     *,
     fecha_corte: str | None = None,
     limit: int = 200,
-) -> list[sqlite3.Row]:
+) -> list[dict[str, Any]]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         if fecha_corte:
-            return conn.execute(
+            rows = conn.execute(
                 """
                 SELECT a.*, u.username
                 FROM headcount_sua_audits a
@@ -168,16 +178,18 @@ def list_sua_audits(
                 """,
                 (fecha_corte, limit),
             ).fetchall()
-        return conn.execute(
-            """
-            SELECT a.*, u.username
-            FROM headcount_sua_audits a
-            JOIN users u ON u.id = a.user_id
-            ORDER BY a.fecha_corte_sua DESC, a.created_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT a.*, u.username
+                FROM headcount_sua_audits a
+                JOIN users u ON u.id = a.user_id
+                ORDER BY a.fecha_corte_sua DESC, a.created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [row_to_dict(r) for r in rows]
     finally:
         conn.close()
 
