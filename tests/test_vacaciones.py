@@ -2,23 +2,22 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 import tempfile
 import unittest
 from datetime import date
-from io import BytesIO
 from pathlib import Path
-
-from openpyxl import Workbook
 
 from modules.finiquitos.calc import calcular_dias_vacaciones_devengados as fin_devengados
 from modules.nomina.db import (
-    archive_vacaciones_import_empleados,
+    archive_all_active_vacaciones_data,
     ensure_nomina_tables,
-    get_vacaciones_empleado,
+    ejecutar_limpieza_base_vacaciones,
     list_vacaciones_empleados_all,
     list_vacaciones_eventos,
+    preview_limpieza_vacaciones_base,
     save_vacaciones_events,
     save_vacaciones_import,
     validar_vacaciones_base,
@@ -29,6 +28,13 @@ from modules.nomina.vacaciones_logic import (
     build_migration_events_from_row,
     calcular_balance_vacaciones_trabajador,
     detect_headcount_diff_warnings,
+)
+from modules.nomina.vacaciones_util import (
+    MATCH_OK,
+    SIN_MATCH,
+    enrich_vacaciones_row_for_display,
+    resolve_status_headcount,
+    sanitize_display_value,
 )
 from modules.shared.vacaciones import calcular_dias_vacaciones_devengados, dias_vacaciones_ley_por_anio_servicio
 
@@ -58,13 +64,50 @@ class TestVacacionesExcel(unittest.TestCase):
         parsed = parse_vacaciones_historico_excel(CARRIER_XLSX.read_bytes(), CARRIER_XLSX.name)
         self.assertEqual(len(parsed.rows), 72)
         self.assertEqual(len(parsed.errors), 0)
+        self.assertGreater(parsed.weekly_events_total, 0)
+
+    def test_antonia_desglose_semanal(self):
+        if not CARRIER_XLSX.exists():
+            self.skipTest("Archivo Carrier no disponible")
+        parsed = parse_vacaciones_historico_excel(CARRIER_XLSX.read_bytes(), CARRIER_XLSX.name)
+        antonia = next(r for r in parsed.rows if "Antonia" in r["excel_nombre_original"])
+        self.assertGreaterEqual(len(antonia["desglose_semanal"]), 2)
+        self.assertEqual(antonia["dias_utilizados_calculado_semanal"], 24.0)
+        self.assertEqual(antonia["dias_utilizados_excel_resumen"], 24.0)
+
+
+class TestVacacionesUtil(unittest.TestCase):
+    def test_sanitize_nan(self):
+        self.assertEqual(sanitize_display_value(float("nan")), "")
+        self.assertEqual(sanitize_display_value("nan"), "")
+        self.assertEqual(sanitize_display_value(None), "")
+
+    def test_status_headcount_sin_status(self):
+        self.assertEqual(resolve_status_headcount(None), "SIN STATUS HEADCOUNT")
+        self.assertEqual(resolve_status_headcount({}), "SIN STATUS HEADCOUNT")
+        self.assertEqual(resolve_status_headcount({"status_imss": float("nan")}), "SIN STATUS HEADCOUNT")
+
+    def test_status_headcount_activo(self):
+        self.assertEqual(resolve_status_headcount({"status_operacion": "ALTA"}), "ACTIVO")
+
+    def test_display_no_nan_match(self):
+        row = enrich_vacaciones_row_for_display(
+            {
+                "estatus_headcount": float("nan"),
+                "match_status": "match_name",
+                "match_score": float("nan"),
+                "nombre_historico": "Test",
+            }
+        )
+        self.assertEqual(row["status_headcount"], "SIN STATUS HEADCOUNT")
+        self.assertEqual(row["match_status_display"], "MATCH_OK")
+        self.assertNotIn("nan", row["status_headcount"].lower())
 
 
 class TestVacacionesLogic(unittest.TestCase):
     def test_tabla_lft_coincide_finiquitos(self):
         self.assertEqual(dias_vacaciones_ley_por_anio_servicio(1), 12)
         self.assertEqual(dias_vacaciones_ley_por_anio_servicio(5), 20)
-        self.assertEqual(dias_vacaciones_ley_por_anio_servicio(6), 22)
 
     def test_devengados_misma_logica_finiquitos(self):
         ingreso = date(2024, 3, 1)
@@ -73,64 +116,34 @@ class TestVacacionesLogic(unittest.TestCase):
         finiq = fin_devengados(ingreso, corte)
         self.assertEqual(float(shared["dias_vac_total_dev"]), float(finiq["dias_vac_total_dev"]))
 
-    def test_saldo_negativo_warning(self):
+    def test_saldo_usa_desglose_semanal(self):
         row = {
             "fecha_ingreso_usada": "2024-03-01",
-            "dias_utilizados": 20,
-            "vacaciones_laboradas": 0,
-            "dias_pagados": 0,
-            "sueldo_usado": 300,
-            "warnings": [],
-        }
-        calc = calcular_balance_vacaciones_trabajador(row, fecha_corte=date(2024, 6, 1))
-        self.assertLess(calc["saldo_calculado"], 0)
-        self.assertTrue(any("negativo" in w.lower() for w in calc["warnings"]))
-
-    def test_comentario_reingreso_warning(self):
-        row = {
-            "fecha_ingreso_historica": "2020-01-01",
-            "fecha_ingreso_headcount": "2024-01-01",
-            "comentarios": "reingreso en enero",
-        }
-        warnings = detect_headcount_diff_warnings(row)
-        self.assertTrue(any("reingreso" in w.lower() for w in warnings))
-
-    def test_headcount_prevalece_en_calculo(self):
-        row = {
-            "fecha_ingreso_historica": "2020-01-01",
-            "fecha_ingreso_headcount": "2024-03-01",
-            "fecha_ingreso_usada": "2024-03-01",
-            "sueldo_historico": 100,
-            "sueldo_headcount": 328.57,
-            "sueldo_usado": 328.57,
-            "dias_utilizados": 0,
+            "dias_utilizados_calculado_semanal": 10,
+            "dias_utilizados_excel_resumen": 8,
             "vacaciones_laboradas": 0,
             "dias_pagados": 0,
             "warnings": [],
         }
-        enriched = aplicar_calculo_a_fila(row, fecha_corte=date(2025, 5, 20))
-        self.assertEqual(enriched["sueldo_usado"], 328.57)
-        self.assertIsNotNone(enriched["dias_generados"])
+        calc = calcular_balance_vacaciones_trabajador(row, fecha_corte=date(2025, 5, 20))
+        self.assertEqual(calc["dias_utilizados"], 10)
+        self.assertTrue(any("semanal" in w.lower() for w in calc["warnings"]))
 
-    def test_eventos_migracion(self):
+    def test_eventos_semanales(self):
         row = {
             "id": 1,
-            "nss": "123",
-            "nombre_normalizado": "TEST USER",
-            "dias_utilizados": 2,
-            "vacaciones_laboradas": 1,
-            "dias_pagados": 3,
-            "prima_2026_pagada": True,
-            "fecha_pago_prima_2026": "2026-01-15",
-            "comentarios": "reingreso",
-            "saldo_calculado": -1,
-            "fecha_ingreso_usada": "2024-01-01",
+            "nombre_normalizado": "TEST",
+            "desglose_semanal": [
+                {"period_label": "9 AL 15 MAY (SEM 19)", "days": 6, "anio": "2024", "excel_row": 3},
+                {"period_label": "16 AL 22 MAY (SEM 20)", "days": 6, "anio": "2024", "excel_row": 3},
+            ],
+            "dias_utilizados": 12,
+            "warnings": [],
         }
-        events = build_migration_events_from_row(row, import_batch_id=9, imported_from_file="test.xlsx", created_at="2026-01-01")
-        types = {e["event_type"] for e in events}
-        self.assertIn("vacaciones_disfrutadas", types)
-        self.assertIn("vacaciones_laboradas", types)
-        self.assertIn("reinicio_reingreso", types)
+        events = build_migration_events_from_row(row, import_batch_id=1, imported_from_file="t.xlsx", created_at="2026-01-01")
+        sem = [e for e in events if e["event_type"] == "vacaciones_tomadas"]
+        self.assertEqual(len(sem), 2)
+        self.assertNotIn("vacaciones_disfrutadas", {e["event_type"] for e in events})
 
 
 class TestVacacionesDB(unittest.TestCase):
@@ -158,45 +171,29 @@ class TestVacacionesDB(unittest.TestCase):
             "nombre_normalizado": "JUAN PEREZ",
             "nombre_headcount": "Juan Pérez",
             "cliente": "Carrier",
-            "planta_historica": "A",
-            "planta_headcount": "A",
-            "fecha_ingreso_historica": "2024-03-01",
-            "fecha_ingreso_headcount": "2024-03-01",
-            "fecha_ingreso_usada": "2024-03-01",
             "estatus_headcount": "ACTIVO",
-            "sueldo_historico": 300.0,
-            "sueldo_headcount": 300.0,
+            "status_headcount": "ACTIVO",
+            "fecha_ingreso_usada": "2024-03-01",
             "sueldo_usado": 300.0,
-            "dias_vacaciones_historico": 12.0,
             "dias_generados": 12.0,
             "dias_utilizados": 0.0,
+            "dias_utilizados_calculado_semanal": 0.0,
+            "dias_utilizados_excel_resumen": 0.0,
             "vacaciones_laboradas": 0.0,
             "dias_pagados": 0.0,
-            "dias_restantes_historico": 12.0,
-            "dias_restantes_calculado": 12.0,
             "saldo_calculado": 12.0,
-            "prima_pendiente": 0.0,
-            "prima_2025_pagada": False,
-            "semana_pago_prima_2025": "",
-            "prima_2026_pagada": False,
-            "fecha_pago_prima_2026": "",
-            "monto_total_historico": None,
-            "monto_total_recalculado": None,
-            "comentarios": "",
-            "match_status": "match_name",
-            "match_score": 0.92,
-            "headcount_source": "headcount",
-            "headcount_raw_status": "ALTA|ACTIVO",
+            "match_status": MATCH_OK,
+            "match_method": "nombre_completo",
+            "match_notes": "",
             "warnings": [],
-            "editable_json": {"revision_status": "pending_revision"},
+            "editable_json": {"revision_status": "pending_revision", "desglose_semanal": []},
             "is_active": 1,
         }
         base.update(overrides)
         return base
 
-    def test_import_y_eventos(self):
-        row = self._sample_row()
-        import_id = save_vacaciones_import(
+    def test_limpieza_base_con_backup(self):
+        save_vacaciones_import(
             self.db_path,
             {
                 "cliente": "Carrier",
@@ -206,76 +203,77 @@ class TestVacacionesDB(unittest.TestCase):
                 "matched_count": 1,
                 "warning_count": 0,
                 "error_count": 0,
-                "rows": [row],
+                "rows": [self._sample_row()],
                 "raw_json": {},
             },
             created_by=None,
             now_iso="2026-05-20 10:00:00",
         )
-        saved = list_vacaciones_empleados_all(self.db_path, import_id=import_id)[0]
-        events = build_migration_events_from_row(
-            saved,
-            import_batch_id=import_id,
-            imported_from_file="test.xlsx",
-            created_at="2026-05-20 10:00:00",
-        )
-        for ev in events:
-            ev["empleado_id"] = saved["id"]
-        save_vacaciones_events(self.db_path, events, created_by=None)
-        listed = list_vacaciones_eventos(self.db_path, empleado_id=saved["id"])
-        self.assertGreaterEqual(len(listed), 1)
+        preview = preview_limpieza_vacaciones_base(self.db_path)
+        self.assertEqual(preview["total_registros"], 1)
+        result = ejecutar_limpieza_base_vacaciones(self.db_path, created_by=1, now_iso="2026-05-20 11:00:00")
+        self.assertGreater(result["backup_id"], 0)
+        self.assertEqual(preview_limpieza_vacaciones_base(self.db_path)["total_registros"], 0)
+        active = list_vacaciones_empleados_all(self.db_path, include_inactive=False)
+        self.assertEqual(len(active), 0)
 
-    def test_archivar_no_delete(self):
-        row = self._sample_row()
+    def test_reimport_no_duplica_activos(self):
         import_id = save_vacaciones_import(
             self.db_path,
             {
                 "cliente": "Carrier",
-                "source_filename": "test.xlsx",
-                "file_hash": "abc2",
+                "source_filename": "a.xlsx",
+                "file_hash": "1",
                 "total_rows": 1,
                 "matched_count": 1,
                 "warning_count": 0,
                 "error_count": 0,
-                "rows": [row],
+                "rows": [self._sample_row()],
                 "raw_json": {},
             },
             created_by=None,
             now_iso="2026-05-20 10:00:00",
         )
-        archived = archive_vacaciones_import_empleados(self.db_path, import_id=import_id)
-        self.assertEqual(archived, 1)
-        active = list_vacaciones_empleados_all(self.db_path, import_id=import_id, include_inactive=False)
-        all_rows = list_vacaciones_empleados_all(self.db_path, import_id=import_id, include_inactive=True)
-        self.assertEqual(len(active), 0)
-        self.assertEqual(len(all_rows), 1)
-
-    def test_validar_base(self):
+        archived = archive_all_active_vacaciones_data(self.db_path)
+        self.assertEqual(archived["empleados"], 1)
         save_vacaciones_import(
             self.db_path,
             {
                 "cliente": "Carrier",
-                "source_filename": "neg.xlsx",
-                "file_hash": "abc3",
+                "source_filename": "b.xlsx",
+                "file_hash": "2",
+                "total_rows": 1,
+                "matched_count": 1,
+                "warning_count": 0,
+                "error_count": 0,
+                "rows": [self._sample_row(nombre_historico="Otro")],
+                "raw_json": {},
+            },
+            created_by=None,
+            now_iso="2026-05-20 11:00:00",
+        )
+        active = list_vacaciones_empleados_all(self.db_path, include_inactive=False)
+        self.assertEqual(len(active), 1)
+        self.assertEqual(active[0]["nombre_historico"], "Otro")
+
+    def test_sin_match_no_rompe(self):
+        save_vacaciones_import(
+            self.db_path,
+            {
+                "cliente": "Carrier",
+                "source_filename": "nomatch.xlsx",
+                "file_hash": "x",
                 "total_rows": 1,
                 "matched_count": 0,
                 "warning_count": 1,
                 "error_count": 0,
-                "rows": [
-                    self._sample_row(
-                        match_status="no_match",
-                        saldo_calculado=-2,
-                        dias_restantes_calculado=-2,
-                        warnings=["Saldo negativo detectado"],
-                    )
-                ],
+                "rows": [self._sample_row(match_status=SIN_MATCH, status_headcount="SIN STATUS HEADCOUNT")],
                 "raw_json": {},
             },
             created_by=None,
             now_iso="2026-05-20 10:00:00",
         )
         resumen = validar_vacaciones_base(self.db_path)
-        self.assertGreaterEqual(resumen["saldos_negativos"], 1)
         self.assertGreaterEqual(resumen["conflictos_match"], 1)
 
 

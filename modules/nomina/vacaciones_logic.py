@@ -87,11 +87,18 @@ def calcular_balance_vacaciones_trabajador(
     anios_completos = int(devengados["anios_completos"])
     dias_anuales = int(devengados["dias_vac_anuales_actual"])
 
-    dias_utilizados = _f(row.get("dias_utilizados"))
+    dias_utilizados_semanal = _f(row.get("dias_utilizados_calculado_semanal"))
+    dias_utilizados_excel = _f(row.get("dias_utilizados_excel_resumen") or row.get("dias_utilizados"))
+    dias_utilizados = dias_utilizados_semanal if dias_utilizados_semanal > 0 else dias_utilizados_excel
     vacaciones_laboradas = _f(row.get("vacaciones_laboradas"))
     dias_pagados = _f(row.get("dias_pagados"))
-    dias_consumidos = max(dias_pagados, dias_utilizados + vacaciones_laboradas)
+    dias_consumidos = dias_utilizados + vacaciones_laboradas
+    if dias_pagados > dias_consumidos:
+        dias_consumidos = dias_pagados
     saldo = round(dias_generados - dias_consumidos, 4)
+
+    if dias_utilizados_semanal > 0 and dias_utilizados_excel > 0 and abs(dias_utilizados_semanal - dias_utilizados_excel) > 0.01:
+        warnings.append("La suma semanal no coincide con DIAS UTILIZADOS del Excel")
 
     if saldo < 0:
         warnings.append("Saldo negativo detectado")
@@ -125,8 +132,9 @@ def calcular_balance_vacaciones_trabajador(
         {
             "titulo": "Consumo histórico",
             "detalle": (
-                f"Utilizados: {dias_utilizados}; laboradas: {vacaciones_laboradas}; "
-                f"pagados: {dias_pagados}; consumo efectivo: {dias_consumidos:.4f}."
+                f"Semanal importado: {dias_utilizados_semanal}; resumen Excel: {dias_utilizados_excel}; "
+                f"utilizados efectivos: {dias_utilizados}; laboradas: {vacaciones_laboradas}; "
+                f"pagados (ref.): {dias_pagados}; consumo efectivo: {dias_consumidos:.4f}."
             ),
         },
         {
@@ -152,6 +160,8 @@ def calcular_balance_vacaciones_trabajador(
         "dias_devengados": dias_generados,
         "dias_vacaciones_historico": _f(row.get("dias_vacaciones_historico")),
         "dias_utilizados": dias_utilizados,
+        "dias_utilizados_excel_resumen": dias_utilizados_excel,
+        "dias_utilizados_calculado_semanal": dias_utilizados_semanal,
         "vacaciones_laboradas": vacaciones_laboradas,
         "dias_pagados": dias_pagados,
         "dias_consumidos": dias_consumidos,
@@ -173,7 +183,8 @@ def aplicar_calculo_a_fila(row: dict[str, Any], *, fecha_corte: date | None = No
     out["dias_generados"] = calc["dias_generados"]
     out["saldo_calculado"] = calc["saldo_calculado"]
     out["dias_restantes_calculado"] = calc["dias_restantes_calculado"]
-    out["prima_pendiente"] = calc["prima_pendiente"]
+    out["dias_utilizados_calculado_semanal"] = calc.get("dias_utilizados_calculado_semanal")
+    out["dias_utilizados_excel_resumen"] = calc.get("dias_utilizados_excel_resumen")
     if calc["dias_generados"] is not None:
         out["dias_vacaciones_historico"] = calc["dias_generados"]
     editable = dict(out.get("editable_json") or {})
@@ -182,6 +193,8 @@ def aplicar_calculo_a_fila(row: dict[str, Any], *, fecha_corte: date | None = No
         "pasos": calc["pasos"],
         "anios_completos": calc.get("anios_completos"),
         "dias_anuales_vigentes": calc.get("dias_anuales_vigentes"),
+        "dias_utilizados_calculado_semanal": calc.get("dias_utilizados_calculado_semanal"),
+        "dias_utilizados_excel_resumen": calc.get("dias_utilizados_excel_resumen"),
     }
     out["editable_json"] = editable
     if out.get("sueldo_usado") not in (None, "") and out.get("dias_pagados") is not None:
@@ -209,19 +222,26 @@ def build_migration_events_from_row(
         "is_reviewed": 0,
         "is_active": 1,
     }
+    comentarios = str(row.get("comentarios") or row.get("comentarios_excel") or "")
+    editable = dict(row.get("editable_json") or {})
+    desglose = row.get("desglose_semanal") or editable.get("desglose_semanal") or []
 
-    if _f(row.get("dias_utilizados")) > 0:
+    for sem in desglose:
+        days = _f(sem.get("days"))
+        if days <= 0:
+            continue
         events.append(
             {
                 **base,
-                "event_type": "vacaciones_disfrutadas",
-                "event_date": row.get("fecha_ingreso_usada"),
-                "period_label": "historico_excel",
-                "days": _f(row.get("dias_utilizados")),
+                "event_type": "vacaciones_tomadas",
+                "event_date": None,
+                "period_label": sem.get("period_label") or sem.get("semana") or "",
+                "days": days,
                 "amount": None,
-                "notes": "Importado desde Excel histórico",
+                "notes": f"Año {sem.get('anio') or 'N/D'} | fila Excel {sem.get('excel_row') or row.get('source_row_number')}",
             }
         )
+
     if _f(row.get("vacaciones_laboradas")) > 0:
         events.append(
             {
@@ -240,10 +260,10 @@ def build_migration_events_from_row(
                 **base,
                 "event_type": "migracion_historica",
                 "event_date": row.get("fecha_pago_prima_2026") or row.get("fecha_ingreso_usada"),
-                "period_label": "dias_pagados",
+                "period_label": "dias_pagados_excel",
                 "days": _f(row.get("dias_pagados")),
                 "amount": row.get("monto_total_historico"),
-                "notes": "Días pagados registrados en Excel histórico",
+                "notes": "Referencia histórica DIAS PAGADOS del Excel",
             }
         )
     if row.get("prima_2025_pagada"):

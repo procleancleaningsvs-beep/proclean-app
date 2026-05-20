@@ -56,6 +56,10 @@ from modules.nomina.db import (
     list_vacaciones_empleados_all,
     validar_vacaciones_base,
     mark_vacaciones_event_reviewed,
+    preview_limpieza_vacaciones_base,
+    ejecutar_limpieza_base_vacaciones,
+    archive_all_active_vacaciones_data,
+    log_vacaciones_auditoria,
     get_infonavit_stats,
     get_infonavit_stats_by_import,
     get_latest_infonavit_import_id,
@@ -101,6 +105,18 @@ from modules.nomina.vacaciones_logic import (
     calcular_balance_vacaciones_trabajador,
     detect_headcount_diff_warnings,
     resolve_fecha_corte,
+)
+from modules.nomina.vacaciones_util import (
+    MATCH_AMBIGUO,
+    MATCH_METHOD_NOMBRE,
+    MATCH_METHOD_NSS,
+    MATCH_METHOD_SIN_MATCH,
+    MATCH_OK,
+    PENDIENTE_REVISION,
+    SIN_MATCH,
+    enrich_vacaciones_row_for_display,
+    resolve_status_headcount,
+    sanitize_display_value,
 )
 from modules.nomina.headcount_bridge import obtener_headcount_completo
 from modules.roles_access import normalized_role
@@ -876,56 +892,50 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
     warnings_total = 0
     for row in rows:
         row_warnings = list(row.get("warnings") or [])
-        match_status = "no_match"
-        match_score = 0.0
+        match_status = SIN_MATCH
+        match_method = MATCH_METHOD_SIN_MATCH
+        match_notes = ""
         hc_row: dict | None = None
-        nss = str(row.get("nss") or "").strip()
-        nombre_norm = _normalize_name(str(row.get("nombre_historico") or ""))
-        cliente_norm = str(row.get("cliente") or "").strip().casefold()
+        nss = sanitize_display_value(row.get("nss"))
+        nombre_norm = _normalize_name(str(row.get("excel_nombre_original") or row.get("nombre_historico") or ""))
 
         if nss and nss in by_nss:
             hc_row = by_nss[nss]
-            match_status = "exact_nss"
-            match_score = 1.0
+            match_status = MATCH_OK
+            match_method = MATCH_METHOD_NSS
+            match_notes = "Match por NSS"
         else:
             candidates = by_name.get(nombre_norm) or []
             if len(candidates) == 1:
                 hc_row = candidates[0]
-                match_status = "match_name"
-                match_score = 0.92
+                match_status = MATCH_OK
+                match_method = MATCH_METHOD_NOMBRE
+                match_notes = "Match exacto por nombre completo normalizado"
             elif len(candidates) > 1:
-                maybe = None
-                for cand in candidates:
-                    if str(cand.get("cliente") or "").strip().casefold() == cliente_norm:
-                        maybe = cand
-                        break
-                if maybe is not None:
-                    hc_row = maybe
-                    match_status = "probable_match"
-                    match_score = 0.6
-                    row_warnings.append("Match probable por nombre y cliente; requiere revisión manual.")
-                else:
-                    match_status = "pending_review"
-                    match_score = 0.35
-                    row_warnings.append("Múltiples candidatos por nombre en Headcount; requiere revisión.")
-
-        if hc_row is None:
-            if match_status == "pending_review":
-                row_warnings.append("Trabajador no encontrado en Headcount (match ambiguo).")
-                row_warnings.append("No se logró resolver match automático; revisión manual requerida.")
-                row["estatus_headcount"] = "PENDIENTE_REVISION"
-                row["match_status"] = "pending_review"
-                row["match_score"] = max(match_score, 0.3)
+                match_status = MATCH_AMBIGUO
+                match_method = MATCH_METHOD_NOMBRE
+                match_notes = f"Múltiples candidatos en Headcount ({len(candidates)}) para el mismo nombre"
+                row_warnings.append("Múltiples candidatos por nombre en Headcount; requiere revisión.")
+                row["status_headcount"] = "SIN STATUS HEADCOUNT"
+                row["estatus_headcount"] = "SIN STATUS HEADCOUNT"
+                row["match_status"] = match_status
+                row["match_method"] = match_method
+                row["match_notes"] = match_notes
+                row["match_score"] = None
                 row["headcount_source"] = source
                 row["headcount_raw_status"] = ""
                 row["warnings"] = row_warnings
                 warnings_total += len(row_warnings)
                 continue
-            row_warnings.append("Sin match en Headcount; posible inactivo/baja.")
+
+        if hc_row is None:
             row_warnings.append("Trabajador no encontrado en Headcount")
-            row["estatus_headcount"] = "INACTIVO_O_NO_ENCONTRADO"
-            row["match_status"] = "no_match"
-            row["match_score"] = 0.0
+            row["status_headcount"] = "SIN STATUS HEADCOUNT"
+            row["estatus_headcount"] = "SIN STATUS HEADCOUNT"
+            row["match_status"] = SIN_MATCH
+            row["match_method"] = MATCH_METHOD_SIN_MATCH
+            row["match_notes"] = "Sin coincidencia por nombre completo en Headcount"
+            row["match_score"] = None
             row["headcount_source"] = source
             row["headcount_raw_status"] = ""
             row["warnings"] = row_warnings
@@ -933,38 +943,41 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
             continue
 
         matched += 1
-        row["nombre_headcount"] = str(hc_row.get("nombre_completo") or "").strip()
-        row["cliente"] = str(hc_row.get("cliente") or row.get("cliente") or "").strip() or row.get("cliente")
-        row["planta_headcount"] = str(hc_row.get("patron") or hc_row.get("planta") or "").strip()
+        hc_nombre = sanitize_display_value(hc_row.get("nombre_completo"))
+        row["headcount_nombre_original"] = hc_nombre
+        row["headcount_nombre_normalizado"] = _normalize_name(hc_nombre)
+        row["nombre_headcount"] = hc_nombre
+        row["cliente"] = sanitize_display_value(hc_row.get("cliente")) or row.get("cliente")
+        row["planta_headcount"] = sanitize_display_value(hc_row.get("patron") or hc_row.get("planta"))
         row["fecha_ingreso_headcount"] = _to_date_iso_headcount(hc_row.get("fecha_ingreso"))
-        row["estatus_headcount"] = str(hc_row.get("status_imss") or "DESCONOCIDO").strip() or "DESCONOCIDO"
+        status_hc = resolve_status_headcount(hc_row)
+        row["status_headcount"] = status_hc
+        row["estatus_headcount"] = status_hc
         row["sueldo_headcount"] = hc_row.get("sueldo_diario")
         row["sueldo_usado"] = row["sueldo_headcount"] if row.get("sueldo_headcount") not in (None, "") else row.get("sueldo_historico")
         row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount") or row.get("fecha_ingreso_historica")
         if not row.get("nss"):
-            row["nss"] = str(hc_row.get("nss") or "").strip()
-        active = _is_headcount_active(hc_row)
-        if not active:
-            match_status = "inactive_match"
-            row_warnings.append("Trabajador encontrado en Headcount pero con estatus inactivo/baja.")
+            row["nss"] = sanitize_display_value(hc_row.get("nss"))
+        if not _is_headcount_active(hc_row):
+            row_warnings.append("Trabajador encontrado en Headcount con estatus inactivo/baja.")
+
         row["match_status"] = match_status
-        row["match_score"] = match_score
+        row["match_method"] = match_method
+        row["match_notes"] = match_notes
+        row["match_score"] = None
         row["headcount_source"] = source
-        row["headcount_raw_status"] = f"{str(hc_row.get('status_operacion') or '').strip()}|{str(hc_row.get('status_imss') or '').strip()}"
-        if row.get("monto_total_historico") not in (None, "") and row.get("sueldo_usado") in (None, ""):
-            row_warnings.append("Sueldo usado vacío; no se puede recalcular monto total de forma confiable.")
+        row["headcount_raw_status"] = (
+            f"{sanitize_display_value(hc_row.get('status_operacion'))}|{sanitize_display_value(hc_row.get('status_imss'))}"
+        )
 
         hist_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_historica") or ""))
         hc_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_headcount") or ""))
         if hc_ord is not None:
             row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount")
         if hist_ord is not None and hc_ord is not None and hist_ord != hc_ord:
-            row_warnings.append(
-                "Fecha de ingreso en histórico no coincide con Headcount. Se usará Headcount salvo revisión manual."
-            )
+            row_warnings.append("Fecha de ingreso del Excel difiere de Headcount")
             if hc_ord - hist_ord > 30:
                 row_warnings.append("Posible reingreso / validar saldo histórico.")
-                row["match_status"] = "possible_reentry"
 
         if source == "historial_fallback":
             row_warnings.append("Datos cruzados con historial interno (fallback), no con Headcount en vivo.")
@@ -1226,6 +1239,7 @@ def vacaciones_index():
     clientes = sorted({str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()})
     fecha_corte = _vacaciones_fecha_corte_from_request()
     is_admin = _current_role() == "admin"
+    rows = [enrich_vacaciones_row_for_display(r) for r in rows]
     return render_template(
         "nomina/vacaciones_index.html",
         stats=stats,
@@ -1278,6 +1292,19 @@ def vacaciones_importar():
         flash("No se detectaron filas válidas para importar vacaciones.", "error")
         return redirect(url_for("nomina.vacaciones_index"))
 
+    # Evitar duplicar eventos activos: archivar importaciones previas antes de cargar una nueva
+    archived_prev = archive_all_active_vacaciones_data(_db_path())
+    if any(archived_prev.values()):
+        log_vacaciones_auditoria(
+            _db_path(),
+            action="archivo_pre_reimportacion",
+            usuario_id=int(g.user["id"]) if g.user is not None else None,
+            registros_afectados=sum(archived_prev.values()),
+            backup_id=None,
+            detalle={"archived": archived_prev, "motivo": "nueva_importacion_vacaciones"},
+            now_iso=_now_iso(),
+        )
+
     payload = {
         "cliente": parsed.cliente or "Carrier",
         "source_filename": filename,
@@ -1291,20 +1318,27 @@ def vacaciones_importar():
             "source": source,
             "parse_warnings": parsed.warnings,
             "parse_errors": parsed.errors,
+            "weekly_events_total": parsed.weekly_events_total,
             "created_for": "nomina_vacaciones",
         },
     }
     uid = int(g.user["id"]) if g.user is not None else None
-    import_id = save_vacaciones_import(_db_path(), payload, created_by=uid, now_iso=_now_iso())
     now_iso = _now_iso()
-    _persist_vacaciones_events_for_import(
+    import_id = save_vacaciones_import(_db_path(), payload, created_by=uid, now_iso=now_iso)
+    events_saved = _persist_vacaciones_events_for_import(
         _db_path(),
         import_id,
         source_filename=filename,
         created_by=uid,
         now_iso=now_iso,
     )
-    flash("Importación histórica de vacaciones procesada.", "success")
+    sin_match = sum(1 for r in rows if r.get("match_status") == SIN_MATCH)
+    flash(
+        f"Importación procesada: {len(rows)} trabajadores, {matched_count} match OK, "
+        f"{sin_match} sin match, {parsed.weekly_events_total} eventos semanales, "
+        f"{events_saved} eventos guardados.",
+        "success",
+    )
     return redirect(url_for("nomina.vacaciones_import_detail", import_id=import_id))
 
 
@@ -1406,14 +1440,17 @@ def vacaciones_detalle(row_id: int):
     if row is None:
         flash("Registro de vacaciones no encontrado.", "error")
         return redirect(url_for("nomina.vacaciones_index"))
+    row = enrich_vacaciones_row_for_display(row)
     fecha_corte = _vacaciones_fecha_corte_from_request()
     calc = calcular_balance_vacaciones_trabajador(row, fecha_corte=fecha_corte)
     eventos = list_vacaciones_eventos(_db_path(), empleado_id=row_id, active_only=True)
+    eventos_semanales = [e for e in eventos if e.get("event_type") == "vacaciones_tomadas"]
     return render_template(
         "nomina/vacaciones_detalle.html",
         row=row,
         calc=calc,
         eventos=eventos,
+        eventos_semanales=eventos_semanales,
         fecha_corte=fecha_corte.isoformat(),
     )
 
@@ -1460,10 +1497,12 @@ def vacaciones_admin():
     import_id_raw = (request.args.get("import_id") or "").strip()
     selected_import_id = int(import_id_raw) if import_id_raw.isdigit() else latest_import_id
     resumen = validar_vacaciones_base(_db_path(), import_id=selected_import_id)
+    preview_limpieza = preview_limpieza_vacaciones_base(_db_path())
     imports = list_vacaciones_imports(_db_path(), limit=100)
     return render_template(
         "nomina/vacaciones_admin.html",
         resumen=resumen,
+        preview_limpieza=preview_limpieza,
         imports=imports,
         selected_import_id=selected_import_id,
     )
@@ -1517,6 +1556,27 @@ def vacaciones_admin_archivar():
     archived = archive_vacaciones_import_empleados(_db_path(), import_id=int(import_id), exclude_import_id=None)
     flash(f"Archivados {archived} registros (inactivos, no eliminados).", "success")
     return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+
+
+@nomina_bp.post("/vacaciones/admin/limpiar-base")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin_limpiar_base():
+    confirmacion = (request.form.get("confirmacion") or "").strip()
+    if confirmacion != "LIMPIAR VACACIONES":
+        flash("Confirmación incorrecta. Debes escribir exactamente: LIMPIAR VACACIONES", "error")
+        return redirect(url_for("nomina.vacaciones_admin"))
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    result = ejecutar_limpieza_base_vacaciones(_db_path(), created_by=uid, now_iso=now_iso)
+    flash(
+        f"Base limpiada. Backup #{result['backup_id']}; "
+        f"archivados {result['archived']['empleados']} empleados, "
+        f"{result['archived']['eventos']} eventos, "
+        f"{result['archived']['importaciones']} importaciones.",
+        "success",
+    )
+    return redirect(url_for("nomina.vacaciones_admin"))
 
 
 @nomina_bp.post("/vacaciones/admin/confirmar-limpieza")

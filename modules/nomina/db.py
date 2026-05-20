@@ -286,6 +286,19 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         """
     )
     conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_vacaciones_auditoria (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            action TEXT NOT NULL,
+            usuario_id INTEGER,
+            registros_afectados INTEGER NOT NULL DEFAULT 0,
+            backup_id INTEGER,
+            detalle_json TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_vacaciones_import_id ON nomina_vacaciones_empleados(import_id)"
     )
     conn.execute(
@@ -986,15 +999,16 @@ def save_vacaciones_import(
                 INSERT INTO nomina_vacaciones_empleados (
                     import_id, nss, nombre_historico, nombre_normalizado, nombre_headcount, cliente,
                     planta_historica, planta_headcount, fecha_ingreso_historica, fecha_ingreso_headcount, fecha_ingreso_usada,
-                    estatus_headcount, sueldo_historico, sueldo_headcount, sueldo_usado, dias_vacaciones_historico,
-                    dias_generados, dias_utilizados, vacaciones_laboradas, dias_pagados, dias_restantes_historico,
+                    estatus_headcount, status_headcount, sueldo_historico, sueldo_headcount, sueldo_usado, dias_vacaciones_historico,
+                    dias_generados, dias_utilizados, dias_utilizados_excel_resumen, dias_utilizados_calculado_semanal,
+                    vacaciones_laboradas, dias_pagados, dias_restantes_historico,
                     dias_restantes_calculado, saldo_calculado, prima_pendiente,
                     prima_2025_pagada, semana_pago_prima_2025, prima_2026_pagada, fecha_pago_prima_2026,
-                    monto_total_historico, monto_total_recalculado, comentarios, match_status, match_score,
+                    monto_total_historico, monto_total_recalculado, comentarios, match_status, match_method, match_notes, match_score,
                     headcount_source, headcount_raw_status, is_active,
                     warnings_json, editable_json, updated_by, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -1010,12 +1024,15 @@ def save_vacaciones_import(
                     row.get("fecha_ingreso_headcount"),
                     row.get("fecha_ingreso_usada"),
                     row.get("estatus_headcount"),
+                    row.get("status_headcount") or row.get("estatus_headcount"),
                     row.get("sueldo_historico"),
                     row.get("sueldo_headcount"),
                     row.get("sueldo_usado"),
                     row.get("dias_vacaciones_historico"),
                     row.get("dias_generados"),
                     row.get("dias_utilizados"),
+                    row.get("dias_utilizados_excel_resumen"),
+                    row.get("dias_utilizados_calculado_semanal"),
                     row.get("vacaciones_laboradas"),
                     row.get("dias_pagados"),
                     row.get("dias_restantes_historico"),
@@ -1030,6 +1047,8 @@ def save_vacaciones_import(
                     row.get("monto_total_recalculado"),
                     row.get("comentarios"),
                     row.get("match_status"),
+                    row.get("match_method"),
+                    row.get("match_notes"),
                     row.get("match_score"),
                     row.get("headcount_source"),
                     row.get("headcount_raw_status"),
@@ -1143,7 +1162,11 @@ def get_latest_vacaciones_import_id(db_path: str) -> int | None:
     conn = sqlite3.connect(db_path)
     try:
         row = conn.execute(
-            "SELECT id FROM nomina_vacaciones_imports ORDER BY datetime(created_at) DESC, id DESC LIMIT 1"
+            """
+            SELECT id FROM nomina_vacaciones_imports
+            WHERE COALESCE(is_active, 1) = 1
+            ORDER BY datetime(created_at) DESC, id DESC LIMIT 1
+            """
         ).fetchone()
         if row is None:
             return None
@@ -1160,6 +1183,7 @@ def list_vacaciones_imports(db_path: str, limit: int = 50) -> list[dict[str, Any
             """
             SELECT id, cliente, source_filename, total_rows, matched_count, warning_count, error_count, created_at
             FROM nomina_vacaciones_imports
+            WHERE COALESCE(is_active, 1) = 1
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
             """,
@@ -1193,13 +1217,13 @@ def get_vacaciones_stats_by_import(db_path: str, import_id: int | None) -> dict[
         )
         matched = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('exact_nss','match_name','inactive_match','possible_reentry')",
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('MATCH_OK','exact_nss','match_name','inactive_match','possible_reentry')",
                 (int(import_id),),
             ).fetchone()[0]
         )
         no_match = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('no_match','pending_review','probable_match')",
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND match_status IN ('SIN_MATCH','MATCH_AMBIGUO','PENDIENTE_REVISION','no_match','pending_review','probable_match')",
                 (int(import_id),),
             ).fetchone()[0]
         )
@@ -1217,7 +1241,7 @@ def get_vacaciones_stats_by_import(db_path: str, import_id: int | None) -> dict[
         )
         pendientes = int(
             conn.execute(
-                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND (COALESCE(warnings_json,'[]') <> '[]' OR match_status IN ('pending_review','no_match','probable_match'))",
+                "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE import_id = ? AND (COALESCE(warnings_json,'[]') <> '[]' OR match_status IN ('SIN_MATCH','MATCH_AMBIGUO','PENDIENTE_REVISION','no_match','pending_review','probable_match'))",
                 (int(import_id),),
             ).fetchone()[0]
         )
@@ -1549,7 +1573,11 @@ def list_vacaciones_empleados_all(
 
 def validar_vacaciones_base(db_path: str, *, import_id: int | None = None) -> dict[str, Any]:
     rows = list_vacaciones_empleados_all(db_path, import_id=import_id, include_inactive=False)
-    conflictos = [r for r in rows if r.get("match_status") in {"pending_review", "no_match", "probable_match"}]
+    conflict_statuses = {
+        "pending_review", "no_match", "probable_match",
+        "SIN_MATCH", "MATCH_AMBIGUO", "PENDIENTE_REVISION",
+    }
+    conflictos = [r for r in rows if r.get("match_status") in conflict_statuses]
     negativos = [r for r in rows if float(r.get("saldo_calculado") or r.get("dias_restantes_calculado") or 0) < 0]
     sin_ingreso = [r for r in rows if not str(r.get("fecha_ingreso_usada") or "").strip()]
     con_alerta = [r for r in rows if r.get("warnings")]
@@ -1567,6 +1595,142 @@ def validar_vacaciones_base(db_path: str, *, import_id: int | None = None) -> di
             {"id": r["id"], "nombre": r.get("nombre_historico"), "saldo": r.get("saldo_calculado")}
             for r in negativos[:50]
         ],
+    }
+
+
+def preview_limpieza_vacaciones_base(db_path: str) -> dict[str, Any]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        total_empleados = conn.execute(
+            "SELECT COUNT(*) FROM nomina_vacaciones_empleados WHERE COALESCE(is_active,1)=1"
+        ).fetchone()[0]
+        total_eventos = conn.execute(
+            "SELECT COUNT(*) FROM nomina_vacaciones_eventos WHERE COALESCE(is_active,1)=1"
+        ).fetchone()[0]
+        total_imports = conn.execute(
+            "SELECT COUNT(*) FROM nomina_vacaciones_imports WHERE COALESCE(is_active,1)=1"
+        ).fetchone()[0]
+        trabajadores = conn.execute(
+            "SELECT COUNT(DISTINCT COALESCE(nss,'') || '|' || COALESCE(nombre_normalizado,'')) "
+            "FROM nomina_vacaciones_empleados WHERE COALESCE(is_active,1)=1"
+        ).fetchone()[0]
+        ultimo = conn.execute(
+            "SELECT MAX(created_at) FROM nomina_vacaciones_eventos WHERE COALESCE(is_active,1)=1"
+        ).fetchone()[0]
+        if not ultimo:
+            ultimo = conn.execute(
+                "SELECT MAX(updated_at) FROM nomina_vacaciones_empleados WHERE COALESCE(is_active,1)=1"
+            ).fetchone()[0]
+        if not ultimo:
+            ultimo = conn.execute(
+                """
+                SELECT MAX(i.created_at) FROM nomina_vacaciones_imports i
+                WHERE COALESCE(i.is_active,1)=1
+                """
+            ).fetchone()[0]
+        return {
+            "total_registros": int(total_empleados or 0),
+            "total_eventos": int(total_eventos or 0),
+            "total_importaciones": int(total_imports or 0),
+            "trabajadores_afectados": int(trabajadores or 0),
+            "ultimo_movimiento": ultimo or "—",
+        }
+    finally:
+        conn.close()
+
+
+def log_vacaciones_auditoria(
+    db_path: str,
+    *,
+    action: str,
+    usuario_id: int | None,
+    registros_afectados: int,
+    backup_id: int | None,
+    detalle: dict[str, Any],
+    now_iso: str,
+) -> int:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO nomina_vacaciones_auditoria (
+                action, usuario_id, registros_afectados, backup_id, detalle_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                action,
+                usuario_id,
+                int(registros_afectados),
+                backup_id,
+                json.dumps(detalle, ensure_ascii=False),
+                now_iso,
+            ),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    finally:
+        conn.close()
+
+
+def archive_all_active_vacaciones_data(db_path: str) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur_emp = conn.execute(
+            "UPDATE nomina_vacaciones_empleados SET is_active = 0 WHERE COALESCE(is_active, 1) = 1"
+        )
+        cur_ev = conn.execute(
+            "UPDATE nomina_vacaciones_eventos SET is_active = 0 WHERE COALESCE(is_active, 1) = 1"
+        )
+        cur_imp = conn.execute(
+            "UPDATE nomina_vacaciones_imports SET is_active = 0 WHERE COALESCE(is_active, 1) = 1"
+        )
+        conn.commit()
+        return {
+            "empleados": int(cur_emp.rowcount),
+            "eventos": int(cur_ev.rowcount),
+            "importaciones": int(cur_imp.rowcount),
+        }
+    finally:
+        conn.close()
+
+
+def ejecutar_limpieza_base_vacaciones(
+    db_path: str,
+    *,
+    created_by: int | None,
+    now_iso: str,
+) -> dict[str, Any]:
+    preview = preview_limpieza_vacaciones_base(db_path)
+    rows = list_vacaciones_empleados_all(db_path, include_inactive=False, limit=5000)
+    eventos = list_vacaciones_eventos(db_path, active_only=True, limit=20000)
+    imports = list_vacaciones_imports(db_path, limit=500)
+    backup_id = create_vacaciones_backup(
+        db_path,
+        backup_type="limpieza_base_contaminada_vacaciones",
+        summary={
+            "motivo": "limpieza_base_contaminada_vacaciones",
+            **preview,
+        },
+        payload={"empleados": rows, "eventos": eventos, "importaciones": imports},
+        created_by=created_by,
+        now_iso=now_iso,
+    )
+    archived = archive_all_active_vacaciones_data(db_path)
+    audit_id = log_vacaciones_auditoria(
+        db_path,
+        action="limpiar_base_vacaciones",
+        usuario_id=created_by,
+        registros_afectados=archived["empleados"] + archived["eventos"],
+        backup_id=backup_id,
+        detalle={"preview": preview, "archived": archived, "backup_id": backup_id},
+        now_iso=now_iso,
+    )
+    return {
+        "backup_id": backup_id,
+        "audit_id": audit_id,
+        "preview": preview,
+        "archived": archived,
     }
 
 
@@ -2427,10 +2591,18 @@ def _migrate_nomina_vacaciones_schema(conn: sqlite3.Connection) -> None:
         "saldo_calculado": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN saldo_calculado REAL",
         "prima_pendiente": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN prima_pendiente REAL",
         "is_active": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1",
+        "match_method": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN match_method TEXT",
+        "match_notes": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN match_notes TEXT",
+        "dias_utilizados_calculado_semanal": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN dias_utilizados_calculado_semanal REAL",
+        "dias_utilizados_excel_resumen": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN dias_utilizados_excel_resumen REAL",
+        "status_headcount": "ALTER TABLE nomina_vacaciones_empleados ADD COLUMN status_headcount TEXT",
     }
     for col, sql in migrations.items():
         if col not in cols:
             conn.execute(sql)
+    import_cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_vacaciones_imports)").fetchall()}
+    if "is_active" not in import_cols:
+        conn.execute("ALTER TABLE nomina_vacaciones_imports ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
 
 def list_asistencia_imports_for_calculo(db_path: str, *, limit: int = 80) -> list[dict[str, Any]]:

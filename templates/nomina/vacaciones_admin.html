@@ -4,84 +4,57 @@
   <div>
     <span class="eyebrow">Nóminas / Vacaciones / Admin</span>
     <h2>Herramientas de limpieza y reconstrucción</h2>
-    <p>Solo administradores. Los registros se archivan (is_active=0), no se eliminan.</p>
+    <p>Solo administradores. Los registros se archivan (is_active=0), no se eliminan físicamente.</p>
   </div>
   <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index') }}">Volver a Vacaciones</a>
 </section>
 
 <section class="panel">
-  <h3>Resumen de validación</h3>
-  <p><strong>Importación:</strong> #{{ selected_import_id or 'N/D' }}</p>
-  <p><strong>Total registros activos:</strong> {{ resumen.total_registros }}</p>
-  <p><strong>Conflictos de match:</strong> {{ resumen.conflictos_match }}</p>
+  <h3>Vista previa — Limpiar base actual de vacaciones</h3>
+  <p><strong>Total registros activos:</strong> {{ preview_limpieza.total_registros }}</p>
+  <p><strong>Total eventos activos:</strong> {{ preview_limpieza.total_eventos }}</p>
+  <p><strong>Total importaciones activas:</strong> {{ preview_limpieza.total_importaciones }}</p>
+  <p><strong>Trabajadores afectados:</strong> {{ preview_limpieza.trabajadores_afectados }}</p>
+  <p><strong>Último movimiento:</strong> {{ preview_limpieza.ultimo_movimiento }}</p>
+</section>
+
+<section class="panel">
+  <h3>Validación importación vigente (#{{ selected_import_id or 'N/D' }})</h3>
+  <p><strong>Registros:</strong> {{ resumen.total_registros }}</p>
+  <p><strong>Conflictos match:</strong> {{ resumen.conflictos_match }}</p>
   <p><strong>Saldos negativos:</strong> {{ resumen.saldos_negativos }}</p>
-  <p><strong>Sin fecha ingreso:</strong> {{ resumen.sin_fecha_ingreso }}</p>
   <p><strong>Con alertas:</strong> {{ resumen.con_alertas }}</p>
 </section>
 
 <section class="panel">
-  <h3>Conflictos (muestra)</h3>
-  <ul>
-    {% for c in resumen.conflictos %}
-    <li>#{{ c.id }} — {{ c.nombre }} ({{ c.match_status }})</li>
-    {% endfor %}
-    {% if not resumen.conflictos %}
-    <li>Sin conflictos visibles.</li>
-    {% endif %}
-  </ul>
-</section>
-
-<section class="panel">
-  <h3>Saldos negativos (muestra)</h3>
-  <ul>
-    {% for n in resumen.negativos %}
-    <li>#{{ n.id }} — {{ n.nombre }} (saldo: {{ n.saldo }})</li>
-    {% endfor %}
-    {% if not resumen.negativos %}
-    <li>Sin saldos negativos.</li>
-    {% endif %}
-  </ul>
-</section>
-
-<section class="panel">
-  <h3>Acciones</h3>
-  <form method="post" action="{{ url_for('nomina.vacaciones_admin_validar') }}" style="margin-bottom:.75rem;">
-    <select name="import_id">
-      {% for imp in imports %}
-      <option value="{{ imp.id }}" {% if selected_import_id == imp.id %}selected{% endif %}>#{{ imp.id }} — {{ imp.source_filename }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-secondary">Validar base</button>
+  <h3>Limpiar base actual de vacaciones</h3>
+  <p>Se creará backup lógico obligatorio antes de archivar todos los registros activos.</p>
+  <form method="post" action="{{ url_for('nomina.vacaciones_admin_limpiar_base') }}">
+    <label>Escribe <strong>LIMPIAR VACACIONES</strong> para confirmar:
+      <input type="text" name="confirmacion" required autocomplete="off" placeholder="LIMPIAR VACACIONES">
+    </label>
+    <button type="submit" class="btn btn-primary">Ejecutar limpieza segura</button>
   </form>
+</section>
 
-  <form method="post" action="{{ url_for('nomina.vacaciones_admin_recalcular') }}" style="margin-bottom:.75rem;">
+<section class="panel">
+  <h3>Otras acciones</h3>
+  <form method="post" action="{{ url_for('nomina.vacaciones_admin_validar') }}" style="margin-bottom:.75rem;">
     <select name="import_id">
       {% for imp in imports %}
       <option value="{{ imp.id }}" {% if selected_import_id == imp.id %}selected{% endif %}>#{{ imp.id }}</option>
       {% endfor %}
     </select>
-    <input type="date" name="fecha_corte" value="{{ request.args.get('fecha_corte', '') }}">
-    <button type="submit" class="btn btn-primary">Recalcular saldos</button>
+    <button type="submit" class="btn btn-secondary">Validar base</button>
   </form>
-
-  <form method="post" action="{{ url_for('nomina.vacaciones_admin_archivar') }}" style="margin-bottom:.75rem;">
-    <select name="import_id">
-      <option value="older_than_latest">Archivar importaciones anteriores a la vigente</option>
-      {% for imp in imports %}
-      <option value="{{ imp.id }}">Archivar importación #{{ imp.id }}</option>
-      {% endfor %}
-    </select>
-    <button type="submit" class="btn btn-secondary" onclick="return confirm('¿Archivar registros seleccionados?');">Archivar registros contaminados</button>
-  </form>
-
-  <form method="post" action="{{ url_for('nomina.vacaciones_admin_confirmar_limpieza') }}">
+  <form method="post" action="{{ url_for('nomina.vacaciones_admin_recalcular') }}">
     <select name="import_id">
       {% for imp in imports %}
       <option value="{{ imp.id }}" {% if selected_import_id == imp.id %}selected{% endif %}>#{{ imp.id }}</option>
       {% endfor %}
     </select>
     <input type="date" name="fecha_corte">
-    <button type="submit" class="btn btn-primary" onclick="return confirm('Se creará backup lógico, archivarán registros viejos y recalcularán saldos. ¿Continuar?');">Confirmar limpieza</button>
+    <button type="submit" class="btn btn-secondary">Recalcular saldos</button>
   </form>
 </section>
 {% endblock %}

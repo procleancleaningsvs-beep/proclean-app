@@ -6,8 +6,9 @@
 .vd-card h3 { margin-top:0; }
 .vd-warn { color:#b45309; font-size:.9rem; }
 .vd-table { width:100%; border-collapse:collapse; }
-.vd-table th, .vd-table td { border-bottom:1px solid #e5e7eb; padding:.4rem; text-align:left; vertical-align:top; }
+.vd-table th, .vd-table td { border-bottom:1px solid #e5e7eb; padding:.4rem; text-align:left; vertical-align:top; font-size:.88rem; }
 .vd-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+.vd-tag { display:inline-block; padding:.1rem .35rem; border-radius:6px; background:#f1f5f9; font-size:.78rem; }
 @media (max-width: 960px) { .vd-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -16,8 +17,8 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
-    <h2>Detalle — {{ row.nombre_headcount or row.nombre_historico }}</h2>
-    <p>Corte: {{ fecha_corte }} | Match: {{ row.match_status }}</p>
+    <h2>Detalle — {{ row.headcount_nombre_original or row.excel_nombre_original }}</h2>
+    <p>Corte: {{ fecha_corte }}</p>
   </div>
   <div class="vd-actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index', fecha_corte=fecha_corte) }}">Volver</a>
@@ -35,22 +36,25 @@
 <div class="vd-grid">
   <section class="vd-card">
     <h3>Headcount (fuente de verdad)</h3>
-    <p><strong>Nombre:</strong> {{ row.nombre_headcount or '—' }}</p>
+    <p><strong>Nombre:</strong> {{ row.headcount_nombre_original or '—' }}</p>
     <p><strong>NSS:</strong> {{ row.nss or '—' }}</p>
     <p><strong>Cliente:</strong> {{ row.cliente or '—' }}</p>
     <p><strong>Planta:</strong> {{ row.planta_headcount or '—' }}</p>
     <p><strong>Fecha ingreso:</strong> {{ row.fecha_ingreso_headcount or '—' }}</p>
     <p><strong>Sueldo diario:</strong> {{ row.sueldo_headcount if row.sueldo_headcount is not none else '—' }}</p>
-    <p><strong>Estatus:</strong> {{ row.estatus_headcount or '—' }}</p>
+    <p><strong>Estatus trabajador:</strong> <span class="vd-tag">{{ row.status_headcount }}</span></p>
+    <p><strong>Estado match:</strong> <span class="vd-tag">{{ row.match_status_display }}</span> ({{ row.match_method_display }})</p>
+    {% if row.match_notes_display %}<p><strong>Notas match:</strong> {{ row.match_notes_display }}</p>{% endif %}
   </section>
 
   <section class="vd-card">
-    <h3>Excel histórico importado</h3>
-    <p><strong>Nombre histórico:</strong> {{ row.nombre_historico }}</p>
+    <h3>Datos importados del Excel (referencia)</h3>
+    <p><strong>Nombre Excel:</strong> {{ row.excel_nombre_original }}</p>
     <p><strong>Fecha ingreso Excel:</strong> {{ row.fecha_ingreso_historica or '—' }}</p>
     <p><strong>Sueldo histórico:</strong> {{ row.sueldo_historico if row.sueldo_historico is not none else '—' }}</p>
     <p><strong>Planta histórica:</strong> {{ row.planta_historica or '—' }}</p>
-    <p><strong>Días restantes Excel:</strong> {{ row.dias_restantes_historico if row.dias_restantes_historico is not none else '—' }}</p>
+    <p><strong>DIAS UTILIZADOS (resumen Excel):</strong> {{ row.excel_resumen.get('dias_utilizados_excel_resumen', row.dias_utilizados_excel_resumen) }}</p>
+    <p><strong>DIAS RESTANTES Excel:</strong> {{ row.excel_resumen.get('dias_restantes_excel', row.dias_restantes_historico) if row.excel_resumen.get('dias_restantes_excel', row.dias_restantes_historico) is not none else '—' }}</p>
     <p><strong>Comentarios:</strong> {{ row.comentarios or '—' }}</p>
   </section>
 </div>
@@ -58,11 +62,55 @@
 <section class="vd-card">
   <h3>Saldo recalculado</h3>
   <p><strong>Días generados/devengados:</strong> {{ calc.dias_generados if calc.dias_generados is not none else 'N/D' }}</p>
-  <p><strong>Días usados:</strong> {{ calc.dias_utilizados }}</p>
+  <p><strong>Total desglose semanal:</strong> {{ calc.dias_utilizados_calculado_semanal }}</p>
+  <p><strong>DIAS UTILIZADOS Excel:</strong> {{ calc.dias_utilizados_excel_resumen }}</p>
+  <p><strong>Diferencia semanal vs resumen:</strong>
+    {% set diff = (calc.dias_utilizados_calculado_semanal or 0) - (calc.dias_utilizados_excel_resumen or 0) %}
+    {{ diff|round(2) }}
+  </p>
   <p><strong>Vacaciones laboradas:</strong> {{ calc.vacaciones_laboradas }}</p>
-  <p><strong>Días pagados:</strong> {{ calc.dias_pagados }}</p>
   <p><strong>Saldo calculado:</strong> {{ calc.saldo_calculado if calc.saldo_calculado is not none else 'N/D' }}</p>
   <p><strong>Prima pendiente estimada:</strong> {{ calc.prima_pendiente if calc.prima_pendiente is not none else 'N/D' }}</p>
+</section>
+
+<section class="vd-card">
+  <h3>Desglose de vacaciones tomadas</h3>
+  <div class="table-wrap">
+    <table class="vd-table">
+      <thead>
+        <tr>
+          <th>Año / periodo</th>
+          <th>Semana</th>
+          <th>Días tomados</th>
+          <th>Fuente</th>
+          <th>Revisión</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sem in row.desglose_semanal %}
+        <tr>
+          <td>{{ sem.anio or '—' }}</td>
+          <td>{{ sem.semana or sem.period_label }}</td>
+          <td>{{ sem.days }}</td>
+          <td>Excel histórico</td>
+          <td>Pendiente</td>
+        </tr>
+        {% endfor %}
+        {% for ev in eventos_semanales %}
+        <tr>
+          <td>{{ ev.notes or '—' }}</td>
+          <td>{{ ev.period_label }}</td>
+          <td>{{ ev.days }}</td>
+          <td>{{ ev.source }}</td>
+          <td>{{ 'Revisado' if ev.is_reviewed else 'Pendiente' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not row.desglose_semanal and not eventos_semanales %}
+        <tr><td colspan="5">Sin desglose semanal importado.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 <section class="vd-card">
@@ -70,51 +118,32 @@
   {% for paso in calc.pasos %}
   <p><strong>{{ paso.titulo }}:</strong> {{ paso.detalle }}</p>
   {% endfor %}
-  {% if not calc.pasos %}
-  <p>No hay pasos de cálculo disponibles (falta fecha de ingreso).</p>
-  {% endif %}
 </section>
 
 <section class="vd-card">
-  <h3>Diferencias / warnings</h3>
+  <h3>Warnings</h3>
   {% for w in calc.warnings %}
   <div class="vd-warn">{{ w }}</div>
   {% endfor %}
-  {% if not calc.warnings %}
-  <p>Sin advertencias.</p>
-  {% endif %}
+  {% if not calc.warnings %}<p>Sin advertencias.</p>{% endif %}
 </section>
 
 <section class="vd-card">
-  <h3>Eventos históricos</h3>
+  <h3>Otros eventos históricos</h3>
   <div class="table-wrap">
     <table class="vd-table">
       <thead>
-        <tr>
-          <th>Tipo</th>
-          <th>Fecha</th>
-          <th>Periodo</th>
-          <th>Días</th>
-          <th>Monto</th>
-          <th>Notas</th>
-          <th>Revisado</th>
-        </tr>
+        <tr><th>Tipo</th><th>Periodo</th><th>Días</th><th>Notas</th></tr>
       </thead>
       <tbody>
-        {% for ev in eventos %}
+        {% for ev in eventos if ev.event_type != 'vacaciones_tomadas' %}
         <tr>
           <td>{{ ev.event_type }}</td>
-          <td>{{ ev.event_date or '—' }}</td>
           <td>{{ ev.period_label or '—' }}</td>
           <td>{{ ev.days if ev.days is not none else '—' }}</td>
-          <td>{{ ev.amount if ev.amount is not none else '—' }}</td>
           <td>{{ ev.notes or '—' }}</td>
-          <td>{{ 'Sí' if ev.is_reviewed else 'No' }}</td>
         </tr>
         {% endfor %}
-        {% if not eventos %}
-        <tr><td colspan="7">Sin eventos registrados.</td></tr>
-        {% endif %}
       </tbody>
     </table>
   </div>

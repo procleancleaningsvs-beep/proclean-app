@@ -9,10 +9,11 @@
 .nv-kpi strong { font-size:1.05rem; }
 .nv-form-inline { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; }
 .nv-table-wrap { overflow:auto; }
-.nv-table { width:100%; border-collapse:collapse; min-width:1800px; }
+.nv-table { width:100%; border-collapse:collapse; min-width:1900px; }
 .nv-table th, .nv-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.88rem; }
 .nv-warn { color:#b45309; font-size:.82rem; }
 .nv-actions { display:flex; gap:.35rem; flex-wrap:wrap; }
+.nv-tag { display:inline-block; padding:.1rem .35rem; border-radius:6px; background:#f1f5f9; font-size:.78rem; }
 @media (max-width: 1200px) { .nv-grid, .nv-form-inline { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -22,11 +23,11 @@
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
     <h2>Vacaciones históricas</h2>
-    <p>Importación histórica Carrier, match contra Headcount y saldos recalculados con lógica LFT.</p>
+    <p>Importación histórica Carrier, match por nombre completo y desglose semanal.</p>
   </div>
   <div class="nv-actions">
     {% if is_admin %}
-    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_admin') }}">Herramientas admin</a>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_admin') }}">Limpiar base / Admin</a>
     {% endif %}
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
   </div>
@@ -67,35 +68,16 @@
         {% endfor %}
       </select>
       <input type="date" name="fecha_corte" value="{{ fecha_corte }}" title="Fecha corte para saldo">
-      <select name="cliente">
-        <option value="">Cliente</option>
-        {% for c in clientes %}
-        <option value="{{ c }}" {% if filtros.cliente == c %}selected{% endif %}>{{ c }}</option>
-        {% endfor %}
-      </select>
       <select name="match_status">
-        <option value="">Match status</option>
-        <option value="exact_nss" {% if filtros.match_status == 'exact_nss' %}selected{% endif %}>exact_nss</option>
-        <option value="match_name" {% if filtros.match_status == 'match_name' %}selected{% endif %}>match_name</option>
-        <option value="pending_review" {% if filtros.match_status == 'pending_review' %}selected{% endif %}>pending_review</option>
-        <option value="no_match" {% if filtros.match_status == 'no_match' %}selected{% endif %}>no_match</option>
-        <option value="probable_match" {% if filtros.match_status == 'probable_match' %}selected{% endif %}>probable_match</option>
-      </select>
-      <select name="activo">
-        <option value="">Activo/Inactivo</option>
-        <option value="activo" {% if filtros.activo == 'activo' %}selected{% endif %}>Activo</option>
-        <option value="inactivo" {% if filtros.activo == 'inactivo' %}selected{% endif %}>Inactivo</option>
-      </select>
-      <select name="revision_status">
-        <option value="">Revisión</option>
-        <option value="pending_revision" {% if filtros.revision_status == 'pending_revision' %}selected{% endif %}>pending_revision</option>
-        <option value="revisado" {% if filtros.revision_status == 'revisado' %}selected{% endif %}>revisado</option>
-        <option value="corregido" {% if filtros.revision_status == 'corregido' %}selected{% endif %}>corregido</option>
+        <option value="">Estado match</option>
+        <option value="MATCH_OK" {% if filtros.match_status == 'MATCH_OK' %}selected{% endif %}>MATCH_OK</option>
+        <option value="MATCH_AMBIGUO" {% if filtros.match_status == 'MATCH_AMBIGUO' %}selected{% endif %}>MATCH_AMBIGUO</option>
+        <option value="SIN_MATCH" {% if filtros.match_status == 'SIN_MATCH' %}selected{% endif %}>SIN_MATCH</option>
+        <option value="PENDIENTE_REVISION" {% if filtros.match_status == 'PENDIENTE_REVISION' %}selected{% endif %}>PENDIENTE_REVISION</option>
       </select>
       <label><input type="checkbox" name="con_alerta" value="1" {% if filtros.con_alerta == '1' %}checked{% endif %}> Con alerta</label>
       <button class="btn btn-primary" type="submit">Aplicar</button>
     </form>
-    <p class="nv-warn">Importación vigente: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %} | Corte: {{ fecha_corte }}</p>
   </section>
 
   <section class="nv-card">
@@ -110,12 +92,12 @@
             <th>Ingreso HC</th>
             <th>Sueldo HC</th>
             <th>Días generados</th>
-            <th>Días usados</th>
+            <th>Días usados (sem.)</th>
+            <th>Días usados (Excel)</th>
             <th>Vac. laboradas</th>
-            <th>Días pagados</th>
             <th>Saldo calc.</th>
-            <th>Prima pend.</th>
-            <th>Estatus</th>
+            <th>Estatus trabajador</th>
+            <th>Estado match</th>
             <th>Warnings</th>
             <th>Acciones</th>
           </tr>
@@ -123,18 +105,21 @@
         <tbody>
           {% for row in rows %}
           <tr>
-            <td>{{ row.nombre_headcount or row.nombre_historico }}</td>
+            <td>{{ row.headcount_nombre_original or row.excel_nombre_original }}</td>
             <td>{{ row.nss or '—' }}</td>
             <td>{{ row.cliente or '—' }} / {{ row.planta_headcount or row.planta_historica or '—' }}</td>
             <td>{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
             <td>{{ row.sueldo_headcount if row.sueldo_headcount is not none else '—' }}</td>
-            <td>{{ row.dias_generados if row.dias_generados is not none else row.dias_vacaciones_historico }}</td>
-            <td>{{ row.dias_utilizados }}</td>
+            <td>{{ row.dias_generados if row.dias_generados is not none else '—' }}</td>
+            <td>{{ row.dias_utilizados_calculado_semanal if row.dias_utilizados_calculado_semanal is not none else row.dias_utilizados }}</td>
+            <td>{{ row.dias_utilizados_excel_resumen if row.dias_utilizados_excel_resumen is not none else row.dias_utilizados }}</td>
             <td>{{ row.vacaciones_laboradas }}</td>
-            <td>{{ row.dias_pagados }}</td>
-            <td>{{ row.saldo_calculado if row.saldo_calculado is not none else row.dias_restantes_calculado }}</td>
-            <td>{{ row.prima_pendiente if row.prima_pendiente is not none else '—' }}</td>
-            <td>{{ row.estatus_headcount or '—' }}<br><small>{{ row.match_status }}</small></td>
+            <td>{{ row.saldo_calculado if row.saldo_calculado is not none else '—' }}</td>
+            <td><span class="nv-tag">{{ row.status_headcount }}</span></td>
+            <td>
+              <span class="nv-tag">{{ row.match_status_display }}</span><br>
+              <small>{{ row.match_method_display }}</small>
+            </td>
             <td>
               {% for w in row.warnings %}
               <div class="nv-warn">{{ w }}</div>
@@ -142,7 +127,6 @@
             </td>
             <td class="nv-actions">
               <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_detalle', row_id=row.id, fecha_corte=fecha_corte) }}">Detalle</a>
-              <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}">Ajuste</a>
             </td>
           </tr>
           {% endfor %}

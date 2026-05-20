@@ -12,6 +12,7 @@ from modules.comparativo.headcount_service import (
     _normalize_spaces as hc_normalize_spaces,
     obtener_df_headcount,
 )
+from modules.nomina.vacaciones_util import sanitize_display_value
 
 
 def _format_fecha(value: Any) -> str:
@@ -58,11 +59,11 @@ def obtener_headcount_completo() -> list[dict[str, Any]]:
         if not nombre:
             continue
         status_op = hc_normalize_spaces(
-            str(row[col("STATUS OPERACIÓN")] if col("STATUS OPERACIÓN") is not None else "").strip().upper()
-        )
+            sanitize_display_value(row[col("STATUS OPERACIÓN")] if col("STATUS OPERACIÓN") is not None else "")
+        ).upper()
         status_imss = hc_normalize_spaces(
-            str(row[col("STATUS IMSS")] if col("STATUS IMSS") is not None else "").strip().upper()
-        )
+            sanitize_display_value(row[col("STATUS IMSS")] if col("STATUS IMSS") is not None else "")
+        ).upper()
         registros.append(
             {
                 "nombre_completo": nombre,
