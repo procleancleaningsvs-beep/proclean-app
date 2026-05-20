@@ -1,11 +1,13 @@
 FROM python:3.11-slim
 
-# Instalar LibreOffice
-RUN apt-get update && apt-get install -y \
-    libreoffice \
+# LibreOffice Writer mínimo para conversión DOCX → PDF (headless)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     fonts-liberation \
-    && apt-get clean
+    fonts-dejavu-core \
+    fontconfig \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/*
 
 WORKDIR /app
 
