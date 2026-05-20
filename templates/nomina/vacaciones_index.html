@@ -9,9 +9,10 @@
 .nv-kpi strong { font-size:1.05rem; }
 .nv-form-inline { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; }
 .nv-table-wrap { overflow:auto; }
-.nv-table { width:100%; border-collapse:collapse; min-width:1500px; }
-.nv-table th, .nv-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
+.nv-table { width:100%; border-collapse:collapse; min-width:1800px; }
+.nv-table th, .nv-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.88rem; }
 .nv-warn { color:#b45309; font-size:.82rem; }
+.nv-actions { display:flex; gap:.35rem; flex-wrap:wrap; }
 @media (max-width: 1200px) { .nv-grid, .nv-form-inline { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -21,9 +22,14 @@
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
     <h2>Vacaciones históricas</h2>
-    <p>Importación histórica Carrier, match contra Headcount y control base de saldos.</p>
+    <p>Importación histórica Carrier, match contra Headcount y saldos recalculados con lógica LFT.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  <div class="nv-actions">
+    {% if is_admin %}
+    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_admin') }}">Herramientas admin</a>
+    {% endif %}
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  </div>
 </section>
 
 <div class="nv-wrap">
@@ -41,8 +47,11 @@
 
   <section class="nv-card">
     <h3>Importar histórico</h3>
-    <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data">
+    <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data" class="nv-form-inline">
       <input type="file" name="excel_file" accept=".xlsx,.xlsm" required>
+      <label>Fecha corte
+        <input type="date" name="fecha_corte" value="{{ fecha_corte }}">
+      </label>
       <button type="submit" class="btn btn-primary">Importar Excel histórico</button>
     </form>
   </section>
@@ -57,6 +66,7 @@
         </option>
         {% endfor %}
       </select>
+      <input type="date" name="fecha_corte" value="{{ fecha_corte }}" title="Fecha corte para saldo">
       <select name="cliente">
         <option value="">Cliente</option>
         {% for c in clientes %}
@@ -69,28 +79,23 @@
         <option value="match_name" {% if filtros.match_status == 'match_name' %}selected{% endif %}>match_name</option>
         <option value="pending_review" {% if filtros.match_status == 'pending_review' %}selected{% endif %}>pending_review</option>
         <option value="no_match" {% if filtros.match_status == 'no_match' %}selected{% endif %}>no_match</option>
+        <option value="probable_match" {% if filtros.match_status == 'probable_match' %}selected{% endif %}>probable_match</option>
       </select>
       <select name="activo">
         <option value="">Activo/Inactivo</option>
         <option value="activo" {% if filtros.activo == 'activo' %}selected{% endif %}>Activo</option>
         <option value="inactivo" {% if filtros.activo == 'inactivo' %}selected{% endif %}>Inactivo</option>
       </select>
-      <select name="prima_pagada">
-        <option value="">Prima pagada</option>
-        <option value="si" {% if filtros.prima_pagada == 'si' %}selected{% endif %}>Sí</option>
-        <option value="no" {% if filtros.prima_pagada == 'no' %}selected{% endif %}>No</option>
-      </select>
       <select name="revision_status">
         <option value="">Revisión</option>
         <option value="pending_revision" {% if filtros.revision_status == 'pending_revision' %}selected{% endif %}>pending_revision</option>
         <option value="revisado" {% if filtros.revision_status == 'revisado' %}selected{% endif %}>revisado</option>
         <option value="corregido" {% if filtros.revision_status == 'corregido' %}selected{% endif %}>corregido</option>
-        <option value="ignorar_historico" {% if filtros.revision_status == 'ignorar_historico' %}selected{% endif %}>ignorar_historico</option>
       </select>
       <label><input type="checkbox" name="con_alerta" value="1" {% if filtros.con_alerta == '1' %}checked{% endif %}> Con alerta</label>
       <button class="btn btn-primary" type="submit">Aplicar</button>
     </form>
-    <p class="nv-warn">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
+    <p class="nv-warn">Importación vigente: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %} | Corte: {{ fecha_corte }}</p>
   </section>
 
   <section class="nv-card">
@@ -101,47 +106,48 @@
           <tr>
             <th>Trabajador</th>
             <th>NSS</th>
-            <th>Cliente/Planta</th>
-            <th>Fecha ingreso usada</th>
-            <th>Estatus Headcount</th>
-            <th>Días vacaciones</th>
-            <th>Días pagados</th>
+            <th>Cliente / Planta HC</th>
+            <th>Ingreso HC</th>
+            <th>Sueldo HC</th>
+            <th>Días generados</th>
+            <th>Días usados</th>
             <th>Vac. laboradas</th>
-            <th>Días restantes</th>
-            <th>Prima 2025</th>
-            <th>Prima 2026</th>
-            <th>Match</th>
-            <th>Revisión</th>
-            <th>Alertas</th>
+            <th>Días pagados</th>
+            <th>Saldo calc.</th>
+            <th>Prima pend.</th>
+            <th>Estatus</th>
+            <th>Warnings</th>
             <th>Acciones</th>
           </tr>
         </thead>
         <tbody>
           {% for row in rows %}
           <tr>
-            <td>{{ row.nombre_historico }}</td>
+            <td>{{ row.nombre_headcount or row.nombre_historico }}</td>
             <td>{{ row.nss or '—' }}</td>
-            <td>{{ row.cliente }} / {{ row.planta_historica or '—' }}</td>
-            <td>{{ row.fecha_ingreso_usada or '—' }}</td>
-            <td>{{ row.estatus_headcount or '—' }}</td>
-            <td>{{ row.dias_vacaciones_historico }}</td>
-            <td>{{ row.dias_pagados }}</td>
+            <td>{{ row.cliente or '—' }} / {{ row.planta_headcount or row.planta_historica or '—' }}</td>
+            <td>{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
+            <td>{{ row.sueldo_headcount if row.sueldo_headcount is not none else '—' }}</td>
+            <td>{{ row.dias_generados if row.dias_generados is not none else row.dias_vacaciones_historico }}</td>
+            <td>{{ row.dias_utilizados }}</td>
             <td>{{ row.vacaciones_laboradas }}</td>
-            <td>{{ row.dias_restantes_calculado }}</td>
-            <td>{{ 'Sí' if row.prima_2025_pagada else 'No' }}</td>
-            <td>{{ 'Sí' if row.prima_2026_pagada else 'No' }}</td>
-            <td>{{ row.match_status }} ({{ row.match_score or 0 }})</td>
-            <td>{{ row.editable_json.get('revision_status', 'pending_revision') }}</td>
+            <td>{{ row.dias_pagados }}</td>
+            <td>{{ row.saldo_calculado if row.saldo_calculado is not none else row.dias_restantes_calculado }}</td>
+            <td>{{ row.prima_pendiente if row.prima_pendiente is not none else '—' }}</td>
+            <td>{{ row.estatus_headcount or '—' }}<br><small>{{ row.match_status }}</small></td>
             <td>
               {% for w in row.warnings %}
               <div class="nv-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td><a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}">Editar</a></td>
+            <td class="nv-actions">
+              <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_detalle', row_id=row.id, fecha_corte=fecha_corte) }}">Detalle</a>
+              <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}">Ajuste</a>
+            </td>
           </tr>
           {% endfor %}
           {% if not rows %}
-          <tr><td colspan="15">Sin registros de vacaciones.</td></tr>
+          <tr><td colspan="14">Sin registros de vacaciones.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -149,4 +155,3 @@
   </section>
 </div>
 {% endblock %}
-

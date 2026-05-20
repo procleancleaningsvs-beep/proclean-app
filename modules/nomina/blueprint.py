@@ -48,6 +48,14 @@ from modules.nomina.db import (
     get_vacaciones_import,
     get_vacaciones_empleado,
     update_vacaciones_empleado,
+    update_vacaciones_empleado_calculo,
+    save_vacaciones_events,
+    list_vacaciones_eventos,
+    create_vacaciones_backup,
+    archive_vacaciones_import_empleados,
+    list_vacaciones_empleados_all,
+    validar_vacaciones_base,
+    mark_vacaciones_event_reviewed,
     get_infonavit_stats,
     get_infonavit_stats_by_import,
     get_latest_infonavit_import_id,
@@ -87,6 +95,13 @@ from modules.nomina.calc_service import (
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
+from modules.nomina.vacaciones_logic import (
+    aplicar_calculo_a_fila,
+    build_migration_events_from_row,
+    calcular_balance_vacaciones_trabajador,
+    detect_headcount_diff_warnings,
+    resolve_fecha_corte,
+)
 from modules.nomina.headcount_bridge import obtener_headcount_completo
 from modules.roles_access import normalized_role
 from modules.nomina.infonavit_pdf import parse_infonavit_pdf
@@ -896,6 +911,7 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
 
         if hc_row is None:
             if match_status == "pending_review":
+                row_warnings.append("Trabajador no encontrado en Headcount (match ambiguo).")
                 row_warnings.append("No se logró resolver match automático; revisión manual requerida.")
                 row["estatus_headcount"] = "PENDIENTE_REVISION"
                 row["match_status"] = "pending_review"
@@ -906,6 +922,7 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
                 warnings_total += len(row_warnings)
                 continue
             row_warnings.append("Sin match en Headcount; posible inactivo/baja.")
+            row_warnings.append("Trabajador no encontrado en Headcount")
             row["estatus_headcount"] = "INACTIVO_O_NO_ENCONTRADO"
             row["match_status"] = "no_match"
             row["match_score"] = 0.0
@@ -917,11 +934,13 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
 
         matched += 1
         row["nombre_headcount"] = str(hc_row.get("nombre_completo") or "").strip()
-        row["planta_headcount"] = str(hc_row.get("patron") or "").strip()
-        row["fecha_ingreso_headcount"] = str(hc_row.get("fecha_ingreso") or "").strip()
+        row["cliente"] = str(hc_row.get("cliente") or row.get("cliente") or "").strip() or row.get("cliente")
+        row["planta_headcount"] = str(hc_row.get("patron") or hc_row.get("planta") or "").strip()
+        row["fecha_ingreso_headcount"] = _to_date_iso_headcount(hc_row.get("fecha_ingreso"))
         row["estatus_headcount"] = str(hc_row.get("status_imss") or "DESCONOCIDO").strip() or "DESCONOCIDO"
         row["sueldo_headcount"] = hc_row.get("sueldo_diario")
         row["sueldo_usado"] = row["sueldo_headcount"] if row.get("sueldo_headcount") not in (None, "") else row.get("sueldo_historico")
+        row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount") or row.get("fecha_ingreso_historica")
         if not row.get("nss"):
             row["nss"] = str(hc_row.get("nss") or "").strip()
         active = _is_headcount_active(hc_row)
@@ -950,9 +969,80 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
         if source == "historial_fallback":
             row_warnings.append("Datos cruzados con historial interno (fallback), no con Headcount en vivo.")
 
+        row_warnings.extend(detect_headcount_diff_warnings(row))
         row["warnings"] = row_warnings
         warnings_total += len(row_warnings)
     return rows, source, matched, warnings_total
+
+
+def _to_date_iso_headcount(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    s = str(value).strip()
+    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", s)
+    if m:
+        return f"{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+        return s[:10]
+    return s
+
+
+def _vacaciones_fecha_corte_from_request() -> date:
+    return resolve_fecha_corte(fecha_corte_ui=(request.args.get("fecha_corte") or request.form.get("fecha_corte") or "").strip() or None)
+
+
+def _enrich_vacaciones_rows_post_match(rows: list[dict], fecha_corte: date) -> list[dict]:
+    enriched: list[dict] = []
+    for row in rows:
+        enriched.append(aplicar_calculo_a_fila(row, fecha_corte=fecha_corte))
+    return enriched
+
+
+def _persist_vacaciones_events_for_import(
+    db_path: str,
+    import_id: int,
+    *,
+    source_filename: str,
+    created_by: int | None,
+    now_iso: str,
+) -> int:
+    saved_rows = list_vacaciones_empleados_all(db_path, import_id=import_id, include_inactive=False)
+    all_events: list[dict[str, Any]] = []
+    for row in saved_rows:
+        row_events = build_migration_events_from_row(
+            row,
+            import_batch_id=import_id,
+            imported_from_file=source_filename,
+            created_at=now_iso,
+        )
+        for ev in row_events:
+            ev["empleado_id"] = row.get("id")
+        all_events.extend(row_events)
+    return save_vacaciones_events(db_path, all_events, created_by=created_by)
+
+
+def _recalcular_vacaciones_import(db_path: str, import_id: int, fecha_corte: date, now_iso: str) -> int:
+    rows = list_vacaciones_empleados_all(db_path, import_id=import_id, include_inactive=False)
+    count = 0
+    for row in rows:
+        calc_row = aplicar_calculo_a_fila(row, fecha_corte=fecha_corte)
+        if update_vacaciones_empleado_calculo(db_path, int(row["id"]), calc_row, updated_at=now_iso):
+            count += 1
+    return count
+
+
+def _admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if _current_role() != "admin":
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
 
 
 def _year_from_fecha_corte(fecha_corte: str) -> int | None:
@@ -1134,11 +1224,15 @@ def vacaciones_index():
     stats = get_vacaciones_stats_by_import(_db_path(), selected_import_id)
     imports = list_vacaciones_imports(_db_path(), limit=100)
     clientes = sorted({str(r.get("cliente") or "").strip() for r in rows if str(r.get("cliente") or "").strip()})
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    is_admin = _current_role() == "admin"
     return render_template(
         "nomina/vacaciones_index.html",
         stats=stats,
         rows=rows,
         clientes=clientes,
+        fecha_corte=fecha_corte.isoformat(),
+        is_admin=is_admin,
         filtros={
             "import_id": str(selected_import_id or ""),
             "cliente": cliente or "",
@@ -1175,6 +1269,8 @@ def vacaciones_importar():
 
     rows = parsed.rows
     rows, source, matched_count, warning_count = _match_vacaciones_rows(rows, _db_path())
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    rows = _enrich_vacaciones_rows_post_match(rows, fecha_corte)
     error_count = len(parsed.errors)
     if error_count > 0:
         flash("Se omitieron filas con error de estructura en importación histórica.", "warning")
@@ -1200,6 +1296,14 @@ def vacaciones_importar():
     }
     uid = int(g.user["id"]) if g.user is not None else None
     import_id = save_vacaciones_import(_db_path(), payload, created_by=uid, now_iso=_now_iso())
+    now_iso = _now_iso()
+    _persist_vacaciones_events_for_import(
+        _db_path(),
+        import_id,
+        source_filename=filename,
+        created_by=uid,
+        now_iso=now_iso,
+    )
     flash("Importación histórica de vacaciones procesada.", "success")
     return redirect(url_for("nomina.vacaciones_import_detail", import_id=import_id))
 
@@ -1241,13 +1345,15 @@ def vacaciones_editar(row_id: int):
         consumed = max(dias_pagados, dias_utilizados + vacaciones_laboradas)
         rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
 
-        updates = {
+        merged = dict(row)
+        merged.update({
             "fecha_ingreso_usada": (request.form.get("fecha_ingreso_usada") or "").strip(),
             "sueldo_usado": _f("sueldo_usado"),
             "dias_utilizados": dias_utilizados,
             "vacaciones_laboradas": vacaciones_laboradas,
             "dias_pagados": dias_pagados,
             "dias_restantes_calculado": rest_calc,
+            "dias_vacaciones_historico": dias_vac,
             "prima_2025_pagada": (request.form.get("prima_2025_pagada") or "") in {"1", "on", "true"},
             "prima_2026_pagada": (request.form.get("prima_2026_pagada") or "") in {"1", "on", "true"},
             "fecha_pago_prima_2026": (request.form.get("fecha_pago_prima_2026") or "").strip(),
@@ -1255,6 +1361,26 @@ def vacaciones_editar(row_id: int):
             "editable_json": {
                 "revision_status": (request.form.get("revision_status") or "").strip() or "pending_revision",
             },
+        })
+        calc_row = aplicar_calculo_a_fila(merged, fecha_corte=_vacaciones_fecha_corte_from_request())
+        updates = {
+            "fecha_ingreso_usada": calc_row.get("fecha_ingreso_usada"),
+            "sueldo_usado": calc_row.get("sueldo_usado"),
+            "dias_utilizados": calc_row.get("dias_utilizados"),
+            "vacaciones_laboradas": calc_row.get("vacaciones_laboradas"),
+            "dias_pagados": calc_row.get("dias_pagados"),
+            "dias_restantes_calculado": calc_row.get("dias_restantes_calculado"),
+            "dias_generados": calc_row.get("dias_generados"),
+            "saldo_calculado": calc_row.get("saldo_calculado"),
+            "prima_pendiente": calc_row.get("prima_pendiente"),
+            "dias_vacaciones_historico": calc_row.get("dias_vacaciones_historico"),
+            "warnings": calc_row.get("warnings") or [],
+            "prima_2025_pagada": merged.get("prima_2025_pagada"),
+            "prima_2026_pagada": merged.get("prima_2026_pagada"),
+            "fecha_pago_prima_2026": merged.get("fecha_pago_prima_2026"),
+            "comentarios": merged.get("comentarios"),
+            "editable_json": calc_row.get("editable_json") or merged.get("editable_json"),
+            "monto_total_recalculado": calc_row.get("monto_total_recalculado"),
         }
         uid = int(g.user["id"]) if g.user is not None else None
         ok = update_vacaciones_empleado(
@@ -1270,7 +1396,159 @@ def vacaciones_editar(row_id: int):
             flash("No se pudo actualizar el registro.", "error")
         return redirect(url_for("nomina.vacaciones_editar", row_id=row_id))
 
-    return render_template("nomina/vacaciones_edit.html", row=row)
+    return render_template("nomina/vacaciones_edit.html", row=row, calc=row.get("editable_json", {}).get("calc_json"))
+
+
+@nomina_bp.get("/vacaciones/<int:row_id>/detalle")
+@_nomina_dashboard_required
+def vacaciones_detalle(row_id: int):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        flash("Registro de vacaciones no encontrado.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc = calcular_balance_vacaciones_trabajador(row, fecha_corte=fecha_corte)
+    eventos = list_vacaciones_eventos(_db_path(), empleado_id=row_id, active_only=True)
+    return render_template(
+        "nomina/vacaciones_detalle.html",
+        row=row,
+        calc=calc,
+        eventos=eventos,
+        fecha_corte=fecha_corte.isoformat(),
+    )
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/recalcular")
+@_nomina_dashboard_required
+def vacaciones_recalcular_trabajador(row_id: int):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        flash("Registro no encontrado.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc_row = aplicar_calculo_a_fila(row, fecha_corte=fecha_corte)
+    update_vacaciones_empleado_calculo(_db_path(), row_id, calc_row, updated_at=_now_iso())
+    flash("Saldo recalculado para el trabajador.", "success")
+    return redirect(url_for("nomina.vacaciones_detalle", row_id=row_id, fecha_corte=fecha_corte.isoformat()))
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/marcar-revisado")
+@_nomina_dashboard_required
+def vacaciones_marcar_revisado(row_id: int):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        flash("Registro no encontrado.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    editable = dict(row.get("editable_json") or {})
+    editable["revision_status"] = "revisado"
+    update_vacaciones_empleado(
+        _db_path(),
+        row_id,
+        {"editable_json": editable},
+        updated_by=int(g.user["id"]) if g.user is not None else None,
+        updated_at=_now_iso(),
+    )
+    flash("Registro marcado como revisado.", "success")
+    return redirect(request.referrer or url_for("nomina.vacaciones_detalle", row_id=row_id))
+
+
+@nomina_bp.get("/vacaciones/admin")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin():
+    latest_import_id = get_latest_vacaciones_import_id(_db_path())
+    import_id_raw = (request.args.get("import_id") or "").strip()
+    selected_import_id = int(import_id_raw) if import_id_raw.isdigit() else latest_import_id
+    resumen = validar_vacaciones_base(_db_path(), import_id=selected_import_id)
+    imports = list_vacaciones_imports(_db_path(), limit=100)
+    return render_template(
+        "nomina/vacaciones_admin.html",
+        resumen=resumen,
+        imports=imports,
+        selected_import_id=selected_import_id,
+    )
+
+
+@nomina_bp.post("/vacaciones/admin/validar")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin_validar():
+    import_id_raw = (request.form.get("import_id") or "").strip()
+    import_id = int(import_id_raw) if import_id_raw.isdigit() else get_latest_vacaciones_import_id(_db_path())
+    resumen = validar_vacaciones_base(_db_path(), import_id=import_id)
+    flash(
+        f"Validación: {resumen['total_registros']} registros, "
+        f"{resumen['conflictos_match']} conflictos, {resumen['saldos_negativos']} saldos negativos.",
+        "success",
+    )
+    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id or ""))
+
+
+@nomina_bp.post("/vacaciones/admin/recalcular")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin_recalcular():
+    import_id_raw = (request.form.get("import_id") or "").strip()
+    import_id = int(import_id_raw) if import_id_raw.isdigit() else get_latest_vacaciones_import_id(_db_path())
+    if import_id is None:
+        flash("No hay importación de vacaciones para recalcular.", "error")
+        return redirect(url_for("nomina.vacaciones_admin"))
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    now_iso = _now_iso()
+    count = _recalcular_vacaciones_import(_db_path(), int(import_id), fecha_corte, now_iso)
+    flash(f"Recalculados {count} registros.", "success")
+    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+
+
+@nomina_bp.post("/vacaciones/admin/archivar")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin_archivar():
+    import_id_raw = (request.form.get("import_id") or "").strip()
+    latest = get_latest_vacaciones_import_id(_db_path())
+    if import_id_raw == "older_than_latest" and latest is not None:
+        archived = archive_vacaciones_import_empleados(_db_path(), import_id=None, exclude_import_id=int(latest))
+        flash(f"Archivados {archived} registros de importaciones anteriores.", "success")
+        return redirect(url_for("nomina.vacaciones_admin", import_id=latest))
+    import_id = int(import_id_raw) if import_id_raw.isdigit() else None
+    if import_id is None:
+        flash("Selecciona una importación para archivar.", "error")
+        return redirect(url_for("nomina.vacaciones_admin"))
+    archived = archive_vacaciones_import_empleados(_db_path(), import_id=int(import_id), exclude_import_id=None)
+    flash(f"Archivados {archived} registros (inactivos, no eliminados).", "success")
+    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+
+
+@nomina_bp.post("/vacaciones/admin/confirmar-limpieza")
+@_nomina_dashboard_required
+@_admin_required
+def vacaciones_admin_confirmar_limpieza():
+    import_id_raw = (request.form.get("import_id") or "").strip()
+    import_id = int(import_id_raw) if import_id_raw.isdigit() else get_latest_vacaciones_import_id(_db_path())
+    if import_id is None:
+        flash("No hay importación activa.", "error")
+        return redirect(url_for("nomina.vacaciones_admin"))
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    rows = list_vacaciones_empleados_all(_db_path(), import_id=int(import_id), include_inactive=True)
+    eventos = list_vacaciones_eventos(_db_path(), import_batch_id=int(import_id), active_only=False, limit=5000)
+    backup_id = create_vacaciones_backup(
+        _db_path(),
+        backup_type="pre_limpieza",
+        summary={"import_id": import_id, "rows": len(rows), "eventos": len(eventos)},
+        payload={"empleados": rows, "eventos": eventos},
+        created_by=uid,
+        now_iso=now_iso,
+    )
+    archived_old = archive_vacaciones_import_empleados(_db_path(), import_id=None, exclude_import_id=int(import_id))
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    recalculated = _recalcular_vacaciones_import(_db_path(), int(import_id), fecha_corte, now_iso)
+    flash(
+        f"Limpieza confirmada. Backup #{backup_id}; archivados {archived_old} registros viejos; "
+        f"recalculados {recalculated} registros vigentes.",
+        "success",
+    )
+    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
 
 
 @nomina_bp.get("/infonavit")

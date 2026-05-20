@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.vd-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+.vd-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; margin-bottom:1rem; }
+.vd-card h3 { margin-top:0; }
+.vd-warn { color:#b45309; font-size:.9rem; }
+.vd-table { width:100%; border-collapse:collapse; }
+.vd-table th, .vd-table td { border-bottom:1px solid #e5e7eb; padding:.4rem; text-align:left; vertical-align:top; }
+.vd-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
+@media (max-width: 960px) { .vd-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas / Vacaciones</span>
+    <h2>Detalle — {{ row.nombre_headcount or row.nombre_historico }}</h2>
+    <p>Corte: {{ fecha_corte }} | Match: {{ row.match_status }}</p>
+  </div>
+  <div class="vd-actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index', fecha_corte=fecha_corte) }}">Volver</a>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}">Ajuste manual</a>
+    <form method="post" action="{{ url_for('nomina.vacaciones_recalcular_trabajador', row_id=row.id) }}">
+      <input type="hidden" name="fecha_corte" value="{{ fecha_corte }}">
+      <button type="submit" class="btn btn-primary">Recalcular trabajador</button>
+    </form>
+    <form method="post" action="{{ url_for('nomina.vacaciones_marcar_revisado', row_id=row.id) }}">
+      <button type="submit" class="btn btn-secondary">Marcar revisado</button>
+    </form>
+  </div>
+</section>
+
+<div class="vd-grid">
+  <section class="vd-card">
+    <h3>Headcount (fuente de verdad)</h3>
+    <p><strong>Nombre:</strong> {{ row.nombre_headcount or '—' }}</p>
+    <p><strong>NSS:</strong> {{ row.nss or '—' }}</p>
+    <p><strong>Cliente:</strong> {{ row.cliente or '—' }}</p>
+    <p><strong>Planta:</strong> {{ row.planta_headcount or '—' }}</p>
+    <p><strong>Fecha ingreso:</strong> {{ row.fecha_ingreso_headcount or '—' }}</p>
+    <p><strong>Sueldo diario:</strong> {{ row.sueldo_headcount if row.sueldo_headcount is not none else '—' }}</p>
+    <p><strong>Estatus:</strong> {{ row.estatus_headcount or '—' }}</p>
+  </section>
+
+  <section class="vd-card">
+    <h3>Excel histórico importado</h3>
+    <p><strong>Nombre histórico:</strong> {{ row.nombre_historico }}</p>
+    <p><strong>Fecha ingreso Excel:</strong> {{ row.fecha_ingreso_historica or '—' }}</p>
+    <p><strong>Sueldo histórico:</strong> {{ row.sueldo_historico if row.sueldo_historico is not none else '—' }}</p>
+    <p><strong>Planta histórica:</strong> {{ row.planta_historica or '—' }}</p>
+    <p><strong>Días restantes Excel:</strong> {{ row.dias_restantes_historico if row.dias_restantes_historico is not none else '—' }}</p>
+    <p><strong>Comentarios:</strong> {{ row.comentarios or '—' }}</p>
+  </section>
+</div>
+
+<section class="vd-card">
+  <h3>Saldo recalculado</h3>
+  <p><strong>Días generados/devengados:</strong> {{ calc.dias_generados if calc.dias_generados is not none else 'N/D' }}</p>
+  <p><strong>Días usados:</strong> {{ calc.dias_utilizados }}</p>
+  <p><strong>Vacaciones laboradas:</strong> {{ calc.vacaciones_laboradas }}</p>
+  <p><strong>Días pagados:</strong> {{ calc.dias_pagados }}</p>
+  <p><strong>Saldo calculado:</strong> {{ calc.saldo_calculado if calc.saldo_calculado is not none else 'N/D' }}</p>
+  <p><strong>Prima pendiente estimada:</strong> {{ calc.prima_pendiente if calc.prima_pendiente is not none else 'N/D' }}</p>
+</section>
+
+<section class="vd-card">
+  <h3>Cálculo paso a paso</h3>
+  {% for paso in calc.pasos %}
+  <p><strong>{{ paso.titulo }}:</strong> {{ paso.detalle }}</p>
+  {% endfor %}
+  {% if not calc.pasos %}
+  <p>No hay pasos de cálculo disponibles (falta fecha de ingreso).</p>
+  {% endif %}
+</section>
+
+<section class="vd-card">
+  <h3>Diferencias / warnings</h3>
+  {% for w in calc.warnings %}
+  <div class="vd-warn">{{ w }}</div>
+  {% endfor %}
+  {% if not calc.warnings %}
+  <p>Sin advertencias.</p>
+  {% endif %}
+</section>
+
+<section class="vd-card">
+  <h3>Eventos históricos</h3>
+  <div class="table-wrap">
+    <table class="vd-table">
+      <thead>
+        <tr>
+          <th>Tipo</th>
+          <th>Fecha</th>
+          <th>Periodo</th>
+          <th>Días</th>
+          <th>Monto</th>
+          <th>Notas</th>
+          <th>Revisado</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in eventos %}
+        <tr>
+          <td>{{ ev.event_type }}</td>
+          <td>{{ ev.event_date or '—' }}</td>
+          <td>{{ ev.period_label or '—' }}</td>
+          <td>{{ ev.days if ev.days is not none else '—' }}</td>
+          <td>{{ ev.amount if ev.amount is not none else '—' }}</td>
+          <td>{{ ev.notes or '—' }}</td>
+          <td>{{ 'Sí' if ev.is_reviewed else 'No' }}</td>
+        </tr>
+        {% endfor %}
+        {% if not eventos %}
+        <tr><td colspan="7">Sin eventos registrados.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
