@@ -42,7 +42,7 @@
     <label>Match status</label>
     <select name="match_status" id="hc-filter-match-status">
       <option value="">Todos</option>
-      {% for st in ['MATCH_CURP','MATCH_NSS','MATCH_NOMBRE','POSIBLE_MATCH','SIN_MATCH'] %}
+      {% for st in ['MATCH_CURP','MATCH_NSS','MATCH_NOMBRE','MATCH_OTRO_PATRON','POSIBLE_MATCH','SIN_MATCH'] %}
       <option value="{{ st }}" {% if filtros.match_status == st %}selected{% endif %}>{{ st }}</option>
       {% endfor %}
     </select>

@@ -66,7 +66,7 @@
         <td>{{ hc_display_ubicacion(row.ubicacion_headcount) }}</td>
         <td>{{ hc_display(row.status_operacion_headcount) }}</td>
         <td>{{ hc_display_fecha_ingreso(row.fecha_ingreso_headcount) }}</td>
-        <td><span class="hc-badge {% if row.match_status == 'SIN_MATCH' %}err{% elif row.match_status == 'POSIBLE_MATCH' %}warn{% else %}ok{% endif %}">{{ row.match_por or row.match_status }}</span></td>
+        <td><span class="hc-badge {% if row.match_status == 'SIN_MATCH' %}err{% elif row.match_status == 'MATCH_OTRO_PATRON' %}warn{% elif row.match_status == 'POSIBLE_MATCH' %}warn{% else %}ok{% endif %}">{{ row.match_por or row.match_status }}</span></td>
         <td>{{ hc_display(row.dias, empty='') }}</td>
         <td>{{ hc_display(row.sdi, empty='') }}</td>
         <td>
@@ -81,7 +81,20 @@
       </tr>
       <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}" data-detail-for="{{ row.registro_no or loop.index }}">
         <td colspan="17"><div class="hc-detail-inner">
-          Patrón HC: {{ hc_display(row.patron_headcount) }} · Nombre HC: {{ hc_display(row.nombre_headcount) }} · Página {{ hc_display(row.pagina_origen) }}
+          <p><strong>Patrón HC:</strong> {{ hc_display(row.patron_headcount) }} · <strong>Nombre HC:</strong> {{ hc_display(row.nombre_headcount) }} · <strong>Página:</strong> {{ hc_display(row.pagina_origen) }}</p>
+          {% set md = row.matching_debug or {} %}
+          <p><strong>Diagnóstico de match</strong></p>
+          <ul class="hc-match-debug">
+            <li>CURP SUA: {{ hc_display(md.curp_sua_normalizado) }}</li>
+            <li>NSS SUA: {{ hc_display(md.nss_sua_normalizado) }}</li>
+            <li>Nombre SUA: {{ hc_display(md.nombre_sua_normalizado) }}</li>
+            <li>¿En Headcount {{ md.busco_en_patron_objetivo or 'RAFAEL' }}? {{ 'Sí' if md.encontrado_en_patron_objetivo else 'No' }} ({{ md.metodo_match_patron_objetivo or 'NONE' }})</li>
+            <li>¿En Headcount global? {{ 'Sí' if md.encontrado_en_headcount_global else 'No' }} ({{ md.metodo_match_global or 'NONE' }})</li>
+            <li>Patrón encontrado: {{ hc_display(md.patron_global_encontrado or row.patron_headcount) }}</li>
+            <li>Cliente encontrado: {{ hc_display_cliente(md.cliente_global_encontrado or row.cliente_headcount) }}</li>
+            <li>Ubicación encontrada: {{ hc_display_ubicacion(md.ubicacion_global_encontrada or row.ubicacion_headcount) }}</li>
+            <li>Status operación: {{ hc_display(md.status_operacion_global or row.status_operacion_headcount) }}</li>
+          </ul>
         </div></td>
       </tr>
       {% else %}

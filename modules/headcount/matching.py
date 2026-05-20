@@ -21,7 +21,12 @@ _WARNING_LABELS: dict[str, str] = {
         "El trabajador aparece activo/cotizando en SUA, pero en Headcount está marcado como baja."
     ),
     "STATUS_OPERACION_INCONSISTENTE": "STATUS OPERACIÓN no activo en Headcount",
-    "PATRON_DIFERENTE": "Match en Headcount con patrón distinto de RAFAEL",
+    "PATRON_DIFERENTE": (
+        "El trabajador aparece en SUA RAFAEL, pero en Headcount está registrado bajo otro patrón."
+    ),
+    "MATCH_INCONSISTENTE_REVISAR_LOGICA": (
+        "SIN_MATCH con CURP/NSS presente en Headcount; revisar lógica de matching."
+    ),
     "CLIENTE_VACIO": "CLIENTE vacío en Headcount",
     "UBICACION_VACIA": "UBICACIÓN vacía en Headcount",
     "CURP_DUPLICADO_HEADCOUNT": "CURP duplicada en Headcount RAFAEL",
@@ -153,32 +158,129 @@ def patron_es_rafael(patron: Any) -> bool:
     return patron_matches_auditoria(patron)
 
 
-def build_headcount_rafael_indexes(
+def _prepare_headcount_record(rec: dict[str, Any], seq: int) -> dict[str, Any]:
+    out = dict(rec)
+    out["headcount_id"] = out.get("headcount_id") or f"hc_{seq}"
+    out["nombre_hc_sua_like"] = nombre_hc_sua_like(out)
+    out["nombre_hc_normalizado"] = normalize_text(out.get("nombre_completo"))
+    out["nombre_hc_sua_like_normalizado"] = normalize_text(out["nombre_hc_sua_like"])
+    out["curp_normalizado"] = normalize_curp(out.get("curp"))
+    out["nss_normalizado"] = normalize_nss(out.get("nss"))
+    return out
+
+
+def build_headcount_indexes(
     registros: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, list[dict]], dict[str, list[dict]], dict[str, list[dict]]]:
-    rafael: list[dict[str, Any]] = []
+    prepared: list[dict[str, Any]] = []
     by_curp: dict[str, list[dict]] = {}
     by_nss: dict[str, list[dict]] = {}
     by_nombre: dict[str, list[dict]] = {}
-    for rec in registros:
-        if not patron_es_rafael(rec.get("patron")):
-            continue
-        rec = dict(rec)
-        rec["headcount_id"] = rec.get("headcount_id") or f"hc_{len(rafael)}"
-        rec["nombre_hc_sua_like"] = nombre_hc_sua_like(rec)
-        rec["nombre_hc_normalizado"] = normalize_text(rec.get("nombre_completo"))
-        rec["nombre_hc_sua_like_normalizado"] = normalize_text(rec["nombre_hc_sua_like"])
-        rec["curp_normalizado"] = normalize_curp(rec.get("curp"))
-        rec["nss_normalizado"] = normalize_nss(rec.get("nss"))
-        rafael.append(rec)
-        if rec["curp_normalizado"]:
-            by_curp.setdefault(rec["curp_normalizado"], []).append(rec)
-        if rec["nss_normalizado"]:
-            by_nss.setdefault(rec["nss_normalizado"], []).append(rec)
-        nombre_key = rec["nombre_hc_normalizado"] or rec["nombre_hc_sua_like_normalizado"]
+    for i, rec in enumerate(registros):
+        row = _prepare_headcount_record(rec, i)
+        prepared.append(row)
+        if row["curp_normalizado"]:
+            by_curp.setdefault(row["curp_normalizado"], []).append(row)
+        if row["nss_normalizado"]:
+            by_nss.setdefault(row["nss_normalizado"], []).append(row)
+        nombre_key = row["nombre_hc_normalizado"] or row["nombre_hc_sua_like_normalizado"]
         if nombre_key:
-            by_nombre.setdefault(nombre_key, []).append(rec)
-    return rafael, by_curp, by_nss, by_nombre
+            by_nombre.setdefault(nombre_key, []).append(row)
+    return prepared, by_curp, by_nss, by_nombre
+
+
+def build_headcount_rafael_indexes(
+    registros: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, list[dict]], dict[str, list[dict]], dict[str, list[dict]]]:
+    rafael_regs = [r for r in registros if patron_es_rafael(r.get("patron"))]
+    prepared, by_curp, by_nss, by_nombre = build_headcount_indexes(rafael_regs)
+    return prepared, by_curp, by_nss, by_nombre
+
+
+def build_headcount_global_indexes(
+    registros: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, list[dict]], dict[str, list[dict]], dict[str, list[dict]]]:
+    return build_headcount_indexes(registros)
+
+
+def _lookup_in_indexes(
+    curp_n: str,
+    nss_n: str,
+    nombre_n: str,
+    *,
+    by_curp: dict[str, list[dict]],
+    by_nss: dict[str, list[dict]],
+    by_nombre: dict[str, list[dict]],
+    nombre_keys: list[str],
+    fuzzy_name: bool,
+) -> tuple[dict[str, Any] | None, str]:
+    if curp_n and curp_n in by_curp:
+        return by_curp[curp_n][0], "CURP"
+    if nss_n and nss_n in by_nss:
+        return by_nss[nss_n][0], "NSS"
+    if nombre_n and nombre_n in by_nombre:
+        return by_nombre[nombre_n][0], "NOMBRE"
+    if fuzzy_name and nombre_n:
+        best_ratio = 0.0
+        best_rec = None
+        for key in nombre_keys:
+            ratio = _name_similarity(nombre_n, key)
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_rec = by_nombre.get(key, [None])[0]
+        if best_rec and best_ratio >= 0.88:
+            return best_rec, "NOMBRE"
+    return None, "NONE"
+
+
+def _apply_hc_match_to_row(row: dict[str, Any], hc_match: dict[str, Any]) -> None:
+    row.update(
+        {
+            "headcount_id": hc_match.get("headcount_id"),
+            "cliente_headcount": hc_match.get("cliente", ""),
+            "ubicacion_headcount": hc_match.get("ubicacion", ""),
+            "puesto_headcount": hc_match.get("puesto", ""),
+            "patron_headcount": hc_match.get("patron", ""),
+            "status_operacion_headcount": hc_match.get("status_operacion", ""),
+            "status_imss_headcount": hc_match.get("status_imss", ""),
+            "fecha_ingreso_headcount": hc_match.get("fecha_ingreso", ""),
+            "rfc_headcount": hc_match.get("rfc_homoclave", ""),
+            "curp_headcount": hc_match.get("curp", ""),
+            "nss_headcount": hc_match.get("nss", ""),
+            "nombre_headcount": hc_match.get("nombre_completo", ""),
+        }
+    )
+
+
+def _build_matching_debug(
+    *,
+    curp_n: str,
+    nss_n: str,
+    nombre_n: str,
+    encontrado_rafael: bool,
+    metodo_rafael: str,
+    encontrado_global: bool,
+    metodo_global: str,
+    hc_global: dict[str, Any] | None,
+) -> dict[str, Any]:
+    return {
+        "curp_sua_normalizado": curp_n,
+        "nss_sua_normalizado": nss_n,
+        "nombre_sua_normalizado": nombre_n,
+        "busco_en_patron_objetivo": PATRON_AUDITORIA,
+        "encontrado_en_patron_objetivo": encontrado_rafael,
+        "metodo_match_patron_objetivo": metodo_rafael,
+        "encontrado_en_headcount_global": encontrado_global,
+        "metodo_match_global": metodo_global,
+        "patron_global_encontrado": (hc_global or {}).get("patron", ""),
+        "cliente_global_encontrado": (hc_global or {}).get("cliente", ""),
+        "ubicacion_global_encontrada": (hc_global or {}).get("ubicacion", ""),
+        "status_operacion_global": (hc_global or {}).get("status_operacion", ""),
+    }
+
+
+def _exists_in_global(curp_n: str, nss_n: str, global_by_curp: dict, global_by_nss: dict) -> bool:
+    return bool((curp_n and curp_n in global_by_curp) or (nss_n and nss_n in global_by_nss))
 
 
 def match_trabajador_sua(
@@ -188,6 +290,10 @@ def match_trabajador_sua(
     by_nss: dict[str, list[dict]],
     by_nombre: dict[str, list[dict]],
     nombre_keys: list[str],
+    global_by_curp: dict[str, list[dict]] | None = None,
+    global_by_nss: dict[str, list[dict]] | None = None,
+    global_by_nombre: dict[str, list[dict]] | None = None,
+    global_nombre_keys: list[str] | None = None,
 ) -> dict[str, Any]:
     trab = enrich_sua_worker_fields(trabajador)
     curp_n = normalize_curp(trab.get("curp"))
@@ -195,34 +301,58 @@ def match_trabajador_sua(
     nombre_n = normalize_text(trab.get("nombre_normalizado") or trab.get("nombre_sua_original"))
     mov = trab["sua_movimiento_clave"]
 
+    g_curp = global_by_curp if global_by_curp is not None else by_curp
+    g_nss = global_by_nss if global_by_nss is not None else by_nss
+    g_nombre = global_by_nombre if global_by_nombre is not None else by_nombre
+    g_nombre_keys = global_nombre_keys if global_nombre_keys is not None else nombre_keys
+
     hc_match: dict[str, Any] | None = None
+    hc_global: dict[str, Any] | None = None
     match_status = "SIN_MATCH"
     match_por = ""
+    metodo_rafael = "NONE"
+    metodo_global = "NONE"
 
-    if curp_n and curp_n in by_curp:
-        hc_match = by_curp[curp_n][0]
-        match_status = "MATCH_CURP"
-        match_por = "CURP"
-    elif nss_n and nss_n in by_nss:
-        hc_match = by_nss[nss_n][0]
-        match_status = "MATCH_NSS"
-        match_por = "NSS"
-    elif nombre_n and nombre_n in by_nombre:
-        hc_match = by_nombre[nombre_n][0]
-        match_status = "MATCH_NOMBRE"
-        match_por = "Nombre"
+    hc_match, metodo_rafael = _lookup_in_indexes(
+        curp_n,
+        nss_n,
+        nombre_n,
+        by_curp=by_curp,
+        by_nss=by_nss,
+        by_nombre=by_nombre,
+        nombre_keys=nombre_keys,
+        fuzzy_name=True,
+    )
+    if hc_match:
+        if metodo_rafael == "CURP":
+            match_status, match_por = "MATCH_CURP", "CURP"
+        elif metodo_rafael == "NSS":
+            match_status, match_por = "MATCH_NSS", "NSS"
+        elif metodo_rafael == "NOMBRE":
+            if nombre_n in by_nombre:
+                match_status, match_por = "MATCH_NOMBRE", "Nombre"
+            else:
+                match_status, match_por = "POSIBLE_MATCH", "Nombre (~88%+)"
     else:
-        best_ratio = 0.0
-        best_rec = None
-        for key in nombre_keys:
-            ratio = _name_similarity(nombre_n, key)
-            if ratio > best_ratio:
-                best_ratio = ratio
-                best_rec = by_nombre.get(key, [None])[0]
-        if best_rec and best_ratio >= 0.88:
-            hc_match = best_rec
-            match_status = "POSIBLE_MATCH"
-            match_por = f"Nombre (~{int(best_ratio * 100)}%)"
+        hc_global, metodo_global = _lookup_in_indexes(
+            curp_n,
+            nss_n,
+            nombre_n,
+            by_curp=g_curp,
+            by_nss=g_nss,
+            by_nombre=g_nombre,
+            nombre_keys=g_nombre_keys,
+            fuzzy_name=False,
+        )
+        if hc_global:
+            hc_match = hc_global
+            match_status = "MATCH_OTRO_PATRON"
+            if metodo_global == "CURP":
+                match_por = "CURP (otro patrón)"
+            elif metodo_global == "NSS":
+                match_por = "NSS (otro patrón)"
+            else:
+                match_por = "Nombre (otro patrón)"
 
     row: dict[str, Any] = {
         "nss_sua_original": trab.get("nss_sua_original", ""),
@@ -256,24 +386,46 @@ def match_trabajador_sua(
         "nombre_headcount": "",
         "warnings": [],
         "info_estado": "",
+        "matching_debug": {},
     }
     if hc_match:
-        row.update(
-            {
-                "headcount_id": hc_match.get("headcount_id"),
-                "cliente_headcount": hc_match.get("cliente", ""),
-                "ubicacion_headcount": hc_match.get("ubicacion", ""),
-                "puesto_headcount": hc_match.get("puesto", ""),
-                "patron_headcount": hc_match.get("patron", ""),
-                "status_operacion_headcount": hc_match.get("status_operacion", ""),
-                "status_imss_headcount": hc_match.get("status_imss", ""),
-                "fecha_ingreso_headcount": hc_match.get("fecha_ingreso", ""),
-                "rfc_headcount": hc_match.get("rfc_homoclave", ""),
-                "curp_headcount": hc_match.get("curp", ""),
-                "nss_headcount": hc_match.get("nss", ""),
-                "nombre_headcount": hc_match.get("nombre_completo", ""),
-            }
-        )
+        _apply_hc_match_to_row(row, hc_match)
+
+    encontrado_rafael = bool(metodo_rafael != "NONE")
+    encontrado_global = bool(metodo_global != "NONE")
+    row["matching_debug"] = _build_matching_debug(
+        curp_n=curp_n,
+        nss_n=nss_n,
+        nombre_n=nombre_n,
+        encontrado_rafael=encontrado_rafael,
+        metodo_rafael=metodo_rafael,
+        encontrado_global=encontrado_global,
+        metodo_global=metodo_global,
+        hc_global=hc_global if match_status == "MATCH_OTRO_PATRON" else hc_match,
+    )
+
+    if match_status == "SIN_MATCH" and _exists_in_global(curp_n, nss_n, g_curp, g_nss):
+        if curp_n and curp_n in g_curp:
+            hc_fix = g_curp[curp_n][0]
+            metodo_fix = "CURP"
+        else:
+            hc_fix = g_nss[nss_n][0]
+            metodo_fix = "NSS"
+        if patron_es_rafael(hc_fix.get("patron")):
+            _apply_hc_match_to_row(row, hc_fix)
+            if metodo_fix == "CURP":
+                row["match_status"], row["match_por"] = "MATCH_CURP", "CURP"
+            else:
+                row["match_status"], row["match_por"] = "MATCH_NSS", "NSS"
+            row["matching_debug"]["corregido_por_seguridad"] = True
+        else:
+            _apply_hc_match_to_row(row, hc_fix)
+            row["match_status"] = "MATCH_OTRO_PATRON"
+            row["match_por"] = f"{metodo_fix} (otro patrón)"
+            row["matching_debug"]["corregido_por_seguridad"] = True
+            if "MATCH_INCONSISTENTE_REVISAR_LOGICA" not in row["warnings"]:
+                row["warnings"].append("MATCH_INCONSISTENTE_REVISAR_LOGICA")
+
     return row
 
 
@@ -318,7 +470,17 @@ def enrich_row_warnings(
     tiene_baja = bool(row.get("sua_tiene_baja"))
     es_activo_sua = bool(row.get("sua_es_activo_al_corte"))
     mov = row.get("sua_movimiento_clave") or ""
-    has_match = row["match_status"] in {"MATCH_CURP", "MATCH_NSS", "MATCH_NOMBRE", "POSIBLE_MATCH"}
+    has_match = row["match_status"] in {
+        "MATCH_CURP",
+        "MATCH_NSS",
+        "MATCH_NOMBRE",
+        "MATCH_OTRO_PATRON",
+        "POSIBLE_MATCH",
+    }
+
+    if row["match_status"] == "MATCH_OTRO_PATRON":
+        if "PATRON_DIFERENTE" not in warnings:
+            warnings.append("PATRON_DIFERENTE")
 
     if row["match_status"] == "SIN_MATCH":
         if tiene_baja:
@@ -342,7 +504,10 @@ def enrich_row_warnings(
             warnings.append("CLIENTE_VACIO")
         if not normalize_text(row.get("ubicacion_headcount")):
             warnings.append("UBICACION_VACIA")
-        if not patron_es_rafael(row.get("patron_headcount")):
+        if (
+            row["match_status"] != "MATCH_OTRO_PATRON"
+            and not patron_es_rafael(row.get("patron_headcount"))
+        ):
             warnings.append("PATRON_DIFERENTE")
 
         hc_activo = _hc_es_activo(row)

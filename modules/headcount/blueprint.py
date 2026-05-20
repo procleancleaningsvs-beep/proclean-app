@@ -132,6 +132,13 @@ def _solo_activos_for_role() -> bool:
     return _role() in {"usuario", "coordinador"}
 
 
+def _sua_detalle_total(resumen: dict, detalle_full: list) -> int:
+    total = int(resumen.get("total_cotizantes_sua") or resumen.get("total_cotizantes") or 0)
+    if total > 0:
+        return total
+    return len(detalle_full)
+
+
 def _load_payload_from_audit(audit_id: str) -> dict:
     audit = get_sua_audit(_db_path(), audit_id)
     if not audit:
@@ -258,10 +265,11 @@ def auditoria_sua_resultado(audit_id: str):
     detalle_full = payload.get("detalle") or []
     detalle = _apply_filters(detalle_full)
     if detalle_full:
-        resumen_clientes, sin_cliente_card = build_cliente_cards_for_ui(detalle_full)
+        resumen_clientes, sin_cliente_card, otro_patron_card = build_cliente_cards_for_ui(detalle_full)
     else:
         resumen_clientes = payload.get("resumen_clientes") or []
         sin_cliente_card = payload.get("sin_cliente_card") or {}
+        otro_patron_card = payload.get("otro_patron_card") or {}
 
     resumen = dict(resumen)
     if not resumen.get("desarrollo_inf_mas_6_meses") and not resumen.get("desarrollo_inf_mas_1_anio"):
@@ -291,8 +299,9 @@ def auditoria_sua_resultado(audit_id: str):
         regular_client_cards=resumen_clientes,
         sin_cliente_card=sin_cliente_card,
         detalle=detalle,
-        detalle_total=len(detalle_full),
+        detalle_total=_sua_detalle_total(resumen, detalle_full),
         detalle_filtrado=len(detalle),
+        otro_patron_card=otro_patron_card,
         headcount_sin_sua=payload.get("headcount_sin_sua") or [],
         warnings_catalog=payload.get("warnings_catalog") or {},
         clientes_opts=clientes_opts,

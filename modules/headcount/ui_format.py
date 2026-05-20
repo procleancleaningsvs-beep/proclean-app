@@ -199,6 +199,33 @@ def _accumulate_cliente_bucket(buckets: dict[str, dict[str, Any]], row: dict[str
     ubic_map[raw_ubic]["total"] += 1
 
 
+def resumen_otro_patron_card(detalle: list[dict[str, Any]]) -> dict[str, Any]:
+    rows = [r for r in detalle if r.get("match_status") == "MATCH_OTRO_PATRON"]
+    card = {
+        "cliente_key": "__OTRO_PATRON__",
+        "cliente_label": "En otro patrón",
+        "activos_sua": 0,
+        "bajas_sua": 0,
+        "match_activos": 0,
+        "activos_sin_match": 0,
+        "bajas_conciliadas": 0,
+        "warnings": 0,
+        "ubicaciones_list": [],
+        "es_otro_patron_virtual": True,
+        "total_registros": len(rows),
+    }
+    for row in rows:
+        if row.get("sua_es_activo_al_corte"):
+            card["activos_sua"] += 1
+            card["match_activos"] += 1
+        else:
+            card["bajas_sua"] += 1
+        if row.get("info_estado") == "BAJA_CONCILIADA":
+            card["bajas_conciliadas"] += 1
+        card["warnings"] += len([w for w in (row.get("warnings") or []) if es_warning_critico(w)])
+    return card
+
+
 def resumen_sin_cliente_card(detalle: list[dict[str, Any]]) -> dict[str, Any]:
     rows = [r for r in detalle if r.get("match_status") == "SIN_MATCH"]
     card = {
@@ -249,14 +276,17 @@ def agrupar_resumen_por_cliente(detalle: list[dict[str, Any]]) -> list[dict[str,
     return sorted(out, key=lambda x: (x["cliente_label"].casefold(), x["cliente_key"].casefold()))
 
 
-def build_cliente_cards_for_ui(detalle: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def build_cliente_cards_for_ui(
+    detalle: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
     clientes = [
         c
         for c in agrupar_resumen_por_cliente(detalle)
         if not c.get("es_sin_cliente_virtual") and not es_cliente_bucket_invalido(c.get("cliente_key", ""))
     ]
     sin_cliente = resumen_sin_cliente_card(detalle)
-    return clientes, sin_cliente
+    otro_patron = resumen_otro_patron_card(detalle)
+    return clientes, sin_cliente, otro_patron
 
 
 def clientes_detectados_labels(detalle: list[dict[str, Any]]) -> list[dict[str, str]]:

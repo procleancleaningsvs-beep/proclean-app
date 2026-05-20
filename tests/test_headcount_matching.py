@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from modules.headcount.matching import (
+    build_headcount_global_indexes,
     build_headcount_rafael_indexes,
     match_trabajador_sua,
     normalize_curp,
@@ -46,6 +47,7 @@ def test_match_priority_curp_before_nss():
         }
     ]
     _, by_curp, by_nss, by_nombre = build_headcount_rafael_indexes(registros)
+    _, g_curp, g_nss, g_nombre = build_headcount_global_indexes(registros)
     row = match_trabajador_sua(
         {
             "nss_sua_original": "25-99-82-1773-8",
@@ -58,5 +60,9 @@ def test_match_priority_curp_before_nss():
         by_nss=by_nss,
         by_nombre=by_nombre,
         nombre_keys=list(by_nombre.keys()),
+        global_by_curp=g_curp,
+        global_by_nss=g_nss,
+        global_by_nombre=g_nombre,
+        global_nombre_keys=list(g_nombre.keys()),
     )
     assert row["match_status"] == "MATCH_CURP"

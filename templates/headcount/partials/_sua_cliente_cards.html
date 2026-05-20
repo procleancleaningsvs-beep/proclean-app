@@ -4,8 +4,9 @@
 {% set filtro_match = filtros.match_status or '' %}
 {% set filtro_conc = filtros.conciliacion or '' %}
 {% set sin_cliente_activo = filtro_match == 'SIN_MATCH' or filtro_conc == 'activos_sin_match' %}
-{% set otros_filtros = filtro_match and filtro_match != 'SIN_MATCH' or filtros.warning or filtros.movimiento or filtros.estado_sua or filtros.status_operacion or filtros.conciliacion and filtro_conc != 'activos_sin_match' or filtros.busqueda or filtros.solo_hc_sin_sua %}
-{% set todos_activo = not filtro_cliente and not filtros.ubicacion_provided and not sin_cliente_activo and not otros_filtros %}
+{% set otro_patron_activo = filtro_match == 'MATCH_OTRO_PATRON' or filtros.warning == 'PATRON_DIFERENTE' %}
+{% set otros_filtros = filtro_match and filtro_match not in ['SIN_MATCH', 'MATCH_OTRO_PATRON'] or filtros.warning and filtros.warning != 'PATRON_DIFERENTE' or filtros.movimiento or filtros.estado_sua or filtros.status_operacion or filtros.conciliacion and filtro_conc != 'activos_sin_match' or filtros.busqueda or filtros.solo_hc_sin_sua %}
+{% set todos_activo = not filtro_cliente and not filtros.ubicacion_provided and not sin_cliente_activo and not otro_patron_activo and not otros_filtros %}
 
 <div class="hc-cliente-toolbar">
   <h3>Resumen por cliente</h3>
@@ -40,9 +41,20 @@
     {% if sin_cliente_activo %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
   </a>
 
+  <a href="{{ base_url }}?match_status=MATCH_OTRO_PATRON" class="client-summary-card hc-cliente-card hc-otro-patron-card {% if otro_patron_activo %}is-active{% endif %}" title="SUA con match en Headcount bajo otro patrón">
+    <div class="hc-cliente-card-title">En otro patrón</div>
+    <ul class="hc-cliente-stats">
+      <li><span>Registros</span><strong>{{ otro_patron_card.total_registros or 0 }}</strong></li>
+      <li><span>Activos SUA</span><strong>{{ otro_patron_card.activos_sua or 0 }}</strong></li>
+      <li><span>Bajas SUA</span><strong>{{ otro_patron_card.bajas_sua or 0 }}</strong></li>
+      <li><span>Patrón distinto</span><strong>{{ otro_patron_card.match_activos or 0 }}</strong></li>
+    </ul>
+    {% if otro_patron_activo %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
+  </a>
+
   {% for c in regular_client_cards|default(resumen_clientes) %}
   {% if not c.es_sin_cliente_virtual and (c.cliente_label|lower != 'sin cliente') %}
-  {% set cliente_match = c.cliente_key and (filtro_cliente == c.cliente_key) and not sin_cliente_activo %}
+  {% set cliente_match = c.cliente_key and (filtro_cliente == c.cliente_key) and not sin_cliente_activo and not otro_patron_activo %}
   {% set card_active = cliente_match and not filtros.ubicacion_provided %}
   {% set chip_row_active = cliente_match and filtros.ubicacion_provided %}
   <div class="client-summary-card hc-cliente-card {% if card_active or chip_row_active %}is-active{% endif %}">

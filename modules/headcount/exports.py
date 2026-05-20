@@ -27,6 +27,7 @@ _DET_HEADERS = [
     "Fecha ingreso",
     "Match por",
     "Match status",
+    "Match global",
     "Días SUA",
     "SDI SUA",
     "Warnings",
@@ -87,11 +88,17 @@ def _write_detalle_rows(ws, rows: list[dict[str, Any]], start_row: int = 2) -> N
         ws.cell(ri, 12, display_fecha_ingreso(row.get("fecha_ingreso_headcount", "")))
         ws.cell(ri, 13, display_cell(row.get("match_por", "")))
         ws.cell(ri, 14, display_cell(row.get("match_status", "")))
-        ws.cell(ri, 15, row.get("dias", ""))
-        ws.cell(ri, 16, row.get("sdi", ""))
-        ws.cell(ri, 17, _warning_labels_for_export(row.get("warnings")))
+        md = row.get("matching_debug") or {}
+        ws.cell(
+            ri,
+            15,
+            "Sí" if md.get("encontrado_en_headcount_global") else "No",
+        )
+        ws.cell(ri, 16, row.get("dias", ""))
+        ws.cell(ri, 17, row.get("sdi", ""))
+        ws.cell(ri, 18, _warning_labels_for_export(row.get("warnings")))
         info = row.get("info_estado") or ""
-        ws.cell(ri, 18, info_estado_label(info) if info else "")
+        ws.cell(ri, 19, info_estado_label(info) if info else "")
 
 
 def build_auditoria_excel_bytes(payload: dict[str, Any]) -> bytes:

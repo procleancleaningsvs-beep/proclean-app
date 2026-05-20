@@ -18,6 +18,7 @@ from modules.comparativo.headcount_service import (
 from modules.headcount.matching import (
     PATRON_AUDITORIA,
     _hc_es_activo,
+    build_headcount_global_indexes,
     build_headcount_rafael_indexes,
     collect_duplicate_warnings,
     enrich_row_warnings,
@@ -220,6 +221,21 @@ def resumen_cliente_view(
     }
 
 
+def _dedupe_detalle_sua(detalle: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for row in detalle:
+        key = str(row.get("nss_normalizado") or "").strip() or str(row.get("curp") or "").strip()
+        if not key:
+            out.append(row)
+            continue
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
 def _dias_periodo_from_meta(meta: dict[str, Any]) -> int | None:
     periodo = str(meta.get("periodo_proceso") or "")
     m = re.search(r"(\d{1,2})\s*[-/]\s*(\d{1,2})", periodo)
@@ -253,7 +269,9 @@ def ejecutar_auditoria_sua(
 
     headcount_all = obtener_registros_headcount()
     rafael, by_curp, by_nss, by_nombre = build_headcount_rafael_indexes(headcount_all)
+    _, global_by_curp, global_by_nss, global_by_nombre = build_headcount_global_indexes(headcount_all)
     nombre_keys = list(by_nombre.keys())
+    global_nombre_keys = list(global_by_nombre.keys())
     dup_warnings = collect_duplicate_warnings(rafael)
     dias_periodo = _dias_periodo_from_meta(parsed.metadatos)
 
@@ -266,11 +284,17 @@ def ejecutar_auditoria_sua(
             by_nss=by_nss,
             by_nombre=by_nombre,
             nombre_keys=nombre_keys,
+            global_by_curp=global_by_curp,
+            global_by_nss=global_by_nss,
+            global_by_nombre=global_by_nombre,
+            global_nombre_keys=global_nombre_keys,
         )
         enrich_row_warnings(row, dias_periodo=dias_periodo, dup_warnings=dup_warnings)
         detalle.append(row)
         if row.get("nss_normalizado"):
             nss_sua_todos.add(row["nss_normalizado"])
+
+    detalle = _dedupe_detalle_sua(detalle)
 
     for idx, row in enumerate(detalle, start=1):
         row["registro_no"] = idx
@@ -314,7 +338,7 @@ def ejecutar_auditoria_sua(
     ) + len(hc_sin_sua)
 
     agrupado = _agrupar_detalle(detalle)
-    resumen_clientes, sin_cliente_card = build_cliente_cards_for_ui(detalle)
+    resumen_clientes, sin_cliente_card, otro_patron_card = build_cliente_cards_for_ui(detalle)
     clientes_opts = clientes_detectados_labels(detalle)
     metricas_desarrollo_inf = calc_metricas_desarrollo_inf(
         fecha_corte_sua,
@@ -372,6 +396,7 @@ def ejecutar_auditoria_sua(
         "agrupado": agrupado,
         "resumen_clientes": resumen_clientes,
         "sin_cliente_card": sin_cliente_card,
+        "otro_patron_card": otro_patron_card,
         "headcount_sin_sua": hc_sin_sua,
         "sua_activos": sua_activos,
         "sua_bajas": sua_bajas,

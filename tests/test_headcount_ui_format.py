@@ -126,9 +126,10 @@ def test_agrupar_excludes_sin_match_and_sin_cliente_literal():
     groups = agrupar_resumen_por_cliente(detalle)
     assert len(groups) == 1
     assert groups[0]["cliente_key"] == "Carrier"
-    clientes, sin_card = build_cliente_cards_for_ui(detalle)
+    clientes, sin_card, otro_card = build_cliente_cards_for_ui(detalle)
     assert len(clientes) == 1
     assert sin_card["total_registros"] == 1
+    assert otro_card["total_registros"] == 0
 
 
 def test_filtrar_detalle_warning_tokens():
@@ -152,9 +153,10 @@ def test_build_cliente_cards_excludes_empty_cliente_from_grid():
         {"cliente_headcount": "Carrier", "ubicacion_headcount": "A", "sua_es_activo_al_corte": True, "match_status": "MATCH_NSS", "warnings": [], "info_estado": ""},
         {"cliente_headcount": "", "match_status": "SIN_MATCH", "sua_es_activo_al_corte": True, "warnings": [], "info_estado": ""},
     ]
-    clientes, sin_card = build_cliente_cards_for_ui(detalle)
+    clientes, sin_card, otro_card = build_cliente_cards_for_ui(detalle)
     assert len(clientes) == 1
     assert sin_card["total_registros"] == 1
+    assert otro_card["total_registros"] == 0
 
 
 def test_calc_metricas_desarrollo_inf(monkeypatch):
