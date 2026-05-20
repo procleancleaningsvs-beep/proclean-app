@@ -40,8 +40,8 @@
     {% if sin_cliente_activo %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
   </a>
 
-  {% for c in resumen_clientes %}
-  {% if c.es_sin_cliente_virtual or (c.cliente_label|lower == 'sin cliente') %}{% continue %}{% endif %}
+  {% for c in regular_client_cards|default(resumen_clientes) %}
+  {% if not c.es_sin_cliente_virtual and (c.cliente_label|lower != 'sin cliente') %}
   {% set cliente_match = c.cliente_key and (filtro_cliente == c.cliente_key) and not sin_cliente_activo %}
   {% set card_active = cliente_match and not filtros.ubicacion_provided %}
   {% set chip_row_active = cliente_match and filtros.ubicacion_provided %}
@@ -72,5 +72,6 @@
     {% endif %}
     {% if chip_row_active %}<span class="hc-cliente-card-tag">Filtro activo</span>{% endif %}
   </div>
+  {% endif %}
   {% endfor %}
 </div>

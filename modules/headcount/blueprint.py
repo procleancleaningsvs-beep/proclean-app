@@ -288,6 +288,7 @@ def auditoria_sua_resultado(audit_id: str):
         audit_id=audit_id,
         resumen=resumen,
         resumen_clientes=resumen_clientes,
+        regular_client_cards=resumen_clientes,
         sin_cliente_card=sin_cliente_card,
         detalle=detalle,
         detalle_total=len(detalle_full),
