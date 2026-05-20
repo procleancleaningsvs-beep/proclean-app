@@ -9,10 +9,25 @@
 .venv
 venv
 env
-*.md
-tests/evidence_vitroflex/
-generated/
-tmp/
-*.pdf
 .env
 .env.*
+
+# Reducir contexto de build (Hobby ~5 GB); plantillas DOCX en rutas explícitas se copian
+tests/
+scripts/
+generated/
+tmp/
+tmp_formato_docx/
+agent-transcripts/
+*.pdf
+*.md
+
+# Evidencia y fixtures locales (no runtime)
+tests/evidence_vitroflex/
+tests/evidence_finiquito/
+tests/fixtures/
+
+# Artefactos sueltos
+tmp_out.docx
+cedula*.pdf
+HEADCOUNT_SUA_PDF_FIXTURE*
