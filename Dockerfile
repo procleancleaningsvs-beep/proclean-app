@@ -1,4 +1,4 @@
-FROM python:3.11-bookworm-slim
+FROM python:3.11-slim-bookworm
 
 ENV PIP_NO_CACHE_DIR=1
 ENV PYTHONDONTWRITEBYTECODE=1
