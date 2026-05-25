@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import logging
+import math
 import re
 from datetime import date, datetime
 from typing import Any
@@ -18,6 +20,8 @@ from modules.comparativo.headcount_service import (
 from modules.headcount.matching import (
     PATRON_AUDITORIA,
     _hc_es_activo,
+    _is_status_activo_operacion,
+    _is_status_baja_operacion,
     build_headcount_global_indexes,
     build_headcount_rafael_indexes,
     collect_duplicate_warnings,
@@ -36,9 +40,12 @@ from modules.headcount.ui_format import (
     build_cliente_cards_for_ui,
     clientes_detectados_labels,
     display_ubicacion,
+    is_empty_ui_value,
     parse_fecha_corte_auditoria,
     parse_fecha_ingreso,
 )
+
+_logger = logging.getLogger(__name__)
 
 DESARROLLO_INF_PATRON = "DESARROLLO IN F"
 
@@ -65,17 +72,135 @@ _HEADCOUNT_COLUMNS = [
     "LUGAR DE NACIMIENTO",
 ]
 
+_STATUS_HEADER_MARKERS = frozenset(
+    {
+        "STATUS OPERACIÓN",
+        "STATUS OPERACION",
+        "STATUS OPERATIVO",
+        "ESTATUS OPERACION",
+        "ESTATUS OPERACIÓN",
+        "ESTATUS",
+        "STATUS",
+        "ESTADO",
+    }
+)
+
+_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+    "CLIENTE": ("CLIENTE",),
+    "UBICACION": ("UBICACION", "UBICACIÓN", "PLANTA"),
+    "PUESTO": ("PUESTO",),
+    "SUELDO DIARIO": ("SUELDO DIARIO",),
+    "SUELDO SEMANAL": ("SUELDO SEMANAL",),
+    "PATRON": ("PATRON", "PATRÓN"),
+    "FECHA DE INGRESO": ("FECHA DE INGRESO", "FECHA INGRESO"),
+    "STATUS OPERACIÓN": (
+        "STATUS OPERACIÓN",
+        "STATUS OPERACION",
+        "STATUS OPERATIVO",
+        "ESTATUS OPERACION",
+        "ESTATUS OPERACIÓN",
+        "ESTATUS",
+        "STATUS",
+        "ESTADO",
+    ),
+    "STATUS IMSS": ("STATUS IMSS", "ESTATUS IMSS"),
+    "RFC HOMOCLAVE": ("RFC HOMOCLAVE", "RFC"),
+    "CP FISCAL": ("CP FISCAL", "CODIGO POSTAL FISCAL", "C.P. FISCAL"),
+    "CURP": ("CURP",),
+    "NSS": ("NSS", "NO. SEGURO SOCIAL", "NO SEGURO SOCIAL", "NUMERO DE SEGURO SOCIAL"),
+    "APELLIDO PATERNO": ("APELLIDO PATERNO",),
+    "APELLIDO MATERNO": ("APELLIDO MATERNO",),
+    "NOMBRE": ("NOMBRE",),
+    "NOMBRE COMPLETO": ("NOMBRE COMPLETO", "NOMBRE COMPLETO ", "NOMBRE COMPLETO/NOMBRE"),
+    "GENERO": ("GENERO", "GÉNERO"),
+    "FECHA DE NACIMIENTO": ("FECHA DE NACIMIENTO", "FECHA NACIMIENTO"),
+    "LUGAR DE NACIMIENTO": ("LUGAR DE NACIMIENTO", "LUGAR NACIMIENTO"),
+}
+
+
+def normalize_status(value: Any) -> str:
+    """Normaliza estatus operativo; valores inválidos o contaminados quedan vacíos."""
+    if _is_empty(value):
+        return ""
+    s = _normalize_spaces(str(value).strip().upper())
+    if is_empty_ui_value(s):
+        return ""
+    if s.startswith("NAN") or "NAN MATCH" in s or "MATCH_NAME" in s:
+        return ""
+    return s
+
+
+def _sanitize_text_field(value: Any) -> str:
+    if _is_empty(value):
+        return ""
+    s = _normalize_spaces(str(value).strip())
+    if is_empty_ui_value(s):
+        return ""
+    return s
+
+
+def _coerce_numeric_field(value: Any) -> int | float | None:
+    if _is_empty(value):
+        return None
+    if hasattr(value, "item"):
+        try:
+            value = value.item()
+        except (AttributeError, ValueError):
+            pass
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return None
+    if isinstance(value, int):
+        return int(value)
+    if isinstance(value, float):
+        return float(value)
+    return value
+
+
+def _coerce_record_for_ui(record: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in record.items():
+        if _is_empty(value):
+            out[key] = None if key.startswith("sueldo_") or key.endswith("_score") else ""
+            continue
+        if hasattr(value, "item"):
+            try:
+                value = value.item()
+            except (AttributeError, ValueError):
+                pass
+        if isinstance(value, (datetime, date)):
+            out[key] = value.isoformat()
+            continue
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            out[key] = None if key.startswith("sueldo_") else ""
+            continue
+        if isinstance(value, int) and not isinstance(value, bool):
+            out[key] = int(value)
+            continue
+        out[key] = value
+    return out
+
 
 def _find_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
+    if df is None or getattr(df, "empty", True):
+        return -1, {}
     for i in range(len(df.index)):
         normalized = [_normalize_header(v) for v in df.iloc[i].tolist()]
-        if "STATUS OPERACIÓN" in normalized or "STATUS OPERACION" in normalized:
-            header_map = {normalized[j]: j for j in range(len(normalized))}
+        header_map = {normalized[j]: j for j in range(len(normalized)) if normalized[j]}
+        if header_map and any(marker in header_map for marker in _STATUS_HEADER_MARKERS):
             return i, header_map
-    raise ValueError("No se encontró encabezado STATUS OPERACIÓN en Headcount.")
+        if "NOMBRE COMPLETO" in header_map and ("CLIENTE" in header_map or "NSS" in header_map):
+            return i, header_map
+    return -1, {}
 
 
 def _col(header_map: dict[str, int], name: str) -> int | None:
+    aliases = _COLUMN_ALIASES.get(name, (name,))
+    for alias in aliases:
+        if alias in header_map:
+            return header_map[alias]
+        alt = alias.replace("Ó", "O")
+        if alt in header_map:
+            return header_map[alt]
     if name in header_map:
         return header_map[name]
     alt = name.replace("Ó", "O")
@@ -91,58 +216,109 @@ def _cell(row: list[Any], header_map: dict[str, int], name: str) -> Any:
     return row[idx] if idx < len(row) else ""
 
 
+def _is_contaminated_name(value: Any) -> bool:
+    s = _sanitize_text_field(value)
+    if not s:
+        return True
+    upper = s.upper()
+    if upper.startswith("NAN") or "MATCH_NAME" in upper or "MATCH NAME" in upper:
+        return True
+    return is_empty_ui_value(s)
+
+
+def _resolve_nombre_completo(row: list[Any], header_map: dict[str, int]) -> str:
+    direct = _sanitize_text_field(_cell(row, header_map, "NOMBRE COMPLETO"))
+    if direct and not _is_contaminated_name(direct):
+        normalized = _normalize_name(direct)
+        if normalized and not _is_contaminated_name(normalized):
+            return normalized
+    parts = [
+        _sanitize_text_field(_cell(row, header_map, "NOMBRE")),
+        _sanitize_text_field(_cell(row, header_map, "APELLIDO PATERNO")),
+        _sanitize_text_field(_cell(row, header_map, "APELLIDO MATERNO")),
+    ]
+    built = _normalize_name(" ".join(p for p in parts if p))
+    if built and not _is_contaminated_name(built):
+        return built
+    return ""
+
+
+def _status_display_label(status_op: str, status_imss: str) -> str:
+    if status_op:
+        if _is_status_activo_operacion(status_op):
+            return status_op
+        if _is_status_baja_operacion(status_op):
+            return status_op
+        return status_op
+    if status_imss:
+        return status_imss
+    return "SIN ESTATUS"
+
+
 def obtener_registros_headcount(
     *,
     solo_activos: bool = False,
     patron: str | None = None,
 ) -> list[dict[str, Any]]:
-    df = obtener_df_headcount()
+    try:
+        df = obtener_df_headcount()
+    except ValueError as exc:
+        _logger.warning("Headcount no disponible al leer registros: %s", exc)
+        return []
+    if df is None or getattr(df, "empty", True):
+        return []
+
     header_row_idx, header_map = _find_header(df)
+    if header_row_idx < 0 or not header_map:
+        _logger.warning("Headcount sin encabezado reconocible para conteo de personal.")
+        return []
+
     registros: list[dict[str, Any]] = []
     seq = 0
     for i in range(header_row_idx + 1, len(df.index)):
         row = df.iloc[i].tolist()
-        nombre_completo = _normalize_name(_cell(row, header_map, "NOMBRE COMPLETO"))
+        nombre_completo = _resolve_nombre_completo(row, header_map)
         if not nombre_completo:
             continue
-        status_op = _normalize_spaces(
-            str(_cell(row, header_map, "STATUS OPERACIÓN") or "").strip().upper()
-        )
-        status_imss = _normalize_spaces(str(_cell(row, header_map, "STATUS IMSS") or "").strip().upper())
-        if solo_activos and status_op != "ALTA":
+
+        status_op = normalize_status(_cell(row, header_map, "STATUS OPERACIÓN"))
+        status_imss = normalize_status(_cell(row, header_map, "STATUS IMSS"))
+        if solo_activos and not _is_status_activo_operacion(status_op):
             continue
-        patron_val = _normalize_spaces(str(_cell(row, header_map, "PATRON") or "").strip())
+
+        patron_val = _sanitize_text_field(_cell(row, header_map, "PATRON"))
         if patron and normalize_text(patron_val) != normalize_text(patron):
             continue
+
         seq += 1
-        sueldo_diario = _cell(row, header_map, "SUELDO DIARIO")
-        sueldo_semanal = _cell(row, header_map, "SUELDO SEMANAL")
+        sueldo_diario = _coerce_numeric_field(_cell(row, header_map, "SUELDO DIARIO"))
+        sueldo_semanal = _coerce_numeric_field(_cell(row, header_map, "SUELDO SEMANAL"))
         registros.append(
-            {
-                "headcount_id": f"hc_{seq}",
-                "cliente": _normalize_spaces(str(_cell(row, header_map, "CLIENTE") or "").strip()),
-                "ubicacion": _normalize_spaces(str(_cell(row, header_map, "UBICACION") or "").strip()),
-                "puesto": _normalize_spaces(str(_cell(row, header_map, "PUESTO") or "").strip()),
-                "sueldo_diario": None if _is_empty(sueldo_diario) else sueldo_diario,
-                "sueldo_semanal": None if _is_empty(sueldo_semanal) else sueldo_semanal,
-                "patron": patron_val,
-                "fecha_ingreso": _format_fecha(_cell(row, header_map, "FECHA DE INGRESO")),
-                "status_operacion": status_op or "DESCONOCIDO",
-                "status_imss": status_imss or "DESCONOCIDO",
-                "rfc_homoclave": _normalize_spaces(str(_cell(row, header_map, "RFC HOMOCLAVE") or "").strip()),
-                "cp_fiscal": _normalize_spaces(str(_cell(row, header_map, "CP FISCAL") or "").strip()),
-                "curp": _normalize_spaces(str(_cell(row, header_map, "CURP") or "").strip()).upper(),
-                "nss": _normalize_spaces(str(_cell(row, header_map, "NSS") or "").strip()),
-                "apellido_paterno": _normalize_spaces(str(_cell(row, header_map, "APELLIDO PATERNO") or "").strip()),
-                "apellido_materno": _normalize_spaces(str(_cell(row, header_map, "APELLIDO MATERNO") or "").strip()),
-                "nombre": _normalize_spaces(str(_cell(row, header_map, "NOMBRE") or "").strip()),
-                "nombre_completo": nombre_completo,
-                "genero": _normalize_spaces(str(_cell(row, header_map, "GENERO") or "").strip()),
-                "fecha_nacimiento": _format_fecha(_cell(row, header_map, "FECHA DE NACIMIENTO")),
-                "lugar_nacimiento": _normalize_spaces(
-                    str(_cell(row, header_map, "LUGAR DE NACIMIENTO") or "").strip()
-                ),
-            }
+            _coerce_record_for_ui(
+                {
+                    "headcount_id": f"hc_{seq}",
+                    "cliente": _sanitize_text_field(_cell(row, header_map, "CLIENTE")),
+                    "ubicacion": _sanitize_text_field(_cell(row, header_map, "UBICACION")),
+                    "puesto": _sanitize_text_field(_cell(row, header_map, "PUESTO")),
+                    "sueldo_diario": sueldo_diario,
+                    "sueldo_semanal": sueldo_semanal,
+                    "patron": patron_val,
+                    "fecha_ingreso": _format_fecha(_cell(row, header_map, "FECHA DE INGRESO")),
+                    "status_operacion": _status_display_label(status_op, status_imss),
+                    "status_imss": status_imss or "SIN ESTATUS",
+                    "rfc_homoclave": _sanitize_text_field(_cell(row, header_map, "RFC HOMOCLAVE")),
+                    "cp_fiscal": _sanitize_text_field(_cell(row, header_map, "CP FISCAL")),
+                    "curp": _sanitize_text_field(_cell(row, header_map, "CURP")).upper(),
+                    "nss": _sanitize_text_field(_cell(row, header_map, "NSS")),
+                    "apellido_paterno": _sanitize_text_field(_cell(row, header_map, "APELLIDO PATERNO")),
+                    "apellido_materno": _sanitize_text_field(_cell(row, header_map, "APELLIDO MATERNO")),
+                    "nombre": _sanitize_text_field(_cell(row, header_map, "NOMBRE")),
+                    "nombre_completo": nombre_completo,
+                    "genero": _sanitize_text_field(_cell(row, header_map, "GENERO")),
+                    "fecha_nacimiento": _format_fecha(_cell(row, header_map, "FECHA DE NACIMIENTO")),
+                    "lugar_nacimiento": _sanitize_text_field(_cell(row, header_map, "LUGAR DE NACIMIENTO")),
+                }
+            )
         )
     return registros
 
@@ -209,15 +385,15 @@ def calc_metricas_desarrollo_inf(
 def resumen_cliente_view(
     registros: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    activos = sum(1 for r in registros if normalize_text(r.get("status_operacion")) == "ALTA")
-    bajas = len(registros) - activos
+    activos = sum(1 for r in registros if _is_status_activo_operacion(normalize_status(r.get("status_operacion"))))
+    bajas = sum(1 for r in registros if _is_status_baja_operacion(normalize_status(r.get("status_operacion"))))
     return {
         "total": len(registros),
         "activos": activos,
         "bajas": bajas,
-        "sin_curp": sum(1 for r in registros if not str(r.get("curp") or "").strip()),
-        "sin_nss": sum(1 for r in registros if not str(r.get("nss") or "").strip()),
-        "sin_ubicacion": sum(1 for r in registros if not str(r.get("ubicacion") or "").strip()),
+        "sin_curp": sum(1 for r in registros if not _sanitize_text_field(r.get("curp"))),
+        "sin_nss": sum(1 for r in registros if not _sanitize_text_field(r.get("nss"))),
+        "sin_ubicacion": sum(1 for r in registros if not _sanitize_text_field(r.get("ubicacion"))),
     }
 
 

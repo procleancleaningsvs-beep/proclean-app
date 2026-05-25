@@ -10,20 +10,20 @@
     <tbody>
       {% for r in registros %}
       <tr>
-        <td>{{ r.cliente }}</td>
-        <td>{{ r.ubicacion }}</td>
-        <td>{{ r.puesto }}</td>
-        <td>{{ r.patron }}</td>
-        <td>{{ r.fecha_ingreso }}</td>
-        <td>{{ r.status_operacion }}</td>
-        <td>{{ r.status_imss }}</td>
-        <td>{{ r.rfc_homoclave }}</td>
-        <td>{{ r.curp }}</td>
-        <td>{{ r.nss }}</td>
-        <td>{{ r.apellido_paterno }}</td>
-        <td>{{ r.apellido_materno }}</td>
-        <td>{{ r.nombre }}</td>
-        <td>{{ r.nombre_completo }}</td>
+        <td>{{ r.cliente|default('', true) }}</td>
+        <td>{{ r.ubicacion|default('', true) }}</td>
+        <td>{{ r.puesto|default('', true) }}</td>
+        <td>{{ r.patron|default('', true) }}</td>
+        <td>{{ r.fecha_ingreso|default('', true) }}</td>
+        <td>{{ r.status_operacion|default('SIN ESTATUS', true) }}</td>
+        <td>{{ r.status_imss|default('SIN ESTATUS', true) }}</td>
+        <td>{{ r.rfc_homoclave|default('', true) }}</td>
+        <td>{{ r.curp|default('', true) }}</td>
+        <td>{{ r.nss|default('', true) }}</td>
+        <td>{{ r.apellido_paterno|default('', true) }}</td>
+        <td>{{ r.apellido_materno|default('', true) }}</td>
+        <td>{{ r.nombre|default('', true) }}</td>
+        <td>{{ r.nombre_completo|default('', true) }}</td>
         <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="hc-row-{{ loop.index }}">Ver más</button></td>
       </tr>
       <tr class="hc-detail-row" id="hc-row-{{ loop.index }}">
@@ -36,7 +36,7 @@
         </td>
       </tr>
       {% else %}
-      <tr><td colspan="15">Sin registros. Ajusta filtros o selecciona cliente.</td></tr>
+      <tr><td colspan="15">No hay registros activos disponibles para mostrar.</td></tr>
       {% endfor %}
     </tbody>
   </table>

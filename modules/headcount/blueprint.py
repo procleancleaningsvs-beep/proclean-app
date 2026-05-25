@@ -426,6 +426,10 @@ def conteo_personal():
     if should_mask_sensitive_data(_role()):
         registros = [mask_registro_for_display(r, role=_role()) for r in registros]
 
+    headcount_error = None
+    if not registros and not any([cliente, ubicacion, patron, status, busqueda]):
+        headcount_error = "No hay registros activos disponibles para mostrar."
+
     return render_template(
         "headcount/conteo_personal.html",
         registros=registros,
@@ -441,6 +445,7 @@ def conteo_personal():
         can_status_filter=not solo_activos,
         can_patron_filter=not solo_activos,
         mask_sensitive=should_mask_sensitive_data(_role()),
+        headcount_error=headcount_error,
     )
 
 

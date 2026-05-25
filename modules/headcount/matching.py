@@ -45,7 +45,7 @@ _INFO_LABELS: dict[str, str] = {
 _WARNINGS_NO_CRITICOS = frozenset({"SUA_BAJA_SIN_MATCH_HEADCOUNT"})
 _INFO_ESTADOS = frozenset({"BAJA_CONCILIADA"})
 
-_STATUS_ACTIVO_OPERACION = frozenset({"ALTA", "ACTIVO", "ACTIVA", "OPERATIVO", "OPERATIVA"})
+_STATUS_ACTIVO_OPERACION = frozenset({"ALTA", "ACTIVO", "ACTIVA", "VIGENTE", "OPERATIVO", "OPERATIVA"})
 _STATUS_BAJA_OPERACION = frozenset({"BAJA", "INACTIVO", "INACTIVA", "SUSPENDIDO", "SUSPENDIDA"})
 def normalize_text(value: Any) -> str:
     s = str(value or "").strip().upper()
