@@ -473,31 +473,12 @@ def resolve_libreoffice_command() -> str:
 
 
 def convert_docx_to_pdf(docx_path: Path, outdir: Path) -> Path:
+    """Convierte DOCX a PDF usando el pipeline central (perfil LO aislado)."""
+    from modules.vitroflex_docs.libreoffice_pdf import docx_to_pdf
+
     outdir.mkdir(parents=True, exist_ok=True)
-    lo_home = outdir / ".lo_profile"
-    lo_home.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["HOME"] = str(lo_home)
-
-    office_cmd = resolve_libreoffice_command()
-    cmd = [
-        office_cmd,
-        "--headless",
-        "--convert-to",
-        "pdf",
-        "--outdir",
-        str(outdir),
-        str(docx_path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
-        stdout = (result.stdout or "").strip()
-        raise RuntimeError(f"LibreOffice falló al convertir a PDF: {stderr or stdout or 'Error desconocido'}")
-
     pdf_path = outdir / f"{docx_path.stem}.pdf"
-    if not pdf_path.exists():
-        raise RuntimeError("LibreOffice terminó sin error, pero no generó el PDF esperado")
+    docx_to_pdf(docx_path, pdf_path)
     return pdf_path
 
 

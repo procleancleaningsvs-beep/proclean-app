@@ -19,3 +19,6 @@ AVI_*.PDF
 AVI_*.pdf
 *infonavit*real*.pdf
 *INFONAVIT*REAL*.PDF
+
+# Comparación visual PDF (datos reales, no versionar)
+tmp/pdf_regression/

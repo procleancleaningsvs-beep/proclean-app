@@ -13,16 +13,23 @@ RUN apt-get clean && \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+        libreoffice-core \
         libreoffice-writer \
-        fonts-liberation \
-        fonts-dejavu-core \
         fontconfig \
+        fonts-crosextra-carlito \
+        fonts-crosextra-caladea \
+        fonts-liberation2 \
+        fonts-dejavu \
+        fonts-noto-core \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/*
 
 COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
+
+COPY docker/fontconfig/61-proclean-office-substitutions.conf /etc/fonts/conf.d/61-proclean-office-substitutions.conf
+RUN fc-cache -f -v
 
 COPY . .
 
