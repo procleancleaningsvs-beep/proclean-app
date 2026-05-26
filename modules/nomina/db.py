@@ -940,6 +940,25 @@ def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str,
         conn.close()
 
 
+def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -> dict[str, Any]:
+    """KPIs del hub /nomina/ sin OneDrive, Excel ni pandas."""
+    localidades = list_localidades_frontera(db_path)
+    return {
+        "dash": nomina_dashboard_overview(db_path, recent_limit=recent_limit),
+        "vac_stats": get_vacaciones_stats(db_path),
+        "inf_stats": get_infonavit_stats(db_path),
+        "param_stats": get_parametros_stats(db_path, None),
+        "param_localidades_count": len(localidades),
+        "param_localidades_frontera_count": sum(1 for it in localidades if it.get("es_frontera")),
+        "calc_kpis": nomina_calculo_dashboard_kpis(db_path),
+        "headcount_source": "hub_fast",
+        "headcount_notice": (
+            "Activos Headcount no se cargan en el hub. "
+            "Use Parámetros o el botón «Actualizar Headcount» para refrescar OneDrive."
+        ),
+    }
+
+
 def nomina_clientes_from_history(db_path: str) -> list[str]:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row

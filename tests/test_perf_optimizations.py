@@ -175,3 +175,100 @@ def test_compute_parametros_stats_legacy_mode_does_not_inflate_activos(tmp_path)
     stats = compute_parametros_stats(db, _sample_hc())
     assert stats["activos_headcount"] == 2
     assert stats["stats_mode"] == "headcount"
+
+
+def test_nomina_index_get_does_not_load_headcount_completo(tmp_path, monkeypatch):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables
+
+    db = str(tmp_path / "hub.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+
+    calls = {"completo": 0, "activos": 0}
+
+    def boom_completo():
+        calls["completo"] += 1
+        raise AssertionError("obtener_headcount_completo must not run on GET /nomina/")
+
+    def boom_activos(*_a, **_k):
+        calls["activos"] += 1
+        raise AssertionError("obtener_activos must not run on GET /nomina/")
+
+    monkeypatch.setenv("PERF_LOG_ENABLED", "1")
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
+    monkeypatch.setattr("modules.comparativo.headcount_service.obtener_activos", boom_activos)
+
+    from app import create_app
+
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["DATABASE"] = db
+
+    with app.app_context():
+        with app.test_client() as client:
+            # Create admin user inline
+            from werkzeug.security import generate_password_hash
+
+            conn = sqlite3.connect(db)
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)",
+                ("perfadmin", generate_password_hash("secret"), "2026-01-01 00:00:00"),
+            )
+            conn.commit()
+            conn.close()
+            client.post("/login", data={"username": "perfadmin", "password": "secret"})
+            resp = client.get("/nomina/", follow_redirects=True)
+            assert resp.status_code == 200
+    assert calls["completo"] == 0
+    assert calls["activos"] == 0
+
+
+def test_get_nomina_dashboard_summary_fast_uses_local_stats_only(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, get_nomina_dashboard_summary_fast
+
+    db = str(tmp_path / "dash_fast.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
+    assert summary["headcount_source"] == "hub_fast"
+    assert summary["param_stats"]["stats_mode"] == "legacy"
+    assert "dash" in summary and "vac_stats" in summary
+
+
+def test_headcount_bridge_avoids_row_iloc_loop():
+    import inspect
+
+    from modules.nomina import headcount_bridge
+
+    src = inspect.getsource(headcount_bridge.obtener_headcount_completo)
+    assert "for i in range" not in src
+    assert "df.iloc[i]" not in src
+    assert "itertuples" in src
+
+
+def test_perf_startup_log_when_enabled(monkeypatch, caplog):
+    monkeypatch.setenv("PERF_LOG_ENABLED", "1")
+    from app import create_app
+
+    with caplog.at_level("INFO"):
+        create_app()
+    assert any("[PERF] performance logging enabled" in r.message for r in caplog.records)

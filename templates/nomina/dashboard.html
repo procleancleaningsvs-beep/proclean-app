@@ -36,13 +36,20 @@
     <p>Vista inicial para roles Nómina y Admin. Sin cálculos fiscales/laborales en esta microfase.</p>
   </div>
   <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
+  <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
+    <button class="btn btn-secondary" type="submit">Actualizar Headcount</button>
+  </form>
 </section>
 
 <div class="nd-wrap">
-  {% if headcount_source == 'historial_fallback' %}
+  {% if headcount_source in ('historial_fallback', 'hub_fast') %}
   <section class="nd-card">
-    <h3>Advertencia de fuente</h3>
+    <h3>Headcount / OneDrive</h3>
+    {% if headcount_source == 'hub_fast' %}
+    <p class="nd-soon">El hub no descarga Headcount al abrir. Los KPIs de activos Headcount muestran N/D hasta consultar Parámetros o usar «Actualizar Headcount».</p>
+    {% else %}
     <p class="nd-soon">Headcount no disponible: la validación contra catálogo se omitió en el Hub. No se generan warnings masivos por fila por este motivo.</p>
+    {% endif %}
     {% if headcount_error %}<p class="nd-soon">{{ headcount_error }}</p>{% endif %}
   </section>
   {% endif %}

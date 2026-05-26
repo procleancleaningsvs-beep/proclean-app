@@ -9,7 +9,13 @@ from typing import Iterator
 
 from flask import Flask, g, request
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("proclean.perf")
+
+
+def _perf_log(level: str, msg: str, *args: object) -> None:
+    """Emit PERF lines on root logger so Gunicorn stdout captures them."""
+    line = msg % args if args else msg
+    logging.getLogger().log(getattr(logging, level.upper(), logging.INFO), line)
 
 _PERF_ENV = "PERF_LOG_ENABLED"
 
@@ -33,11 +39,13 @@ def perf_span(name: str) -> Iterator[None]:
         yield
     finally:
         elapsed_ms = int((time.perf_counter() - t0) * 1000)
-        logger.info("[PERF] span=%s duration_ms=%d", name, elapsed_ms)
+        _perf_log("info", "[PERF] span=%s duration_ms=%d", name, elapsed_ms)
 
 
 def register_perf_hooks(app: Flask) -> None:
     """Register before/after request hooks for route timing."""
+    if perf_log_enabled():
+        _perf_log("info", "[PERF] performance logging enabled")
 
     @app.before_request
     def _perf_before_request() -> None:
@@ -60,7 +68,8 @@ def register_perf_hooks(app: Flask) -> None:
                 role = user["role"]
             except (TypeError, KeyError):
                 role = getattr(user, "role", None)
-        logger.info(
+        _perf_log(
+            "info",
             "[PERF] %s %s endpoint=%s status=%s duration_ms=%d user_role=%s mode=%s",
             request.method,
             request.path,

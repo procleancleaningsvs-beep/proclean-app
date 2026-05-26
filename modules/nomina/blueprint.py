@@ -38,6 +38,7 @@ from modules.nomina.db import (
     delete_asistencia_import,
     fetch_asistencia_original_file,
     nomina_dashboard_overview,
+    get_nomina_dashboard_summary_fast,
     nomina_clientes_from_history,
     nomina_history_rows_for_headcount_fallback,
     get_vacaciones_stats,
@@ -323,7 +324,25 @@ def _pagination_args(default_per_page: int = 50) -> tuple[int, int, int]:
     return page, per_page, offset
 
 
+def _clientes_from_local_history() -> tuple[list[str], dict[str, list[str]], str | None, str]:
+    """Clientes para el hub sin descargar Headcount/OneDrive."""
+    db_path = _db_path()
+    clientes = nomina_clientes_from_history(db_path)
+    agrupaciones_raw = alias_service.obtener_agrupaciones()
+    agrupaciones: dict[str, list[str]] = {}
+    clientes_set = set(clientes)
+    for name, members in (agrupaciones_raw or {}).items():
+        group_clients = [str(c).strip() for c in (members or []) if str(c).strip() in clientes_set]
+        if group_clients:
+            agrupaciones[str(name).strip()] = group_clients
+    notice = None
+    if not clientes:
+        notice = "Sin clientes en historial local. Importe asistencia o use Parámetros para operar."
+    return clientes, agrupaciones, notice, "historial_local"
+
+
 def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None, str]:
+    """Headcount completo — solo para rutas que lo requieran explícitamente (no GET /nomina/)."""
     try:
         from modules.comparativo.headcount_service import obtener_activos
 
@@ -588,27 +607,24 @@ def _cliente_header_label(clientes: list[str]) -> str:
 @_nomina_access_required
 def index():
     role = _current_role()
-    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
+    db_path = _db_path()
     if role in _NOMINA_DASHBOARD_ROLES:
-        dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
-        vac_stats = get_vacaciones_stats(_db_path())
-        inf_stats = get_infonavit_stats(_db_path())
-        hc_rows, hc_err = _headcount_for_match()
-        param_stats = get_parametros_stats(_db_path(), hc_rows if not hc_err else None)
-        param_localidades = list_localidades_frontera(_db_path())
-        calc_kpis = nomina_calculo_dashboard_kpis(_db_path())
+        with perf_span("nomina.index.dashboard_fast"):
+            summary = get_nomina_dashboard_summary_fast(db_path, recent_limit=12)
         return render_template(
             "nomina/dashboard.html",
-            dash=dash,
-            vac_stats=vac_stats,
-            inf_stats=inf_stats,
-            param_stats=param_stats,
-            param_localidades_count=len(param_localidades),
-            param_localidades_frontera_count=sum(1 for it in param_localidades if it.get("es_frontera")),
-            calc_kpis=calc_kpis,
-            headcount_error=headcount_error,
-            headcount_source=headcount_source,
+            dash=summary["dash"],
+            vac_stats=summary["vac_stats"],
+            inf_stats=summary["inf_stats"],
+            param_stats=summary["param_stats"],
+            param_localidades_count=summary["param_localidades_count"],
+            param_localidades_frontera_count=summary["param_localidades_frontera_count"],
+            calc_kpis=summary["calc_kpis"],
+            headcount_error=summary.get("headcount_notice"),
+            headcount_source=summary.get("headcount_source", "hub_fast"),
         )
+    with perf_span("nomina.index.master_hub_fast"):
+        clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
     import_id = request.args.get("import_id", type=int)
     imp = _maybe_load_asistencia_import_for_hub(import_id)
     if import_id and imp is None:
@@ -621,7 +637,7 @@ def index():
         headcount_error=headcount_error,
         headcount_source=headcount_source,
         asistencia_history=list_asistencia_imports_master_hub(
-            _db_path(),
+            db_path,
             viewer_user_id=int(g.user["id"]) if g.user else None,
             role=_current_role(),
             limit=50,
@@ -631,6 +647,21 @@ def index():
     )
 
 
+@nomina_bp.post("/actualizar-headcount")
+@_nomina_dashboard_required
+def actualizar_headcount_hub():
+    """Invalida caché Headcount; la descarga ocurre solo al abrir Parámetros/Conciliación."""
+    from modules.comparativo.headcount_service import actualizar_headcount
+
+    with perf_span("nomina.headcount_manual_refresh"):
+        actualizar_headcount()
+    flash(
+        "Caché Headcount invalidado. La próxima apertura de Parámetros o Conciliación refrescará desde OneDrive.",
+        "success",
+    )
+    return redirect(url_for("nomina.index"))
+
+
 @nomina_bp.get("/master")
 @_nomina_access_required
 def master_hub():
@@ -638,7 +669,7 @@ def master_hub():
     imp = _maybe_load_asistencia_import_for_hub(import_id)
     if import_id and imp is None:
         flash("No se encontró la importación o no tienes permiso para verla.", "error")
-    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
+    clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
     return render_template(
         "nomina/index.html",
         coordinador_display=_coordinador_display_name(),
