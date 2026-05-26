@@ -4,9 +4,11 @@ import hashlib
 import logging
 import math
 import re
+import time
 from datetime import date, datetime
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from modules.comparativo.headcount_service import (
@@ -22,6 +24,7 @@ from modules.headcount.matching import (
     _hc_es_activo,
     _is_status_activo_operacion,
     _is_status_baja_operacion,
+    _STATUS_ACTIVO_OPERACION,
     build_headcount_global_indexes,
     build_headcount_rafael_indexes,
     collect_duplicate_warnings,
@@ -117,6 +120,29 @@ _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     "LUGAR DE NACIMIENTO": ("LUGAR DE NACIMIENTO", "LUGAR NACIMIENTO"),
 }
 
+_BODY_FIELD_MAP: tuple[tuple[str, str], ...] = (
+    ("cliente", "CLIENTE"),
+    ("ubicacion", "UBICACION"),
+    ("puesto", "PUESTO"),
+    ("sueldo_diario", "SUELDO DIARIO"),
+    ("sueldo_semanal", "SUELDO SEMANAL"),
+    ("patron", "PATRON"),
+    ("fecha_ingreso", "FECHA DE INGRESO"),
+    ("status_operacion_raw", "STATUS OPERACIÓN"),
+    ("status_imss_raw", "STATUS IMSS"),
+    ("rfc_homoclave", "RFC HOMOCLAVE"),
+    ("cp_fiscal", "CP FISCAL"),
+    ("curp", "CURP"),
+    ("nss", "NSS"),
+    ("apellido_paterno", "APELLIDO PATERNO"),
+    ("apellido_materno", "APELLIDO MATERNO"),
+    ("nombre", "NOMBRE"),
+    ("nombre_completo_raw", "NOMBRE COMPLETO"),
+    ("genero", "GENERO"),
+    ("fecha_nacimiento", "FECHA DE NACIMIENTO"),
+    ("lugar_nacimiento", "LUGAR DE NACIMIENTO"),
+)
+
 
 def normalize_status(value: Any) -> str:
     """Normaliza estatus operativo; valores inválidos o contaminados quedan vacíos."""
@@ -183,8 +209,10 @@ def _coerce_record_for_ui(record: dict[str, Any]) -> dict[str, Any]:
 def _find_header(df: pd.DataFrame) -> tuple[int, dict[str, int]]:
     if df is None or getattr(df, "empty", True):
         return -1, {}
-    for i in range(len(df.index)):
-        normalized = [_normalize_header(v) for v in df.iloc[i].tolist()]
+    scan_limit = min(len(df.index), 30)
+    for i in range(scan_limit):
+        row_values = df.iloc[i].to_numpy(copy=False)
+        normalized = [_normalize_header(v) for v in row_values]
         header_map = {normalized[j]: j for j in range(len(normalized)) if normalized[j]}
         if header_map and any(marker in header_map for marker in _STATUS_HEADER_MARKERS):
             return i, header_map
@@ -255,16 +283,167 @@ def _status_display_label(status_op: str, status_imss: str) -> str:
     return "SIN ESTATUS"
 
 
+def _vector_sanitize_text_series(values: Any) -> pd.Series:
+    s = pd.Series(values, copy=False).fillna("")
+    out = s.astype(str).str.strip().str.replace(r"\s+", " ", regex=True)
+    lowered = out.str.casefold()
+    invalid = lowered.isin({"nan", "none", "null", "nat", "<na>"}) | (out == "")
+    return out.where(~invalid, "")
+
+
+def _vector_normalize_status_series(values: Any) -> pd.Series:
+    s = _vector_sanitize_text_series(values).str.upper()
+    invalid = (
+        s.str.startswith("NAN", na=False)
+        | s.str.contains("MATCH_NAME", na=False)
+        | s.str.contains("NAN MATCH", na=False)
+    )
+    return s.where(~invalid, "")
+
+
+def _vector_is_contaminated_name_series(values: pd.Series) -> pd.Series:
+    upper = values.astype(str).str.upper()
+    return (
+        values.eq("")
+        | upper.str.startswith("NAN", na=False)
+        | upper.str.contains("MATCH_NAME", na=False)
+        | upper.str.contains("MATCH NAME", na=False)
+    )
+
+
+def _extract_body_dataframe(df: pd.DataFrame, header_row_idx: int, header_map: dict[str, int]) -> pd.DataFrame:
+    body = df.iloc[header_row_idx + 1 :]
+    n_rows = len(body)
+    if n_rows == 0:
+        return pd.DataFrame()
+
+    n_cols = body.shape[1]
+    columns: dict[str, Any] = {}
+    for field, logical in _BODY_FIELD_MAP:
+        idx = _col(header_map, logical)
+        if idx is not None and idx < n_cols:
+            columns[field] = body.iloc[:, idx].to_numpy(copy=False)
+        else:
+            columns[field] = np.full(n_rows, "", dtype=object)
+    return pd.DataFrame(columns)
+
+
+def _prepare_body_dataframe(data: pd.DataFrame) -> pd.DataFrame:
+    data = data.copy()
+    data["status_op_norm"] = _vector_normalize_status_series(data["status_operacion_raw"])
+    data["status_imss_norm"] = _vector_normalize_status_series(data["status_imss_raw"])
+
+    direct_name = _vector_sanitize_text_series(data["nombre_completo_raw"]).map(_normalize_name)
+    direct_name = direct_name.where(~_vector_is_contaminated_name_series(direct_name), "")
+
+    built_name = (
+        _vector_sanitize_text_series(data["nombre"])
+        + " "
+        + _vector_sanitize_text_series(data["apellido_paterno"])
+        + " "
+        + _vector_sanitize_text_series(data["apellido_materno"])
+    ).str.strip().map(_normalize_name)
+    built_name = built_name.where(~_vector_is_contaminated_name_series(built_name), "")
+
+    data["nombre_completo"] = direct_name.where(direct_name != "", built_name)
+    return data[data["nombre_completo"] != ""].reset_index(drop=True)
+
+
+def _build_records_from_dataframe(data: pd.DataFrame) -> list[dict[str, Any]]:
+    if data.empty:
+        return []
+
+    clientes = _vector_sanitize_text_series(data["cliente"]).tolist()
+    ubicaciones = _vector_sanitize_text_series(data["ubicacion"]).tolist()
+    puestos = _vector_sanitize_text_series(data["puesto"]).tolist()
+    patrones = _vector_sanitize_text_series(data["patron"]).tolist()
+    fechas_ingreso = data["fecha_ingreso"].map(_format_fecha).tolist()
+    status_ops = data["status_op_norm"].tolist()
+    status_imss = data["status_imss_norm"].tolist()
+    rfcs = _vector_sanitize_text_series(data["rfc_homoclave"]).tolist()
+    cps = _vector_sanitize_text_series(data["cp_fiscal"]).tolist()
+    curps = _vector_sanitize_text_series(data["curp"]).str.upper().tolist()
+    nss_list = _vector_sanitize_text_series(data["nss"]).tolist()
+    ap_pat = _vector_sanitize_text_series(data["apellido_paterno"]).tolist()
+    ap_mat = _vector_sanitize_text_series(data["apellido_materno"]).tolist()
+    nombres = _vector_sanitize_text_series(data["nombre"]).tolist()
+    nombres_completos = data["nombre_completo"].tolist()
+    generos = _vector_sanitize_text_series(data["genero"]).tolist()
+    fechas_nac = data["fecha_nacimiento"].map(_format_fecha).tolist()
+    lugares_nac = _vector_sanitize_text_series(data["lugar_nacimiento"]).tolist()
+    sueldos_diarios = [_coerce_numeric_field(v) for v in data["sueldo_diario"].tolist()]
+    sueldos_semanales = [_coerce_numeric_field(v) for v in data["sueldo_semanal"].tolist()]
+
+    registros: list[dict[str, Any]] = []
+    for seq, row in enumerate(
+        zip(
+            clientes,
+            ubicaciones,
+            puestos,
+            sueldos_diarios,
+            sueldos_semanales,
+            patrones,
+            fechas_ingreso,
+            status_ops,
+            status_imss,
+            rfcs,
+            cps,
+            curps,
+            nss_list,
+            ap_pat,
+            ap_mat,
+            nombres,
+            nombres_completos,
+            generos,
+            fechas_nac,
+            lugares_nac,
+        ),
+        start=1,
+    ):
+        status_op, status_imss_val = row[7], row[8]
+        registros.append(
+            _coerce_record_for_ui(
+                {
+                    "headcount_id": f"hc_{seq}",
+                    "cliente": row[0],
+                    "ubicacion": row[1],
+                    "puesto": row[2],
+                    "sueldo_diario": row[3],
+                    "sueldo_semanal": row[4],
+                    "patron": row[5],
+                    "fecha_ingreso": row[6],
+                    "status_operacion": _status_display_label(status_op, status_imss_val),
+                    "status_imss": status_imss_val or "SIN ESTATUS",
+                    "rfc_homoclave": row[9],
+                    "cp_fiscal": row[10],
+                    "curp": row[11],
+                    "nss": row[12],
+                    "apellido_paterno": row[13],
+                    "apellido_materno": row[14],
+                    "nombre": row[15],
+                    "nombre_completo": row[16],
+                    "genero": row[17],
+                    "fecha_nacimiento": row[18],
+                    "lugar_nacimiento": row[19],
+                }
+            )
+        )
+    return registros
+
+
 def obtener_registros_headcount(
     *,
     solo_activos: bool = False,
     patron: str | None = None,
 ) -> list[dict[str, Any]]:
+    t0 = time.perf_counter()
     try:
         df = obtener_df_headcount()
     except ValueError as exc:
         _logger.warning("Headcount no disponible al leer registros: %s", exc)
         return []
+    t_load = time.perf_counter()
+
     if df is None or getattr(df, "empty", True):
         return []
 
@@ -273,66 +452,55 @@ def obtener_registros_headcount(
         _logger.warning("Headcount sin encabezado reconocible para conteo de personal.")
         return []
 
-    registros: list[dict[str, Any]] = []
-    seq = 0
-    for i in range(header_row_idx + 1, len(df.index)):
-        row = df.iloc[i].tolist()
-        nombre_completo = _resolve_nombre_completo(row, header_map)
-        if not nombre_completo:
-            continue
+    body = _extract_body_dataframe(df, header_row_idx, header_map)
+    t_extract = time.perf_counter()
+    if body.empty:
+        return []
 
-        status_op = normalize_status(_cell(row, header_map, "STATUS OPERACIÓN"))
-        status_imss = normalize_status(_cell(row, header_map, "STATUS IMSS"))
-        if solo_activos and not _is_status_activo_operacion(status_op):
-            continue
+    data = _prepare_body_dataframe(body)
+    if solo_activos:
+        data = data[data["status_op_norm"].isin(_STATUS_ACTIVO_OPERACION)]
+    if patron:
+        patron_objetivo = normalize_text(patron)
+        patron_norm = _vector_sanitize_text_series(data["patron"]).map(normalize_text)
+        data = data[patron_norm == patron_objetivo]
 
-        patron_val = _sanitize_text_field(_cell(row, header_map, "PATRON"))
-        if patron and normalize_text(patron_val) != normalize_text(patron):
-            continue
-
-        seq += 1
-        sueldo_diario = _coerce_numeric_field(_cell(row, header_map, "SUELDO DIARIO"))
-        sueldo_semanal = _coerce_numeric_field(_cell(row, header_map, "SUELDO SEMANAL"))
-        registros.append(
-            _coerce_record_for_ui(
-                {
-                    "headcount_id": f"hc_{seq}",
-                    "cliente": _sanitize_text_field(_cell(row, header_map, "CLIENTE")),
-                    "ubicacion": _sanitize_text_field(_cell(row, header_map, "UBICACION")),
-                    "puesto": _sanitize_text_field(_cell(row, header_map, "PUESTO")),
-                    "sueldo_diario": sueldo_diario,
-                    "sueldo_semanal": sueldo_semanal,
-                    "patron": patron_val,
-                    "fecha_ingreso": _format_fecha(_cell(row, header_map, "FECHA DE INGRESO")),
-                    "status_operacion": _status_display_label(status_op, status_imss),
-                    "status_imss": status_imss or "SIN ESTATUS",
-                    "rfc_homoclave": _sanitize_text_field(_cell(row, header_map, "RFC HOMOCLAVE")),
-                    "cp_fiscal": _sanitize_text_field(_cell(row, header_map, "CP FISCAL")),
-                    "curp": _sanitize_text_field(_cell(row, header_map, "CURP")).upper(),
-                    "nss": _sanitize_text_field(_cell(row, header_map, "NSS")),
-                    "apellido_paterno": _sanitize_text_field(_cell(row, header_map, "APELLIDO PATERNO")),
-                    "apellido_materno": _sanitize_text_field(_cell(row, header_map, "APELLIDO MATERNO")),
-                    "nombre": _sanitize_text_field(_cell(row, header_map, "NOMBRE")),
-                    "nombre_completo": nombre_completo,
-                    "genero": _sanitize_text_field(_cell(row, header_map, "GENERO")),
-                    "fecha_nacimiento": _format_fecha(_cell(row, header_map, "FECHA DE NACIMIENTO")),
-                    "lugar_nacimiento": _sanitize_text_field(_cell(row, header_map, "LUGAR DE NACIMIENTO")),
-                }
-            )
-        )
+    registros = _build_records_from_dataframe(data.reset_index(drop=True))
+    t_build = time.perf_counter()
+    _logger.info(
+        "headcount registros: load=%.3fs extract=%.3fs build=%.3fs total=%.3fs rows=%d solo_activos=%s",
+        t_load - t0,
+        t_extract - t_load,
+        t_build - t_extract,
+        t_build - t0,
+        len(registros),
+        solo_activos,
+    )
     return registros
 
 
-def listar_clientes_headcount(*, solo_activos: bool = False) -> list[str]:
+def listar_clientes_headcount(
+    *,
+    solo_activos: bool = False,
+    regs: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    if regs is None:
+        regs = obtener_registros_headcount(solo_activos=solo_activos)
     clientes = sorted(
-        {r["cliente"] for r in obtener_registros_headcount(solo_activos=solo_activos) if r.get("cliente")},
+        {r["cliente"] for r in regs if r.get("cliente")},
         key=lambda x: x.casefold(),
     )
     return clientes
 
 
-def listar_ubicaciones_headcount(cliente: str | None = None, *, solo_activos: bool = False) -> list[str]:
-    regs = obtener_registros_headcount(solo_activos=solo_activos)
+def listar_ubicaciones_headcount(
+    cliente: str | None = None,
+    *,
+    solo_activos: bool = False,
+    regs: list[dict[str, Any]] | None = None,
+) -> list[str]:
+    if regs is None:
+        regs = obtener_registros_headcount(solo_activos=solo_activos)
     if cliente:
         cf = cliente.strip().casefold()
         regs = [r for r in regs if str(r.get("cliente", "")).strip().casefold() == cf]

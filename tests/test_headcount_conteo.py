@@ -250,3 +250,97 @@ def test_headcount_unavailable_returns_empty_structure():
         "sin_nss": 0,
         "sin_ubicacion": 0,
     }
+
+
+def test_conteo_personal_loads_headcount_once(monkeypatch):
+    from pathlib import Path
+    from flask import Flask, g
+
+    headers = _sample_headers(status_col="ESTATUS")
+    row = [
+        "ACME",
+        "Planta",
+        "Op",
+        100,
+        700,
+        "RAFAEL",
+        "2024-01-01",
+        "ALTA",
+        "ALTA",
+        "RFC",
+        "12345",
+        "CURP",
+        "NSS123",
+        "A",
+        "B",
+        "C",
+        "JUAN PEREZ",
+        "M",
+        "2000-01-01",
+        "CDMX",
+    ]
+    df = pd.DataFrame([headers, row])
+
+    load_calls = 0
+
+    def counting_df_loader():
+        nonlocal load_calls
+        load_calls += 1
+        return df
+
+    monkeypatch.setattr(svc, "obtener_df_headcount", counting_df_loader)
+
+    repo = Path(__file__).resolve().parents[1]
+    app = Flask(__name__, template_folder=str(repo / "templates"))
+    app.config["DATABASE"] = ":memory:"
+    app.config["SECRET_KEY"] = "test"
+    from modules.headcount.blueprint import register_headcount
+
+    register_headcount(app)
+
+    with app.test_request_context("/headcount/conteo-personal"):
+        g.user = {"id": 1, "role": "admin", "username": "admin"}
+        html = conteo_personal()
+
+    assert isinstance(html, str)
+    assert load_calls == 1
+
+
+def test_obtener_registros_large_dataframe_is_fast():
+    headers = _sample_headers()
+    rows = [
+        [
+            "ACME",
+            f"Planta {i % 5}",
+            "Op",
+            100,
+            700,
+            "RAFAEL",
+            "2024-01-01",
+            "ALTA" if i % 3 else "BAJA",
+            "ALTA",
+            "",
+            "",
+            f"CURP{i}",
+            f"{i:05d}",
+            "A",
+            "B",
+            "C",
+            f"TRABAJADOR {i}",
+            "M",
+            "",
+            "",
+        ]
+        for i in range(5000)
+    ]
+    df = pd.DataFrame([headers, *rows])
+
+    import time
+
+    with _patch_df(df):
+        t0 = time.perf_counter()
+        regs = svc.obtener_registros_headcount(solo_activos=False)
+        elapsed = time.perf_counter() - t0
+
+    assert len(regs) == 5000
+    assert elapsed < 3.0

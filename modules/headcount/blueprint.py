@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from datetime import datetime
 from functools import wraps
@@ -392,7 +393,11 @@ def conteo_personal():
     status = (request.args.get("status_operacion") or "").strip()
     busqueda = (request.args.get("q") or "").strip()
 
-    registros = obtener_registros_headcount(solo_activos=solo_activos)
+    t0 = time.perf_counter()
+    base_regs = obtener_registros_headcount(solo_activos=solo_activos)
+    t_loaded = time.perf_counter()
+
+    registros = base_regs
     if cliente:
         cf = cliente.casefold()
         registros = [r for r in registros if str(r.get("cliente", "")).strip().casefold() == cf]
@@ -423,6 +428,14 @@ def conteo_personal():
         resumen["clientes"] = len({r.get("cliente") for r in registros if r.get("cliente")})
         resumen["ubicaciones"] = len({r.get("ubicacion") for r in registros if r.get("ubicacion")})
 
+    clientes = listar_clientes_headcount(solo_activos=solo_activos, regs=base_regs)
+    ubicaciones = listar_ubicaciones_headcount(
+        cliente or None,
+        solo_activos=solo_activos,
+        regs=base_regs,
+    )
+    t_filtered = time.perf_counter()
+
     if should_mask_sensitive_data(_role()):
         registros = [mask_registro_for_display(r, role=_role()) for r in registros]
 
@@ -430,12 +443,21 @@ def conteo_personal():
     if not registros and not any([cliente, ubicacion, patron, status, busqueda]):
         headcount_error = "No hay registros activos disponibles para mostrar."
 
+    current_app.logger.info(
+        "conteo_personal: load=%.3fs filter=%.3fs total=%.3fs base_rows=%d visible_rows=%d",
+        t_loaded - t0,
+        t_filtered - t_loaded,
+        t_filtered - t0,
+        len(base_regs),
+        len(registros),
+    )
+
     return render_template(
         "headcount/conteo_personal.html",
         registros=registros,
         resumen=resumen,
-        clientes=listar_clientes_headcount(solo_activos=solo_activos),
-        ubicaciones=listar_ubicaciones_headcount(cliente or None, solo_activos=solo_activos),
+        clientes=clientes,
+        ubicaciones=ubicaciones,
         cliente_sel=cliente,
         ubicacion_sel=ubicacion,
         patron_sel=patron,
