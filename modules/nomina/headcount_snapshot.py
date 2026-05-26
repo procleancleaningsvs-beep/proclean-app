@@ -21,7 +21,6 @@ _SNAPSHOT_TTL_ENV = "HEADCOUNT_SNAPSHOT_TTL_SECONDS"
 _REFRESH_LOCK_TIMEOUT_SEC = 900
 _SQLITE_TIMEOUT_SEC = 30
 _MX = ZoneInfo("America/Mexico_City")
-_process_lock = threading.Lock()
 _wal_init_lock = threading.Lock()
 _wal_ready: set[str] = set()
 _logger = logging.getLogger(__name__)
@@ -124,7 +123,10 @@ def ensure_headcount_snapshot_tables(conn: sqlite3.Connection) -> None:
             error_message TEXT,
             snapshot_version INTEGER NOT NULL DEFAULT 1,
             refresh_started_at TEXT,
-            refresh_finished_at TEXT
+            refresh_finished_at TEXT,
+            total_rows_source INTEGER NOT NULL DEFAULT 0,
+            skipped_empty_rows INTEGER NOT NULL DEFAULT 0,
+            parse_guardrail_triggered INTEGER NOT NULL DEFAULT 0
         )
         """
     )
@@ -190,6 +192,9 @@ def ensure_headcount_snapshot_tables(conn: sqlite3.Connection) -> None:
     for name, typ in (
         ("refresh_started_at", "TEXT"),
         ("refresh_finished_at", "TEXT"),
+        ("total_rows_source", "INTEGER NOT NULL DEFAULT 0"),
+        ("skipped_empty_rows", "INTEGER NOT NULL DEFAULT 0"),
+        ("parse_guardrail_triggered", "INTEGER NOT NULL DEFAULT 0"),
     ):
         if name not in cols:
             conn.execute(f"ALTER TABLE nomina_headcount_snapshot_meta ADD COLUMN {name} {typ}")
@@ -217,6 +222,16 @@ def get_headcount_snapshot_meta(db_path: str) -> dict[str, Any] | None:
         return None
 
 
+def get_headcount_snapshot_meta_fast(db_path: str) -> dict[str, Any]:
+    """Solo metadata — para dashboard (sin cargar empleados)."""
+    meta = get_headcount_snapshot_meta(db_path) or {}
+    if meta:
+        saved = int(meta.get("total_rows") or 0)
+        activos = int(meta.get("activos_count") or 0)
+        perf_headcount_log("meta_read_ok", activos=activos, total_saved=saved)
+    return meta
+
+
 def _snapshot_row_count(conn: sqlite3.Connection, *, table: str = "nomina_headcount_snapshot") -> int:
     if not _snapshot_tables_exist(conn):
         return 0
@@ -224,17 +239,21 @@ def _snapshot_row_count(conn: sqlite3.Connection, *, table: str = "nomina_headco
     return int(row[0] if row else 0)
 
 
-def headcount_snapshot_available(db_path: str) -> bool:
+def _snapshot_saved_count(db_path: str) -> int:
     if not os.path.exists(db_path):
-        return False
+        return 0
     try:
         conn = get_snapshot_conn(db_path, readonly=True)
         try:
-            return _snapshot_row_count(conn) > 0
+            return _snapshot_row_count(conn)
         finally:
             conn.close()
     except sqlite3.OperationalError:
-        return False
+        return 0
+
+
+def headcount_snapshot_available(db_path: str) -> bool:
+    return _snapshot_saved_count(db_path) > 0
 
 
 def is_headcount_refresh_running(db_path: str, *, now_iso: str | None = None) -> bool:
@@ -302,15 +321,23 @@ def _build_ui_message(
         else f"Headcount disponible. Activos: {activos}."
     )
     if stale:
-        return f"{base} Hay una actualización pendiente."
+        return f"{base} Puedes actualizarlo para traer la base más reciente."
     if str(meta.get("status") or "") == "error" and meta.get("error_message"):
-        return f"{base} La última actualización automática no se completó."
+        return "No se pudo actualizar Headcount. Se conserva la última copia válida."
     return base
 
 
 def headcount_snapshot_ui_message(db_path: str, *, now_iso: str | None = None) -> str:
-    ctx = get_headcount_snapshot(db_path, now_iso=now_iso)
-    return str(ctx.get("message") or "")
+    meta = get_headcount_snapshot_meta(db_path)
+    has_data = _snapshot_saved_count(db_path) > 0
+    now = now_iso or _now_iso()
+    return _build_ui_message(
+        has_data=has_data,
+        meta=meta,
+        refreshing=is_headcount_snapshot_refreshing(db_path, now_iso=now),
+        read_locked=False,
+        stale=is_headcount_snapshot_stale(db_path, now_iso=now) if has_data else True,
+    )
 
 
 def headcount_snapshot_user_message(db_path: str) -> str | None:
@@ -430,9 +457,9 @@ def _get_headcount_snapshot_inner(db_path: str, *, now_iso: str) -> dict[str, An
         stale=stale and not refreshing and not read_locked,
     )
     if read_locked and has_data:
-        perf_headcount_log("snapshot_read_ok", fallback="partial", rows=len(rows))
+        perf_headcount_log("snapshot_read_ok", fallback="partial", rows=_snapshot_saved_count(db_path))
     elif has_data and not read_locked:
-        perf_headcount_log("snapshot_read_ok", rows=len(rows))
+        perf_headcount_log("snapshot_read_ok", rows=_snapshot_saved_count(db_path))
 
     return {
         "rows": rows,
@@ -575,6 +602,9 @@ def _atomic_write_snapshot(
     total_rows: int,
     activos: int,
     warnings: int,
+    total_rows_source: int = 0,
+    skipped_empty_rows: int = 0,
+    parse_guardrail_triggered: int = 0,
 ) -> None:
     conn = get_snapshot_conn(db_path, readonly=False)
     try:
@@ -605,8 +635,9 @@ def _atomic_write_snapshot(
             INSERT INTO nomina_headcount_snapshot_meta (
                 id, last_refresh_at, source, total_rows, activos_count,
                 warnings_count, status, error_message, snapshot_version,
-                refresh_started_at, refresh_finished_at
-            ) VALUES (1, ?, 'onedrive', ?, ?, ?, 'ok', NULL, ?, NULL, ?)
+                refresh_started_at, refresh_finished_at,
+                total_rows_source, skipped_empty_rows, parse_guardrail_triggered
+            ) VALUES (1, ?, 'onedrive', ?, ?, ?, 'ok', NULL, ?, NULL, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 last_refresh_at = excluded.last_refresh_at,
                 source = excluded.source,
@@ -617,9 +648,22 @@ def _atomic_write_snapshot(
                 error_message = NULL,
                 snapshot_version = excluded.snapshot_version,
                 refresh_started_at = NULL,
-                refresh_finished_at = excluded.refresh_finished_at
+                refresh_finished_at = excluded.refresh_finished_at,
+                total_rows_source = excluded.total_rows_source,
+                skipped_empty_rows = excluded.skipped_empty_rows,
+                parse_guardrail_triggered = excluded.parse_guardrail_triggered
             """,
-            (now_iso, total_rows, activos, warnings, _SNAPSHOT_VERSION, now_iso),
+            (
+                now_iso,
+                total_rows,
+                activos,
+                warnings,
+                _SNAPSHOT_VERSION,
+                now_iso,
+                total_rows_source,
+                skipped_empty_rows,
+                parse_guardrail_triggered,
+            ),
         )
         conn.commit()
     except Exception:
@@ -664,9 +708,9 @@ def refresh_headcount_snapshot(
     now_iso: str | None = None,
     skip_lock_acquire: bool = False,
 ) -> dict[str, Any]:
-    """Descarga Headcount remoto y persiste snapshot local (job/manual; no GET)."""
+    """Descarga Headcount remoto y persiste snapshot local (job/manual/CLI; no GET)."""
     from modules.comparativo.headcount_service import actualizar_headcount
-    from modules.nomina.headcount_bridge import obtener_headcount_completo
+    from modules.nomina.headcount_bridge import fetch_and_parse_headcount
 
     now = now_iso or _now_iso()
     if not skip_lock_acquire and not acquire_headcount_refresh_lock(db_path, now_iso=now):
@@ -675,19 +719,34 @@ def refresh_headcount_snapshot(
 
     perf_headcount_log("refresh_started")
     try:
-        perf_headcount_log("refresh_download_started")
         actualizar_headcount()
-        remote_rows = obtener_headcount_completo()
-        perf_headcount_log("refresh_download_finished", rows=len(remote_rows))
+        parse_result = fetch_and_parse_headcount()
     except Exception as exc:
         preserved = _write_refresh_error(db_path, now_iso=now, error=str(exc))
         perf_headcount_log("refresh_failed", error=str(exc)[:120])
         _logger.warning("[headcount_snapshot] refresh failed: %s", exc)
         return {"ok": False, "error": str(exc), "preserved": preserved}
 
-    perf_headcount_log("refresh_parse_started", rows=len(remote_rows))
+    if parse_result.guardrail_triggered:
+        err = parse_result.guardrail_reason or "Headcount inválido."
+        preserved = _write_refresh_error(db_path, now_iso=now, error=err)
+        perf_headcount_log(
+            "refresh_aborted",
+            reason="row_explosion",
+            source_rows=parse_result.source_rows_scanned,
+        )
+        return {"ok": False, "error": err, "preserved": preserved, "guardrail": True}
+
+    remote_rows = parse_result.rows
+    perf_headcount_log(
+        "parse_finished",
+        source_rows=parse_result.source_rows_scanned,
+        saved_rows=parse_result.saved_rows,
+        activos=0,
+        skipped_empty=parse_result.skipped_empty_rows,
+    )
     prepared, total_rows, activos, warnings = _prepare_snapshot_tuples(remote_rows, now_iso=now)
-    perf_headcount_log("refresh_parse_finished", rows=total_rows, activos=activos)
+    perf_headcount_log("parse_finished", saved_rows=total_rows, activos=activos)
 
     perf_headcount_log("refresh_db_write_started", rows=total_rows)
     t0 = time.perf_counter()
@@ -699,6 +758,9 @@ def refresh_headcount_snapshot(
             total_rows=total_rows,
             activos=activos,
             warnings=warnings,
+            total_rows_source=parse_result.source_rows_scanned,
+            skipped_empty_rows=parse_result.skipped_empty_rows,
+            parse_guardrail_triggered=0,
         )
     except Exception as exc:
         preserved = _write_refresh_error(db_path, now_iso=now, error=str(exc))
@@ -707,49 +769,28 @@ def refresh_headcount_snapshot(
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
     perf_headcount_log("refresh_db_write_finished", duration_ms=elapsed_ms, rows=total_rows)
+    perf_headcount_log(
+        "refresh_finished",
+        status="ok",
+        saved_rows=total_rows,
+        activos=activos,
+    )
     _logger.info("[headcount_snapshot] refresh ok rows=%s activos=%s", total_rows, activos)
     return {
         "ok": True,
         "total_rows": total_rows,
+        "total_rows_source": parse_result.source_rows_scanned,
+        "skipped_empty_rows": parse_result.skipped_empty_rows,
         "activos_count": activos,
         "warnings_count": warnings,
         "last_refresh_at": now,
     }
 
 
-def _background_refresh(db_path: str, now_iso: str) -> None:
-    try:
-        refresh_headcount_snapshot(db_path, now_iso=now_iso, skip_lock_acquire=True)
-    except Exception as exc:  # pragma: no cover
-        _logger.exception("[headcount_snapshot] background refresh crashed: %s", exc)
-        release_headcount_refresh_lock(db_path, now_iso=_now_iso(), final_status="error")
-
-
 def trigger_headcount_refresh_if_needed(db_path: str, *, now_iso: str | None = None) -> dict[str, Any]:
-    """Inicia refresh en background si el snapshot está vencido (solo desde hub/cron)."""
+    """No inicia refresh en web worker — usar cron/CLI/botón manual."""
     now = now_iso or _now_iso()
-    if is_headcount_refresh_running(db_path, now_iso=now):
-        perf_headcount_log("refresh_skipped", reason="already_refreshing")
-        return {"triggered": False, "reason": "already_refreshing"}
-    if not is_headcount_snapshot_stale(db_path, now_iso=now):
-        return {"triggered": False, "reason": "fresh"}
-
-    with _process_lock:
-        if is_headcount_refresh_running(db_path, now_iso=now):
-            perf_headcount_log("refresh_skipped", reason="already_refreshing")
-            return {"triggered": False, "reason": "already_refreshing"}
-        if not is_headcount_snapshot_stale(db_path, now_iso=now):
-            return {"triggered": False, "reason": "fresh"}
-        if not acquire_headcount_refresh_lock(db_path, now_iso=now):
-            perf_headcount_log("refresh_skipped", reason="lock_active")
-            return {"triggered": False, "reason": "locked"}
-
-        thread = threading.Thread(
-            target=_background_refresh,
-            args=(db_path, now),
-            name="headcount_snapshot_refresh",
-            daemon=True,
-        )
-        thread.start()
-        perf_headcount_log("refresh_started", mode="background")
-        return {"triggered": True, "reason": "stale"}
+    if is_headcount_snapshot_stale(db_path, now_iso=now):
+        perf_headcount_log("refresh_skipped", reason="web_worker_disabled")
+        return {"triggered": False, "reason": "web_worker_disabled"}
+    return {"triggered": False, "reason": "fresh"}

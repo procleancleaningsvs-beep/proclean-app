@@ -944,18 +944,25 @@ def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str,
 
 
 def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -> dict[str, Any]:
-    """KPIs del hub /nomina/ sin OneDrive — usa snapshot local si existe."""
+    """KPIs del hub /nomina/ sin OneDrive — solo metadata Headcount (sin cargar filas)."""
     from modules.nomina.headcount_snapshot import (
-        get_headcount_snapshot,
+        get_headcount_snapshot_meta_fast,
         headcount_snapshot_dashboard_message,
+        is_headcount_snapshot_refreshing,
+        is_headcount_snapshot_stale,
     )
 
     localidades = list_localidades_frontera(db_path)
-    snap = get_headcount_snapshot(db_path)
-    hc_rows = snap["rows"]
-    meta = snap.get("meta")
-    if snap["has_data"]:
-        param_stats = get_parametros_stats(db_path, hc_rows)
+    meta = get_headcount_snapshot_meta_fast(db_path)
+    has_snapshot = bool(meta) and int(meta.get("total_rows") or 0) > 0
+    if has_snapshot and str(meta.get("status") or "") == "ok":
+        legacy = get_parametros_stats(db_path, None)
+        param_stats = {
+            **legacy,
+            "activos_headcount": int(meta.get("activos_count") or 0),
+            "stats_mode": "headcount_meta",
+            "total_empleados": int(meta.get("total_rows") or 0),
+        }
         headcount_source = "snapshot"
     else:
         param_stats = get_parametros_stats(db_path, None)
@@ -970,9 +977,9 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
         "calc_kpis": nomina_calculo_dashboard_kpis(db_path),
         "headcount_source": headcount_source,
         "headcount_notice": headcount_snapshot_dashboard_message(db_path),
-        "headcount_snapshot_meta": meta,
-        "headcount_stale": snap.get("stale"),
-        "headcount_refreshing": snap.get("refreshing") or snap.get("read_locked"),
+        "headcount_snapshot_meta": meta or None,
+        "headcount_stale": is_headcount_snapshot_stale(db_path) if has_snapshot else True,
+        "headcount_refreshing": is_headcount_snapshot_refreshing(db_path),
     }
 
 

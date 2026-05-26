@@ -593,10 +593,6 @@ def index():
     if role in _NOMINA_DASHBOARD_ROLES:
         with perf_span("nomina.index.dashboard_fast"):
             summary = get_nomina_dashboard_summary_fast(db_path, recent_limit=12)
-        from modules.nomina.headcount_snapshot import trigger_headcount_refresh_if_needed
-
-        with perf_span("nomina.headcount_snapshot_auto_trigger"):
-            trigger_headcount_refresh_if_needed(db_path, now_iso=_now_iso())
         return render_template(
             "nomina/dashboard.html",
             dash=summary["dash"],

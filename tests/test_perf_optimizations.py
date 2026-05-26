@@ -216,19 +216,61 @@ def test_get_nomina_dashboard_summary_fast_uses_local_stats_only(tmp_path):
     conn.close()
     summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
     assert summary["headcount_source"] in {"snapshot", "snapshot_missing"}
-    assert summary["param_stats"]["stats_mode"] == "legacy"
+    assert summary["param_stats"]["stats_mode"] in {"legacy", "headcount_meta"}
     assert "dash" in summary and "vac_stats" in summary
 
 
-def test_headcount_bridge_avoids_row_iloc_loop():
+def test_dashboard_does_not_load_snapshot_rows(tmp_path, monkeypatch):
+    from modules.nomina.db import ensure_nomina_tables, get_nomina_dashboard_summary_fast
+
+    db = str(tmp_path / "dash_no_rows.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+
+    calls = {"load": 0}
+
+    def boom_load(_path, **kwargs):
+        calls["load"] += 1
+        raise AssertionError("load_headcount_snapshot_rows must not run on dashboard")
+
+    monkeypatch.setattr("modules.nomina.headcount_snapshot.load_headcount_snapshot_rows", boom_load)
+    get_nomina_dashboard_summary_fast(db, recent_limit=3)
+    assert calls["load"] == 0
+
+
+def test_nomina_index_does_not_trigger_auto_refresh(tmp_path, monkeypatch):
+    calls = {"trigger": 0}
+
+    def track_trigger(*a, **k):
+        calls["trigger"] += 1
+        return {"triggered": False, "reason": "web_worker_disabled"}
+
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot.trigger_headcount_refresh_if_needed",
+        track_trigger,
+    )
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/", follow_redirects=True)
+            assert resp.status_code == 200
+    assert calls["trigger"] == 0
+
+
+def test_headcount_bridge_uses_streaming_parser():
     import inspect
 
     from modules.nomina import headcount_bridge
 
-    src = inspect.getsource(headcount_bridge.obtener_headcount_completo)
-    assert "for i in range" not in src
-    assert "df.iloc[i]" not in src
-    assert "itertuples" in src
+    src = inspect.getsource(headcount_bridge.parse_headcount_excel_bytes)
+    assert "iter_rows" in src
+    assert "read_only=True" in src
+    assert "df.iloc" not in src
 
 
 def test_perf_startup_log_when_enabled(monkeypatch, caplog):
@@ -325,9 +367,17 @@ def test_parametros_uses_local_snapshot(tmp_path, monkeypatch):
 
     app, db = _perf_test_app(tmp_path, monkeypatch)
     sample = _sample_hc()
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+
     monkeypatch.setattr(
-        "modules.nomina.headcount_bridge.obtener_headcount_completo",
-        lambda: sample,
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
     )
     monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
 
@@ -354,9 +404,17 @@ def test_refresh_headcount_snapshot_persists_metadata(tmp_path, monkeypatch):
     conn.close()
 
     sample = _sample_hc()
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+
     monkeypatch.setattr(
-        "modules.nomina.headcount_bridge.obtener_headcount_completo",
-        lambda: sample,
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
     )
     monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
 
@@ -411,13 +469,25 @@ def test_dashboard_kpis_use_snapshot_not_contpaq_inflation(tmp_path, monkeypatch
     )
 
     sample = _sample_hc()
-    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: sample)
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: __import__(
+            "modules.nomina.headcount_bridge", fromlist=["HeadcountParseResult"]
+        ).HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
+    )
     monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+
     refresh_headcount_snapshot(db, now_iso="2026-05-26 12:00:00")
 
     summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
     assert summary["param_stats"]["activos_headcount"] == 2
-    assert summary["param_stats"]["stats_mode"] == "headcount"
+    assert summary["param_stats"]["stats_mode"] == "headcount_meta"
     assert summary["headcount_source"] == "snapshot"
 
 
@@ -439,6 +509,7 @@ def test_perf_request_log_when_enabled(tmp_path, monkeypatch, caplog):
 
 def _seed_snapshot(db: str, *, now_iso: str, activos: int = 2) -> None:
     from modules.nomina.db import ensure_nomina_tables
+    from modules.nomina.headcount_bridge import HeadcountParseResult
     from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
 
     conn = sqlite3.connect(db)
@@ -446,17 +517,27 @@ def _seed_snapshot(db: str, *, now_iso: str, activos: int = 2) -> None:
     conn.commit()
     conn.close()
     sample = _sample_hc()
-    import modules.nomina.headcount_bridge as hb
     import modules.comparativo.headcount_service as hs
+    import modules.nomina.headcount_bridge as hb
 
-    old_obtener = hb.obtener_headcount_completo
+    old_fetch = hb.fetch_and_parse_headcount
     old_actualizar = hs.actualizar_headcount
-    hb.obtener_headcount_completo = lambda: sample
+
+    def fake_fetch():
+        return HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        )
+
+    hb.fetch_and_parse_headcount = fake_fetch
     hs.actualizar_headcount = lambda: None
     try:
         refresh_headcount_snapshot(db, now_iso=now_iso)
     finally:
-        hb.obtener_headcount_completo = old_obtener
+        hb.fetch_and_parse_headcount = old_fetch
         hs.actualizar_headcount = old_actualizar
 
 
@@ -499,7 +580,7 @@ def test_refresh_failure_preserves_last_valid_snapshot(tmp_path, monkeypatch):
 
     monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
     monkeypatch.setattr(
-        "modules.nomina.headcount_bridge.obtener_headcount_completo",
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
         lambda: (_ for _ in ()).throw(RuntimeError("onedrive down")),
     )
     result = refresh_headcount_snapshot(db, now_iso="2026-05-26 11:00:00")
@@ -523,8 +604,19 @@ def test_acquire_headcount_refresh_lock_prevents_duplicate(tmp_path):
 
 def test_manual_refresh_endpoint_updates_snapshot(tmp_path, monkeypatch):
     app, db = _perf_test_app(tmp_path, monkeypatch)
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+
     sample = _sample_hc()
-    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: sample)
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
+    )
     monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
 
     with app.app_context():
@@ -601,6 +693,7 @@ def test_parametros_get_survives_sqlite_locked(tmp_path, monkeypatch):
 
 
 def test_refresh_download_happens_before_db_write(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
     from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
 
     db = str(tmp_path / "order.db")
@@ -614,14 +707,18 @@ def test_refresh_download_happens_before_db_write(tmp_path, monkeypatch):
     order: list[str] = []
     sample = _sample_hc()
 
-    def fake_download():
+    def fake_fetch():
         order.append("download")
+        return HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        )
 
-    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", fake_download)
-    monkeypatch.setattr(
-        "modules.nomina.headcount_bridge.obtener_headcount_completo",
-        lambda: (order.append("parse") or sample),
-    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    monkeypatch.setattr("modules.nomina.headcount_bridge.fetch_and_parse_headcount", fake_fetch)
     monkeypatch.setattr(
         "modules.nomina.headcount_snapshot._atomic_write_snapshot",
         lambda *a, **k: order.append("db_write"),
@@ -629,12 +726,12 @@ def test_refresh_download_happens_before_db_write(tmp_path, monkeypatch):
 
     result = refresh_headcount_snapshot(db, now_iso="2026-05-26 16:00:00")
     assert result["ok"] is True
-    assert order.index("download") < order.index("parse") < order.index("db_write")
+    assert order.index("download") < order.index("db_write")
 
 
-def test_trigger_skips_when_refresh_already_running(tmp_path, monkeypatch):
+def test_trigger_does_not_start_refresh_in_web_worker(tmp_path, monkeypatch):
     from modules.nomina.db import ensure_nomina_tables
-    from modules.nomina.headcount_snapshot import acquire_headcount_refresh_lock, trigger_headcount_refresh_if_needed
+    from modules.nomina.headcount_snapshot import trigger_headcount_refresh_if_needed
 
     db = str(tmp_path / "trigger_skip.db")
     conn = sqlite3.connect(db)
@@ -642,11 +739,9 @@ def test_trigger_skips_when_refresh_already_running(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     monkeypatch.setenv("HEADCOUNT_SNAPSHOT_TTL_SECONDS", "1")
-    assert acquire_headcount_refresh_lock(db, now_iso="2026-05-26 17:00:00") is True
-    monkeypatch.setattr("threading.Thread.start", lambda self: None)
-    out = trigger_headcount_refresh_if_needed(db, now_iso="2026-05-26 17:00:30")
+    out = trigger_headcount_refresh_if_needed(db, now_iso="2026-05-26 18:00:00")
     assert out["triggered"] is False
-    assert out["reason"] in {"already_refreshing", "locked"}
+    assert out["reason"] == "web_worker_disabled"
 
 
 def test_get_headcount_snapshot_locked_fallback(tmp_path, monkeypatch):
@@ -663,3 +758,120 @@ def test_get_headcount_snapshot_locked_fallback(tmp_path, monkeypatch):
     ctx = hs.get_headcount_snapshot(db)
     assert ctx["status"] in {"refreshing", "locked", "limited"}
     assert "actualizando" in ctx["message"].lower()
+
+
+def _make_headcount_xlsx(data_rows: list[list], trailing_empty: int = 0) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(
+        [
+            "X",
+            "NOMBRE COMPLETO",
+            "CLIENTE",
+            "PATRON",
+            "FECHA DE INGRESO",
+            "SUELDO DIARIO",
+            "PUESTO",
+            "NSS",
+            "STATUS OPERACIÓN",
+            "STATUS IMSS",
+        ]
+    )
+    for row in data_rows:
+        ws.append(row)
+    for _ in range(trailing_empty):
+        ws.append([None] * 10)
+    bio = BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
+
+
+def test_parser_ignores_empty_rows_and_stops_after_consecutive_blank():
+    from modules.nomina.headcount_bridge import parse_headcount_excel_bytes
+
+    raw = _make_headcount_xlsx(
+        [
+            ["", "Empleado Uno", "Carrier", "Planta A", "2020-01-01", 100, "Aux", "111", "ALTA", "ALTA"],
+            ["", "Empleado Dos", "Pepsi", "Planta B", "2021-02-02", 100, "Op", "222", "ALTA", "ALTA"],
+        ],
+        trailing_empty=120,
+    )
+    result = parse_headcount_excel_bytes(raw)
+    assert result.guardrail_triggered is False
+    assert result.saved_rows == 2
+    assert result.skipped_empty_rows >= 100
+
+
+def test_parser_aborts_row_explosion_at_million(monkeypatch):
+    from modules.nomina.headcount_bridge import parse_headcount_excel_bytes
+
+    calls = {"n": 0}
+
+    def fake_iter(self, values_only=True):
+        if calls["n"] == 0:
+            calls["n"] = 1
+            yield (
+                "X",
+                "NOMBRE COMPLETO",
+                "CLIENTE",
+                "PATRON",
+                "FECHA DE INGRESO",
+                "SUELDO DIARIO",
+                "PUESTO",
+                "NSS",
+                "STATUS OPERACIÓN",
+                "STATUS IMSS",
+            )
+        while calls["n"] <= 1_000_000:
+            calls["n"] += 1
+            yield ("", "X", "C", "P", "", "", "", "1", "ALTA", "ALTA")
+
+    class FakeWS:
+        def iter_rows(self, values_only=True):
+            return fake_iter(self, values_only=values_only)
+
+    class FakeWB:
+        def __init__(self):
+            self.active = FakeWS()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("openpyxl.load_workbook", lambda **k: FakeWB())
+    result = parse_headcount_excel_bytes(b"fake")
+    assert result.guardrail_triggered is True
+
+
+def test_refresh_metadata_stores_source_and_saved_rows(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta, refresh_headcount_snapshot
+
+    db = str(tmp_path / "meta_fields.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=5000,
+            saved_rows=2,
+            skipped_empty_rows=4998,
+            guardrail_triggered=False,
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    refresh_headcount_snapshot(db, now_iso="2026-05-26 20:00:00")
+    meta = get_headcount_snapshot_meta(db)
+    assert meta["total_rows"] == 2
+    assert meta["total_rows_source"] == 5000
+    assert meta["skipped_empty_rows"] == 4998
+    assert meta["activos_count"] == 2
