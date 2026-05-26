@@ -26,7 +26,6 @@ from modules.nomina.parametros_consolidado import (
     RECORD_HEADCOUNT_CANONICAL,
     append_conciliation_warnings,
     apply_manual_headcount_link,
-    build_consolidado_view,
     build_legacy_parametros_view,
     classify_record_kind,
     filter_active_headcount,
@@ -258,18 +257,29 @@ def build_conciliacion_inbox(
     headcount_unavailable: bool = False,
     filtro: str = "todos_pendientes",
     search: str = "",
-    limit: int = 500,
-) -> list[dict[str, Any]]:
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
     filt = _FILTER_MAP.get((filtro or "").strip().lower(), filtro or "todos_pendientes")
     if headcount_unavailable:
-        base = build_legacy_parametros_view(db_path, limit=5000)
+        base = build_legacy_parametros_view(db_path, limit=10000)
     else:
-        base = build_consolidado_view(db_path, headcount_rows, include_external=True, limit=5000)
+        from modules.nomina.parametros_consolidado import _apply_consolidado_filters, _build_consolidated_rows
+
+        base = _build_consolidated_rows(db_path, headcount_rows, include_external=True)
     rows = [_enrich_inbox_row(r) for r in base]
     rows = [r for r in rows if _matches_filter(r, filt)]
     rows = [r for r in rows if _matches_search(r, search)]
     rows.sort(key=lambda r: (r.get("estado_conciliacion") == ESTADO_COMPLETO, r.get("nombre") or ""))
-    return rows[: int(limit)]
+    total = len(rows)
+    start = max(0, int(offset))
+    end = start + max(1, int(limit))
+    return {
+        "rows": rows[start:end],
+        "total": total,
+        "offset": start,
+        "limit": int(limit),
+    }
 
 
 def suggest_headcount_matches(

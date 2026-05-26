@@ -610,7 +610,8 @@ def test_ignore_warning_excludes_from_active_pendientes(tmp_path):
 
     hc = [{"nombre_completo": "Activo Sin Salario", "nss": "111", "cliente": "Carrier", "status_operacion": "ALTA"}]
     inbox_before = build_conciliacion_inbox(db, hc, filtro="sin_salario")
-    assert len(inbox_before) == 1
+    assert inbox_before["total"] == 1
+    assert len(inbox_before["rows"]) == 1
 
     ok = ignore_parametro_warning(
         db,
@@ -632,7 +633,8 @@ def test_ignore_warning_excludes_from_active_pendientes(tmp_path):
     assert any(i.get("code") == WARN_HEADCOUNT_ACTIVO_SIN_SALARIO for i in editable.get("ignored_warnings") or [])
 
     inbox_after = build_conciliacion_inbox(db, hc, filtro="sin_salario")
-    assert len(inbox_after) == 0
+    assert inbox_after["total"] == 0
+    assert len(inbox_after["rows"]) == 0
 
     detail = build_parametro_detail(db, int(row_id), hc)
     assert detail is not None

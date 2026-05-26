@@ -299,16 +299,48 @@ def build_legacy_parametros_view(
     return out[: int(limit)]
 
 
-def build_consolidado_view(
-    db_path: str,
-    headcount_rows: list[dict[str, Any]],
+def _apply_consolidado_filters(
+    consolidated: list[dict[str, Any]],
     *,
     cliente: str | None = None,
     match_status_any: list[str] | None = None,
     only_missing_salary: bool = False,
     only_missing_valor_he: bool = False,
+) -> list[dict[str, Any]]:
+    rows = consolidated
+    if cliente:
+        c_low = cliente.strip().lower()
+        rows = [r for r in rows if c_low in str(r.get("cliente") or "").strip().lower()]
+    if only_missing_salary:
+        rows = [
+            r for r in rows
+            if r.get("salario_operativo") is None or float(r.get("salario_operativo") or 0) <= 0
+        ]
+    if only_missing_valor_he:
+        rows = [
+            r for r in rows
+            if r.get("valor_x_he") is None or float(r.get("valor_x_he") or 0) <= 0
+        ]
+    if match_status_any:
+        statuses = set(match_status_any)
+        rows = [
+            r for r in rows
+            if (
+                str(r.get("headcount_match_status") or "") in statuses
+                or str(r.get("contpaq_match_status") or "") in statuses
+                or str(r.get("nomina_match_status") or "") in statuses
+                or bool(r.get("warnings"))
+                or r.get("is_external")
+            )
+        ]
+    return rows
+
+
+def _build_consolidated_rows(
+    db_path: str,
+    headcount_rows: list[dict[str, Any]],
+    *,
     include_external: bool = True,
-    limit: int = 2000,
 ) -> list[dict[str, Any]]:
     active_hc = filter_active_headcount(headcount_rows)
     param_rows = _load_active_param_rows(db_path)
@@ -340,52 +372,66 @@ def build_consolidado_view(
             ext["is_external"] = True
             append_conciliation_warnings(ext)
             consolidated.append(ext)
+    return consolidated
 
-    if cliente:
-        c_low = cliente.strip().lower()
-        consolidated = [
-            r for r in consolidated
-            if c_low in str(r.get("cliente") or "").strip().lower()
-        ]
-    if only_missing_salary:
-        consolidated = [
-            r for r in consolidated
-            if r.get("salario_operativo") is None or float(r.get("salario_operativo") or 0) <= 0
-        ]
-    if only_missing_valor_he:
-        consolidated = [
-            r for r in consolidated
-            if r.get("valor_x_he") is None or float(r.get("valor_x_he") or 0) <= 0
-        ]
-    if match_status_any:
-        statuses = set(match_status_any)
-        consolidated = [
-            r for r in consolidated
-            if (
-                str(r.get("headcount_match_status") or "") in statuses
-                or str(r.get("contpaq_match_status") or "") in statuses
-                or str(r.get("nomina_match_status") or "") in statuses
-                or bool(r.get("warnings"))
-                or r.get("is_external")
-            )
-        ]
 
-    return consolidated[: int(limit)]
+def count_consolidado_view(
+    db_path: str,
+    headcount_rows: list[dict[str, Any]],
+    *,
+    cliente: str | None = None,
+    match_status_any: list[str] | None = None,
+    only_missing_salary: bool = False,
+    only_missing_valor_he: bool = False,
+    include_external: bool = True,
+) -> int:
+    rows = _build_consolidated_rows(db_path, headcount_rows, include_external=include_external)
+    return len(
+        _apply_consolidado_filters(
+            rows,
+            cliente=cliente,
+            match_status_any=match_status_any,
+            only_missing_salary=only_missing_salary,
+            only_missing_valor_he=only_missing_valor_he,
+        )
+    )
+
+
+def build_consolidado_view(
+    db_path: str,
+    headcount_rows: list[dict[str, Any]],
+    *,
+    cliente: str | None = None,
+    match_status_any: list[str] | None = None,
+    only_missing_salary: bool = False,
+    only_missing_valor_he: bool = False,
+    include_external: bool = True,
+    offset: int = 0,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    consolidated = _build_consolidated_rows(db_path, headcount_rows, include_external=include_external)
+    filtered = _apply_consolidado_filters(
+        consolidated,
+        cliente=cliente,
+        match_status_any=match_status_any,
+        only_missing_salary=only_missing_salary,
+        only_missing_valor_he=only_missing_valor_he,
+    )
+    start = max(0, int(offset))
+    end = start + max(1, int(limit))
+    return filtered[start:end]
 
 
 def compute_parametros_stats(
     db_path: str,
     headcount_rows: list[dict[str, Any]],
 ) -> dict[str, int]:
+    from modules.nomina.parametros_conciliacion import get_active_warnings
+
     active_hc = filter_active_headcount(headcount_rows)
-    view = build_consolidado_view(
-        db_path,
-        headcount_rows,
-        include_external=True,
-        limit=100000,
-    )
-    canonical = [r for r in view if r.get("is_canonical")]
-    external = [r for r in view if r.get("is_external")]
+    consolidated = _build_consolidated_rows(db_path, headcount_rows, include_external=True)
+    canonical = [r for r in consolidated if r.get("is_canonical")]
+    external = [r for r in consolidated if r.get("is_external")]
 
     conn = sqlite3.connect(db_path)
     try:
@@ -430,8 +476,6 @@ def compute_parametros_stats(
         return sum(1 for r in rows if r.get("contpaq_match_status") == "imported")
 
     def _pending(rows: list[dict]) -> int:
-        from modules.nomina.parametros_conciliacion import get_active_warnings
-
         return sum(
             1 for r in rows
             if (

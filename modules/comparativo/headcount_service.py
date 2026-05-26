@@ -13,12 +13,45 @@ from modules.finiquitos.excel_mirror_fecha_ingreso import descargar_excel_desde_
 
 DATA_DIR = os.environ.get("DATA_DIR", "./data")
 HEADCOUNT_ONEDRIVE_URL_ENV = "HEADCOUNT_ONEDRIVE_URL"
-_CACHE_TTL_SEC = 300
+HEADCOUNT_CACHE_TTL_ENV = "HEADCOUNT_CACHE_TTL_SECONDS"
 _STALE_GRACE_SEC = 300
 _cache_lock = threading.Lock()
 _cache_df: pd.DataFrame | None = None
 _cache_loaded_at: float = 0.0
 _cache_url_used: str = ""
+_cache_stale_warning: str | None = None
+
+_logger = __import__("logging").getLogger(__name__)
+
+
+def _cache_ttl_sec() -> int:
+    raw = (os.environ.get(HEADCOUNT_CACHE_TTL_ENV) or "300").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 300
+
+
+def headcount_cache_info() -> dict[str, object]:
+    """Expose cache metadata for UI/diagnostics."""
+    with _cache_lock:
+        age = time.monotonic() - _cache_loaded_at if _cache_loaded_at else None
+        return {
+            "has_cache": _cache_df is not None,
+            "loaded_at_monotonic": _cache_loaded_at or None,
+            "age_seconds": round(age, 1) if age is not None else None,
+            "ttl_seconds": _cache_ttl_sec(),
+            "stale_warning": _cache_stale_warning,
+            "url_configured": bool(_headcount_url()),
+        }
+
+
+def consume_headcount_cache_warning() -> str | None:
+    global _cache_stale_warning
+    with _cache_lock:
+        msg = _cache_stale_warning
+        _cache_stale_warning = None
+    return msg
 
 
 def _normalize_spaces(value: str) -> str:
@@ -63,43 +96,70 @@ def _headcount_url() -> str:
 
 
 def obtener_df_headcount() -> pd.DataFrame:
-    try:
-        url = _headcount_url()
-        if not url:
-            raise ValueError("No está configurada la variable HEADCOUNT_ONEDRIVE_URL.")
+    from services.perf_logging import perf_log_enabled, perf_span
 
-        now = time.monotonic()
-        global _cache_df, _cache_loaded_at, _cache_url_used
+    url = _headcount_url()
+    if not url:
+        raise ValueError("No está configurada la variable HEADCOUNT_ONEDRIVE_URL.")
+
+    ttl = _cache_ttl_sec()
+    now = time.monotonic()
+    global _cache_df, _cache_loaded_at, _cache_url_used, _cache_stale_warning
+
+    with perf_span("headcount.cache_lookup"):
         with _cache_lock:
             if (
                 _cache_df is not None
                 and _cache_url_used == url
-                and (now - _cache_loaded_at) < _CACHE_TTL_SEC
+                and (now - _cache_loaded_at) < ttl
             ):
+                if perf_log_enabled():
+                    _logger.info(
+                        "[PERF] headcount cache_hit age_sec=%.1f ttl_sec=%d",
+                        now - _cache_loaded_at,
+                        ttl,
+                    )
                 return _cache_df
 
-        raw = descargar_excel_desde_onedrive(url)
-        df = pd.read_excel(BytesIO(raw), engine="openpyxl", header=None)
-        with _cache_lock:
-            _cache_df = df
-            _cache_loaded_at = time.monotonic()
-            _cache_url_used = url
-        return df
-    except Exception as exc:
-        with _cache_lock:
-            if _cache_df is not None and _cache_url_used == _headcount_url():
-                stale_age = time.monotonic() - _cache_loaded_at
-                if stale_age < (_CACHE_TTL_SEC + _STALE_GRACE_SEC):
-                    return _cache_df
-        raise ValueError(f"No se pudo obtener el headcount desde OneDrive: {exc}") from exc
+    with perf_span("headcount.onedrive_download"):
+        try:
+            raw = descargar_excel_desde_onedrive(url)
+            df = pd.read_excel(BytesIO(raw), engine="openpyxl", header=None)
+        except Exception as exc:
+            with _cache_lock:
+                if _cache_df is not None and _cache_url_used == url:
+                    stale_age = time.monotonic() - _cache_loaded_at
+                    if stale_age < (ttl + _STALE_GRACE_SEC):
+                        _cache_stale_warning = (
+                            "Datos cargados desde caché (Headcount no pudo refrescarse). "
+                            f"Última actualización hace {int(stale_age)}s."
+                        )
+                        if perf_log_enabled():
+                            _logger.warning(
+                                "[PERF] headcount stale_fallback age_sec=%.1f error=%s",
+                                stale_age,
+                                type(exc).__name__,
+                            )
+                        return _cache_df
+            raise ValueError(f"No se pudo obtener el headcount desde OneDrive: {exc}") from exc
+
+    with _cache_lock:
+        _cache_df = df
+        _cache_loaded_at = time.monotonic()
+        _cache_url_used = url
+        _cache_stale_warning = None
+        if perf_log_enabled():
+            _logger.info("[PERF] headcount cache_refresh ttl_sec=%d", ttl)
+    return df
 
 
 def actualizar_headcount(_file=None) -> dict[str, Any]:
-    global _cache_df, _cache_loaded_at, _cache_url_used
+    global _cache_df, _cache_loaded_at, _cache_url_used, _cache_stale_warning
     with _cache_lock:
         _cache_df = None
         _cache_loaded_at = 0.0
         _cache_url_used = ""
+        _cache_stale_warning = None
     return {
         "message": (
             "Caché invalidado. El headcount se actualizará automáticamente desde "

@@ -444,7 +444,22 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_empleado_parametros_cliente ON nomina_empleado_parametros(cliente)"
     )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_empleado_parametros_hc_match ON nomina_empleado_parametros(headcount_match_status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_parametros_imports_created ON nomina_parametros_imports(created_at DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_parametros_imports_tipo ON nomina_parametros_imports(tipo_importacion)"
+    )
     _migrate_nomina_parametros_schema(conn)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_empleado_parametros_is_active ON nomina_empleado_parametros(is_active)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nomina_empleado_parametros_record_kind ON nomina_empleado_parametros(record_kind)"
+    )
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nomina_localidades_frontera (

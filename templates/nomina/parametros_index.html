@@ -61,6 +61,11 @@
     </p>
   </section>
   {% endif %}
+  {% if headcount_cache_notice %}
+  <section class="param-card" style="border-color:#f59e0b;background:#fffbeb;">
+    <p style="margin:0;color:#92400e;font-size:.9rem;">{{ headcount_cache_notice }}</p>
+  </section>
+  {% endif %}
   <section class="param-card">
     <h3>{% if stats.stats_mode == 'legacy' %}KPIs (modo legacy — no usar como activos reales){% else %}KPIs (fuente: Headcount activo){% endif %}</h3>
     <div class="param-kpis">
@@ -290,6 +295,18 @@
         </tbody>
       </table>
     </div>
+    {% if pagination %}
+    <p style="margin:.75rem 0 0;font-size:.88rem;color:#64748b;">
+      Mostrando {{ rows|length }} de {{ pagination.total }} registros
+      · Página {{ pagination.page }} de {{ pagination.pages }}
+      {% if pagination.page > 1 %}
+      · <a href="{{ url_for('nomina.parametros_index', page=pagination.page - 1, per_page=pagination.per_page, cliente=filtros.cliente, status=filtros.status, missing_salario=1 if filtros.missing_salario else None, missing_he=1 if filtros.missing_he else None) }}">Anterior</a>
+      {% endif %}
+      {% if pagination.page < pagination.pages %}
+      · <a href="{{ url_for('nomina.parametros_index', page=pagination.page + 1, per_page=pagination.per_page, cliente=filtros.cliente, status=filtros.status, missing_salario=1 if filtros.missing_salario else None, missing_he=1 if filtros.missing_he else None) }}">Siguiente</a>
+      {% endif %}
+    </p>
+    {% endif %}
   </section>
 </div>
 {% endblock %}

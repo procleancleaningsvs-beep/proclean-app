@@ -34,6 +34,12 @@
 </section>
 {% endif %}
 
+{% if headcount_cache_notice %}
+<section class="conc-card" style="border-color:#f59e0b;background:#fffbeb;">
+  <p style="margin:0;color:#92400e;font-size:.9rem;">{{ headcount_cache_notice }}</p>
+</section>
+{% endif %}
+
 <div class="conc-wrap">
   <section class="conc-card">
     <form method="GET" class="conc-filters">
@@ -105,6 +111,18 @@
         </tbody>
       </table>
     </div>
+    {% if pagination %}
+    <p style="margin:.75rem 0 0;font-size:.88rem;color:#64748b;">
+      Mostrando {{ rows|length }} de {{ pagination.total }} registros
+      · Página {{ pagination.page }} de {{ pagination.pages }}
+      {% if pagination.page > 1 %}
+      · <a href="{{ url_for('nomina.parametros_conciliacion', page=pagination.page - 1, per_page=pagination.per_page, filtro=filtro, q=search) }}">Anterior</a>
+      {% endif %}
+      {% if pagination.page < pagination.pages %}
+      · <a href="{{ url_for('nomina.parametros_conciliacion', page=pagination.page + 1, per_page=pagination.per_page, filtro=filtro, q=search) }}">Siguiente</a>
+      {% endif %}
+    </p>
+    {% endif %}
   </section>
 </div>
 {% endblock %}

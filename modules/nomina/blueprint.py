@@ -119,25 +119,23 @@ from modules.nomina.vacaciones_util import (
     resolve_status_headcount,
     sanitize_display_value,
 )
-from modules.nomina.headcount_bridge import obtener_headcount_completo
 from modules.roles_access import normalized_role
-from modules.nomina.infonavit_pdf import parse_infonavit_pdf
 from modules.nomina.config import (
     get_exento_he_for_year,
     get_smg_for_year,
     get_umi_for_year,
 )
-from modules.nomina.parametros_excel import parse_nomina_actual
 from modules.nomina.parametros_consolidado import (
     apply_manual_headcount_link,
     borrar_vinculos_manuales,
-    build_consolidado_view,
     build_legacy_parametros_view,
     limpiar_importaciones_contpaq,
     limpiar_importaciones_nomina,
     preview_depuracion_parametros,
     rebuild_consolidado_parametros,
     search_active_headcount,
+    _apply_consolidado_filters,
+    _build_consolidated_rows,
 )
 from modules.nomina.parametros_conciliacion import (
     build_conciliacion_inbox,
@@ -149,14 +147,13 @@ from modules.nomina.parametros_conciliacion import (
     rematch_parametro_row,
     suggest_headcount_matches,
 )
-from modules.nomina.contpaq_excel import parse_contpaq
 from modules.nomina.parametros_match import (
     build_headcount_index,
     build_parametro_row_from_contpaq,
     build_parametro_row_from_nomina,
 )
 from modules.comparativo import alias_service
-from modules.comparativo.headcount_service import obtener_activos
+from services.perf_logging import perf_span
 
 _BASE = Path(__file__).resolve().parent.parent.parent
 _TEMPLATE_DIR = _BASE / "templates" / "nomina"
@@ -312,9 +309,26 @@ def _normalize_name(value: str) -> str:
     return " ".join(s.split()).strip()
 
 
+def _pagination_args(default_per_page: int = 50) -> tuple[int, int, int]:
+    try:
+        page = max(1, int(request.args.get("page") or 1))
+    except ValueError:
+        page = 1
+    try:
+        per_page = int(request.args.get("per_page") or default_per_page)
+    except ValueError:
+        per_page = default_per_page
+    per_page = min(max(1, per_page), 100)
+    offset = (page - 1) * per_page
+    return page, per_page, offset
+
+
 def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None, str]:
     try:
-        clientes = sorted({str(a.get("cliente") or "").strip() for a in obtener_activos() if str(a.get("cliente") or "").strip()})
+        from modules.comparativo.headcount_service import obtener_activos
+
+        with perf_span("nomina.headcount_clientes"):
+            clientes = sorted({str(a.get("cliente") or "").strip() for a in obtener_activos() if str(a.get("cliente") or "").strip()})
         agrupaciones_raw = alias_service.obtener_agrupaciones()
         agrupaciones: dict[str, list[str]] = {}
         for name, members in (agrupaciones_raw or {}).items():
@@ -365,7 +379,10 @@ def _enrich_rows_with_headcount(
     hc_rows: list[dict] = []
     source = "headcount"
     try:
-        hc_rows = list(obtener_headcount_completo())
+        from modules.nomina.headcount_bridge import obtener_headcount_completo
+
+        with perf_span("nomina.headcount_load"):
+            hc_rows = list(obtener_headcount_completo())
     except Exception:
         source = "historial_fallback"
         for item in nomina_history_rows_for_headcount_fallback(db_path):
@@ -865,6 +882,8 @@ def _iso_to_ordinal(value: str) -> int | None:
 
 def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, list[dict]], str]:
     try:
+        from modules.nomina.headcount_bridge import obtener_headcount_completo
+
         activos = obtener_headcount_completo()
         source = "headcount"
     except Exception:
@@ -1682,6 +1701,8 @@ def infonavit_importar():
         return redirect(url_for("nomina.infonavit_index"))
 
     try:
+        from modules.nomina.infonavit_pdf import parse_infonavit_pdf
+
         file_bytes = file.read()
         parsed = parse_infonavit_pdf(file_bytes, filename=filename)
     except Exception as exc:
@@ -1793,10 +1814,18 @@ def _parametros_year_default() -> int:
 
 
 def _headcount_for_match() -> tuple[list[dict], str | None]:
+    cached = getattr(g, "_nomina_headcount_cache", None)
+    if cached is not None:
+        return cached
+    from modules.nomina.headcount_bridge import obtener_headcount_completo
+
     try:
-        return obtener_headcount_completo(), None
+        with perf_span("nomina.headcount_for_match"):
+            rows = obtener_headcount_completo()
+        g._nomina_headcount_cache = (rows, None)
     except Exception as exc:  # pragma: no cover - depends on external excel
-        return [], str(exc)
+        g._nomina_headcount_cache = ([], str(exc))
+    return g._nomina_headcount_cache
 
 
 @nomina_bp.get("/parametros")
@@ -1807,6 +1836,7 @@ def parametros_index():
     status_filter = (request.args.get("status") or "").strip().lower()
     only_missing_salary = request.args.get("missing_salario") == "1"
     only_missing_he = request.args.get("missing_he") == "1"
+    page, per_page, offset = _pagination_args()
 
     match_filters: list[str] = []
     if status_filter == "pendientes":
@@ -1822,30 +1852,41 @@ def parametros_index():
         ]
 
     hc_rows, headcount_match_error = _headcount_for_match()
-    if headcount_match_error:
-        rows = build_legacy_parametros_view(
-            db_path,
-            cliente=cliente,
-            match_status_any=match_filters or None,
-            only_missing_salary=only_missing_salary,
-            only_missing_valor_he=only_missing_he,
-            limit=2000,
-        )
-        stats = get_parametros_stats(db_path, None)
-    else:
-        rows = build_consolidado_view(
-            db_path,
-            hc_rows,
-            cliente=cliente,
-            match_status_any=match_filters or None,
-            only_missing_salary=only_missing_salary,
-            only_missing_valor_he=only_missing_he,
-            limit=2000,
-        )
-        stats = get_parametros_stats(db_path, hc_rows)
-    imports = list_parametros_imports(db_path, limit=20)
-    localidades = list_localidades_frontera(db_path)
-    dep_preview = preview_depuracion_parametros(db_path)
+    from modules.comparativo.headcount_service import consume_headcount_cache_warning
+
+    headcount_cache_notice = consume_headcount_cache_warning()
+
+    filter_kwargs = {
+        "cliente": cliente,
+        "match_status_any": match_filters or None,
+        "only_missing_salary": only_missing_salary,
+        "only_missing_valor_he": only_missing_he,
+    }
+
+    with perf_span("nomina_parametros.build_stats"):
+        if headcount_match_error:
+            stats = get_parametros_stats(db_path, None)
+        else:
+            stats = get_parametros_stats(db_path, hc_rows)
+
+    with perf_span("nomina_parametros.build_table"):
+        if headcount_match_error:
+            legacy_all = build_legacy_parametros_view(db_path, **filter_kwargs, limit=10000)
+            total_rows = len(legacy_all)
+            rows = legacy_all[offset : offset + per_page]
+        else:
+            filtered = _apply_consolidado_filters(
+                _build_consolidated_rows(db_path, hc_rows, include_external=True),
+                **filter_kwargs,
+            )
+            total_rows = len(filtered)
+            rows = filtered[offset : offset + per_page]
+
+    with perf_span("nomina_parametros.imports_history"):
+        imports = list_parametros_imports(db_path, limit=20)
+        localidades = list_localidades_frontera(db_path)
+        dep_preview = preview_depuracion_parametros(db_path)
+
     return render_template(
         "nomina/parametros_index.html",
         rows=rows,
@@ -1854,6 +1895,13 @@ def parametros_index():
         localidades=localidades,
         dep_preview=dep_preview,
         headcount_match_error=headcount_match_error,
+        headcount_cache_notice=headcount_cache_notice,
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total": total_rows,
+            "pages": max(1, (total_rows + per_page - 1) // per_page),
+        },
         filtros={
             "cliente": cliente or "",
             "status": status_filter,
@@ -1869,23 +1917,38 @@ def parametros_conciliacion():
     db_path = _db_path()
     filtro = (request.args.get("filtro") or "todos_pendientes").strip()
     search = (request.args.get("q") or "").strip()
+    page, per_page, offset = _pagination_args()
     hc_rows, headcount_match_error = _headcount_for_match()
-    rows = build_conciliacion_inbox(
-        db_path,
-        hc_rows,
-        headcount_unavailable=bool(headcount_match_error),
-        filtro=filtro,
-        search=search,
-        limit=500,
-    )
-    stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
+    from modules.comparativo.headcount_service import consume_headcount_cache_warning
+
+    headcount_cache_notice = consume_headcount_cache_warning()
+    with perf_span("nomina_conciliacion.build_inbox"):
+        inbox = build_conciliacion_inbox(
+            db_path,
+            hc_rows,
+            headcount_unavailable=bool(headcount_match_error),
+            filtro=filtro,
+            search=search,
+            offset=offset,
+            limit=per_page,
+        )
+    with perf_span("nomina_conciliacion.build_stats"):
+        stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
+    total = int(inbox.get("total") or 0)
     return render_template(
         "nomina/parametros_conciliacion.html",
-        rows=rows,
+        rows=inbox.get("rows") or [],
         stats=stats,
         filtro=filtro,
         search=search,
         headcount_match_error=headcount_match_error,
+        headcount_cache_notice=headcount_cache_notice,
+        pagination={
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": max(1, (total + per_page - 1) // per_page),
+        },
     )
 
 
@@ -1959,6 +2022,8 @@ def parametros_importar_nomina():
         flash("Solo se permiten archivos Excel (.xlsx / .xlsm).", "error")
         return redirect(url_for("nomina.parametros_index"))
     try:
+        from modules.nomina.parametros_excel import parse_nomina_actual
+
         parsed = parse_nomina_actual(
             file_bytes,
             filename=file.filename,
@@ -2092,6 +2157,8 @@ def parametros_importar_contpaq():
         flash("Solo se permiten archivos Excel (.xlsx / .xlsm).", "error")
         return redirect(url_for("nomina.parametros_index"))
     try:
+        from modules.nomina.contpaq_excel import parse_contpaq
+
         parsed = parse_contpaq(file_bytes, filename=file.filename)
     except ValueError as exc:
         flash(f"No se pudo importar CONTPAQ: {exc}", "error")

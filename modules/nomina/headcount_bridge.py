@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-import pandas as pd
-
 from modules.comparativo.headcount_service import (
     _is_empty as hc_is_empty,
     _normalize_header as hc_normalize_header,

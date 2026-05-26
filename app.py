@@ -76,6 +76,7 @@ from services.checkid_client import (
     normalize_termino_busqueda,
 )
 from services.app_activity import build_admin_dashboard, list_activity_feed, log_app_activity
+from services.perf_logging import perf_span, register_perf_hooks
 from services.checkid_history import (
     delete_checkid_query_by_id,
     find_checkid_history_match_by_rfc_curp,
@@ -263,6 +264,7 @@ def create_app() -> Flask:
     )
 
     limiter.init_app(app)
+    register_perf_hooks(app)
 
     @app.errorhandler(RateLimitExceeded)
     def handle_checkid_rate_limit_exceeded(_exc: RateLimitExceeded):
@@ -291,9 +293,10 @@ def create_app() -> Flask:
 
     @app.context_processor
     def inject_globals():
-        user = current_user()
-        role = normalized_role(user)
-        return {
+        with perf_span("layout.context_processor"):
+            user = current_user()
+            role = normalized_role(user)
+            nav = {
             "app_name": APP_NAME,
             "current_user": user,
             "user_role": role,
@@ -312,7 +315,8 @@ def create_app() -> Flask:
             "nav_show_headcount_cliente": nav_show_headcount_cliente(role),
             "nav_show_headcount_conteo": nav_show_headcount_conteo(role),
             "login_home_endpoint": login_home_endpoint,
-        }
+            }
+        return nav
 
     def _post_login_redirect(user_row):
         role = normalized_role(user_row)
