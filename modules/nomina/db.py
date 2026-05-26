@@ -972,7 +972,7 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
         "headcount_notice": headcount_snapshot_dashboard_message(db_path),
         "headcount_snapshot_meta": meta,
         "headcount_stale": snap.get("stale"),
-        "headcount_refreshing": snap.get("refreshing"),
+        "headcount_refreshing": snap.get("refreshing") or snap.get("read_locked"),
     }
 
 

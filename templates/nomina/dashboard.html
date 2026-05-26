@@ -46,11 +46,8 @@
   <section class="nd-card">
     <h3>Headcount</h3>
     <p class="nd-soon">{{ headcount_notice }}</p>
-    {% if headcount_refreshing %}
-    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Actualización en proceso…</p>
-    {% elif headcount_stale and headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
-    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Se programó una actualización automática.</p>
-    {% endif %}
+    {% elif headcount_refreshing or headcount_stale %}
+    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
   </section>
   {% endif %}
   <div class="nd-grid">

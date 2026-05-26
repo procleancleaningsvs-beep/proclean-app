@@ -1829,21 +1829,16 @@ def _parametros_year_default() -> int:
 
 
 def _headcount_snapshot_page_context(db_path: str | None = None) -> dict:
-    """Carga snapshot local y dispara refresh en background si está vencido."""
+    """Carga snapshot local (sin auto-trigger; refresh solo desde hub/cron/manual)."""
     cached = getattr(g, "_nomina_headcount_ctx", None)
     if cached is not None:
         return cached
-    from modules.nomina.headcount_snapshot import (
-        get_headcount_snapshot,
-        trigger_headcount_refresh_if_needed,
-    )
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot
 
     path = db_path or _db_path()
     now = _now_iso()
     with perf_span("nomina.headcount_snapshot_load"):
         ctx = get_headcount_snapshot(path, now_iso=now)
-    with perf_span("nomina.headcount_snapshot_auto_trigger"):
-        ctx["auto_refresh"] = trigger_headcount_refresh_if_needed(path, now_iso=now)
     g._nomina_headcount_ctx = ctx
     return ctx
 
@@ -1908,7 +1903,7 @@ def parametros_index():
     headcount_snapshot_meta = hc_ctx.get("meta")
     snapshot_missing = not hc_ctx["has_data"]
     headcount_stale = hc_ctx.get("stale")
-    headcount_refreshing = hc_ctx.get("refreshing")
+    headcount_refreshing = hc_ctx.get("refreshing") or hc_ctx.get("read_locked")
 
     filter_kwargs = {
         "cliente": cliente,
@@ -2002,7 +1997,7 @@ def parametros_conciliacion():
         headcount_snapshot_meta=hc_ctx.get("meta"),
         snapshot_missing=snapshot_missing,
         headcount_stale=hc_ctx.get("stale"),
-        headcount_refreshing=hc_ctx.get("refreshing"),
+        headcount_refreshing=hc_ctx.get("refreshing") or hc_ctx.get("read_locked"),
         pagination={
             "page": page,
             "per_page": per_page,

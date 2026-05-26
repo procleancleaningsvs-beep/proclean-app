@@ -42,6 +42,17 @@ def perf_span(name: str) -> Iterator[None]:
         _perf_log("info", "[PERF] span=%s duration_ms=%d", name, elapsed_ms)
 
 
+def perf_headcount_log(event: str, **fields: object) -> None:
+    """Structured headcount refresh/read logs for Railway."""
+    if not perf_log_enabled():
+        return
+    if fields:
+        suffix = " " + " ".join(f"{k}={v}" for k, v in fields.items())
+    else:
+        suffix = ""
+    _perf_log("info", "[PERF] headcount %s%s", event, suffix)
+
+
 def configure_perf_logging() -> None:
     """Ensure [PERF] lines reach Gunicorn stdout when enabled."""
     if not perf_log_enabled():

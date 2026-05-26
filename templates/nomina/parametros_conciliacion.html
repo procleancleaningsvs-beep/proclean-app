@@ -38,9 +38,9 @@
   {% if snapshot_missing %}
   <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">La bandeja opera en modo limitado hasta tener copia local.</p>
   {% elif headcount_refreshing %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Actualización en proceso…</p>
+  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
   {% elif headcount_stale %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Hay una actualización automática pendiente.</p>
+  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Hay una actualización pendiente.</p>
   {% endif %}
 </section>
 {% endif %}

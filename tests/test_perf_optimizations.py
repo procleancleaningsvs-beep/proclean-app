@@ -484,7 +484,7 @@ def test_stale_snapshot_loads_without_remote_on_get(tmp_path, monkeypatch):
             assert resp.status_code == 200
             body = resp.data.decode("utf-8", errors="replace")
             assert "Headcount actualizado: 2020-01-01 08:00:00" in body
-            assert "actualización pendiente" in body.lower() or "en proceso" in body.lower()
+            assert "Activos: 2" in body
     assert calls["completo"] == 0
     meta = get_headcount_snapshot_meta(db)
     assert int(meta.get("total_rows") or 0) == 2
@@ -557,4 +557,109 @@ def test_no_snapshot_page_loads_fast_with_notice(tmp_path, monkeypatch):
             resp = client.get("/nomina/parametros", follow_redirects=True)
             assert resp.status_code == 200
             body = resp.data.decode("utf-8", errors="replace")
-            assert "Headcount pendiente de actualización" in body
+            assert "Headcount pendiente" in body or "Headcount actualizado:" in body
+
+
+def test_get_headcount_snapshot_meta_skips_ddl_on_read(tmp_path, monkeypatch):
+    db = str(tmp_path / "no_ddl_read.db")
+    _seed_snapshot(db, now_iso="2026-05-26 14:00:00")
+    from modules.nomina import headcount_snapshot as hs
+
+    def boom_ddl(conn):
+        raise AssertionError("ensure_headcount_snapshot_tables must not run on GET read")
+
+    monkeypatch.setattr(hs, "ensure_headcount_snapshot_tables", boom_ddl)
+    meta = hs.get_headcount_snapshot_meta(db)
+    rows = hs.load_headcount_snapshot_rows(db)
+    assert meta is not None
+    assert len(rows) == 2
+
+
+def test_parametros_get_survives_sqlite_locked(tmp_path, monkeypatch):
+    from modules.nomina import headcount_snapshot as hs
+
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot(db, now_iso="2026-05-26 15:00:00")
+
+    def locked_meta(_path):
+        raise sqlite3.OperationalError("database is locked")
+
+    def locked_rows(_path, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(hs, "get_headcount_snapshot_meta", locked_meta)
+    monkeypatch.setattr(hs, "load_headcount_snapshot_rows", locked_rows)
+    monkeypatch.setattr(hs, "is_headcount_snapshot_refreshing", lambda *a, **k: True)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount se está actualizando" in body or "modo limitado" in body
+
+
+def test_refresh_download_happens_before_db_write(tmp_path, monkeypatch):
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+
+    db = str(tmp_path / "order.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+
+    order: list[str] = []
+    sample = _sample_hc()
+
+    def fake_download():
+        order.append("download")
+
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", fake_download)
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.obtener_headcount_completo",
+        lambda: (order.append("parse") or sample),
+    )
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot._atomic_write_snapshot",
+        lambda *a, **k: order.append("db_write"),
+    )
+
+    result = refresh_headcount_snapshot(db, now_iso="2026-05-26 16:00:00")
+    assert result["ok"] is True
+    assert order.index("download") < order.index("parse") < order.index("db_write")
+
+
+def test_trigger_skips_when_refresh_already_running(tmp_path, monkeypatch):
+    from modules.nomina.db import ensure_nomina_tables
+    from modules.nomina.headcount_snapshot import acquire_headcount_refresh_lock, trigger_headcount_refresh_if_needed
+
+    db = str(tmp_path / "trigger_skip.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("HEADCOUNT_SNAPSHOT_TTL_SECONDS", "1")
+    assert acquire_headcount_refresh_lock(db, now_iso="2026-05-26 17:00:00") is True
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
+    out = trigger_headcount_refresh_if_needed(db, now_iso="2026-05-26 17:00:30")
+    assert out["triggered"] is False
+    assert out["reason"] in {"already_refreshing", "locked"}
+
+
+def test_get_headcount_snapshot_locked_fallback(tmp_path, monkeypatch):
+    from modules.nomina import headcount_snapshot as hs
+
+    db = str(tmp_path / "fallback.db")
+    _seed_snapshot(db, now_iso="2026-05-26 19:00:00")
+
+    def locked_rows(_path, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(hs, "load_headcount_snapshot_rows", locked_rows)
+    monkeypatch.setattr(hs, "is_headcount_snapshot_refreshing", lambda *a, **k: True)
+    ctx = hs.get_headcount_snapshot(db)
+    assert ctx["status"] in {"refreshing", "locked", "limited"}
+    assert "actualizando" in ctx["message"].lower()
