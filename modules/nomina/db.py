@@ -579,6 +579,9 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_nomina_calculo_rows_calculo ON nomina_calculo_rows(calculo_id)"
     )
     _migrate_nomina_calculo_rows_neto411(conn)
+    from modules.nomina.headcount_snapshot import ensure_headcount_snapshot_tables
+
+    ensure_headcount_snapshot_tables(conn)
 
 
 def save_asistencia_import(
@@ -941,21 +944,33 @@ def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str,
 
 
 def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -> dict[str, Any]:
-    """KPIs del hub /nomina/ sin OneDrive, Excel ni pandas."""
+    """KPIs del hub /nomina/ sin OneDrive — usa snapshot local si existe."""
+    from modules.nomina.headcount_snapshot import (
+        get_headcount_snapshot_meta,
+        headcount_snapshot_dashboard_message,
+        load_headcount_snapshot_rows,
+    )
+
     localidades = list_localidades_frontera(db_path)
+    hc_rows = load_headcount_snapshot_rows(db_path)
+    meta = get_headcount_snapshot_meta(db_path)
+    if hc_rows:
+        param_stats = get_parametros_stats(db_path, hc_rows)
+        headcount_source = "snapshot"
+    else:
+        param_stats = get_parametros_stats(db_path, None)
+        headcount_source = "snapshot_missing"
     return {
         "dash": nomina_dashboard_overview(db_path, recent_limit=recent_limit),
         "vac_stats": get_vacaciones_stats(db_path),
         "inf_stats": get_infonavit_stats(db_path),
-        "param_stats": get_parametros_stats(db_path, None),
+        "param_stats": param_stats,
         "param_localidades_count": len(localidades),
         "param_localidades_frontera_count": sum(1 for it in localidades if it.get("es_frontera")),
         "calc_kpis": nomina_calculo_dashboard_kpis(db_path),
-        "headcount_source": "hub_fast",
-        "headcount_notice": (
-            "Activos Headcount no se cargan en el hub. "
-            "Use Parámetros o el botón «Actualizar Headcount» para refrescar OneDrive."
-        ),
+        "headcount_source": headcount_source,
+        "headcount_notice": headcount_snapshot_dashboard_message(db_path),
+        "headcount_snapshot_meta": meta,
     }
 
 

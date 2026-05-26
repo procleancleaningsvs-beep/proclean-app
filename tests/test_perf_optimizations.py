@@ -178,27 +178,6 @@ def test_compute_parametros_stats_legacy_mode_does_not_inflate_activos(tmp_path)
 
 
 def test_nomina_index_get_does_not_load_headcount_completo(tmp_path, monkeypatch):
-    import sqlite3
-
-    from modules.nomina.db import ensure_nomina_tables
-
-    db = str(tmp_path / "hub.db")
-    conn = sqlite3.connect(db)
-    conn.execute(
-        """
-        CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            role TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    ensure_nomina_tables(conn)
-    conn.commit()
-    conn.close()
-
     calls = {"completo": 0, "activos": 0}
 
     def boom_completo():
@@ -209,31 +188,17 @@ def test_nomina_index_get_does_not_load_headcount_completo(tmp_path, monkeypatch
         calls["activos"] += 1
         raise AssertionError("obtener_activos must not run on GET /nomina/")
 
-    monkeypatch.setenv("PERF_LOG_ENABLED", "1")
     monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
     monkeypatch.setattr("modules.comparativo.headcount_service.obtener_activos", boom_activos)
 
-    from app import create_app
-
-    app = create_app()
-    app.config["TESTING"] = True
-    app.config["DATABASE"] = db
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
 
     with app.app_context():
         with app.test_client() as client:
-            # Create admin user inline
-            from werkzeug.security import generate_password_hash
-
-            conn = sqlite3.connect(db)
-            conn.execute(
-                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)",
-                ("perfadmin", generate_password_hash("secret"), "2026-01-01 00:00:00"),
-            )
-            conn.commit()
-            conn.close()
-            client.post("/login", data={"username": "perfadmin", "password": "secret"})
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
             resp = client.get("/nomina/", follow_redirects=True)
             assert resp.status_code == 200
+            assert "Nóminas" in resp.data.decode("utf-8", errors="replace")
     assert calls["completo"] == 0
     assert calls["activos"] == 0
 
@@ -249,7 +214,7 @@ def test_get_nomina_dashboard_summary_fast_uses_local_stats_only(tmp_path):
     conn.commit()
     conn.close()
     summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
-    assert summary["headcount_source"] == "hub_fast"
+    assert summary["headcount_source"] in {"snapshot", "snapshot_missing"}
     assert summary["param_stats"]["stats_mode"] == "legacy"
     assert "dash" in summary and "vac_stats" in summary
 
@@ -272,3 +237,197 @@ def test_perf_startup_log_when_enabled(monkeypatch, caplog):
     with caplog.at_level("INFO"):
         create_app()
     assert any("[PERF] performance logging enabled" in r.message for r in caplog.records)
+
+
+def _perf_test_app(tmp_path, monkeypatch):
+    import sqlite3
+    from pathlib import Path
+
+    from werkzeug.security import generate_password_hash
+
+    from modules.nomina.db import ensure_nomina_tables
+
+    db = str(tmp_path / "perf_app.db")
+    monkeypatch.setattr("app.DB_PATH", Path(db))
+    conn = sqlite3.connect(db)
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    ensure_nomina_tables(conn)
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, 'admin', ?)",
+        ("perfadmin", generate_password_hash("secret"), "2026-01-01 00:00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setenv("PERF_LOG_ENABLED", "1")
+
+    from app import create_app
+
+    app = create_app()
+    app.config["TESTING"] = True
+    app.config["DATABASE"] = db
+    return app, db
+
+
+def test_parametros_get_does_not_call_obtener_headcount_completo(tmp_path, monkeypatch):
+    calls = {"completo": 0}
+
+    def boom_completo():
+        calls["completo"] += 1
+        raise AssertionError("obtener_headcount_completo must not run on GET /nomina/parametros")
+
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount no actualizado" in body or "Parámetros base" in body
+    assert calls["completo"] == 0
+
+
+def test_parametros_conciliacion_get_does_not_call_obtener_headcount_completo(tmp_path, monkeypatch):
+    calls = {"completo": 0}
+
+    def boom_completo():
+        calls["completo"] += 1
+        raise AssertionError("obtener_headcount_completo must not run on GET conciliacion")
+
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros/conciliacion", follow_redirects=True)
+            assert resp.status_code == 200
+    assert calls["completo"] == 0
+
+
+def test_parametros_uses_local_snapshot(tmp_path, monkeypatch):
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.obtener_headcount_completo",
+        lambda: sample,
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+
+    refresh_headcount_snapshot(db, now_iso="2026-05-26 10:00:00")
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount actualizado al: 2026-05-26 10:00:00" in body
+            assert "2 activos" in body
+
+
+def test_refresh_headcount_snapshot_persists_metadata(tmp_path, monkeypatch):
+    from modules.nomina.db import ensure_nomina_tables
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta, refresh_headcount_snapshot
+
+    db = str(tmp_path / "snap.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.obtener_headcount_completo",
+        lambda: sample,
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+
+    result = refresh_headcount_snapshot(db, now_iso="2026-05-26 11:00:00")
+    assert result["ok"] is True
+    assert result["total_rows"] == 2
+    assert result["activos_count"] == 2
+
+    meta = get_headcount_snapshot_meta(db)
+    assert meta is not None
+    assert meta["status"] == "ok"
+    assert meta["total_rows"] == 2
+    assert meta["activos_count"] == 2
+
+
+def test_dashboard_kpis_use_snapshot_not_contpaq_inflation(tmp_path, monkeypatch):
+    from modules.nomina.db import ensure_nomina_tables, get_nomina_dashboard_summary_fast, save_parametros_import, upsert_empleado_parametros
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+    from modules.nomina.parametros_consolidado import RECORD_EXTERNAL_CONTPAQ
+
+    db = str(tmp_path / "kpi_snap.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "CONTPAQ", "cliente": "Carrier", "source_filename": "c.xlsx", "total_rows": 10},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": f"Externo {i}",
+                "nombre_normalizado": f"EXTERNO {i}",
+                "nss": f"9990000000{i}",
+                "cliente": "Carrier",
+                "record_kind": RECORD_EXTERNAL_CONTPAQ,
+                "headcount_match_status": "no_match_contpaq",
+                "salario_operativo": None,
+                "valor_x_he": None,
+                "warnings": [],
+                "editable_json": {},
+            }
+            for i in range(5)
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+
+    sample = _sample_hc()
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: sample)
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    refresh_headcount_snapshot(db, now_iso="2026-05-26 12:00:00")
+
+    summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
+    assert summary["param_stats"]["activos_headcount"] == 2
+    assert summary["param_stats"]["stats_mode"] == "headcount"
+    assert summary["headcount_source"] == "snapshot"
+
+
+def test_perf_request_log_when_enabled(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: [])
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+
+    with app.app_context():
+        with caplog.at_level("INFO"):
+            with app.test_client() as client:
+                client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+                client.get("/nomina/parametros", follow_redirects=True)
+    assert any(
+        "[PERF] GET /nomina/parametros" in r.message and "duration_ms=" in r.message
+        for r in caplog.records
+    )

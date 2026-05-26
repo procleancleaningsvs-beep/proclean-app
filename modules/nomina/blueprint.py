@@ -396,28 +396,10 @@ def _enrich_rows_with_headcount(
     Si Headcount no está disponible (fallback interno), no se generan warnings masivos por fila.
     """
     hc_rows: list[dict] = []
-    source = "headcount"
-    try:
-        from modules.nomina.headcount_bridge import obtener_headcount_completo
+    with perf_span("nomina.headcount_snapshot_load"):
+        hc_rows, source = _headcount_rows_for_enrichment(db_path)
 
-        with perf_span("nomina.headcount_load"):
-            hc_rows = list(obtener_headcount_completo())
-    except Exception:
-        source = "historial_fallback"
-        for item in nomina_history_rows_for_headcount_fallback(db_path):
-            hc_rows.append(
-                {
-                    "nss": item.get("nss") or "",
-                    "nombre_completo": item.get("nombre_empleado") or "",
-                    "cliente": item.get("cliente") or "",
-                    "patron": "",
-                    "puesto": "",
-                    "status_operacion": "ALTA",
-                    "status_imss": "NO_DISPONIBLE",
-                }
-            )
-
-    hc_unavailable = source != "headcount"
+    hc_unavailable = source != "headcount_snapshot"
 
     by_nss: dict[str, dict] = {}
     by_name: dict[str, list[dict]] = {}
@@ -620,8 +602,8 @@ def index():
             param_localidades_count=summary["param_localidades_count"],
             param_localidades_frontera_count=summary["param_localidades_frontera_count"],
             calc_kpis=summary["calc_kpis"],
-            headcount_error=summary.get("headcount_notice"),
-            headcount_source=summary.get("headcount_source", "hub_fast"),
+            headcount_notice=summary.get("headcount_notice"),
+            headcount_snapshot_meta=summary.get("headcount_snapshot_meta"),
         )
     with perf_span("nomina.index.master_hub_fast"):
         clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
@@ -648,18 +630,31 @@ def index():
 
 
 @nomina_bp.post("/actualizar-headcount")
+@nomina_bp.post("/headcount/actualizar")
 @_nomina_dashboard_required
 def actualizar_headcount_hub():
-    """Invalida caché Headcount; la descarga ocurre solo al abrir Parámetros/Conciliación."""
-    from modules.comparativo.headcount_service import actualizar_headcount
+    """Refresca snapshot local desde OneDrive (acción explícita, puede tardar)."""
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
 
-    with perf_span("nomina.headcount_manual_refresh"):
-        actualizar_headcount()
-    flash(
-        "Caché Headcount invalidado. La próxima apertura de Parámetros o Conciliación refrescará desde OneDrive.",
-        "success",
-    )
-    return redirect(url_for("nomina.index"))
+    if hasattr(g, "_nomina_headcount_cache"):
+        del g._nomina_headcount_cache
+    with perf_span("nomina.headcount_snapshot_refresh"):
+        result = refresh_headcount_snapshot(_db_path(), now_iso=_now_iso())
+    if result.get("ok"):
+        flash(
+            (
+                f"Headcount actualizado: {result['activos_count']} activos, "
+                f"{result['total_rows']} registros leídos. "
+                f"Última actualización: {result['last_refresh_at']}."
+            ),
+            "success",
+        )
+    else:
+        flash(
+            f"No se pudo actualizar Headcount: {result.get('error', 'error desconocido')}",
+            "error",
+        )
+    return redirect(request.referrer or url_for("nomina.index"))
 
 
 @nomina_bp.get("/master")
@@ -912,28 +907,8 @@ def _iso_to_ordinal(value: str) -> int | None:
 
 
 def _build_headcount_indices(db_path: str) -> tuple[dict[str, dict], dict[str, list[dict]], str]:
-    try:
-        from modules.nomina.headcount_bridge import obtener_headcount_completo
-
-        activos = obtener_headcount_completo()
-        source = "headcount"
-    except Exception:
-        activos = []
-        source = "historial_fallback"
-        for r in nomina_history_rows_for_headcount_fallback(db_path):
-            activos.append(
-                {
-                    "nss": r.get("nss") or "",
-                    "nombre_completo": r.get("nombre_empleado") or "",
-                    "cliente": r.get("cliente") or "",
-                    "fecha_ingreso": "",
-                    "status_imss": "NO_DISPONIBLE",
-                    "status_operacion": "NO_DISPONIBLE",
-                    "patron": "",
-                    "sueldo_diario": None,
-                    "puesto": "",
-                }
-            )
+    with perf_span("nomina.headcount_snapshot_load"):
+        activos, source = _headcount_rows_for_enrichment(db_path)
     by_nss: dict[str, dict] = {}
     by_name: dict[str, list[dict]] = {}
     for item in activos:
@@ -1845,18 +1820,45 @@ def _parametros_year_default() -> int:
 
 
 def _headcount_for_match() -> tuple[list[dict], str | None]:
+    """Lee Headcount desde snapshot local; no descarga OneDrive."""
     cached = getattr(g, "_nomina_headcount_cache", None)
     if cached is not None:
         return cached
-    from modules.nomina.headcount_bridge import obtener_headcount_completo
+    from modules.nomina.headcount_snapshot import (
+        headcount_snapshot_user_message,
+        load_headcount_snapshot_rows,
+    )
 
-    try:
-        with perf_span("nomina.headcount_for_match"):
-            rows = obtener_headcount_completo()
-        g._nomina_headcount_cache = (rows, None)
-    except Exception as exc:  # pragma: no cover - depends on external excel
-        g._nomina_headcount_cache = ([], str(exc))
+    db_path = _db_path()
+    with perf_span("nomina.headcount_snapshot_load"):
+        rows = load_headcount_snapshot_rows(db_path)
+        msg = headcount_snapshot_user_message(db_path)
+    g._nomina_headcount_cache = (rows, msg)
     return g._nomina_headcount_cache
+
+
+def _headcount_rows_for_enrichment(db_path: str) -> tuple[list[dict], str]:
+    """Snapshot local con fallback a historial de asistencia (sin OneDrive)."""
+    from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows
+
+    hc_rows = load_headcount_snapshot_rows(db_path)
+    if hc_rows:
+        return hc_rows, "headcount_snapshot"
+    source = "historial_fallback"
+    fallback: list[dict] = []
+    for item in nomina_history_rows_for_headcount_fallback(db_path):
+        fallback.append(
+            {
+                "nss": item.get("nss") or "",
+                "nombre_completo": item.get("nombre_empleado") or "",
+                "cliente": item.get("cliente") or "",
+                "patron": "",
+                "puesto": "",
+                "status_operacion": "ALTA",
+                "status_imss": "NO_DISPONIBLE",
+            }
+        )
+    return fallback, source
 
 
 @nomina_bp.get("/parametros")
@@ -1882,10 +1884,11 @@ def parametros_index():
             "inactive_headcount",
         ]
 
-    hc_rows, headcount_match_error = _headcount_for_match()
-    from modules.comparativo.headcount_service import consume_headcount_cache_warning
+    hc_rows, headcount_notice = _headcount_for_match()
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta
 
-    headcount_cache_notice = consume_headcount_cache_warning()
+    headcount_snapshot_meta = get_headcount_snapshot_meta(db_path)
+    snapshot_missing = not hc_rows
 
     filter_kwargs = {
         "cliente": cliente,
@@ -1895,13 +1898,13 @@ def parametros_index():
     }
 
     with perf_span("nomina_parametros.build_stats"):
-        if headcount_match_error:
+        if snapshot_missing:
             stats = get_parametros_stats(db_path, None)
         else:
             stats = get_parametros_stats(db_path, hc_rows)
 
     with perf_span("nomina_parametros.build_table"):
-        if headcount_match_error:
+        if snapshot_missing:
             legacy_all = build_legacy_parametros_view(db_path, **filter_kwargs, limit=10000)
             total_rows = len(legacy_all)
             rows = legacy_all[offset : offset + per_page]
@@ -1925,8 +1928,9 @@ def parametros_index():
         imports=imports,
         localidades=localidades,
         dep_preview=dep_preview,
-        headcount_match_error=headcount_match_error,
-        headcount_cache_notice=headcount_cache_notice,
+        headcount_notice=headcount_notice,
+        headcount_snapshot_meta=headcount_snapshot_meta,
+        snapshot_missing=snapshot_missing,
         pagination={
             "page": page,
             "per_page": per_page,
@@ -1949,22 +1953,22 @@ def parametros_conciliacion():
     filtro = (request.args.get("filtro") or "todos_pendientes").strip()
     search = (request.args.get("q") or "").strip()
     page, per_page, offset = _pagination_args()
-    hc_rows, headcount_match_error = _headcount_for_match()
-    from modules.comparativo.headcount_service import consume_headcount_cache_warning
+    hc_rows, headcount_notice = _headcount_for_match()
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta
 
-    headcount_cache_notice = consume_headcount_cache_warning()
+    snapshot_missing = not hc_rows
     with perf_span("nomina_conciliacion.build_inbox"):
         inbox = build_conciliacion_inbox(
             db_path,
             hc_rows,
-            headcount_unavailable=bool(headcount_match_error),
+            headcount_unavailable=snapshot_missing,
             filtro=filtro,
             search=search,
             offset=offset,
             limit=per_page,
         )
     with perf_span("nomina_conciliacion.build_stats"):
-        stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
+        stats = get_parametros_stats(db_path, hc_rows if not snapshot_missing else None)
     total = int(inbox.get("total") or 0)
     return render_template(
         "nomina/parametros_conciliacion.html",
@@ -1972,8 +1976,9 @@ def parametros_conciliacion():
         stats=stats,
         filtro=filtro,
         search=search,
-        headcount_match_error=headcount_match_error,
-        headcount_cache_notice=headcount_cache_notice,
+        headcount_notice=headcount_notice,
+        headcount_snapshot_meta=get_headcount_snapshot_meta(db_path),
+        snapshot_missing=snapshot_missing,
         pagination={
             "page": page,
             "per_page": per_page,

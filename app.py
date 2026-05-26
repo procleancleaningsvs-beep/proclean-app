@@ -76,7 +76,7 @@ from services.checkid_client import (
     normalize_termino_busqueda,
 )
 from services.app_activity import build_admin_dashboard, list_activity_feed, log_app_activity
-from services.perf_logging import perf_span, register_perf_hooks
+from services.perf_logging import perf_span, register_perf_hooks, configure_perf_logging
 from services.checkid_history import (
     delete_checkid_query_by_id,
     find_checkid_history_match_by_rfc_curp,
@@ -264,6 +264,7 @@ def create_app() -> Flask:
     )
 
     limiter.init_app(app)
+    configure_perf_logging()
     register_perf_hooks(app)
 
     @app.errorhandler(RateLimitExceeded)

@@ -42,15 +42,17 @@
 </section>
 
 <div class="nd-wrap">
-  {% if headcount_source in ('historial_fallback', 'hub_fast') %}
+  {% if headcount_notice %}
   <section class="nd-card">
-    <h3>Headcount / OneDrive</h3>
-    {% if headcount_source == 'hub_fast' %}
-    <p class="nd-soon">El hub no descarga Headcount al abrir. Los KPIs de activos Headcount muestran N/D hasta consultar Parámetros o usar «Actualizar Headcount».</p>
-    {% else %}
-    <p class="nd-soon">Headcount no disponible: la validación contra catálogo se omitió en el Hub. No se generan warnings masivos por fila por este motivo.</p>
+    <h3>Headcount</h3>
+    <p class="nd-soon">{{ headcount_notice }}</p>
+    {% if headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
+    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;">
+      Última actualización: {{ headcount_snapshot_meta.last_refresh_at }}
+      · {{ headcount_snapshot_meta.activos_count | default(0) }} activos
+      · {{ headcount_snapshot_meta.total_rows | default(0) }} registros
+    </p>
     {% endif %}
-    {% if headcount_error %}<p class="nd-soon">{{ headcount_error }}</p>{% endif %}
   </section>
   {% endif %}
   <div class="nd-grid">

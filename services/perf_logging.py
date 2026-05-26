@@ -42,10 +42,22 @@ def perf_span(name: str) -> Iterator[None]:
         _perf_log("info", "[PERF] span=%s duration_ms=%d", name, elapsed_ms)
 
 
+def configure_perf_logging() -> None:
+    """Ensure [PERF] lines reach Gunicorn stdout when enabled."""
+    if not perf_log_enabled():
+        return
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        root.addHandler(handler)
+    _perf_log("info", "[PERF] performance logging enabled")
+
+
 def register_perf_hooks(app: Flask) -> None:
     """Register before/after request hooks for route timing."""
-    if perf_log_enabled():
-        _perf_log("info", "[PERF] performance logging enabled")
+    configure_perf_logging()
 
     @app.before_request
     def _perf_before_request() -> None:

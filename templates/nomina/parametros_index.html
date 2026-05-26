@@ -41,37 +41,38 @@
   </div>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
     <a class="btn btn-primary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja de conciliación</a>
+    <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
+      <button class="btn btn-secondary" type="submit">Actualizar Headcount</button>
+    </form>
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_depurar_preview') }}">Depurar / reconstruir</a>
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver a Nóminas</a>
   </div>
 </section>
 
 <div class="param-wrap">
-  {% if headcount_match_error or stats.stats_mode == 'legacy' %}
-  <section class="param-card" style="border-color:#dc2626;background:#fef2f2;">
-    <h3 style="margin-top:0;color:#991b1b;">Headcount no disponible — modo legacy</h3>
-    <p style="margin:.25rem 0;font-size:.92rem;color:#991b1b;font-weight:600;">
-      Headcount no disponible. Los KPIs mostrados están en modo legacy y no representan necesariamente empleados activos reales.
-    </p>
-    {% if headcount_match_error %}
-    <p style="margin:.25rem 0;font-size:.88rem;color:#7f1d1d;">Detalle: {{ headcount_match_error }}</p>
-    {% endif %}
+  {% if snapshot_missing and headcount_notice %}
+  <section class="param-card" style="border-color:#f59e0b;background:#fffbeb;">
+    <h3 style="margin-top:0;color:#92400e;">Headcount</h3>
+    <p style="margin:.25rem 0;font-size:.92rem;color:#92400e;">{{ headcount_notice }}</p>
     <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
-      No uses el total de registros CONTPAQ o nómina como empleados activos. Configura la fuente Headcount antes de operar con datos reales.
+      Puede revisar parámetros importados en la tabla, pero los activos reales requieren actualizar Headcount primero.
     </p>
   </section>
-  {% endif %}
-  {% if headcount_cache_notice %}
-  <section class="param-card" style="border-color:#f59e0b;background:#fffbeb;">
-    <p style="margin:0;color:#92400e;font-size:.9rem;">{{ headcount_cache_notice }}</p>
+  {% elif headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
+  <section class="param-card" style="border-color:#e5e7eb;background:#f8fafc;">
+    <p style="margin:0;font-size:.88rem;color:#475569;">
+      Headcount actualizado al: {{ headcount_snapshot_meta.last_refresh_at }}
+      · {{ headcount_snapshot_meta.activos_count | default(0) }} activos
+      · {{ headcount_snapshot_meta.total_rows | default(0) }} registros (copia local)
+    </p>
   </section>
   {% endif %}
   <section class="param-card">
-    <h3>{% if stats.stats_mode == 'legacy' %}KPIs (modo legacy — no usar como activos reales){% else %}KPIs (fuente: Headcount activo){% endif %}</h3>
+    <h3>{% if snapshot_missing or stats.stats_mode == 'legacy' %}KPIs (modo legacy — no usar como activos reales){% else %}KPIs (fuente: Headcount activo){% endif %}</h3>
     <div class="param-kpis">
       <div class="param-kpi">
         <span>Activos Headcount</span>
-        <strong>{% if stats.stats_mode == 'legacy' %}N/D{% else %}{{ stats.activos_headcount | default(stats.total_empleados) }}{% endif %}</strong>
+        <strong>{% if snapshot_missing or stats.stats_mode == 'legacy' %}N/D{% else %}{{ stats.activos_headcount | default(stats.total_empleados) }}{% endif %}</strong>
       </div>
       <div class="param-kpi"><span>Con nómina vinculada</span><strong>{{ stats.con_nomina_vinculada | default(0) }}</strong></div>
       <div class="param-kpi"><span>Con CONTPAQ vinculado</span><strong>{{ stats.con_contpaq_vinculado | default(0) }}</strong></div>
