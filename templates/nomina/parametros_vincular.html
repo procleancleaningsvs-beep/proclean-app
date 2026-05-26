@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas · Parámetros</span>
+    <h2>Vincular con Headcount</h2>
+    <p>Registro externo: <strong>{{ row.nombre or '—' }}</strong> · NSS: {{ row.nss or '—' }}</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index', status='pendientes') }}">Volver</a>
+</section>
+
+{% if headcount_match_error %}
+<section style="background:#fffbeb;border:1px solid #fbbf24;border-radius:12px;padding:1rem;margin-bottom:1rem;">
+  <p style="margin:0;color:#92400e;">Headcount no disponible: {{ headcount_match_error }}</p>
+</section>
+{% else %}
+<form method="GET" style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+  <input type="text" name="q" value="{{ query }}" placeholder="Buscar por nombre, NSS, cliente, planta…" style="padding:.45rem;border:1px solid #cbd5e1;border-radius:8px;min-width:260px;" />
+  <button class="btn btn-secondary" type="submit">Buscar</button>
+</form>
+
+<form method="POST">
+  <input type="hidden" name="q" value="{{ query }}" />
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="background:#f8fafc;">
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;"></th>
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Nombre</th>
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">NSS</th>
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Cliente</th>
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Planta/Patrón</th>
+          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Puesto</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for hc in candidates %}
+        <tr>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">
+            <input type="radio" name="headcount_nss" value="{{ hc.nss }}" required />
+          </td>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.nombre_completo }}</td>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.nss or '—' }}</td>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.cliente or '—' }}</td>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.patron or '—' }}</td>
+          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.puesto or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" style="padding:.75rem;">Sin candidatos. Ajusta la búsqueda.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if candidates %}
+  <div style="margin-top:.75rem;">
+    <button class="btn btn-primary" type="submit">Guardar vínculo permanente</button>
+  </div>
+  {% endif %}
+</form>
+{% endif %}
+{% endblock %}

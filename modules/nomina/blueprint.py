@@ -127,6 +127,16 @@ from modules.nomina.config import (
     get_umi_for_year,
 )
 from modules.nomina.parametros_excel import parse_nomina_actual
+from modules.nomina.parametros_consolidado import (
+    apply_manual_headcount_link,
+    borrar_vinculos_manuales,
+    build_consolidado_view,
+    limpiar_importaciones_contpaq,
+    limpiar_importaciones_nomina,
+    preview_depuracion_parametros,
+    rebuild_consolidado_parametros,
+    search_active_headcount,
+)
 from modules.nomina.contpaq_excel import parse_contpaq
 from modules.nomina.parametros_match import (
     build_headcount_index,
@@ -554,7 +564,8 @@ def index():
         dash = nomina_dashboard_overview(_db_path(), recent_limit=12)
         vac_stats = get_vacaciones_stats(_db_path())
         inf_stats = get_infonavit_stats(_db_path())
-        param_stats = get_parametros_stats(_db_path())
+        hc_rows, hc_err = _headcount_for_match()
+        param_stats = get_parametros_stats(_db_path(), hc_rows if not hc_err else None)
         param_localidades = list_localidades_frontera(_db_path())
         calc_kpis = nomina_calculo_dashboard_kpis(_db_path())
         return render_template(
@@ -1794,26 +1805,30 @@ def parametros_index():
             "probable_match",
             "multiple_candidates",
             "pending_review",
+            "manual_link",
         ]
 
-    rows = list_empleado_parametros(
+    hc_rows, headcount_match_error = _headcount_for_match()
+    rows = build_consolidado_view(
         db_path,
+        hc_rows,
         cliente=cliente,
         match_status_any=match_filters or None,
         only_missing_salary=only_missing_salary,
         only_missing_valor_he=only_missing_he,
         limit=2000,
     )
-    stats = get_parametros_stats(db_path)
+    stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
     imports = list_parametros_imports(db_path, limit=20)
     localidades = list_localidades_frontera(db_path)
-    _hc_rows, headcount_match_error = _headcount_for_match()
+    dep_preview = preview_depuracion_parametros(db_path)
     return render_template(
         "nomina/parametros_index.html",
         rows=rows,
         stats=stats,
         imports=imports,
         localidades=localidades,
+        dep_preview=dep_preview,
         headcount_match_error=headcount_match_error,
         filtros={
             "cliente": cliente or "",
@@ -1831,7 +1846,7 @@ def parametros_importar_nomina():
     if not file or not file.filename:
         flash("Selecciona un archivo Excel de nómina actual.", "error")
         return redirect(url_for("nomina.parametros_index"))
-    cliente_hint = (request.form.get("cliente") or "").strip()
+    cliente_fallback = (request.form.get("cliente_fallback") or request.form.get("cliente") or "").strip()
     file_bytes = file.read()
     if not file_bytes:
         flash("Archivo vacío.", "error")
@@ -1840,9 +1855,20 @@ def parametros_importar_nomina():
         flash("Solo se permiten archivos Excel (.xlsx / .xlsm).", "error")
         return redirect(url_for("nomina.parametros_index"))
     try:
-        parsed = parse_nomina_actual(file_bytes, filename=file.filename, cliente_hint=cliente_hint)
+        parsed = parse_nomina_actual(
+            file_bytes,
+            filename=file.filename,
+            cliente_hint=cliente_fallback,
+        )
     except ValueError as exc:
         flash(f"No se pudo importar: {exc}", "error")
+        return redirect(url_for("nomina.parametros_index"))
+
+    if parsed.get("cliente_requiere_seleccion") and not cliente_fallback:
+        flash(
+            "No se pudo detectar el cliente. Selecciona cliente para esta importación e intenta de nuevo.",
+            "error",
+        )
         return redirect(url_for("nomina.parametros_index"))
 
     db_path = _db_path()
@@ -1867,14 +1893,14 @@ def parametros_importar_nomina():
             year=year,
             source_filename=file.filename,
         )
-        if p["headcount_match_status"] in {"exact_nss", "exact_name"}:
+        if p["headcount_match_status"] in {"exact_nss", "exact_name", "manual_link"}:
             matched += 1
         payload_rows.append(p)
 
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     import_payload = {
         "tipo_importacion": "NOMINA_ACTUAL",
-        "cliente": cliente_hint,
+        "cliente": parsed.get("cliente") or cliente_fallback,
         "source_filename": file.filename,
         "file_hash": file_hash,
         "total_rows": parsed["total_rows"],
@@ -1887,6 +1913,8 @@ def parametros_importar_nomina():
             "file_errors": parsed.get("errors") or [],
             "headcount_unavailable": bool(hc_err),
             "headcount_error": hc_err,
+            "cliente_detectado": parsed.get("cliente_detectado"),
+            "cliente_detection_source": parsed.get("cliente_detection_source"),
         },
     }
     uid = int(g.user["id"]) if g.user is not None else None
@@ -2071,6 +2099,101 @@ def parametros_editar(row_id: int):
         return redirect(url_for("nomina.parametros_editar", row_id=row_id))
 
     return render_template("nomina/parametros_edit.html", row=row)
+
+
+@nomina_bp.get("/parametros/depurar")
+@_nomina_dashboard_required
+def parametros_depurar_preview():
+    preview = preview_depuracion_parametros(_db_path())
+    return render_template("nomina/parametros_depurar.html", preview=preview)
+
+
+@nomina_bp.post("/parametros/depurar")
+@_nomina_dashboard_required
+def parametros_depurar_ejecutar():
+    action = (request.form.get("action") or "").strip()
+    confirm = (request.form.get("confirm_text") or "").strip().upper()
+    db_path = _db_path()
+    now_iso = _now_iso()
+    uid = int(g.user["id"]) if g.user is not None else None
+
+    if action == "limpiar_nomina":
+        result = limpiar_importaciones_nomina(db_path, now_iso=now_iso)
+        flash(
+            f"Importaciones de nómina limpiadas: {result['limpiados_campos_nomina']} registros afectados, "
+            f"{result['desactivados_externos']} externos desactivados.",
+            "success",
+        )
+    elif action == "limpiar_contpaq":
+        result = limpiar_importaciones_contpaq(db_path, now_iso=now_iso)
+        flash(
+            f"Importaciones CONTPAQ limpiadas: {result['limpiados_campos_contpaq']} registros afectados, "
+            f"{result['desactivados_externos']} externos desactivados.",
+            "success",
+        )
+    elif action == "rebuild_consolidado":
+        hc_rows, hc_err = _headcount_for_match()
+        if hc_err:
+            flash(f"No se puede reconstruir consolidado: Headcount no disponible ({hc_err}).", "error")
+            return redirect(url_for("nomina.parametros_depurar_preview"))
+        result = rebuild_consolidado_parametros(db_path, hc_rows, now_iso=now_iso)
+        flash(
+            f"Consolidado reconstruido desde Headcount activo ({result['activos_headcount']}): "
+            f"{result['insertados']} nuevos, {result['actualizados']} actualizados.",
+            "success",
+        )
+    elif action == "borrar_vinculos":
+        if confirm not in {"DEPURAR", "BORRAR VINCULOS", "BORRAR VÍNCULOS"}:
+            flash("Confirmación incorrecta. Escribe DEPURAR o BORRAR VINCULOS para borrar vínculos manuales.", "error")
+            return redirect(url_for("nomina.parametros_depurar_preview"))
+        count = borrar_vinculos_manuales(db_path, now_iso=now_iso)
+        flash(f"Vínculos manuales eliminados: {count}.", "success")
+    else:
+        flash("Acción de depuración no reconocida.", "error")
+    return redirect(url_for("nomina.parametros_index"))
+
+
+@nomina_bp.route("/parametros/<int:row_id>/vincular", methods=["GET", "POST"])
+@_nomina_dashboard_required
+def parametros_vincular(row_id: int):
+    row = get_empleado_parametro(_db_path(), row_id)
+    if not row:
+        abort(404)
+    hc_rows, hc_err = _headcount_for_match()
+    query = (request.args.get("q") or request.form.get("q") or "").strip()
+
+    if request.method == "POST":
+        hc_nss = (request.form.get("headcount_nss") or "").strip()
+        if not hc_nss:
+            flash("Selecciona un empleado activo de Headcount.", "error")
+            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query))
+        hc_match = next((h for h in hc_rows if str(h.get("nss") or "").strip() == hc_nss), None)
+        if hc_match is None:
+            flash("Empleado Headcount no encontrado.", "error")
+            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query))
+        uid = int(g.user["id"]) if g.user is not None else None
+        ok = apply_manual_headcount_link(
+            _db_path(),
+            row_id,
+            headcount_nss=hc_nss,
+            headcount_nombre=str(hc_match.get("nombre_completo") or ""),
+            headcount_cliente=str(hc_match.get("cliente") or ""),
+            linked_by=uid,
+            now_iso=_now_iso(),
+        )
+        if ok:
+            flash("Vínculo manual guardado. El registro alimentará al empleado canónico de Headcount.", "success")
+            return redirect(url_for("nomina.parametros_index", status="pendientes"))
+        flash("No se pudo guardar el vínculo.", "error")
+
+    candidates = search_active_headcount(hc_rows, query, limit=25) if not hc_err else []
+    return render_template(
+        "nomina/parametros_vincular.html",
+        row=row,
+        candidates=candidates,
+        query=query,
+        headcount_match_error=hc_err,
+    )
 
 
 def _calculo_config_from_form() -> dict[str, Any]:

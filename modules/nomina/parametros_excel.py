@@ -86,7 +86,6 @@ def _to_bool_frontera(value: Any) -> bool | None:
     return None
 
 
-# Header aliases per logical field (all comparisons via _norm_header)
 HEADER_ALIASES: dict[str, list[str]] = {
     "numero_empleado": ["NO", "NO.", "NUMERO", "NUMERO EMPLEADO", "NUM EMPLEADO", "CODIGO", "CLAVE"],
     "nombre_empleado": ["NOMBRE", "NOMBRE DE EMPLEADO", "NOMBRE EMPLEADO", "NOMBRE COMPLETO"],
@@ -108,6 +107,45 @@ HEADER_ALIASES: dict[str, list[str]] = {
     "frontera": ["FRONTERA", "ZONA FRONTERA", "ES FRONTERA"],
     "nss": ["NSS", "NUM SEGURIDAD SOCIAL", "NUMERO DE SEGURO SOCIAL"],
 }
+
+
+KNOWN_CLIENTE_PATTERNS: list[tuple[str, str]] = [
+    ("carrier", "Carrier"),
+    ("pepsi", "Pepsi"),
+    ("gepp", "GEPP"),
+    ("auriga", "Auriga"),
+    ("general motors", "GM"),
+    (" gm", "GM"),
+    ("gm ", "GM"),
+]
+
+
+def detect_cliente_from_import(
+    *,
+    filename: str,
+    sheet_name: str | None,
+    row_clientes: list[str],
+    fallback: str = "",
+) -> tuple[str | None, str | None]:
+    """Detecta cliente desde filas, hoja, archivo o patrones conocidos.
+
+    Returns (cliente, detection_source) or (None, None) if undetected.
+    """
+    unique_rows = sorted({c.strip() for c in row_clientes if c and c.strip()}, key=str.lower)
+    if len(unique_rows) == 1:
+        return unique_rows[0], "columna_excel"
+    if len(unique_rows) > 1:
+        return None, "multicliente"
+
+    haystack = " ".join(
+        part for part in (filename or "", sheet_name or "", fallback or "") if part
+    ).lower()
+    for pattern, label in KNOWN_CLIENTE_PATTERNS:
+        if pattern in haystack:
+            return label, "nombre_archivo_o_hoja"
+    if fallback.strip():
+        return fallback.strip(), "seleccion_manual"
+    return None, None
 
 
 @dataclass
@@ -215,7 +253,14 @@ def parse_nomina_actual(
         warnings.append("Hoja no incluye SALARIO OPERATIVO; se importará sin salario.")
     if "valor_x_he" not in chosen_hm.cols:
         warnings.append("Hoja no incluye VALOR X HE; se importará sin valor de HE.")
-    if "localidad" not in chosen_hm.cols and "pepsi" in (cliente_hint or "").lower():
+
+    prelim_cliente, _ = detect_cliente_from_import(
+        filename=filename,
+        sheet_name=chosen_sheet,
+        row_clientes=[],
+        fallback=cliente_hint,
+    )
+    if "localidad" not in chosen_hm.cols and prelim_cliente and "pepsi" in prelim_cliente.lower():
         warnings.append("Cliente Pepsi sin columna LOCALIDAD detectada.")
 
     nss_seen: set[str] = set()
@@ -242,7 +287,7 @@ def parse_nomina_actual(
         nombre_norm = _norm_name_for_match(nombre_raw)
         numero = _norm_text(_get("numero_empleado"))
         nss = _norm_text(_get("nss"))
-        cliente_val = _norm_text(_get("cliente")) or (cliente_hint or "")
+        cliente_val = _norm_text(_get("cliente"))
         planta = _norm_text(_get("planta"))
         puesto = _norm_text(_get("puesto"))
         banco = _norm_text(_get("banco"))
@@ -282,7 +327,7 @@ def parse_nomina_actual(
                     f"Empleado aparece en múltiples clientes: {sorted(name_to_clients[nombre_norm])}."
                 )
 
-        if (cliente_hint or "").strip().lower() == "pepsi" and not localidad_raw:
+        if cliente_val and cliente_val.strip().lower() == "pepsi" and not localidad_raw:
             row_warnings.append("Cliente Pepsi sin LOCALIDAD en este renglón.")
 
         if frontera_bool is True and not localidad_raw:
@@ -292,7 +337,7 @@ def parse_nomina_actual(
 
         if localidad_raw:
             localidades_frontera_out.append({
-                "cliente": cliente_val or (cliente_hint or ""),
+                "cliente": cliente_val or (prelim_cliente or ""),
                 "localidad": localidad_raw,
                 "localidad_normalizada": localidad_norm,
                 "es_frontera": bool(frontera_bool) if frontera_bool is not None else None,
@@ -327,10 +372,29 @@ def parse_nomina_actual(
     if not rows_out:
         errors.append("No se detectaron filas de empleados con datos válidos.")
 
+    row_clientes = [str(r.get("cliente") or "") for r in rows_out]
+    detected_cliente, detection_source = detect_cliente_from_import(
+        filename=filename,
+        sheet_name=chosen_sheet,
+        row_clientes=row_clientes,
+        fallback=cliente_hint,
+    )
+    if detection_source == "multicliente":
+        warnings.append("Archivo con múltiples clientes detectados en columna CLIENTE.")
+    elif detected_cliente is None:
+        warnings.append("cliente_no_detectado")
+    else:
+        for row in rows_out:
+            if not row.get("cliente"):
+                row["cliente"] = detected_cliente
+
     return {
         "tipo_importacion": "NOMINA_ACTUAL",
         "filename": filename,
-        "cliente": cliente_hint or "",
+        "cliente": detected_cliente or cliente_hint or "",
+        "cliente_detectado": detected_cliente,
+        "cliente_detection_source": detection_source,
+        "cliente_requiere_seleccion": detected_cliente is None and detection_source != "multicliente",
         "sheet": chosen_sheet,
         "rows": rows_out,
         "localidades": localidades_frontera_out,

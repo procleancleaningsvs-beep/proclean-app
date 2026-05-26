@@ -120,9 +120,9 @@ def test_parse_contpaq_handles_basic_columns(contpaq_bytes):
 
 def test_match_to_headcount_priorities():
     hc = [
-        {"nombre_completo": "Empleado Demo Uno", "nss": "11122233344", "cliente": "Carrier"},
-        {"nombre_completo": "Empleado Demo Dos", "nss": "55566677788", "cliente": "Carrier"},
-        {"nombre_completo": "Otro Nombre Distinto", "nss": "99988877766", "cliente": "Pepsi"},
+        {"nombre_completo": "Empleado Demo Uno", "nss": "11122233344", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Empleado Demo Dos", "nss": "55566677788", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Otro Nombre Distinto", "nss": "99988877766", "cliente": "Pepsi", "status_operacion": "ALTA"},
     ]
     idx = build_headcount_index(hc)
     status, rec, score = match_to_headcount(
@@ -240,6 +240,76 @@ def test_nss_merge_conflict_detects_cliente_mismatch():
         {"nss": "12345678901", "cliente": "", "planta": "", "salario_operativo": None},
         {"nss": "12345678901", "cliente": "Pepsi", "planta": "A", "salario_operativo": 200.0},
     )
+
+
+def test_detect_cliente_from_filename():
+    from modules.nomina.parametros_excel import detect_cliente_from_import
+
+    cliente, src = detect_cliente_from_import(
+        filename="nomina_carrier_mayo.xlsx",
+        sheet_name="Hoja1",
+        row_clientes=[],
+    )
+    assert cliente == "Carrier"
+    assert src == "nombre_archivo_o_hoja"
+
+
+def test_detect_cliente_requires_fallback_when_unknown():
+    from modules.nomina.parametros_excel import detect_cliente_from_import
+
+    cliente, src = detect_cliente_from_import(
+        filename="datos.xlsx",
+        sheet_name="Sheet1",
+        row_clientes=[],
+    )
+    assert cliente is None
+    assert src is None
+
+
+def test_compute_parametros_stats_from_headcount(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_consolidado import compute_parametros_stats, RECORD_EXTERNAL_CONTPAQ
+
+    db = str(tmp_path / "stats.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+
+    hc = [
+        {"nombre_completo": "Activo Uno", "nss": "111", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Activo Dos", "nss": "222", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Baja Tres", "nss": "333", "cliente": "Carrier", "status_operacion": "BAJA"},
+    ]
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "CONTPAQ", "cliente": "", "source_filename": "c.xlsx", "total_rows": 5},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Externo CONTPAQ",
+                "nombre_normalizado": "EXTERNO CONTPAQ",
+                "nss": "999",
+                "headcount_match_status": "no_match_headcount",
+                "contpaq_match_status": "imported",
+                "record_kind": RECORD_EXTERNAL_CONTPAQ,
+                "warnings": [],
+                "editable_json": {},
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    stats = compute_parametros_stats(db, hc)
+    assert stats["activos_headcount"] == 2
+    assert stats["registros_externos_sin_vinculo"] >= 1
 
 
 def test_smg_frontera_vs_general_via_config():

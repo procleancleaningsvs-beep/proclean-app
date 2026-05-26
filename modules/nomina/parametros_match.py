@@ -16,6 +16,9 @@ from modules.nomina.config import (
     WARN_FRONTERA_EXCEL_VS_LEARNED,
     WARN_HEADCOUNT_UNAVAILABLE,
     WARN_LOCALIDAD_FRONTERA_DEMOTION_BLOCKED,
+    WARN_MATCH_DUDOSO_NOMBRE,
+    WARN_NOMBRE_SIMILAR_NSS_DISTINTO,
+    WARN_NSS_IGUAL_NOMBRE_DISTINTO,
     WARN_REVIEW_NO_CONFIDENT_MATCH,
     WARN_SAME_NSS_MULTIPLE_CLIENTS,
     get_exento_he_for_year,
@@ -28,6 +31,7 @@ from modules.nomina.db import localidad_is_frontera
 class HeadcountIndex:
     by_nss: dict[str, dict]
     by_name: dict[str, list[dict]]
+    by_numero: dict[str, dict]
     source: str = "headcount"
     unavailable_reason: str | None = None
 
@@ -44,10 +48,17 @@ def _norm_name(value: Any) -> str:
     return " ".join(raw.split())
 
 
+def _is_headcount_active(hc_row: dict) -> bool:
+    from modules.nomina.vacaciones_util import resolve_status_headcount
+
+    return resolve_status_headcount(hc_row) == "ACTIVO"
+
+
 def build_headcount_index(
     headcount_rows: list[dict],
     *,
     unavailable_reason: str | None = None,
+    active_only: bool = False,
 ) -> HeadcountIndex:
     """Si ``unavailable_reason`` está definido (p. ej. OneDrive no configurado),
     el índice queda vacío y ``match_to_headcount`` devuelve ``pending_headcount_unavailable``.
@@ -56,19 +67,33 @@ def build_headcount_index(
         return HeadcountIndex(
             by_nss={},
             by_name={},
+            by_numero={},
             source="unavailable",
             unavailable_reason=unavailable_reason,
         )
     by_nss: dict[str, dict] = {}
     by_name: dict[str, list[dict]] = {}
+    by_numero: dict[str, dict] = {}
     for item in headcount_rows:
+        if active_only and not _is_headcount_active(item):
+            continue
         nss = str(item.get("nss") or "").strip()
         nombre = _norm_name(item.get("nombre_completo"))
         if nss:
             by_nss[nss] = item
         if nombre:
             by_name.setdefault(nombre, []).append(item)
-    return HeadcountIndex(by_nss=by_nss, by_name=by_name, source="headcount", unavailable_reason=None)
+        for num_key in ("numero_empleado", "codigo_contpaq"):
+            num = str(item.get(num_key) or "").strip()
+            if num:
+                by_numero[num] = item
+    return HeadcountIndex(
+        by_nss=by_nss,
+        by_name=by_name,
+        by_numero=by_numero,
+        source="headcount",
+        unavailable_reason=None,
+    )
 
 
 def _similar(a: str, b: str) -> float:
@@ -83,24 +108,47 @@ def match_to_headcount(
     nss: str | None,
     cliente: str | None,
     index: HeadcountIndex,
+    numero_empleado: str | None = None,
+    codigo_contpaq: str | None = None,
 ) -> tuple[str, dict | None, float]:
-    """Return (match_status, hc_record, score)."""
+    """Return (match_status, hc_record, score). Prioridad: NSS, número, CONTPAQ, nombre."""
     if index.unavailable_reason:
         return "pending_headcount_unavailable", None, 0.0
 
+    def _finalize(status: str, hc: dict, score: float) -> tuple[str, dict | None, float]:
+        if hc is not None and not _is_headcount_active(hc):
+            from modules.nomina.config import WARN_EMPLEADO_NOMINA_INACTIVO_HC
+            return "inactive_headcount", hc, score
+        return status, hc, score
+
+    for num in (numero_empleado, codigo_contpaq):
+        num_s = str(num or "").strip()
+        if num_s and num_s in index.by_numero:
+            hc = index.by_numero[num_s]
+            nombre_norm = _norm_name(nombre)
+            hc_name = _norm_name(hc.get("nombre_completo"))
+            if nombre_norm and hc_name and nombre_norm != hc_name:
+                return _finalize("probable_match", hc, 0.9)
+            st = "exact_nss" if nss and str(hc.get("nss") or "").strip() == str(nss).strip() else "exact_name"
+            return _finalize(st, hc, 1.0)
+
     nombre_norm = _norm_name(nombre)
     if nss and nss in index.by_nss:
-        return "exact_nss", index.by_nss[nss], 1.0
+        hc = index.by_nss[nss]
+        hc_name = _norm_name(hc.get("nombre_completo"))
+        if nombre_norm and hc_name and nombre_norm != hc_name:
+            return _finalize("probable_match", hc, 0.95)
+        return _finalize("exact_nss", hc, 1.0)
     if nombre_norm and nombre_norm in index.by_name:
         candidates = index.by_name[nombre_norm]
         if cliente:
             target_cliente = _norm_name(cliente)
             matches = [c for c in candidates if _norm_name(c.get("cliente")) == target_cliente]
             if len(matches) == 1:
-                return "exact_name", matches[0], 1.0
+                return _finalize("exact_name", matches[0], 1.0)
         if len(candidates) == 1:
-            return "exact_name", candidates[0], 1.0
-        return "multiple_candidates", candidates[0], 0.95
+            return _finalize("exact_name", candidates[0], 1.0)
+        return _finalize("multiple_candidates", candidates[0], 0.95)
     if nombre_norm:
         best_score = 0.0
         best_record: dict | None = None
@@ -114,9 +162,12 @@ def match_to_headcount(
             elif score >= 0.92 and score >= best_score - 0.02:
                 ambiguous.extend(items)
         if best_score >= 0.92 and best_record is not None:
+            hc_nss = str(best_record.get("nss") or "").strip()
+            if nss and hc_nss and nss != hc_nss:
+                return _finalize("probable_match", best_record, best_score)
             if len({_norm_name(r.get("nombre_completo")) for r in ambiguous}) > 1:
-                return "multiple_candidates", best_record, best_score
-            return "probable_match", best_record, best_score
+                return _finalize("multiple_candidates", best_record, best_score)
+            return _finalize("probable_match", best_record, best_score)
     return "no_match_headcount", None, 0.0
 
 
@@ -208,6 +259,7 @@ def append_parametro_precheck_warnings(row: dict[str, Any]) -> None:
         "no_match_headcount",
         "probable_match",
         "multiple_candidates",
+        "inactive_headcount",
     }:
         if WARN_REVIEW_NO_CONFIDENT_MATCH not in warnings:
             warnings.append(WARN_REVIEW_NO_CONFIDENT_MATCH)
@@ -237,11 +289,14 @@ def build_parametro_row_from_nomina(
     source_filename: str,
 ) -> dict:
     """Translate a parsed nomina_actual row into nomina_empleado_parametros payload."""
+    from modules.nomina.parametros_consolidado import append_conciliation_warnings, classify_record_kind
+
     match_status, hc, score = match_to_headcount(
         nombre=parsed_row.get("nombre"),
         nss=parsed_row.get("nss"),
         cliente=parsed_row.get("cliente"),
         index=hc_index,
+        numero_empleado=parsed_row.get("numero_empleado"),
     )
 
     is_frontera, smg, exento, frontera_warnings = derive_smg_from_locality(
@@ -260,9 +315,16 @@ def build_parametro_row_from_nomina(
     if hc is not None:
         hc_nss = str(hc.get("nss") or "").strip()
         if hc_nss and nss and hc_nss != nss:
-            warnings.append(f"NSS distinto entre Headcount ({hc_nss}) y nómina ({nss}).")
+            warnings.append(f"{WARN_NSS_IGUAL_NOMBRE_DISTINTO}: Headcount ({hc_nss}) vs nómina ({nss}).")
         if not nss and hc_nss:
             nss = hc_nss
+    elif match_status == "inactive_headcount":
+        from modules.nomina.config import WARN_EMPLEADO_NOMINA_INACTIVO_HC
+        if WARN_EMPLEADO_NOMINA_INACTIVO_HC not in warnings:
+            warnings.append(WARN_EMPLEADO_NOMINA_INACTIVO_HC)
+    elif match_status in {"probable_match", "multiple_candidates"}:
+        if WARN_MATCH_DUDOSO_NOMBRE not in warnings:
+            warnings.append(WARN_MATCH_DUDOSO_NOMBRE)
 
     cliente = parsed_row.get("cliente") or (hc.get("cliente") if hc else None)
 
@@ -298,7 +360,9 @@ def build_parametro_row_from_nomina(
             "match_score": score,
             "source_filename": source_filename,
         },
+        "record_kind": classify_record_kind(source="NOMINA_ACTUAL", headcount_match_status=match_status),
     }
+    append_conciliation_warnings(row, hc_row=hc)
     append_parametro_precheck_warnings(row)
     return row
 
@@ -309,11 +373,14 @@ def build_parametro_row_from_contpaq(
     hc_index: HeadcountIndex,
     source_filename: str,
 ) -> dict:
+    from modules.nomina.parametros_consolidado import append_conciliation_warnings, classify_record_kind
+
     match_status, hc, score = match_to_headcount(
         nombre=parsed_row.get("nombre"),
         nss=parsed_row.get("nss"),
         cliente=None,
         index=hc_index,
+        codigo_contpaq=parsed_row.get("codigo_contpaq"),
     )
 
     warnings = list(parsed_row.get("warnings") or [])
@@ -321,9 +388,16 @@ def build_parametro_row_from_contpaq(
     if hc is not None:
         hc_nss = str(hc.get("nss") or "").strip()
         if hc_nss and nss and hc_nss != nss:
-            warnings.append(f"NSS distinto entre Headcount ({hc_nss}) y CONTPAQ ({nss}).")
+            warnings.append(f"{WARN_NOMBRE_SIMILAR_NSS_DISTINTO}: Headcount ({hc_nss}) vs CONTPAQ ({nss}).")
         if not nss and hc_nss:
             nss = hc_nss
+    elif match_status == "inactive_headcount":
+        from modules.nomina.config import WARN_EMPLEADO_NOMINA_INACTIVO_HC
+        if WARN_EMPLEADO_NOMINA_INACTIVO_HC not in warnings:
+            warnings.append(WARN_EMPLEADO_NOMINA_INACTIVO_HC)
+    elif match_status in {"probable_match", "multiple_candidates"}:
+        if WARN_MATCH_DUDOSO_NOMBRE not in warnings:
+            warnings.append(WARN_MATCH_DUDOSO_NOMBRE)
 
     cliente = hc.get("cliente") if hc else None
 
@@ -370,6 +444,8 @@ def build_parametro_row_from_contpaq(
                 "salario_diario": parsed_row.get("salario_diario"),
             },
         },
+        "record_kind": classify_record_kind(source="CONTPAQ", headcount_match_status=match_status),
     }
+    append_conciliation_warnings(row, hc_row=hc)
     append_parametro_precheck_warnings(row)
     return row

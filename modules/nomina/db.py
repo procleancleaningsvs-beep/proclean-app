@@ -94,6 +94,18 @@ def _migrate_nomina_rows_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE nomina_asistencia_rows ADD COLUMN horas_extra_normales TEXT")
 
 
+def _migrate_nomina_parametros_schema(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_empleado_parametros)").fetchall()}
+    if "record_kind" not in cols:
+        conn.execute(
+            "ALTER TABLE nomina_empleado_parametros ADD COLUMN record_kind TEXT DEFAULT 'import'"
+        )
+    if "is_active" not in cols:
+        conn.execute(
+            "ALTER TABLE nomina_empleado_parametros ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+        )
+
+
 def _migrate_nomina_calculo_rows_neto411(conn: sqlite3.Connection) -> None:
     cols = {row[1] for row in conn.execute("PRAGMA table_info(nomina_calculo_rows)").fetchall()}
     for name, decl in (
@@ -432,6 +444,7 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nomina_empleado_parametros_cliente ON nomina_empleado_parametros(cliente)"
     )
+    _migrate_nomina_parametros_schema(conn)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nomina_localidades_frontera (
@@ -2145,6 +2158,7 @@ def upsert_empleado_parametros(
                     (nombre_norm, cliente_norm, cliente_norm),
                 ).fetchone()
             if existing is None:
+                record_kind = row.get("record_kind") or "import"
                 conn.execute(
                     """
                     INSERT INTO nomina_empleado_parametros (
@@ -2158,10 +2172,11 @@ def upsert_empleado_parametros(
                         fuente_numero_empleado, fuente_nss,
                         headcount_match_status, contpaq_match_status, nomina_match_status,
                         warnings_json, editable_json, last_import_id,
+                        record_kind, is_active,
                         created_at, updated_at
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                     )
                     """,
                     (
@@ -2193,6 +2208,8 @@ def upsert_empleado_parametros(
                         json.dumps(row.get("warnings") or [], ensure_ascii=False),
                         json.dumps(row.get("editable_json") or {}, ensure_ascii=False),
                         import_id,
+                        record_kind,
+                        1,
                         now_iso,
                         now_iso,
                     ),
@@ -2244,7 +2261,9 @@ def upsert_empleado_parametros(
                     fuente_salario_operativo = ?, fuente_valor_x_he = ?,
                     fuente_numero_empleado = ?, fuente_nss = ?,
                     headcount_match_status = ?, contpaq_match_status = ?, nomina_match_status = ?,
-                    warnings_json = ?, editable_json = ?, last_import_id = ?, updated_at = ?
+                    warnings_json = ?, editable_json = ?, last_import_id = ?,
+                    record_kind = COALESCE(?, record_kind),
+                    updated_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -2276,6 +2295,7 @@ def upsert_empleado_parametros(
                     json.dumps(new_warnings, ensure_ascii=False),
                     json.dumps(new_editable, ensure_ascii=False),
                     import_id,
+                    row.get("record_kind"),
                     now_iso,
                     int(existing_dict["id"]),
                 ),
@@ -2299,7 +2319,7 @@ def list_empleado_parametros(
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
-        query = "SELECT * FROM nomina_empleado_parametros WHERE 1=1"
+        query = "SELECT * FROM nomina_empleado_parametros WHERE COALESCE(is_active, 1) = 1"
         params: list[Any] = []
         if cliente:
             query += " AND LOWER(TRIM(COALESCE(cliente,''))) = LOWER(TRIM(?))"
@@ -2394,7 +2414,13 @@ def update_empleado_parametro(
         conn.close()
 
 
-def get_parametros_stats(db_path: str) -> dict[str, int]:
+def get_parametros_stats(db_path: str, headcount_rows: list[dict[str, Any]] | None = None) -> dict[str, int]:
+    """KPIs de parámetros. Si hay Headcount disponible, la fuente principal es activos Headcount."""
+    if headcount_rows is not None:
+        from modules.nomina.parametros_consolidado import compute_parametros_stats
+
+        return compute_parametros_stats(db_path, headcount_rows)
+
     conn = sqlite3.connect(db_path)
     try:
         total = int(
@@ -2430,9 +2456,16 @@ def get_parametros_stats(db_path: str) -> dict[str, int]:
         )
         return {
             "total_empleados": total,
+            "activos_headcount": total,
             "missing_salario_operativo": missing_salary,
             "missing_valor_x_he": missing_he,
             "pendientes_revision": pending,
+            "con_nomina_vinculada": 0,
+            "con_contpaq_vinculado": 0,
+            "registros_externos_sin_vinculo": 0,
+            "registros_nomina_importados": 0,
+            "registros_contpaq_importados": 0,
+            "vinculos_manuales": 0,
         }
     finally:
         conn.close()
