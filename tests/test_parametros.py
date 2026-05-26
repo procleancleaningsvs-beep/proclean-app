@@ -521,3 +521,384 @@ def test_smg_frontera_vs_general_via_config():
     assert float(get_smg_for_year(2026, "FRONTERA")) == 440.87
     assert float(get_exento_he_for_year(2026, "GENERAL")) == 236.28
     assert float(get_exento_he_for_year(2026, "FRONTERA")) == 330.65
+
+
+# --- Microfase 2: bandeja de conciliación ---
+
+
+def test_detect_periodo_from_filename_mayo():
+    from modules.nomina.parametros_excel import detect_periodo_from_import
+
+    periodo, src = detect_periodo_from_import(filename="Carrier 1 al 7 may.xlsx")
+    assert periodo == "1 al 7 may"
+    assert src == "nombre_archivo"
+
+
+def test_suggest_headcount_matches_pedro_martinez():
+    from modules.nomina.parametros_conciliacion import suggest_headcount_matches
+
+    row = {"nombre": "Pedro Martinez", "nss": None, "cliente": "Carrier", "planta": "Planta F"}
+    hc = [
+        {
+            "nombre_completo": "Pedro Alfonso Martinez Vaca",
+            "nss": "11122233344",
+            "cliente": "Pepsi",
+            "patron": "Planta F",
+            "puesto": "Aux",
+            "status_operacion": "ALTA",
+        },
+        {
+            "nombre_completo": "Pedro Martinez López",
+            "nss": "55566677788",
+            "cliente": "Carrier",
+            "patron": "Planta A",
+            "puesto": "Aux",
+            "status_operacion": "ALTA",
+        },
+    ]
+    suggestions = suggest_headcount_matches(row, hc, limit=5)
+    assert suggestions
+    assert suggestions[0]["nombre_completo"] == "Pedro Alfonso Martinez Vaca"
+    assert suggestions[0]["etiqueta"] in {"Alta", "Media"}
+
+
+def test_ignore_warning_excludes_from_active_pendientes(tmp_path):
+    import sqlite3
+
+    from modules.nomina.config import WARN_HEADCOUNT_ACTIVO_SIN_SALARIO
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_conciliacion import (
+        build_conciliacion_inbox,
+        build_parametro_detail,
+        get_active_warnings,
+        ignore_parametro_warning,
+    )
+    from modules.nomina.parametros_consolidado import RECORD_HEADCOUNT_CANONICAL
+
+    db = str(tmp_path / "ignore.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Activo Sin Salario",
+                "nombre_normalizado": "ACTIVO SIN SALARIO",
+                "nss": "111",
+                "cliente": "Carrier",
+                "record_kind": RECORD_HEADCOUNT_CANONICAL,
+                "headcount_match_status": "headcount_canonical",
+                "warnings": [f"{WARN_HEADCOUNT_ACTIVO_SIN_SALARIO}: falta salario"],
+                "editable_json": {},
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    conn = sqlite3.connect(db)
+    row_id = conn.execute("SELECT id FROM nomina_empleado_parametros LIMIT 1").fetchone()[0]
+    conn.close()
+
+    hc = [{"nombre_completo": "Activo Sin Salario", "nss": "111", "cliente": "Carrier", "status_operacion": "ALTA"}]
+    inbox_before = build_conciliacion_inbox(db, hc, filtro="sin_salario")
+    assert len(inbox_before) == 1
+
+    ok = ignore_parametro_warning(
+        db,
+        int(row_id),
+        warning_codes=[WARN_HEADCOUNT_ACTIVO_SIN_SALARIO],
+        motivo="Validado manualmente por nómina",
+        user_id=1,
+        now_iso=iso,
+    )
+    assert ok
+
+    conn = sqlite3.connect(db)
+    raw = conn.execute("SELECT warnings_json, editable_json FROM nomina_empleado_parametros WHERE id = ?", (row_id,)).fetchone()
+    conn.close()
+    warnings = __import__("json").loads(raw[0])
+    editable = __import__("json").loads(raw[1])
+    row = {"warnings": warnings, "editable_json": editable}
+    assert get_active_warnings(row) == []
+    assert any(i.get("code") == WARN_HEADCOUNT_ACTIVO_SIN_SALARIO for i in editable.get("ignored_warnings") or [])
+
+    inbox_after = build_conciliacion_inbox(db, hc, filtro="sin_salario")
+    assert len(inbox_after) == 0
+
+    detail = build_parametro_detail(db, int(row_id), hc)
+    assert detail is not None
+    assert detail["conciliacion"]["warnings_ignorados"]
+
+
+def test_post_import_rematch_respects_manual_link_first(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_conciliacion import post_import_rematch_controlled
+    from modules.nomina.parametros_consolidado import RECORD_EXTERNAL_NOMINA
+
+    db = str(tmp_path / "rematch_manual.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Pedro Martinez",
+                "nombre_normalizado": "PEDRO MARTINEZ",
+                "nss": "99988877766",
+                "cliente": "Carrier",
+                "record_kind": RECORD_EXTERNAL_NOMINA,
+                "headcount_match_status": "no_match_headcount",
+                "nomina_match_status": "imported",
+                "warnings": [],
+                "editable_json": {"manual_headcount_nss": "11122233344"},
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    hc = [
+        {"nombre_completo": "Pedro Alfonso Martinez Vaca", "nss": "11122233344", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Otro Nombre", "nss": "99988877766", "cliente": "Carrier", "status_operacion": "ALTA"},
+    ]
+    summary = post_import_rematch_controlled(db, import_id=imp_id, headcount_rows=hc, now_iso=iso)
+    assert summary["manual_link"] == 1
+    assert summary["exactos"] == 0
+
+    conn = sqlite3.connect(db)
+    ms = conn.execute("SELECT headcount_match_status FROM nomina_empleado_parametros WHERE last_import_id = ?", (imp_id,)).fetchone()[0]
+    conn.close()
+    assert ms == "no_match_headcount"
+
+
+def test_post_import_rematch_does_not_auto_fuse_doubtful(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_conciliacion import post_import_rematch_controlled
+    from modules.nomina.parametros_consolidado import RECORD_EXTERNAL_NOMINA, RECORD_HEADCOUNT_CANONICAL
+
+    db = str(tmp_path / "rematch_doubt.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Pedro Martinez",
+                "nombre_normalizado": "PEDRO MARTINEZ",
+                "nss": None,
+                "cliente": "Carrier",
+                "record_kind": RECORD_EXTERNAL_NOMINA,
+                "headcount_match_status": "no_match_headcount",
+                "nomina_match_status": "imported",
+                "warnings": [],
+                "editable_json": {},
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    hc = [
+        {"nombre_completo": "Pedro Alfonso Martinez Vaca", "nss": "11122233344", "cliente": "Carrier", "status_operacion": "ALTA"},
+        {"nombre_completo": "Pedro Martinez López", "nss": "55566677788", "cliente": "Carrier", "status_operacion": "ALTA"},
+    ]
+    summary = post_import_rematch_controlled(db, import_id=imp_id, headcount_rows=hc, now_iso=iso)
+    assert summary["probables_revision"] >= 1 or summary["externos_sin_vinculo"] >= 1
+
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT headcount_match_status, record_kind FROM nomina_empleado_parametros WHERE last_import_id = ?",
+        (imp_id,),
+    ).fetchone()
+    conn.close()
+    assert row[0] in {"pending_review", "no_match_headcount", "probable_match", "multiple_candidates"}
+    assert row[1] != RECORD_HEADCOUNT_CANONICAL or row[0] == "manual_link"
+
+
+def test_correct_manual_link_changes_headcount_target(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_conciliacion import correct_manual_headcount_link
+    from modules.nomina.parametros_consolidado import (
+        RECORD_EXTERNAL_NOMINA,
+        RECORD_HEADCOUNT_CANONICAL,
+        apply_manual_headcount_link,
+    )
+
+    db = str(tmp_path / "correct_link.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 2},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Pedro Alfonso Martinez Vaca",
+                "nombre_normalizado": "PEDRO ALFONSO MARTINEZ VACA",
+                "nss": "11122233344",
+                "cliente": "Carrier",
+                "record_kind": RECORD_HEADCOUNT_CANONICAL,
+                "headcount_match_status": "headcount_canonical",
+                "warnings": [],
+                "editable_json": {},
+            },
+            {
+                "nombre": "Pedro Martinez López",
+                "nombre_normalizado": "PEDRO MARTINEZ LOPEZ",
+                "nss": "55566677788",
+                "cliente": "Carrier",
+                "record_kind": RECORD_HEADCOUNT_CANONICAL,
+                "headcount_match_status": "headcount_canonical",
+                "warnings": [],
+                "editable_json": {},
+            },
+            {
+                "nombre": "Pedro Martinez",
+                "nombre_normalizado": "PEDRO MARTINEZ",
+                "nss": None,
+                "cliente": "Carrier",
+                "salario_operativo": 2500.0,
+                "valor_x_he": 70.0,
+                "record_kind": RECORD_EXTERNAL_NOMINA,
+                "headcount_match_status": "no_match_headcount",
+                "nomina_match_status": "imported",
+                "warnings": [],
+                "editable_json": {},
+            },
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    conn = sqlite3.connect(db)
+    external_id = conn.execute("SELECT id FROM nomina_empleado_parametros WHERE nombre = 'Pedro Martinez'").fetchone()[0]
+    conn.close()
+
+    apply_manual_headcount_link(
+        db,
+        int(external_id),
+        headcount_nss="11122233344",
+        headcount_nombre="Pedro Alfonso Martinez Vaca",
+        headcount_cliente="Carrier",
+        linked_by=1,
+        now_iso=iso,
+    )
+    ok = correct_manual_headcount_link(
+        db,
+        int(external_id),
+        new_headcount_nss="55566677788",
+        new_headcount_nombre="Pedro Martinez López",
+        new_headcount_cliente="Carrier",
+        linked_by=1,
+        now_iso=iso,
+    )
+    assert ok
+
+    conn = sqlite3.connect(db)
+    old_target = conn.execute(
+        "SELECT salario_operativo, headcount_match_status FROM nomina_empleado_parametros WHERE nss = '11122233344'"
+    ).fetchone()
+    new_target = conn.execute(
+        "SELECT salario_operativo, headcount_match_status, editable_json FROM nomina_empleado_parametros WHERE nss = '55566677788'"
+    ).fetchone()
+    conn.close()
+    assert float(new_target[0]) == 2500.0
+    assert new_target[1] == "manual_link"
+    assert __import__("json").loads(new_target[2]).get("manual_headcount_nss") == "55566677788"
+    assert old_target[1] in {"pending_review", "headcount_canonical"}
+
+
+def test_rematch_row_preserves_manual_editable_fields(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_conciliacion import rematch_parametro_row
+    from modules.nomina.parametros_consolidado import RECORD_EXTERNAL_NOMINA
+
+    db = str(tmp_path / "recalc.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Pedro Martinez",
+                "nombre_normalizado": "PEDRO MARTINEZ",
+                "nss": None,
+                "cliente": "Carrier",
+                "record_kind": RECORD_EXTERNAL_NOMINA,
+                "headcount_match_status": "no_match_headcount",
+                "nomina_match_status": "imported",
+                "warnings": [],
+                "editable_json": {
+                    "manual_headcount_nss": "11122233344",
+                    "nota_operativa": "Revisado por admin",
+                },
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    conn = sqlite3.connect(db)
+    row_id = conn.execute("SELECT id FROM nomina_empleado_parametros LIMIT 1").fetchone()[0]
+    conn.close()
+    hc = [
+        {"nombre_completo": "Pedro Alfonso Martinez Vaca", "nss": "11122233344", "cliente": "Carrier", "status_operacion": "ALTA"},
+    ]
+    result = rematch_parametro_row(db, int(row_id), hc, user_id=1, now_iso=iso)
+    assert result["ok"]
+    assert result["match_status"] == "manual_link"
+
+    conn = sqlite3.connect(db)
+    ed = __import__("json").loads(conn.execute("SELECT editable_json FROM nomina_empleado_parametros WHERE id = ?", (row_id,)).fetchone()[0])
+    conn.close()
+    assert ed.get("manual_headcount_nss") == "11122233344"
+    assert ed.get("nota_operativa") == "Revisado por admin"
+    assert any(e.get("action") == "recalcular_fila" for e in ed.get("audit_events") or [])
+

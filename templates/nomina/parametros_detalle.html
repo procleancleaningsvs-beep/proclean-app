@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.det-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
+.det-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.det-card h3 { margin-top:0; }
+.det-row { display:flex; justify-content:space-between; gap:.5rem; padding:.25rem 0; border-bottom:1px solid #f1f5f9; font-size:.9rem; }
+.det-warn { color:#92400e; font-size:.85rem; }
+.det-ignored { color:#64748b; font-size:.85rem; font-style:italic; }
+@media (max-width:900px) { .det-grid { grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas · Conciliación</span>
+    <h2>Detalle de registro #{{ detail.id }}</h2>
+    <p>Estado: <strong>{{ detail.estado_conciliacion }}</strong> · Tipo: {{ detail.tipo_registro }}</p>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja</a>
+    {% if detail.id %}
+    <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_vincular', row_id=detail.id) }}">Vincular</a>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_vincular', row_id=detail.id, mode='corregir') }}">Corregir vínculo</a>
+    {% endif %}
+  </div>
+</section>
+
+<div class="det-grid">
+  <section class="det-card">
+    <h3>Headcount</h3>
+    {% set h = detail.headcount %}
+    <div class="det-row"><span>Nombre</span><span>{{ h.nombre or '—' }}</span></div>
+    <div class="det-row"><span>NSS</span><span>{{ h.nss or '—' }}</span></div>
+    <div class="det-row"><span>Cliente</span><span>{{ h.cliente or '—' }}</span></div>
+    <div class="det-row"><span>Planta</span><span>{{ h.planta or '—' }}</span></div>
+    <div class="det-row"><span>Puesto</span><span>{{ h.puesto or '—' }}</span></div>
+    <div class="det-row"><span>Fecha ingreso</span><span>{{ h.fecha_ingreso or '—' }}</span></div>
+    <div class="det-row"><span>Estado</span><span>{{ h.estado or '—' }}</span></div>
+  </section>
+
+  <section class="det-card">
+    <h3>Nómina</h3>
+    {% set n = detail.nomina %}
+    <div class="det-row"><span>Nombre detectado</span><span>{{ n.nombre or '—' }}</span></div>
+    <div class="det-row"><span># empleado</span><span>{{ n.numero_empleado or '—' }}</span></div>
+    <div class="det-row"><span>Salario operativo</span><span>{% if n.salario_operativo is not none %}${{ '%.2f'|format(n.salario_operativo) }}{% else %}—{% endif %}</span></div>
+    <div class="det-row"><span>Valor x HE</span><span>{% if n.valor_x_he is not none %}${{ '%.2f'|format(n.valor_x_he) }}{% else %}—{% endif %}</span></div>
+    <div class="det-row"><span>Banco / cuenta</span><span>{{ n.banco or '—' }} / {{ n.cuenta or '—' }}</span></div>
+    <div class="det-row"><span>Archivo fuente</span><span>{{ n.archivo or '—' }}</span></div>
+    <div class="det-row"><span>Importación</span><span>{{ n.importacion_fecha or '—' }}</span></div>
+  </section>
+
+  <section class="det-card">
+    <h3>CONTPAQ</h3>
+    {% set c = detail.contpaq %}
+    <div class="det-row"><span>Nombre</span><span>{{ c.nombre or '—' }}</span></div>
+    <div class="det-row"><span>Código</span><span>{{ c.codigo or '—' }}</span></div>
+    <div class="det-row"><span>NSS</span><span>{{ c.nss or '—' }}</span></div>
+    <div class="det-row"><span>Estatus</span><span>{{ c.estatus or '—' }}</span></div>
+    <div class="det-row"><span>Registro patronal</span><span>{{ c.registro_patronal or '—' }}</span></div>
+    <div class="det-row"><span>Zona salario</span><span>{{ c.zona_salario or '—' }}</span></div>
+    <div class="det-row"><span>Alta / Baja</span><span>{{ c.fecha_alta or '—' }} / {{ c.fecha_baja or '—' }}</span></div>
+    <div class="det-row"><span>Archivo fuente</span><span>{{ c.archivo or '—' }}</span></div>
+  </section>
+
+  <section class="det-card">
+    <h3>Conciliación</h3>
+    {% set k = detail.conciliacion %}
+    <div class="det-row"><span>Match Headcount</span><span>{{ k.headcount_match_status or '—' }}</span></div>
+    <div class="det-row"><span>Match Nómina</span><span>{{ k.nomina_match_status or '—' }}</span></div>
+    <div class="det-row"><span>Match CONTPAQ</span><span>{{ k.contpaq_match_status or '—' }}</span></div>
+    <div class="det-row"><span>Vínculo manual NSS</span><span>{{ k.vinculo_manual_nss or '—' }}</span></div>
+    <div class="det-row"><span>Vínculo desde</span><span>{{ k.vinculo_manual_at or '—' }}</span></div>
+    <div class="det-row"><span>Última actualización</span><span>{{ k.updated_at or '—' }}</span></div>
+    <h4>Warnings activos</h4>
+    <ul class="det-warn">
+      {% for w in k.warnings_activos %}<li>{{ w }}</li>{% else %}<li>Ninguno</li>{% endfor %}
+    </ul>
+    <h4>Warnings ignorados</h4>
+    <ul class="det-ignored">
+      {% for w in k.warnings_ignorados %}
+      <li>{{ w.code }} — {{ w.motivo }} ({{ w.ignored_at }})</li>
+      {% else %}<li>Ninguno</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+
+{% if detail.sugerencias %}
+<section class="det-card" style="margin-top:1rem;">
+  <h3>Sugerencias Headcount</h3>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead><tr><th>Nombre</th><th>NSS</th><th>Cliente</th><th>Planta</th><th>Score</th><th>Razón</th><th></th></tr></thead>
+    <tbody>
+      {% for s in detail.sugerencias %}
+      <tr>
+        <td>{{ s.nombre_completo }}</td>
+        <td>{{ s.nss or '—' }}</td>
+        <td>{{ s.cliente or '—' }}</td>
+        <td>{{ s.planta or '—' }}</td>
+        <td>{{ s.etiqueta }} ({{ s.score }})</td>
+        <td>{{ s.razones|join(', ') }}</td>
+        <td><a class="btn btn-secondary" href="{{ url_for('nomina.parametros_vincular', row_id=detail.id) }}?headcount_nss={{ s.nss }}">Vincular</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+<section class="det-card" style="margin-top:1rem;">
+  <h3>Acciones</h3>
+  <form method="POST" style="display:grid;gap:.6rem;max-width:640px;">
+    <input type="hidden" name="action" value="recalcular" />
+    <button class="btn btn-primary" type="submit">Recalcular / reprocesar match</button>
+  </form>
+
+  {% if detail.conciliacion.warnings_activos %}
+  <form method="POST" style="display:grid;gap:.6rem;max-width:640px;margin-top:1rem;">
+    <input type="hidden" name="action" value="ignorar_warning" />
+    <label>Ignorar warning(s) — motivo obligatorio
+      <textarea name="motivo" rows="2" required placeholder="Motivo operativo…"></textarea>
+    </label>
+    {% for w in detail.conciliacion.warnings_activos %}
+    <label><input type="checkbox" name="warning_codes" value="{{ w.split(':')[0] }}" /> {{ w }}</label>
+    {% endfor %}
+    <button class="btn btn-secondary" type="submit">Ignorar seleccionados</button>
+  </form>
+  {% endif %}
+
+  {% if detail.conciliacion.warnings_ignorados %}
+  <div style="margin-top:1rem;">
+    {% for w in detail.conciliacion.warnings_ignorados %}
+    <form method="POST" style="display:inline-block;margin-right:.5rem;">
+      <input type="hidden" name="action" value="reactivar_warning" />
+      <input type="hidden" name="warning_code" value="{{ w.code }}" />
+      <button class="btn btn-secondary" type="submit">Reactivar {{ w.code }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

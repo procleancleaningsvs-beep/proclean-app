@@ -3,10 +3,13 @@
 <section class="page-head">
   <div>
     <span class="eyebrow">Nóminas · Parámetros</span>
-    <h2>Vincular con Headcount</h2>
-    <p>Registro externo: <strong>{{ row.nombre or '—' }}</strong> · NSS: {{ row.nss or '—' }}</p>
+    <h2>{% if mode == 'corregir' %}Corregir vínculo{% else %}Vincular con Headcount{% endif %}</h2>
+    <p>Registro: <strong>{{ row.nombre or '—' }}</strong> · NSS: {{ row.nss or '—' }}</p>
+    {% if vinculo_actual %}
+    <p style="color:#64748b;font-size:.9rem;">Vínculo actual: NSS <strong>{{ vinculo_actual }}</strong></p>
+    {% endif %}
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index', status='pendientes') }}">Volver</a>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja</a>
 </section>
 
 {% if headcount_match_error %}
@@ -14,13 +17,44 @@
   <p style="margin:0;color:#92400e;">Headcount no disponible: {{ headcount_match_error }}</p>
 </section>
 {% else %}
+
+{% if suggestions %}
+<section style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;margin-bottom:1rem;">
+  <h3 style="margin-top:0;">Sugerencias automáticas</h3>
+  <table style="width:100%;border-collapse:collapse;">
+    <thead><tr><th>Nombre</th><th>NSS</th><th>Cliente</th><th>Planta</th><th>Confianza</th><th>Razón</th><th></th></tr></thead>
+    <tbody>
+      {% for s in suggestions %}
+      <tr>
+        <td>{{ s.nombre_completo }}</td>
+        <td>{{ s.nss or '—' }}</td>
+        <td>{{ s.cliente or '—' }}</td>
+        <td>{{ s.planta or '—' }}</td>
+        <td>{{ s.etiqueta }}</td>
+        <td>{{ s.razones|join(', ') }}</td>
+        <td>
+          <form method="POST" style="display:inline;">
+            <input type="hidden" name="mode" value="{{ mode }}" />
+            <input type="hidden" name="headcount_nss" value="{{ s.nss }}" />
+            <button class="btn btn-secondary" type="submit" {% if s.etiqueta == 'Baja' %}disabled title="Revisar manualmente"{% endif %}>Vincular</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
 <form method="GET" style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+  <input type="hidden" name="mode" value="{{ mode }}" />
   <input type="text" name="q" value="{{ query }}" placeholder="Buscar por nombre, NSS, cliente, planta…" style="padding:.45rem;border:1px solid #cbd5e1;border-radius:8px;min-width:260px;" />
   <button class="btn btn-secondary" type="submit">Buscar</button>
 </form>
 
 <form method="POST">
   <input type="hidden" name="q" value="{{ query }}" />
+  <input type="hidden" name="mode" value="{{ mode }}" />
   <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:auto;">
     <table style="width:100%;border-collapse:collapse;">
       <thead>
@@ -53,7 +87,7 @@
   </div>
   {% if candidates %}
   <div style="margin-top:.75rem;">
-    <button class="btn btn-primary" type="submit">Guardar vínculo permanente</button>
+    <button class="btn btn-primary" type="submit">{% if mode == 'corregir' %}Guardar corrección de vínculo{% else %}Guardar vínculo permanente{% endif %}</button>
   </div>
   {% endif %}
 </form>

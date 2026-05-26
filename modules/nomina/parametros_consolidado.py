@@ -430,12 +430,14 @@ def compute_parametros_stats(
         return sum(1 for r in rows if r.get("contpaq_match_status") == "imported")
 
     def _pending(rows: list[dict]) -> int:
+        from modules.nomina.parametros_conciliacion import get_active_warnings
+
         return sum(
             1 for r in rows
             if (
                 str(r.get("headcount_match_status") or "") in _PENDING_HC_STATUSES
                 or str(r.get("contpaq_match_status") or "") in _PENDING_CONTPAQ_STATUSES
-                or bool(r.get("warnings"))
+                or bool(get_active_warnings(r))
             )
         )
 

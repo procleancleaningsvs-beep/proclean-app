@@ -150,6 +150,36 @@ def detect_cliente_from_import(
     return None, None
 
 
+def detect_periodo_from_import(
+    *,
+    filename: str,
+    sheet_name: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Detecta periodo de nómina desde nombre de archivo/hoja. Retorna (periodo, fuente)."""
+    import re
+
+    text = f"{filename or ''} {sheet_name or ''}".lower()
+    text = text.replace("_", " ").replace("-", " ")
+
+    m = re.search(r"(\d{1,2})\s*(?:al|a|-)\s*(\d{1,2})\s*(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*", text)
+    if m:
+        return f"{m.group(1)} al {m.group(2)} {m.group(3)}", "nombre_archivo"
+
+    m = re.search(r"semana\s*(\d{1,2})", text)
+    if m:
+        return f"Semana {m.group(1)}", "nombre_archivo"
+
+    m = re.search(r"(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[a-z]*\s*(20\d{2})", text)
+    if m:
+        return f"{m.group(1).capitalize()} {m.group(2)}", "nombre_archivo"
+
+    m = re.search(r"\b(20\d{2})\b", text)
+    if m:
+        return m.group(1), "nombre_archivo"
+
+    return None, None
+
+
 @dataclass
 class HeaderMap:
     row: int
@@ -392,6 +422,8 @@ def parse_nomina_actual(
             if not row.get("cliente"):
                 row["cliente"] = detected_cliente
 
+    periodo, periodo_source = detect_periodo_from_import(filename=filename, sheet_name=chosen_sheet)
+
     return {
         "tipo_importacion": "NOMINA_ACTUAL",
         "filename": filename,
@@ -399,6 +431,8 @@ def parse_nomina_actual(
         "cliente_detectado": detected_cliente,
         "cliente_detection_source": detection_source,
         "cliente_requiere_seleccion": detected_cliente is None and detection_source != "multicliente",
+        "periodo_detectado": periodo,
+        "periodo_detection_source": periodo_source,
         "sheet": chosen_sheet,
         "rows": rows_out,
         "localidades": localidades_frontera_out,

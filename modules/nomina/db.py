@@ -2504,14 +2504,21 @@ def list_parametros_imports(db_path: str, limit: int = 50) -> list[dict[str, Any
         rows = conn.execute(
             """
             SELECT id, tipo_importacion, cliente, source_filename, total_rows,
-                   matched_count, warning_count, error_count, created_at
+                   matched_count, warning_count, error_count, created_at, raw_json
             FROM nomina_parametros_imports
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
             """,
             (int(limit),),
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            raw = json.loads(d.pop("raw_json") or "{}")
+            d["periodo_detectado"] = raw.get("periodo_detectado") or None
+            d["rematch_summary"] = raw.get("rematch_summary") or {}
+            out.append(d)
+        return out
     finally:
         conn.close()
 

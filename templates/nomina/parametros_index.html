@@ -40,6 +40,7 @@
     <p>Consolidado canónico desde Headcount activo, enriquecido con Nómina actual y CONTPAQ.</p>
   </div>
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+    <a class="btn btn-primary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja de conciliación</a>
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_depurar_preview') }}">Depurar / reconstruir</a>
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver a Nóminas</a>
   </div>
@@ -123,6 +124,7 @@
             <th>Match Headcount</th>
             <th>Warnings</th>
             <th>Errors</th>
+            <th>Periodo detectado</th>
             <th>Creado</th>
           </tr>
         </thead>
@@ -136,10 +138,11 @@
             <td>{{ imp.matched_count }}</td>
             <td>{{ imp.warning_count }}</td>
             <td>{{ imp.error_count }}</td>
+            <td>{{ imp.periodo_detectado or 'No detectado' }}</td>
             <td>{{ imp.created_at }}</td>
           </tr>
           {% else %}
-          <tr><td colspan="8">Sin importaciones registradas todavía.</td></tr>
+          <tr><td colspan="9">Sin importaciones registradas todavía.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -243,6 +246,7 @@
             </td>
             <td style="white-space:nowrap;">
               {% if row.id %}
+              <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_detalle', row_id=row.id) }}">Detalle</a>
               <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_editar', row_id=row.id) }}">Editar</a>
               {% if row.is_external or row.headcount_match_status in ['no_match_headcount', 'probable_match', 'multiple_candidates', 'pending_review'] %}
               <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_vincular', row_id=row.id) }}">Vincular</a>

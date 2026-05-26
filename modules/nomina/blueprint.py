@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -137,6 +138,16 @@ from modules.nomina.parametros_consolidado import (
     preview_depuracion_parametros,
     rebuild_consolidado_parametros,
     search_active_headcount,
+)
+from modules.nomina.parametros_conciliacion import (
+    build_conciliacion_inbox,
+    build_parametro_detail,
+    correct_manual_headcount_link,
+    ignore_parametro_warning,
+    post_import_rematch_controlled,
+    reactivate_parametro_warning,
+    rematch_parametro_row,
+    suggest_headcount_matches,
 )
 from modules.nomina.contpaq_excel import parse_contpaq
 from modules.nomina.parametros_match import (
@@ -1852,6 +1863,86 @@ def parametros_index():
     )
 
 
+@nomina_bp.get("/parametros/conciliacion")
+@_nomina_dashboard_required
+def parametros_conciliacion():
+    db_path = _db_path()
+    filtro = (request.args.get("filtro") or "todos_pendientes").strip()
+    search = (request.args.get("q") or "").strip()
+    hc_rows, headcount_match_error = _headcount_for_match()
+    rows = build_conciliacion_inbox(
+        db_path,
+        hc_rows,
+        headcount_unavailable=bool(headcount_match_error),
+        filtro=filtro,
+        search=search,
+        limit=500,
+    )
+    stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
+    return render_template(
+        "nomina/parametros_conciliacion.html",
+        rows=rows,
+        stats=stats,
+        filtro=filtro,
+        search=search,
+        headcount_match_error=headcount_match_error,
+    )
+
+
+@nomina_bp.route("/parametros/<int:row_id>/detalle", methods=["GET", "POST"])
+@_nomina_dashboard_required
+def parametros_detalle(row_id: int):
+    db_path = _db_path()
+    hc_rows, hc_err = _headcount_for_match()
+    detail = build_parametro_detail(db_path, row_id, hc_rows)
+    if detail is None:
+        abort(404)
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if action == "ignorar_warning":
+            codes = [c for c in request.form.getlist("warning_codes") if c.strip()]
+            motivo = (request.form.get("motivo") or "").strip()
+            if ignore_parametro_warning(db_path, row_id, warning_codes=codes, motivo=motivo, user_id=uid, now_iso=now_iso):
+                flash("Warning(s) ignorado(s) correctamente.", "success")
+            else:
+                flash("No se pudo ignorar el warning. Verifica motivo y selección.", "error")
+        elif action == "reactivar_warning":
+            code = (request.form.get("warning_code") or "").strip()
+            if reactivate_parametro_warning(db_path, row_id, warning_code_str=code, user_id=uid, now_iso=now_iso):
+                flash("Warning reactivado.", "success")
+            else:
+                flash("No se pudo reactivar el warning.", "error")
+        elif action == "recalcular":
+            result = rematch_parametro_row(db_path, row_id, hc_rows, user_id=uid, now_iso=now_iso)
+            if result.get("ok"):
+                flash(f"Fila recalculada. Estado: {result.get('match_status')}.", "success")
+            else:
+                flash(result.get("error", "No se pudo recalcular."), "error")
+        return redirect(url_for("nomina.parametros_detalle", row_id=row_id))
+
+    return render_template(
+        "nomina/parametros_detalle.html",
+        detail=detail,
+        headcount_match_error=hc_err,
+    )
+
+
+@nomina_bp.post("/parametros/<int:row_id>/recalcular")
+@_nomina_dashboard_required
+def parametros_recalcular(row_id: int):
+    hc_rows, _ = _headcount_for_match()
+    uid = int(g.user["id"]) if g.user is not None else None
+    result = rematch_parametro_row(_db_path(), row_id, hc_rows, user_id=uid, now_iso=_now_iso())
+    if result.get("ok"):
+        flash(f"Match recalculado: {result.get('match_status')}.", "success")
+    else:
+        flash(result.get("error", "Error al recalcular."), "error")
+    return redirect(request.referrer or url_for("nomina.parametros_conciliacion"))
+
+
 @nomina_bp.post("/parametros/importar-nomina")
 @_nomina_dashboard_required
 def parametros_importar_nomina():
@@ -1928,6 +2019,8 @@ def parametros_importar_nomina():
             "headcount_error": hc_err,
             "cliente_detectado": parsed.get("cliente_detectado"),
             "cliente_detection_source": parsed.get("cliente_detection_source"),
+            "periodo_detectado": parsed.get("periodo_detectado"),
+            "periodo_detection_source": parsed.get("periodo_detection_source"),
         },
     }
     uid = int(g.user["id"]) if g.user is not None else None
@@ -1950,17 +2043,38 @@ def parametros_importar_nomina():
             "exento_he_usado",
         },
     )
+    rematch_summary = post_import_rematch_controlled(
+        db_path,
+        import_id=import_id,
+        headcount_rows=hc_rows,
+        now_iso=_now_iso(),
+    )
+    import_payload["raw_json"]["rematch_summary"] = rematch_summary
+    conn_fix = __import__("sqlite3").connect(db_path)
+    try:
+        conn_fix.execute(
+            "UPDATE nomina_parametros_imports SET raw_json = ? WHERE id = ?",
+            (json.dumps(import_payload["raw_json"], ensure_ascii=False), import_id),
+        )
+        conn_fix.commit()
+    finally:
+        conn_fix.close()
     flash(
         f"Nómina importada: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
-        f"Match Headcount exacto: {matched}."
+        f"Match exacto: {rematch_summary.get('exactos', matched)}. "
+        f"Manual: {rematch_summary.get('manual_link', 0)}. "
+        f"Revisión: {rematch_summary.get('probables_revision', 0)}. "
+        f"Externos: {rematch_summary.get('externos_sin_vinculo', 0)}. "
+        f"Duplicados: {rematch_summary.get('duplicados', 0)}."
+        + (f" Periodo: {parsed.get('periodo_detectado')}." if parsed.get("periodo_detectado") else " Periodo: no detectado.")
         + (
-            " Headcount no disponible: revisar match pendiente (pending_headcount_unavailable)."
+            " Headcount no disponible: revisar en bandeja de conciliación."
             if hc_err
             else ""
         ),
         "success",
     )
-    return redirect(url_for("nomina.parametros_index"))
+    return redirect(url_for("nomina.parametros_conciliacion"))
 
 
 @nomina_bp.post("/parametros/importar-contpaq")
@@ -2028,17 +2142,37 @@ def parametros_importar_contpaq():
         now_iso=_now_iso(),
         overwrite_keys={"codigo_contpaq", "numero_empleado", "zona_salario_raw"},
     )
+    rematch_summary = post_import_rematch_controlled(
+        db_path,
+        import_id=import_id,
+        headcount_rows=hc_rows,
+        now_iso=_now_iso(),
+    )
+    import_payload["raw_json"]["rematch_summary"] = rematch_summary
+    conn_fix = __import__("sqlite3").connect(db_path)
+    try:
+        conn_fix.execute(
+            "UPDATE nomina_parametros_imports SET raw_json = ? WHERE id = ?",
+            (json.dumps(import_payload["raw_json"], ensure_ascii=False), import_id),
+        )
+        conn_fix.commit()
+    finally:
+        conn_fix.close()
     flash(
         f"CONTPAQ importado: {parsed['total_rows']} filas. Nuevos {inserted}, actualizados {updated}. "
-        f"Match Headcount exacto: {matched}."
+        f"Match exacto: {rematch_summary.get('exactos', matched)}. "
+        f"Manual: {rematch_summary.get('manual_link', 0)}. "
+        f"Revisión: {rematch_summary.get('probables_revision', 0)}. "
+        f"Externos: {rematch_summary.get('externos_sin_vinculo', 0)}. "
+        f"Duplicados: {rematch_summary.get('duplicados', 0)}."
         + (
-            " Headcount no disponible: revisar match pendiente (pending_headcount_unavailable)."
+            " Headcount no disponible: revisar en bandeja de conciliación."
             if hc_err
             else ""
         ),
         "success",
     )
-    return redirect(url_for("nomina.parametros_index"))
+    return redirect(url_for("nomina.parametros_conciliacion"))
 
 
 @nomina_bp.route("/parametros/<int:row_id>/editar", methods=["GET", "POST"])
@@ -2174,37 +2308,59 @@ def parametros_vincular(row_id: int):
         abort(404)
     hc_rows, hc_err = _headcount_for_match()
     query = (request.args.get("q") or request.form.get("q") or "").strip()
+    mode = (request.args.get("mode") or request.form.get("mode") or "vincular").strip()
+    ed = row.get("editable_json") or {}
+    has_manual = bool(ed.get("manual_headcount_nss"))
+    if mode == "vincular" and has_manual:
+        mode = "corregir"
 
     if request.method == "POST":
         hc_nss = (request.form.get("headcount_nss") or "").strip()
         if not hc_nss:
             flash("Selecciona un empleado activo de Headcount.", "error")
-            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query))
+            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query, mode=mode))
         hc_match = next((h for h in hc_rows if str(h.get("nss") or "").strip() == hc_nss), None)
         if hc_match is None:
             flash("Empleado Headcount no encontrado.", "error")
-            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query))
+            return redirect(url_for("nomina.parametros_vincular", row_id=row_id, q=query, mode=mode))
         uid = int(g.user["id"]) if g.user is not None else None
-        ok = apply_manual_headcount_link(
-            _db_path(),
-            row_id,
-            headcount_nss=hc_nss,
-            headcount_nombre=str(hc_match.get("nombre_completo") or ""),
-            headcount_cliente=str(hc_match.get("cliente") or ""),
-            linked_by=uid,
-            now_iso=_now_iso(),
-        )
+        if mode == "corregir":
+            ok = correct_manual_headcount_link(
+                _db_path(),
+                row_id,
+                new_headcount_nss=hc_nss,
+                new_headcount_nombre=str(hc_match.get("nombre_completo") or ""),
+                new_headcount_cliente=str(hc_match.get("cliente") or ""),
+                linked_by=uid,
+                now_iso=_now_iso(),
+            )
+            msg = "Vínculo corregido. Revisa warnings del registro anterior si aplica."
+        else:
+            ok = apply_manual_headcount_link(
+                _db_path(),
+                row_id,
+                headcount_nss=hc_nss,
+                headcount_nombre=str(hc_match.get("nombre_completo") or ""),
+                headcount_cliente=str(hc_match.get("cliente") or ""),
+                linked_by=uid,
+                now_iso=_now_iso(),
+            )
+            msg = "Vínculo manual guardado. El registro alimentará al empleado canónico de Headcount."
         if ok:
-            flash("Vínculo manual guardado. El registro alimentará al empleado canónico de Headcount.", "success")
-            return redirect(url_for("nomina.parametros_index", status="pendientes"))
+            flash(msg, "success")
+            return redirect(url_for("nomina.parametros_conciliacion"))
         flash("No se pudo guardar el vínculo.", "error")
 
     candidates = search_active_headcount(hc_rows, query, limit=25) if not hc_err else []
+    suggestions = suggest_headcount_matches(row, hc_rows, limit=5) if not hc_err else []
     return render_template(
         "nomina/parametros_vincular.html",
         row=row,
         candidates=candidates,
+        suggestions=suggestions,
         query=query,
+        mode=mode,
+        vinculo_actual=ed.get("manual_headcount_nss"),
         headcount_match_error=hc_err,
     )
 
