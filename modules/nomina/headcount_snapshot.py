@@ -20,6 +20,11 @@ _META_ID = 1
 _SNAPSHOT_TTL_ENV = "HEADCOUNT_SNAPSHOT_TTL_SECONDS"
 _REFRESH_LOCK_TIMEOUT_SEC = 900
 _SQLITE_TIMEOUT_SEC = 30
+_MAX_VALID_SNAPSHOT_ROWS = 20_000
+_EXCEL_MAX_ROWS_HINT = 1_040_000
+_SNAPSHOT_INVALID_MSG = (
+    "Headcount requiere reconstrucción. Se detectó una copia local inválida."
+)
 _MX = ZoneInfo("America/Mexico_City")
 _wal_init_lock = threading.Lock()
 _wal_ready: set[str] = set()
@@ -222,11 +227,95 @@ def get_headcount_snapshot_meta(db_path: str) -> dict[str, Any] | None:
         return None
 
 
+def _meta_saved_count(meta: dict[str, Any] | None) -> int:
+    if not meta:
+        return 0
+    for key in ("total_rows", "total_rows_saved", "total_saved"):
+        val = meta.get(key)
+        if val is not None and str(val).strip() != "":
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                continue
+    return 0
+
+
+def detect_snapshot_corruption(
+    meta: dict[str, Any] | None,
+    db_path: str | None = None,
+) -> tuple[bool, str | None]:
+    if not meta:
+        return False, None
+    status = str(meta.get("status") or "")
+    if status in {"invalid", "purged"}:
+        return True, str(meta.get("invalid_reason") or "too_many_rows")
+    saved = _meta_saved_count(meta)
+    if saved >= _MAX_VALID_SNAPSHOT_ROWS or saved >= _EXCEL_MAX_ROWS_HINT:
+        return True, "too_many_rows"
+    if db_path:
+        physical = _snapshot_saved_count(db_path)
+        if physical >= _MAX_VALID_SNAPSHOT_ROWS:
+            return True, "too_many_rows"
+    return False, None
+
+
+def _mark_snapshot_invalid(db_path: str, *, reason: str, now_iso: str | None = None) -> None:
+    _ = now_iso or _now_iso()
+    try:
+        conn = get_snapshot_conn(db_path, readonly=False)
+        try:
+            if not _snapshot_tables_exist(conn):
+                return
+            conn.execute(
+                """
+                UPDATE nomina_headcount_snapshot_meta SET
+                    status = 'invalid',
+                    error_message = ?,
+                    refresh_started_at = NULL
+                WHERE id = 1
+                """,
+                (_SNAPSHOT_INVALID_MSG[:2000],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.OperationalError as exc:
+        _logger.warning("mark snapshot invalid failed: %s", exc)
+
+
+def validate_snapshot_state(db_path: str) -> dict[str, Any]:
+    meta = get_headcount_snapshot_meta(db_path) or {}
+    corrupt, reason = detect_snapshot_corruption(meta, db_path)
+    if corrupt:
+        _mark_snapshot_invalid(db_path, reason=reason or "too_many_rows")
+        meta = get_headcount_snapshot_meta(db_path) or meta
+        saved = _meta_saved_count(meta) or _snapshot_saved_count(db_path)
+        perf_headcount_log(
+            "snapshot_invalid",
+            reason=reason or "too_many_rows",
+            total_saved=saved,
+        )
+        return {
+            "snapshot_valid": False,
+            "invalid_reason": reason or "too_many_rows",
+            "message": _SNAPSHOT_INVALID_MSG,
+            "meta": meta,
+        }
+    return {
+        "snapshot_valid": True,
+        "invalid_reason": None,
+        "message": None,
+        "meta": meta,
+    }
+
+
 def get_headcount_snapshot_meta_fast(db_path: str) -> dict[str, Any]:
     """Solo metadata — para dashboard (sin cargar empleados)."""
-    meta = get_headcount_snapshot_meta(db_path) or {}
-    if meta:
-        saved = int(meta.get("total_rows") or 0)
+    state = validate_snapshot_state(db_path)
+    meta = dict(state.get("meta") or {})
+    meta["snapshot_valid"] = bool(state.get("snapshot_valid"))
+    if state["snapshot_valid"]:
+        saved = _meta_saved_count(meta)
         activos = int(meta.get("activos_count") or 0)
         perf_headcount_log("meta_read_ok", activos=activos, total_saved=saved)
     return meta
@@ -253,6 +342,9 @@ def _snapshot_saved_count(db_path: str) -> int:
 
 
 def headcount_snapshot_available(db_path: str) -> bool:
+    state = validate_snapshot_state(db_path)
+    if not state["snapshot_valid"]:
+        return False
     return _snapshot_saved_count(db_path) > 0
 
 
@@ -301,6 +393,8 @@ def _build_ui_message(
     stale: bool,
 ) -> str:
     meta = meta or {}
+    if str(meta.get("status") or "") == "invalid" or meta.get("snapshot_valid") is False:
+        return _SNAPSHOT_INVALID_MSG
     last = (meta.get("last_refresh_at") or "").strip()
     activos = int(meta.get("activos_count") or 0)
 
@@ -328,7 +422,10 @@ def _build_ui_message(
 
 
 def headcount_snapshot_ui_message(db_path: str, *, now_iso: str | None = None) -> str:
-    meta = get_headcount_snapshot_meta(db_path)
+    state = validate_snapshot_state(db_path)
+    if not state["snapshot_valid"]:
+        return str(state["message"] or _SNAPSHOT_INVALID_MSG)
+    meta = state.get("meta")
     has_data = _snapshot_saved_count(db_path) > 0
     now = now_iso or _now_iso()
     return _build_ui_message(
@@ -366,6 +463,13 @@ def _row_to_headcount_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def load_headcount_snapshot_rows(db_path: str, *, activos_only: bool = False) -> list[dict[str, Any]]:
     if not os.path.exists(db_path):
+        return []
+    state = validate_snapshot_state(db_path)
+    if not state["snapshot_valid"]:
+        perf_headcount_log(
+            "snapshot_invalid_skip_load",
+            reason=state.get("invalid_reason") or "too_many_rows",
+        )
         return []
     try:
         conn = get_snapshot_conn(db_path, readonly=True)
@@ -419,8 +523,23 @@ def get_headcount_snapshot(db_path: str, *, now_iso: str | None = None) -> dict[
 
 
 def _get_headcount_snapshot_inner(db_path: str, *, now_iso: str) -> dict[str, Any]:
+    state = validate_snapshot_state(db_path)
+    if not state["snapshot_valid"]:
+        return {
+            "rows": [],
+            "meta": state.get("meta"),
+            "has_data": False,
+            "snapshot_exists": True,
+            "snapshot_valid": False,
+            "stale": True,
+            "refreshing": is_headcount_snapshot_refreshing(db_path, now_iso=now_iso),
+            "read_locked": False,
+            "status": "invalid",
+            "message": state.get("message") or _SNAPSHOT_INVALID_MSG,
+        }
+
     read_locked = False
-    meta = get_headcount_snapshot_meta(db_path)
+    meta = state.get("meta") or get_headcount_snapshot_meta(db_path)
     rows = load_headcount_snapshot_rows(db_path)
     if meta is None and os.path.exists(db_path):
         try:
@@ -466,6 +585,7 @@ def _get_headcount_snapshot_inner(db_path: str, *, now_iso: str) -> dict[str, An
         "meta": meta,
         "has_data": has_data,
         "snapshot_exists": snapshot_exists,
+        "snapshot_valid": True,
         "stale": stale,
         "refreshing": refreshing,
         "read_locked": read_locked,
@@ -483,7 +603,13 @@ def _clear_stale_refresh_lock(conn: sqlite3.Connection, now_iso: str) -> None:
     started = _parse_iso(str(row[1] or ""))
     ref = _parse_iso(now_iso) or datetime.now(_MX)
     if started is None or ref - started > timedelta(seconds=_REFRESH_LOCK_TIMEOUT_SEC):
-        prev_status = "ok" if _snapshot_row_count(conn) > 0 else "empty"
+        row_count = _snapshot_row_count(conn)
+        if row_count >= _MAX_VALID_SNAPSHOT_ROWS:
+            prev_status = "invalid"
+        elif row_count > 0:
+            prev_status = "ok"
+        else:
+            prev_status = "empty"
         conn.execute(
             """
             UPDATE nomina_headcount_snapshot_meta SET
@@ -523,6 +649,29 @@ def acquire_headcount_refresh_lock(db_path: str, *, now_iso: str) -> bool:
         return False
 
 
+def _force_acquire_headcount_refresh_lock(db_path: str, *, now_iso: str) -> None:
+    """Adquiere lock de refresh manual — sobrescribe lock stale o activo."""
+    conn = get_snapshot_conn(db_path, readonly=False)
+    try:
+        ensure_headcount_snapshot_tables(conn)
+        conn.commit()
+        _clear_stale_refresh_lock(conn, now_iso)
+        conn.execute(
+            """
+            UPDATE nomina_headcount_snapshot_meta SET
+                status = 'rebuilding',
+                refresh_started_at = ?,
+                refresh_finished_at = NULL,
+                error_message = NULL
+            WHERE id = 1
+            """,
+            (now_iso,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def release_headcount_refresh_lock(db_path: str, *, now_iso: str, final_status: str) -> None:
     try:
         conn = get_snapshot_conn(db_path, readonly=False)
@@ -532,7 +681,7 @@ def release_headcount_refresh_lock(db_path: str, *, now_iso: str, final_status: 
             has_rows = _snapshot_row_count(conn) > 0
             status = (
                 final_status
-                if final_status in {"ok", "error", "empty"}
+                if final_status in {"ok", "error", "empty", "invalid", "purged"}
                 else ("ok" if has_rows else "empty")
             )
             conn.execute(
@@ -680,8 +829,13 @@ def _write_refresh_error(db_path: str, *, now_iso: str, error: str) -> bool:
             if not _snapshot_tables_exist(conn):
                 ensure_headcount_snapshot_tables(conn)
                 conn.commit()
-            has_rows = _snapshot_row_count(conn) > 0
-            status = "ok" if has_rows else "error"
+            row_count = _snapshot_row_count(conn)
+            if row_count >= _MAX_VALID_SNAPSHOT_ROWS:
+                status = "invalid"
+            elif row_count > 0:
+                status = "ok"
+            else:
+                status = "error"
             conn.execute(
                 """
                 UPDATE nomina_headcount_snapshot_meta SET
@@ -694,7 +848,7 @@ def _write_refresh_error(db_path: str, *, now_iso: str, error: str) -> bool:
                 (status, str(error)[:2000], now_iso),
             )
             conn.commit()
-            return has_rows
+            return row_count > 0 and status == "ok"
         finally:
             conn.close()
     except sqlite3.OperationalError as exc:
@@ -707,17 +861,21 @@ def refresh_headcount_snapshot(
     *,
     now_iso: str | None = None,
     skip_lock_acquire: bool = False,
+    force: bool = False,
+    source: str = "cli",
 ) -> dict[str, Any]:
     """Descarga Headcount remoto y persiste snapshot local (job/manual/CLI; no GET)."""
     from modules.comparativo.headcount_service import actualizar_headcount
     from modules.nomina.headcount_bridge import fetch_and_parse_headcount
 
     now = now_iso or _now_iso()
-    if not skip_lock_acquire and not acquire_headcount_refresh_lock(db_path, now_iso=now):
+    perf_headcount_log("refresh_started", source=source, force=force)
+    if force:
+        _force_acquire_headcount_refresh_lock(db_path, now_iso=now)
+    elif not skip_lock_acquire and not acquire_headcount_refresh_lock(db_path, now_iso=now):
         perf_headcount_log("refresh_skipped", reason="lock_active")
         return {"ok": False, "error": "refresh_already_running", "skipped": True}
 
-    perf_headcount_log("refresh_started")
     try:
         actualizar_headcount()
         parse_result = fetch_and_parse_headcount()
@@ -794,3 +952,37 @@ def trigger_headcount_refresh_if_needed(db_path: str, *, now_iso: str | None = N
         perf_headcount_log("refresh_skipped", reason="web_worker_disabled")
         return {"triggered": False, "reason": "web_worker_disabled"}
     return {"triggered": False, "reason": "fresh"}
+
+
+def purge_headcount_snapshot(db_path: str, *, now_iso: str | None = None) -> dict[str, Any]:
+    """Elimina filas snapshot/staging; conserva metadata y parámetros de nómina."""
+    now = now_iso or _now_iso()
+    conn = get_snapshot_conn(db_path, readonly=False)
+    try:
+        ensure_headcount_snapshot_tables(conn)
+        conn.commit()
+        conn.execute("DELETE FROM nomina_headcount_snapshot")
+        conn.execute("DELETE FROM nomina_headcount_snapshot_staging")
+        conn.execute(
+            """
+            UPDATE nomina_headcount_snapshot_meta SET
+                status = 'purged',
+                total_rows = 0,
+                activos_count = 0,
+                warnings_count = 0,
+                error_message = NULL,
+                last_refresh_at = NULL,
+                refresh_started_at = NULL,
+                refresh_finished_at = ?,
+                total_rows_source = 0,
+                skipped_empty_rows = 0,
+                parse_guardrail_triggered = 0
+            WHERE id = 1
+            """,
+            (now,),
+        )
+        conn.commit()
+        perf_headcount_log("snapshot_purged")
+        return {"ok": True, "status": "purged"}
+    finally:
+        conn.close()

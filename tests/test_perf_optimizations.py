@@ -215,8 +215,8 @@ def test_get_nomina_dashboard_summary_fast_uses_local_stats_only(tmp_path):
     conn.commit()
     conn.close()
     summary = get_nomina_dashboard_summary_fast(db, recent_limit=5)
-    assert summary["headcount_source"] in {"snapshot", "snapshot_missing"}
-    assert summary["param_stats"]["stats_mode"] in {"legacy", "headcount_meta"}
+    assert summary["headcount_source"] in {"snapshot", "snapshot_missing", "snapshot_invalid"}
+    assert summary["param_stats"]["stats_mode"] in {"legacy", "headcount_meta", "invalid"}
     assert "dash" in summary and "vac_stats" in summary
 
 
@@ -875,3 +875,317 @@ def test_refresh_metadata_stores_source_and_saved_rows(tmp_path, monkeypatch):
     assert meta["total_rows_source"] == 5000
     assert meta["skipped_empty_rows"] == 4998
     assert meta["activos_count"] == 2
+
+
+def _seed_snapshot_meta(db: str, *, total_rows: int, activos: int = 452, status: str = "ok") -> None:
+    conn = sqlite3.connect(db)
+    from modules.nomina.headcount_snapshot import ensure_headcount_snapshot_tables
+
+    ensure_headcount_snapshot_tables(conn)
+    conn.execute(
+        """
+        UPDATE nomina_headcount_snapshot_meta SET
+            status = ?, total_rows = ?, activos_count = ?, last_refresh_at = ?
+        WHERE id = 1
+        """,
+        (status, total_rows, activos, "2026-05-20 10:00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+
+def _insert_dummy_snapshot_rows(db: str, count: int) -> None:
+    conn = sqlite3.connect(db)
+    from modules.nomina.headcount_snapshot import ensure_headcount_snapshot_tables
+
+    ensure_headcount_snapshot_tables(conn)
+    rows = [
+        (
+            f"nss{i}",
+            f"Empleado {i}",
+            f"empleado {i}",
+            "Carrier",
+            "Planta",
+            "Op",
+            "2020-01-01",
+            "ALTA",
+            "ALTA",
+            1,
+            None,
+            None,
+            None,
+            "{}",
+            1,
+            "2026-05-20 10:00:00",
+        )
+        for i in range(count)
+    ]
+    conn.executemany(
+        """
+        INSERT INTO nomina_headcount_snapshot (
+            nss, nombre_completo, nombre_normalizado, cliente, planta, puesto,
+            fecha_ingreso, status, status_imss, activo, sueldo, banco, cuenta,
+            raw_json, snapshot_version, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_corrupt_meta_total_saved_marks_invalid(tmp_path):
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta_fast, validate_snapshot_state
+
+    db = str(tmp_path / "corrupt_meta.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _seed_snapshot_meta(db, total_rows=1_048_570, activos=452, status="ok")
+    state = validate_snapshot_state(db)
+    assert state["snapshot_valid"] is False
+    assert state["invalid_reason"] == "too_many_rows"
+    meta = get_headcount_snapshot_meta_fast(db)
+    assert meta.get("snapshot_valid") is False
+    assert meta.get("status") == "invalid"
+
+
+def test_invalid_snapshot_skips_row_load(tmp_path, caplog):
+    from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows
+
+    db = str(tmp_path / "skip_load.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    _insert_dummy_snapshot_rows(db, 100)
+    rows = load_headcount_snapshot_rows(db)
+    assert rows == []
+    assert any("snapshot_invalid_skip_load" in r.message for r in caplog.records)
+
+
+def test_parametros_fast_with_invalid_snapshot(tmp_path, monkeypatch):
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    load_calls = {"n": 0}
+    real_load = __import__(
+        "modules.nomina.headcount_snapshot", fromlist=["load_headcount_snapshot_rows"]
+    ).load_headcount_snapshot_rows
+
+    def track_load(path, **kwargs):
+        load_calls["n"] += 1
+        return real_load(path, **kwargs)
+
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot.load_headcount_snapshot_rows",
+        track_load,
+    )
+    t0 = time.perf_counter()
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "requiere reconstrucción" in body.lower() or "Reconstruir Headcount" in body
+    assert load_calls["n"] == 0
+    assert elapsed_ms < 5000
+
+
+def test_manual_refresh_calls_force_true(tmp_path, monkeypatch):
+    calls = {}
+
+    def fake_refresh(db_path, **kwargs):
+        calls.update(kwargs)
+        return {
+            "ok": True,
+            "activos_count": 2,
+            "total_rows": 2,
+            "last_refresh_at": "2026-05-26 12:00:00",
+        }
+
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot.refresh_headcount_snapshot",
+        fake_refresh,
+    )
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot_meta(db, total_rows=1_048_570, status="refreshing")
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.post("/nomina/headcount/actualizar", follow_redirects=True)
+    assert resp.status_code == 200
+    assert calls.get("force") is True
+    assert calls.get("source") == "manual_button"
+
+
+def test_manual_refresh_does_not_use_trigger(tmp_path, monkeypatch):
+    trigger_calls = {"n": 0}
+
+    def boom_trigger(*a, **k):
+        trigger_calls["n"] += 1
+        raise AssertionError("trigger must not run on manual POST")
+
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot.trigger_headcount_refresh_if_needed",
+        boom_trigger,
+    )
+    monkeypatch.setattr(
+        "modules.nomina.headcount_snapshot.refresh_headcount_snapshot",
+        lambda *a, **k: {"ok": True, "activos_count": 1, "total_rows": 1, "last_refresh_at": "x"},
+    )
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            client.post("/nomina/headcount/actualizar", follow_redirects=True)
+    assert trigger_calls["n"] == 0
+
+
+def test_force_refresh_replaces_corrupt_snapshot(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+    from modules.nomina.headcount_snapshot import (
+        load_headcount_snapshot_rows,
+        refresh_headcount_snapshot,
+    )
+
+    db = str(tmp_path / "replace_corrupt.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    _insert_dummy_snapshot_rows(db, 50)
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=500,
+            saved_rows=2,
+            skipped_empty_rows=498,
+            guardrail_triggered=False,
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    result = refresh_headcount_snapshot(db, now_iso="2026-05-26 13:00:00", force=True, source="manual_button")
+    assert result["ok"] is True
+    assert len(load_headcount_snapshot_rows(db)) == 2
+
+
+def test_refresh_does_not_append_over_old_rows(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+
+    db = str(tmp_path / "no_append.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _insert_dummy_snapshot_rows(db, 30)
+    _seed_snapshot_meta(db, total_rows=30)
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=100,
+            saved_rows=2,
+            skipped_empty_rows=98,
+            guardrail_triggered=False,
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    refresh_headcount_snapshot(db, now_iso="2026-05-26 14:00:00", force=True)
+    conn = sqlite3.connect(db)
+    count = conn.execute("SELECT COUNT(*) FROM nomina_headcount_snapshot").fetchone()[0]
+    conn.close()
+    assert count == 2
+
+
+def test_failed_refresh_keeps_corrupt_invalid(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+    from modules.nomina.headcount_snapshot import (
+        get_headcount_snapshot_meta,
+        headcount_snapshot_available,
+        refresh_headcount_snapshot,
+    )
+
+    db = str(tmp_path / "fail_refresh.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    _insert_dummy_snapshot_rows(db, 25_000)
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=[],
+            source_rows_scanned=1_048_570,
+            saved_rows=0,
+            skipped_empty_rows=0,
+            guardrail_triggered=True,
+            guardrail_reason="row_explosion",
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    result = refresh_headcount_snapshot(db, now_iso="2026-05-26 15:00:00", force=True)
+    assert result["ok"] is False
+    meta = get_headcount_snapshot_meta(db)
+    assert meta["status"] == "invalid"
+    assert headcount_snapshot_available(db) is False
+
+
+def test_purge_snapshot_clears_rows_keeps_meta(tmp_path):
+    from modules.nomina.headcount_snapshot import (
+        get_headcount_snapshot_meta,
+        purge_headcount_snapshot,
+    )
+
+    db = str(tmp_path / "purge.db")
+    conn = sqlite3.connect(db)
+    from modules.nomina.db import ensure_nomina_tables
+
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    _insert_dummy_snapshot_rows(db, 10)
+    result = purge_headcount_snapshot(db, now_iso="2026-05-26 16:00:00")
+    assert result["ok"] is True
+    conn = sqlite3.connect(db)
+    row_count = conn.execute("SELECT COUNT(*) FROM nomina_headcount_snapshot").fetchone()[0]
+    staging_count = conn.execute("SELECT COUNT(*) FROM nomina_headcount_snapshot_staging").fetchone()[0]
+    conn.close()
+    assert row_count == 0
+    assert staging_count == 0
+    meta = get_headcount_snapshot_meta(db)
+    assert meta is not None
+    assert meta["status"] == "purged"
+    assert int(meta["total_rows"] or 0) == 0
+
+
+def test_dashboard_shows_reconstruction_message(tmp_path, monkeypatch):
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot_meta(db, total_rows=1_048_570)
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/", follow_redirects=True)
+    body = resp.data.decode("utf-8", errors="replace")
+    assert resp.status_code == 200
+    assert "requiere reconstrucción" in body.lower() or "Reconstruir Headcount" in body

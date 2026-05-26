@@ -954,7 +954,8 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
 
     localidades = list_localidades_frontera(db_path)
     meta = get_headcount_snapshot_meta_fast(db_path)
-    has_snapshot = bool(meta) and int(meta.get("total_rows") or 0) > 0
+    snapshot_valid = bool(meta.get("snapshot_valid", True))
+    has_snapshot = snapshot_valid and bool(meta) and int(meta.get("total_rows") or 0) > 0
     if has_snapshot and str(meta.get("status") or "") == "ok":
         legacy = get_parametros_stats(db_path, None)
         param_stats = {
@@ -964,6 +965,14 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
             "total_empleados": int(meta.get("total_rows") or 0),
         }
         headcount_source = "snapshot"
+    elif not snapshot_valid:
+        legacy = get_parametros_stats(db_path, None)
+        param_stats = {
+            **legacy,
+            "activos_headcount": None,
+            "stats_mode": "invalid",
+        }
+        headcount_source = "snapshot_invalid"
     else:
         param_stats = get_parametros_stats(db_path, None)
         headcount_source = "snapshot_missing"
@@ -980,6 +989,7 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
         "headcount_snapshot_meta": meta or None,
         "headcount_stale": is_headcount_snapshot_stale(db_path) if has_snapshot else True,
         "headcount_refreshing": is_headcount_snapshot_refreshing(db_path),
+        "snapshot_invalid": not snapshot_valid,
     }
 
 

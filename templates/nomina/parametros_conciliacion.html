@@ -25,17 +25,19 @@
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index') }}">Parámetros base</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
-      <button class="btn btn-secondary" type="submit">Actualizar Headcount ahora</button>
+      <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
     </form>
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Nóminas</a>
   </div>
 </section>
 
 {% if headcount_notice %}
-<section class="conc-card" style="border-color:{% if snapshot_missing %}#f59e0b{% elif headcount_refreshing or headcount_stale %}#fde68a{% else %}#e5e7eb{% endif %};background:{% if snapshot_missing or headcount_refreshing or headcount_stale %}#fffbeb{% else %}#f8fafc{% endif %};">
-  <h3 style="margin-top:0;color:#475569;">Headcount</h3>
+<section class="conc-card" style="border-color:{% if snapshot_invalid %}#f87171{% elif snapshot_missing %}#f59e0b{% elif headcount_refreshing or headcount_stale %}#fde68a{% else %}#e5e7eb{% endif %};background:{% if snapshot_invalid or snapshot_missing or headcount_refreshing or headcount_stale %}#fffbeb{% else %}#f8fafc{% endif %};">
+  <h3 style="margin-top:0;color:{% if snapshot_invalid %}#991b1b{% else %}#475569{% endif %};">Headcount</h3>
   <p style="margin:.25rem 0;font-size:.92rem;">{{ headcount_notice }}</p>
-  {% if snapshot_missing %}
+  {% if snapshot_invalid %}
+  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Reconstruya Headcount para habilitar conciliación completa.</p>
+  {% elif snapshot_missing %}
   <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">La bandeja opera en modo limitado hasta tener copia local.</p>
   {% elif headcount_refreshing %}
   <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>

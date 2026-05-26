@@ -606,6 +606,7 @@ def index():
             headcount_snapshot_meta=summary.get("headcount_snapshot_meta"),
             headcount_stale=summary.get("headcount_stale"),
             headcount_refreshing=summary.get("headcount_refreshing"),
+            snapshot_invalid=summary.get("snapshot_invalid"),
         )
     with perf_span("nomina.index.master_hub_fast"):
         clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
@@ -641,25 +642,40 @@ def actualizar_headcount_hub():
     if hasattr(g, "_nomina_headcount_ctx"):
         del g._nomina_headcount_ctx
     with perf_span("nomina.headcount_snapshot_refresh"):
-        result = refresh_headcount_snapshot(_db_path(), now_iso=_now_iso())
+        result = refresh_headcount_snapshot(
+            _db_path(),
+            now_iso=_now_iso(),
+            force=True,
+            source="manual_button",
+        )
     if result.get("ok"):
         flash(
             (
-                f"Headcount actualizado: {result['activos_count']} activos, "
-                f"{result['total_rows']} registros leídos. "
-                f"Última actualización: {result['last_refresh_at']}."
+                f"Headcount actualizado correctamente: {result['activos_count']} activos, "
+                f"{result['total_rows']} registros guardados."
             ),
             "success",
         )
     elif result.get("skipped"):
         flash("Headcount ya se está actualizando. Espere un momento e intente de nuevo.", "warning")
     else:
-        preserved = " Se conservó la última copia local válida." if result.get("preserved") else ""
-        flash(
-            f"No se pudo actualizar Headcount: {result.get('error', 'error desconocido')}.{preserved}",
-            "error",
-        )
+        flash("No se pudo actualizar Headcount. Revisa logs o intenta de nuevo.", "error")
     return redirect(request.referrer or url_for("nomina.index"))
+
+
+@nomina_bp.post("/headcount/purgar-snapshot")
+@_nomina_dashboard_required
+def purgar_headcount_snapshot_hub():
+    """Purga filas snapshot corruptas (acción admin explícita)."""
+    from modules.nomina.headcount_snapshot import purge_headcount_snapshot
+
+    confirm = (request.form.get("confirm") or "").strip()
+    if confirm.upper() != "PURGAR HEADCOUNT":
+        flash("Confirmación incorrecta. Escriba exactamente: PURGAR HEADCOUNT", "error")
+        return redirect(request.referrer or url_for("nomina.parametros_index"))
+    purge_headcount_snapshot(_db_path(), now_iso=_now_iso())
+    flash("Copia local de Headcount purgada. Use Reconstruir Headcount para generar una nueva.", "success")
+    return redirect(request.referrer or url_for("nomina.parametros_index"))
 
 
 @nomina_bp.get("/master")
@@ -1897,7 +1913,8 @@ def parametros_index():
     hc_rows = hc_ctx["rows"]
     headcount_notice = hc_ctx["message"]
     headcount_snapshot_meta = hc_ctx.get("meta")
-    snapshot_missing = not hc_ctx["has_data"]
+    snapshot_invalid = hc_ctx.get("snapshot_valid") is False
+    snapshot_missing = not hc_ctx["has_data"] and not snapshot_invalid
     headcount_stale = hc_ctx.get("stale")
     headcount_refreshing = hc_ctx.get("refreshing") or hc_ctx.get("read_locked")
 
@@ -1909,13 +1926,15 @@ def parametros_index():
     }
 
     with perf_span("nomina_parametros.build_stats"):
-        if snapshot_missing:
+        if snapshot_missing or snapshot_invalid:
             stats = get_parametros_stats(db_path, None)
+            if snapshot_invalid:
+                stats = {**stats, "activos_headcount": None, "stats_mode": "invalid"}
         else:
             stats = get_parametros_stats(db_path, hc_rows)
 
     with perf_span("nomina_parametros.build_table"):
-        if snapshot_missing:
+        if snapshot_missing or snapshot_invalid:
             legacy_all = build_legacy_parametros_view(db_path, **filter_kwargs, limit=10000)
             total_rows = len(legacy_all)
             rows = legacy_all[offset : offset + per_page]
@@ -1942,6 +1961,7 @@ def parametros_index():
         headcount_notice=headcount_notice,
         headcount_snapshot_meta=headcount_snapshot_meta,
         snapshot_missing=snapshot_missing,
+        snapshot_invalid=snapshot_invalid,
         headcount_stale=headcount_stale,
         headcount_refreshing=headcount_refreshing,
         pagination={
@@ -1969,19 +1989,25 @@ def parametros_conciliacion():
     hc_ctx = _headcount_snapshot_page_context(db_path)
     hc_rows = hc_ctx["rows"]
     headcount_notice = hc_ctx["message"]
-    snapshot_missing = not hc_ctx["has_data"]
+    snapshot_invalid = hc_ctx.get("snapshot_valid") is False
+    snapshot_missing = not hc_ctx["has_data"] and not snapshot_invalid
     with perf_span("nomina_conciliacion.build_inbox"):
         inbox = build_conciliacion_inbox(
             db_path,
             hc_rows,
-            headcount_unavailable=snapshot_missing,
+            headcount_unavailable=snapshot_missing or snapshot_invalid,
             filtro=filtro,
             search=search,
             offset=offset,
             limit=per_page,
         )
     with perf_span("nomina_conciliacion.build_stats"):
-        stats = get_parametros_stats(db_path, hc_rows if not snapshot_missing else None)
+        stats = get_parametros_stats(
+            db_path,
+            hc_rows if not snapshot_missing and not snapshot_invalid else None,
+        )
+        if snapshot_invalid:
+            stats = {**stats, "activos_headcount": None, "stats_mode": "invalid"}
     total = int(inbox.get("total") or 0)
     return render_template(
         "nomina/parametros_conciliacion.html",
@@ -1992,6 +2018,7 @@ def parametros_conciliacion():
         headcount_notice=headcount_notice,
         headcount_snapshot_meta=hc_ctx.get("meta"),
         snapshot_missing=snapshot_missing,
+        snapshot_invalid=snapshot_invalid,
         headcount_stale=hc_ctx.get("stale"),
         headcount_refreshing=hc_ctx.get("refreshing") or hc_ctx.get("read_locked"),
         pagination={
