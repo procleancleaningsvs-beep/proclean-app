@@ -37,7 +37,7 @@
   </div>
   <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
   <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
-    <button class="btn btn-secondary" type="submit">Actualizar Headcount</button>
+    <button class="btn btn-secondary" type="submit">Actualizar Headcount ahora</button>
   </form>
 </section>
 
@@ -46,12 +46,10 @@
   <section class="nd-card">
     <h3>Headcount</h3>
     <p class="nd-soon">{{ headcount_notice }}</p>
-    {% if headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
-    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;">
-      Última actualización: {{ headcount_snapshot_meta.last_refresh_at }}
-      · {{ headcount_snapshot_meta.activos_count | default(0) }} activos
-      · {{ headcount_snapshot_meta.total_rows | default(0) }} registros
-    </p>
+    {% if headcount_refreshing %}
+    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Actualización en proceso…</p>
+    {% elif headcount_stale and headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
+    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Se programó una actualización automática.</p>
     {% endif %}
   </section>
   {% endif %}

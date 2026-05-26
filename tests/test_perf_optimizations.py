@@ -190,6 +190,7 @@ def test_nomina_index_get_does_not_load_headcount_completo(tmp_path, monkeypatch
 
     monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
     monkeypatch.setattr("modules.comparativo.headcount_service.obtener_activos", boom_activos)
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
 
     app, _db = _perf_test_app(tmp_path, monkeypatch)
 
@@ -287,6 +288,7 @@ def test_parametros_get_does_not_call_obtener_headcount_completo(tmp_path, monke
         raise AssertionError("obtener_headcount_completo must not run on GET /nomina/parametros")
 
     monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
     app, _db = _perf_test_app(tmp_path, monkeypatch)
 
     with app.app_context():
@@ -295,7 +297,7 @@ def test_parametros_get_does_not_call_obtener_headcount_completo(tmp_path, monke
             resp = client.get("/nomina/parametros", follow_redirects=True)
             assert resp.status_code == 200
             body = resp.data.decode("utf-8", errors="replace")
-            assert "Headcount no actualizado" in body or "Parámetros base" in body
+            assert "Headcount pendiente" in body or "Headcount actualizado:" in body or "Parámetros base" in body
     assert calls["completo"] == 0
 
 
@@ -307,6 +309,7 @@ def test_parametros_conciliacion_get_does_not_call_obtener_headcount_completo(tm
         raise AssertionError("obtener_headcount_completo must not run on GET conciliacion")
 
     monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom_completo)
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
     app, _db = _perf_test_app(tmp_path, monkeypatch)
 
     with app.app_context():
@@ -336,8 +339,8 @@ def test_parametros_uses_local_snapshot(tmp_path, monkeypatch):
             resp = client.get("/nomina/parametros", follow_redirects=True)
             assert resp.status_code == 200
             body = resp.data.decode("utf-8", errors="replace")
-            assert "Headcount actualizado al: 2026-05-26 10:00:00" in body
-            assert "2 activos" in body
+            assert "Headcount actualizado: 2026-05-26 10:00:00" in body
+            assert "Activos: 2" in body
 
 
 def test_refresh_headcount_snapshot_persists_metadata(tmp_path, monkeypatch):
@@ -420,6 +423,7 @@ def test_dashboard_kpis_use_snapshot_not_contpaq_inflation(tmp_path, monkeypatch
 
 def test_perf_request_log_when_enabled(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: [])
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
     app, _db = _perf_test_app(tmp_path, monkeypatch)
 
     with app.app_context():
@@ -431,3 +435,126 @@ def test_perf_request_log_when_enabled(tmp_path, monkeypatch, caplog):
         "[PERF] GET /nomina/parametros" in r.message and "duration_ms=" in r.message
         for r in caplog.records
     )
+
+
+def _seed_snapshot(db: str, *, now_iso: str, activos: int = 2) -> None:
+    from modules.nomina.db import ensure_nomina_tables
+    from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    sample = _sample_hc()
+    import modules.nomina.headcount_bridge as hb
+    import modules.comparativo.headcount_service as hs
+
+    old_obtener = hb.obtener_headcount_completo
+    old_actualizar = hs.actualizar_headcount
+    hb.obtener_headcount_completo = lambda: sample
+    hs.actualizar_headcount = lambda: None
+    try:
+        refresh_headcount_snapshot(db, now_iso=now_iso)
+    finally:
+        hb.obtener_headcount_completo = old_obtener
+        hs.actualizar_headcount = old_actualizar
+
+
+def test_stale_snapshot_loads_without_remote_on_get(tmp_path, monkeypatch):
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta, is_headcount_snapshot_stale
+
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot(db, now_iso="2020-01-01 08:00:00")
+    monkeypatch.setenv("HEADCOUNT_SNAPSHOT_TTL_SECONDS", "60")
+    assert is_headcount_snapshot_stale(db) is True
+
+    calls = {"completo": 0}
+
+    def boom():
+        calls["completo"] += 1
+        raise AssertionError("remote headcount must not run on GET")
+
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", boom)
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount actualizado: 2020-01-01 08:00:00" in body
+            assert "actualización pendiente" in body.lower() or "en proceso" in body.lower()
+    assert calls["completo"] == 0
+    meta = get_headcount_snapshot_meta(db)
+    assert int(meta.get("total_rows") or 0) == 2
+
+
+def test_refresh_failure_preserves_last_valid_snapshot(tmp_path, monkeypatch):
+    from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows, refresh_headcount_snapshot
+
+    db = str(tmp_path / "preserve.db")
+    _seed_snapshot(db, now_iso="2026-05-26 10:00:00")
+    assert len(load_headcount_snapshot_rows(db)) == 2
+
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.obtener_headcount_completo",
+        lambda: (_ for _ in ()).throw(RuntimeError("onedrive down")),
+    )
+    result = refresh_headcount_snapshot(db, now_iso="2026-05-26 11:00:00")
+    assert result["ok"] is False
+    assert result.get("preserved") is True
+    assert len(load_headcount_snapshot_rows(db)) == 2
+
+
+def test_acquire_headcount_refresh_lock_prevents_duplicate(tmp_path):
+    from modules.nomina.db import ensure_nomina_tables
+    from modules.nomina.headcount_snapshot import acquire_headcount_refresh_lock
+
+    db = str(tmp_path / "lock.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    assert acquire_headcount_refresh_lock(db, now_iso="2026-05-26 12:00:00") is True
+    assert acquire_headcount_refresh_lock(db, now_iso="2026-05-26 12:00:01") is False
+
+
+def test_manual_refresh_endpoint_updates_snapshot(tmp_path, monkeypatch):
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    sample = _sample_hc()
+    monkeypatch.setattr("modules.nomina.headcount_bridge.obtener_headcount_completo", lambda: sample)
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.post("/nomina/headcount/actualizar", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount actualizado:" in body or "activos" in body
+
+
+def test_get_headcount_snapshot_meta_fields(tmp_path):
+    db = str(tmp_path / "meta.db")
+    _seed_snapshot(db, now_iso="2026-05-26 13:00:00")
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta
+
+    meta = get_headcount_snapshot_meta(db)
+    assert meta["last_refresh_at"] == "2026-05-26 13:00:00"
+    assert meta["activos_count"] == 2
+    assert meta["status"] == "ok"
+
+
+def test_no_snapshot_page_loads_fast_with_notice(tmp_path, monkeypatch):
+    monkeypatch.setattr("threading.Thread.start", lambda self: None)
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/nomina/parametros", follow_redirects=True)
+            assert resp.status_code == 200
+            body = resp.data.decode("utf-8", errors="replace")
+            assert "Headcount pendiente de actualización" in body

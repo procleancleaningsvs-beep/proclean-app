@@ -42,7 +42,7 @@
   <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
     <a class="btn btn-primary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja de conciliación</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
-      <button class="btn btn-secondary" type="submit">Actualizar Headcount</button>
+      <button class="btn btn-secondary" type="submit">Actualizar Headcount ahora</button>
     </form>
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_depurar_preview') }}">Depurar / reconstruir</a>
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver a Nóminas</a>
@@ -50,21 +50,19 @@
 </section>
 
 <div class="param-wrap">
-  {% if snapshot_missing and headcount_notice %}
-  <section class="param-card" style="border-color:#f59e0b;background:#fffbeb;">
-    <h3 style="margin-top:0;color:#92400e;">Headcount</h3>
-    <p style="margin:.25rem 0;font-size:.92rem;color:#92400e;">{{ headcount_notice }}</p>
+  {% if headcount_notice %}
+  <section class="param-card" style="border-color:{% if snapshot_missing %}#f59e0b{% elif headcount_refreshing or headcount_stale %}#fde68a{% else %}#e5e7eb{% endif %};background:{% if snapshot_missing %}#fffbeb{% elif headcount_refreshing or headcount_stale %}#fffbeb{% else %}#f8fafc{% endif %};">
+    <h3 style="margin-top:0;{% if snapshot_missing %}color:#92400e;{% elif headcount_refreshing or headcount_stale %}color:#92400e;{% else %}color:#475569;{% endif %}">Headcount</h3>
+    <p style="margin:.25rem 0;font-size:.92rem;">{{ headcount_notice }}</p>
+    {% if snapshot_missing %}
     <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
-      Puede revisar parámetros importados en la tabla, pero los activos reales requieren actualizar Headcount primero.
+      Puede revisar parámetros importados en la tabla mientras se genera la primera copia local.
     </p>
-  </section>
-  {% elif headcount_snapshot_meta and headcount_snapshot_meta.last_refresh_at %}
-  <section class="param-card" style="border-color:#e5e7eb;background:#f8fafc;">
-    <p style="margin:0;font-size:.88rem;color:#475569;">
-      Headcount actualizado al: {{ headcount_snapshot_meta.last_refresh_at }}
-      · {{ headcount_snapshot_meta.activos_count | default(0) }} activos
-      · {{ headcount_snapshot_meta.total_rows | default(0) }} registros (copia local)
-    </p>
+    {% elif headcount_refreshing %}
+    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Actualización en proceso…</p>
+    {% elif headcount_stale %}
+    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Se está preparando una actualización automática.</p>
+    {% endif %}
   </section>
   {% endif %}
   <section class="param-card">

@@ -593,6 +593,10 @@ def index():
     if role in _NOMINA_DASHBOARD_ROLES:
         with perf_span("nomina.index.dashboard_fast"):
             summary = get_nomina_dashboard_summary_fast(db_path, recent_limit=12)
+        from modules.nomina.headcount_snapshot import trigger_headcount_refresh_if_needed
+
+        with perf_span("nomina.headcount_snapshot_auto_trigger"):
+            trigger_headcount_refresh_if_needed(db_path, now_iso=_now_iso())
         return render_template(
             "nomina/dashboard.html",
             dash=summary["dash"],
@@ -604,6 +608,8 @@ def index():
             calc_kpis=summary["calc_kpis"],
             headcount_notice=summary.get("headcount_notice"),
             headcount_snapshot_meta=summary.get("headcount_snapshot_meta"),
+            headcount_stale=summary.get("headcount_stale"),
+            headcount_refreshing=summary.get("headcount_refreshing"),
         )
     with perf_span("nomina.index.master_hub_fast"):
         clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
@@ -633,11 +639,11 @@ def index():
 @nomina_bp.post("/headcount/actualizar")
 @_nomina_dashboard_required
 def actualizar_headcount_hub():
-    """Refresca snapshot local desde OneDrive (acción explícita, puede tardar)."""
+    """Refresca snapshot local (acción manual explícita)."""
     from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
 
-    if hasattr(g, "_nomina_headcount_cache"):
-        del g._nomina_headcount_cache
+    if hasattr(g, "_nomina_headcount_ctx"):
+        del g._nomina_headcount_ctx
     with perf_span("nomina.headcount_snapshot_refresh"):
         result = refresh_headcount_snapshot(_db_path(), now_iso=_now_iso())
     if result.get("ok"):
@@ -649,9 +655,12 @@ def actualizar_headcount_hub():
             ),
             "success",
         )
+    elif result.get("skipped"):
+        flash("Headcount ya se está actualizando. Espere un momento e intente de nuevo.", "warning")
     else:
+        preserved = " Se conservó la última copia local válida." if result.get("preserved") else ""
         flash(
-            f"No se pudo actualizar Headcount: {result.get('error', 'error desconocido')}",
+            f"No se pudo actualizar Headcount: {result.get('error', 'error desconocido')}.{preserved}",
             "error",
         )
     return redirect(request.referrer or url_for("nomina.index"))
@@ -1819,22 +1828,31 @@ def _parametros_year_default() -> int:
     return date.today().year
 
 
-def _headcount_for_match() -> tuple[list[dict], str | None]:
-    """Lee Headcount desde snapshot local; no descarga OneDrive."""
-    cached = getattr(g, "_nomina_headcount_cache", None)
+def _headcount_snapshot_page_context(db_path: str | None = None) -> dict:
+    """Carga snapshot local y dispara refresh en background si está vencido."""
+    cached = getattr(g, "_nomina_headcount_ctx", None)
     if cached is not None:
         return cached
     from modules.nomina.headcount_snapshot import (
-        headcount_snapshot_user_message,
-        load_headcount_snapshot_rows,
+        get_headcount_snapshot,
+        trigger_headcount_refresh_if_needed,
     )
 
-    db_path = _db_path()
+    path = db_path or _db_path()
+    now = _now_iso()
     with perf_span("nomina.headcount_snapshot_load"):
-        rows = load_headcount_snapshot_rows(db_path)
-        msg = headcount_snapshot_user_message(db_path)
-    g._nomina_headcount_cache = (rows, msg)
-    return g._nomina_headcount_cache
+        ctx = get_headcount_snapshot(path, now_iso=now)
+    with perf_span("nomina.headcount_snapshot_auto_trigger"):
+        ctx["auto_refresh"] = trigger_headcount_refresh_if_needed(path, now_iso=now)
+    g._nomina_headcount_ctx = ctx
+    return ctx
+
+
+def _headcount_for_match() -> tuple[list[dict], str | None]:
+    ctx = _headcount_snapshot_page_context()
+    if ctx["has_data"]:
+        return ctx["rows"], None
+    return ctx["rows"], ctx["message"]
 
 
 def _headcount_rows_for_enrichment(db_path: str) -> tuple[list[dict], str]:
@@ -1884,11 +1902,13 @@ def parametros_index():
             "inactive_headcount",
         ]
 
-    hc_rows, headcount_notice = _headcount_for_match()
-    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta
-
-    headcount_snapshot_meta = get_headcount_snapshot_meta(db_path)
-    snapshot_missing = not hc_rows
+    hc_ctx = _headcount_snapshot_page_context(db_path)
+    hc_rows = hc_ctx["rows"]
+    headcount_notice = hc_ctx["message"]
+    headcount_snapshot_meta = hc_ctx.get("meta")
+    snapshot_missing = not hc_ctx["has_data"]
+    headcount_stale = hc_ctx.get("stale")
+    headcount_refreshing = hc_ctx.get("refreshing")
 
     filter_kwargs = {
         "cliente": cliente,
@@ -1931,6 +1951,8 @@ def parametros_index():
         headcount_notice=headcount_notice,
         headcount_snapshot_meta=headcount_snapshot_meta,
         snapshot_missing=snapshot_missing,
+        headcount_stale=headcount_stale,
+        headcount_refreshing=headcount_refreshing,
         pagination={
             "page": page,
             "per_page": per_page,
@@ -1953,10 +1975,10 @@ def parametros_conciliacion():
     filtro = (request.args.get("filtro") or "todos_pendientes").strip()
     search = (request.args.get("q") or "").strip()
     page, per_page, offset = _pagination_args()
-    hc_rows, headcount_notice = _headcount_for_match()
-    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta
-
-    snapshot_missing = not hc_rows
+    hc_ctx = _headcount_snapshot_page_context(db_path)
+    hc_rows = hc_ctx["rows"]
+    headcount_notice = hc_ctx["message"]
+    snapshot_missing = not hc_ctx["has_data"]
     with perf_span("nomina_conciliacion.build_inbox"):
         inbox = build_conciliacion_inbox(
             db_path,
@@ -1977,8 +1999,10 @@ def parametros_conciliacion():
         filtro=filtro,
         search=search,
         headcount_notice=headcount_notice,
-        headcount_snapshot_meta=get_headcount_snapshot_meta(db_path),
+        headcount_snapshot_meta=hc_ctx.get("meta"),
         snapshot_missing=snapshot_missing,
+        headcount_stale=hc_ctx.get("stale"),
+        headcount_refreshing=hc_ctx.get("refreshing"),
         pagination={
             "page": page,
             "per_page": per_page,
@@ -2652,5 +2676,27 @@ def calculo_guardar_ajustes(calculo_id: int):
 
 
 def register_nomina(app) -> None:
+    import os
+
+    from flask import abort, jsonify
+
     app.register_blueprint(nomina_bp)
+
+    @app.post("/internal/nomina/headcount/refresh")
+    def internal_nomina_headcount_refresh():
+        expected = (os.environ.get("INTERNAL_REFRESH_TOKEN") or "").strip()
+        token = (
+            request.headers.get("X-Internal-Token")
+            or request.form.get("token")
+            or request.args.get("token")
+            or ""
+        ).strip()
+        if not expected or token != expected:
+            abort(403)
+        from modules.nomina.headcount_snapshot import refresh_headcount_snapshot
+
+        with perf_span("nomina.headcount_snapshot_internal_refresh"):
+            result = refresh_headcount_snapshot(str(app.config["DATABASE"]))
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status
 

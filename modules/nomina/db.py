@@ -946,15 +946,15 @@ def nomina_dashboard_overview(db_path: str, recent_limit: int = 10) -> dict[str,
 def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -> dict[str, Any]:
     """KPIs del hub /nomina/ sin OneDrive — usa snapshot local si existe."""
     from modules.nomina.headcount_snapshot import (
-        get_headcount_snapshot_meta,
+        get_headcount_snapshot,
         headcount_snapshot_dashboard_message,
-        load_headcount_snapshot_rows,
     )
 
     localidades = list_localidades_frontera(db_path)
-    hc_rows = load_headcount_snapshot_rows(db_path)
-    meta = get_headcount_snapshot_meta(db_path)
-    if hc_rows:
+    snap = get_headcount_snapshot(db_path)
+    hc_rows = snap["rows"]
+    meta = snap.get("meta")
+    if snap["has_data"]:
         param_stats = get_parametros_stats(db_path, hc_rows)
         headcount_source = "snapshot"
     else:
@@ -971,6 +971,8 @@ def get_nomina_dashboard_summary_fast(db_path: str, *, recent_limit: int = 12) -
         "headcount_source": headcount_source,
         "headcount_notice": headcount_snapshot_dashboard_message(db_path),
         "headcount_snapshot_meta": meta,
+        "headcount_stale": snap.get("stale"),
+        "headcount_refreshing": snap.get("refreshing"),
     }
 
 
