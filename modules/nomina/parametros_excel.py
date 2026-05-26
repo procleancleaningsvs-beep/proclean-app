@@ -14,6 +14,8 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from modules.nomina.config import WARN_DUPLICADO_NOMINA
+
 
 def _norm_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").replace("\n", " ").split()).strip()
@@ -311,14 +313,16 @@ def parse_nomina_actual(
         if numero:
             if numero in numero_seen and numero_seen[numero] != nombre_norm:
                 row_warnings.append(
-                    f"Número de empleado duplicado con otra persona: {numero} ya usado por '{numero_seen[numero]}'."
+                    f"{WARN_DUPLICADO_NOMINA}: número {numero} ya usado por '{numero_seen[numero]}'."
                 )
             else:
                 numero_seen[numero] = nombre_norm
         if nss:
             nss_to_names.setdefault(nss, set()).add(nombre_norm)
             if len(nss_to_names[nss]) > 1:
-                row_warnings.append(f"NSS {nss} aparece con varios nombres: {sorted(nss_to_names[nss])}.")
+                row_warnings.append(
+                    f"{WARN_DUPLICADO_NOMINA}: NSS {nss} con varios nombres: {sorted(nss_to_names[nss])}."
+                )
             nss_seen.add(nss)
         if cliente_val:
             name_to_clients.setdefault(nombre_norm, set()).add(_norm_header(cliente_val))

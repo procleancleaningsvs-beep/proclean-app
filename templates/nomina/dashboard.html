@@ -85,7 +85,10 @@
     <section class="nd-card">
       <h3>Parámetros de Nómina</h3>
       <div class="nd-kpis">
-        <div class="nd-kpi"><span>Activos Headcount</span><strong>{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}</strong></div>
+        <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
+        {% if param_stats.stats_mode == 'legacy' %}
+        <p style="color:#991b1b;font-size:.85rem;margin:0;">Headcount no disponible — KPIs en modo legacy.</p>
+        {% endif %}
         <div class="nd-kpi"><span>Con nómina vinculada</span><strong>{{ param_stats.con_nomina_vinculada | default(0) }}</strong></div>
         <div class="nd-kpi"><span>Sin salario operativo</span><strong>{{ param_stats.missing_salario_operativo }}</strong></div>
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ param_stats.pendientes_revision }}</strong></div>

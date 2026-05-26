@@ -15,6 +15,8 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from modules.nomina.config import WARN_DUPLICADO_CONTPAQ
+
 
 def _norm_text(value: Any) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").replace("\n", " ").split()).strip()
@@ -198,13 +200,13 @@ def parse_contpaq(file_bytes: bytes, *, filename: str) -> dict[str, Any]:
 
         row_warnings: list[str] = []
         if codigo in seen_codigos:
-            row_warnings.append(f"Código CONTPAQ duplicado: {codigo}.")
+            row_warnings.append(f"{WARN_DUPLICADO_CONTPAQ}: código {codigo}.")
         else:
             seen_codigos.add(codigo)
         if nss:
             if nss in seen_nss and seen_nss[nss] != nombre_norm:
                 row_warnings.append(
-                    f"NSS {nss} ya usado por otro nombre en este archivo: '{seen_nss[nss]}'."
+                    f"{WARN_DUPLICADO_CONTPAQ}: NSS {nss} ya usado por '{seen_nss[nss]}'."
                 )
             else:
                 seen_nss[nss] = nombre_norm

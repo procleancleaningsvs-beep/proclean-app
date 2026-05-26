@@ -46,26 +46,36 @@
 </section>
 
 <div class="param-wrap">
-  {% if headcount_match_error %}
-  <section class="param-card" style="border-color:#fbbf24;background:#fffbeb;">
-    <h3 style="margin-top:0;">Headcount no disponible</h3>
-    <p style="margin:.25rem 0;font-size:.9rem;color:#92400e;">{{ headcount_match_error }}</p>
+  {% if headcount_match_error or stats.stats_mode == 'legacy' %}
+  <section class="param-card" style="border-color:#dc2626;background:#fef2f2;">
+    <h3 style="margin-top:0;color:#991b1b;">Headcount no disponible — modo legacy</h3>
+    <p style="margin:.25rem 0;font-size:.92rem;color:#991b1b;font-weight:600;">
+      Headcount no disponible. Los KPIs mostrados están en modo legacy y no representan necesariamente empleados activos reales.
+    </p>
+    {% if headcount_match_error %}
+    <p style="margin:.25rem 0;font-size:.88rem;color:#7f1d1d;">Detalle: {{ headcount_match_error }}</p>
+    {% endif %}
     <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
-      Los KPIs principales y el consolidado canónico requieren Headcount activo.
-      Mientras tanto se muestran datos importados con estado <code>pending_headcount_unavailable</code>.
+      No uses el total de registros CONTPAQ o nómina como empleados activos. Configura la fuente Headcount antes de operar con datos reales.
     </p>
   </section>
   {% endif %}
   <section class="param-card">
-    <h3>KPIs (fuente: Headcount activo)</h3>
+    <h3>{% if stats.stats_mode == 'legacy' %}KPIs (modo legacy — no usar como activos reales){% else %}KPIs (fuente: Headcount activo){% endif %}</h3>
     <div class="param-kpis">
-      <div class="param-kpi"><span>Activos Headcount</span><strong>{{ stats.activos_headcount | default(stats.total_empleados) }}</strong></div>
+      <div class="param-kpi">
+        <span>Activos Headcount</span>
+        <strong>{% if stats.stats_mode == 'legacy' %}N/D{% else %}{{ stats.activos_headcount | default(stats.total_empleados) }}{% endif %}</strong>
+      </div>
       <div class="param-kpi"><span>Con nómina vinculada</span><strong>{{ stats.con_nomina_vinculada | default(0) }}</strong></div>
       <div class="param-kpi"><span>Con CONTPAQ vinculado</span><strong>{{ stats.con_contpaq_vinculado | default(0) }}</strong></div>
       <div class="param-kpi"><span>Sin salario operativo</span><strong>{{ stats.missing_salario_operativo }}</strong></div>
       <div class="param-kpi"><span>Sin valor x HE</span><strong>{{ stats.missing_valor_x_he }}</strong></div>
       <div class="param-kpi"><span>Pendientes revisión</span><strong>{{ stats.pendientes_revision }}</strong></div>
       <div class="param-kpi"><span>Registros externos sin vínculo</span><strong>{{ stats.registros_externos_sin_vinculo | default(0) }}</strong></div>
+      {% if stats.stats_mode == 'legacy' %}
+      <div class="param-kpi param-kpi-secondary"><span>Registros en base (legacy)</span><strong>{{ stats.total_registros_parametros | default(stats.total_empleados) }}</strong></div>
+      {% endif %}
       <div class="param-kpi param-kpi-secondary"><span>Registros nómina importados</span><strong>{{ stats.registros_nomina_importados | default(0) }}</strong></div>
       <div class="param-kpi param-kpi-secondary"><span>Registros CONTPAQ importados</span><strong>{{ stats.registros_contpaq_importados | default(0) }}</strong></div>
     </div>
@@ -138,7 +148,11 @@
 
   <section class="param-card">
     <h3>Consolidado de empleados</h3>
+    {% if stats.stats_mode == 'legacy' %}
+    <p style="color:#991b1b;font-size:.88rem;margin-top:0;">Vista legacy: muestra registros importados en base. No representa empleados activos Headcount.</p>
+    {% else %}
     <p style="color:#64748b;font-size:.88rem;margin-top:0;">Una línea por empleado activo Headcount (canónico). Los registros externos sin match aparecen al final.</p>
+    {% endif %}
     <form method="GET" class="param-filters" style="margin-bottom:.6rem;">
       <label>Cliente
         <input type="text" name="cliente" value="{{ filtros.cliente }}" placeholder="Carrier, Pepsi…" />
@@ -181,8 +195,8 @@
         </thead>
         <tbody>
           {% for row in rows %}
-          <tr class="{% if row.is_external %}row-external{% elif row.is_canonical %}row-canonical{% endif %}">
-            <td>{{ row.nombre }}{% if row.is_external %} <span style="color:#c2410c;font-size:.75rem;">(externo)</span>{% endif %}</td>
+          <tr class="{% if row.is_external %}row-external{% elif row.is_canonical %}row-canonical{% elif row.is_legacy_view %}row-external{% endif %}">
+            <td>{{ row.nombre }}{% if row.is_external %} <span style="color:#c2410c;font-size:.75rem;">(externo)</span>{% elif row.is_legacy_view %} <span style="color:#991b1b;font-size:.75rem;">(legacy)</span>{% endif %}</td>
             <td>{{ row.nss or '—' }}</td>
             <td>{{ row.numero_empleado or '—' }}</td>
             <td>{{ row.codigo_contpaq or '—' }}</td>

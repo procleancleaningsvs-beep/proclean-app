@@ -201,6 +201,104 @@ def _merge_param_into_canonical(hc_row: dict[str, Any], param: dict[str, Any] | 
     return base
 
 
+def _find_param_candidates_for_hc(
+    hc: dict[str, Any],
+    indexed: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    key = headcount_key(hc)
+    candidates = list(indexed.get(key, []))
+    nss = sanitize_display_value(hc.get("nss"))
+    if nss:
+        candidates.extend(indexed.get(f"nss:{nss}", []))
+    nombre = _norm_name(hc.get("nombre_completo"))
+    cliente_hc = _norm_name(hc.get("cliente"))
+    if nombre:
+        candidates.extend(indexed.get(f"name:{nombre}|{cliente_hc}", []))
+    unique: list[dict[str, Any]] = []
+    seen_ids: set[int | None] = set()
+    for c in candidates:
+        cid = c.get("id")
+        if cid in seen_ids:
+            continue
+        seen_ids.add(cid)
+        unique.append(c)
+    return unique
+
+
+def _merge_param_fields(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    """Fusiona campos de enriquecimiento desde registro externo hacia canónico."""
+    merged = dict(target)
+    merge_keys = (
+        "numero_empleado", "codigo_contpaq", "planta", "puesto", "banco", "cuenta",
+        "salario_operativo", "valor_x_he", "localidad", "localidad_normalizada",
+        "es_frontera", "salario_minimo_usado", "exento_he_usado", "zona_salario_raw",
+        "fuente_salario_operativo", "fuente_valor_x_he", "fuente_numero_empleado", "fuente_nss",
+        "contpaq_match_status", "nomina_match_status",
+    )
+    for key in merge_keys:
+        src_val = source.get(key)
+        if src_val not in (None, ""):
+            if merged.get(key) in (None, ""):
+                merged[key] = src_val
+    src_warnings = list(source.get("warnings") or [])
+    tgt_warnings = list(merged.get("warnings") or [])
+    for w in src_warnings:
+        if w not in tgt_warnings:
+            tgt_warnings.append(w)
+    merged["warnings"] = tgt_warnings
+    src_ed = dict(source.get("editable_json") or {})
+    tgt_ed = dict(merged.get("editable_json") or {})
+    for k, v in src_ed.items():
+        if k not in tgt_ed and k not in {"source_filename"}:
+            tgt_ed[k] = v
+    merged["editable_json"] = tgt_ed
+    return merged
+
+
+def build_legacy_parametros_view(
+    db_path: str,
+    *,
+    cliente: str | None = None,
+    match_status_any: list[str] | None = None,
+    only_missing_salary: bool = False,
+    only_missing_valor_he: bool = False,
+    limit: int = 2000,
+) -> list[dict[str, Any]]:
+    """Vista de respaldo cuando Headcount no está disponible (no representa activos reales)."""
+    rows = _load_active_param_rows(db_path)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        kind = str(item.get("record_kind") or RECORD_LEGACY)
+        ms = str(item.get("headcount_match_status") or "")
+        item["is_canonical"] = kind == RECORD_HEADCOUNT_CANONICAL and ms in _CONFIDENT_HC_MATCH
+        item["is_external"] = kind in {RECORD_EXTERNAL_NOMINA, RECORD_EXTERNAL_CONTPAQ} or ms in _PENDING_HC_STATUSES
+        item["is_legacy_view"] = True
+        item["status_headcount"] = "N/D (Headcount no disponible)"
+        append_conciliation_warnings(item)
+        out.append(item)
+    if cliente:
+        c_low = cliente.strip().lower()
+        out = [r for r in out if c_low in str(r.get("cliente") or "").strip().lower()]
+    if only_missing_salary:
+        out = [r for r in out if r.get("salario_operativo") is None or float(r.get("salario_operativo") or 0) <= 0]
+    if only_missing_valor_he:
+        out = [r for r in out if r.get("valor_x_he") is None or float(r.get("valor_x_he") or 0) <= 0]
+    if match_status_any:
+        statuses = set(match_status_any)
+        out = [
+            r for r in out
+            if (
+                str(r.get("headcount_match_status") or "") in statuses
+                or str(r.get("contpaq_match_status") or "") in statuses
+                or str(r.get("nomina_match_status") or "") in statuses
+                or bool(r.get("warnings"))
+                or r.get("is_external")
+            )
+        ]
+    return out[: int(limit)]
+
+
 def build_consolidado_view(
     db_path: str,
     headcount_rows: list[dict[str, Any]],
@@ -219,23 +317,7 @@ def build_consolidado_view(
     consolidated: list[dict[str, Any]] = []
 
     for hc in active_hc:
-        key = headcount_key(hc)
-        candidates = list(indexed.get(key, []))
-        nss = sanitize_display_value(hc.get("nss"))
-        if nss:
-            candidates.extend(indexed.get(f"nss:{nss}", []))
-        nombre = _norm_name(hc.get("nombre_completo"))
-        cliente_hc = _norm_name(hc.get("cliente"))
-        if nombre:
-            candidates.extend(indexed.get(f"name:{nombre}|{cliente_hc}", []))
-        unique_candidates: list[dict[str, Any]] = []
-        seen_ids: set[int | None] = set()
-        for c in candidates:
-            cid = c.get("id")
-            if cid in seen_ids:
-                continue
-            seen_ids.add(cid)
-            unique_candidates.append(c)
+        unique_candidates = _find_param_candidates_for_hc(hc, indexed)
         param = _pick_best_param(unique_candidates)
         if param and param.get("id") is not None:
             used_param_ids.add(int(param["id"]))
@@ -359,6 +441,7 @@ def compute_parametros_stats(
 
     return {
         "activos_headcount": len(active_hc),
+        "stats_mode": "headcount",
         "con_nomina_vinculada": _with_nomina(canonical),
         "con_contpaq_vinculado": _with_contpaq(canonical),
         "missing_salario_operativo": _missing_sal(canonical),
@@ -543,8 +626,8 @@ def rebuild_consolidado_parametros(
     inserted = updated = 0
     try:
         for hc in active_hc:
-            key = headcount_key(hc)
-            param = _pick_best_param(indexed.get(key, []))
+            unique_candidates = _find_param_candidates_for_hc(hc, indexed)
+            param = _pick_best_param(unique_candidates)
             hc_nss = sanitize_display_value(hc.get("nss"))
             hc_nombre = sanitize_display_value(hc.get("nombre_completo"))
             hc_cliente = sanitize_display_value(hc.get("cliente"))
@@ -632,8 +715,9 @@ def search_active_headcount(
     *,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    q = _norm_name(query)
-    if not q:
+    q_norm = _norm_name(query)
+    q_tokens = [t for t in q_norm.split() if len(t) >= 2]
+    if not q_norm:
         return filter_active_headcount(headcount_rows)[:limit]
     out: list[dict[str, Any]] = []
     for hc in filter_active_headcount(headcount_rows):
@@ -641,7 +725,15 @@ def search_active_headcount(
         nss = sanitize_display_value(hc.get("nss"))
         cliente = _norm_name(hc.get("cliente"))
         planta = _norm_name(hc.get("patron"))
-        if q in nombre or q in nss or q in cliente or q in planta:
+        nombre_tokens = nombre.split()
+        matched = (
+            q_norm in nombre
+            or q_norm in nss
+            or q_norm in cliente
+            or q_norm in planta
+            or any(tok in nombre_tokens or tok in nombre for tok in q_tokens)
+        )
+        if matched:
             out.append(hc)
         if len(out) >= limit:
             break
@@ -659,37 +751,123 @@ def apply_manual_headcount_link(
     now_iso: str,
 ) -> bool:
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     try:
-        row = conn.execute(
-            "SELECT editable_json FROM nomina_empleado_parametros WHERE id = ? AND COALESCE(is_active,1)=1",
+        source = conn.execute(
+            "SELECT * FROM nomina_empleado_parametros WHERE id = ? AND COALESCE(is_active,1)=1",
             (int(row_id),),
         ).fetchone()
-        if row is None:
+        if source is None:
             return False
-        ed = json.loads(row[0] or "{}")
-        ed["manual_headcount_nss"] = headcount_nss
-        ed["manual_headcount_link_at"] = now_iso
-        ed["manual_headcount_link_by"] = linked_by
-        conn.execute(
-            """
-            UPDATE nomina_empleado_parametros SET
-                nss = COALESCE(?, nss),
-                cliente = COALESCE(?, cliente),
-                headcount_match_status = 'manual_link',
-                record_kind = ?,
-                editable_json = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                headcount_nss or None,
-                headcount_cliente or None,
-                RECORD_HEADCOUNT_CANONICAL,
-                json.dumps(ed, ensure_ascii=False),
-                now_iso,
-                int(row_id),
-            ),
-        )
+        source_dict = dict(source)
+        source_dict["warnings"] = json.loads(source_dict.get("warnings_json") or "[]")
+        source_dict["editable_json"] = json.loads(source_dict.get("editable_json") or "{}")
+
+        target = conn.execute(
+            """SELECT * FROM nomina_empleado_parametros
+               WHERE COALESCE(is_active, 1) = 1 AND nss = ? AND id != ?
+               ORDER BY CASE record_kind WHEN ? THEN 0 ELSE 1 END, id ASC
+               LIMIT 1""",
+            (headcount_nss, int(row_id), RECORD_HEADCOUNT_CANONICAL),
+        ).fetchone()
+
+        if target is not None:
+            target_dict = dict(target)
+            target_dict["warnings"] = json.loads(target_dict.get("warnings_json") or "[]")
+            target_dict["editable_json"] = json.loads(target_dict.get("editable_json") or "{}")
+            merged = _merge_param_fields(target_dict, source_dict)
+            ed = dict(merged.get("editable_json") or {})
+            ed["manual_headcount_nss"] = headcount_nss
+            ed["manual_headcount_link_at"] = now_iso
+            ed["manual_headcount_link_by"] = linked_by
+            ed["linked_from_row_id"] = int(row_id)
+            merged["editable_json"] = ed
+            merged["headcount_match_status"] = "manual_link"
+            merged["record_kind"] = RECORD_HEADCOUNT_CANONICAL
+            merged["nombre"] = headcount_nombre or merged.get("nombre")
+            merged["nombre_normalizado"] = _norm_name(headcount_nombre or merged.get("nombre"))
+            merged["cliente"] = headcount_cliente or merged.get("cliente")
+            merged["nss"] = headcount_nss or merged.get("nss")
+            append_conciliation_warnings(merged)
+
+            conn.execute(
+                """
+                UPDATE nomina_empleado_parametros SET
+                    nombre = ?, nombre_normalizado = ?, nss = ?, cliente = ?,
+                    numero_empleado = ?, codigo_contpaq = ?, planta = ?, puesto = ?,
+                    banco = ?, cuenta = ?, salario_operativo = ?, valor_x_he = ?,
+                    localidad = ?, localidad_normalizada = ?, es_frontera = ?,
+                    salario_minimo_usado = ?, exento_he_usado = ?, zona_salario_raw = ?,
+                    fuente_salario_operativo = ?, fuente_valor_x_he = ?,
+                    fuente_numero_empleado = ?, fuente_nss = ?,
+                    contpaq_match_status = ?, nomina_match_status = ?,
+                    headcount_match_status = ?, record_kind = ?,
+                    warnings_json = ?, editable_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    merged.get("nombre"),
+                    merged.get("nombre_normalizado"),
+                    merged.get("nss"),
+                    merged.get("cliente"),
+                    merged.get("numero_empleado"),
+                    merged.get("codigo_contpaq"),
+                    merged.get("planta"),
+                    merged.get("puesto"),
+                    merged.get("banco"),
+                    merged.get("cuenta"),
+                    merged.get("salario_operativo"),
+                    merged.get("valor_x_he"),
+                    merged.get("localidad"),
+                    merged.get("localidad_normalizada"),
+                    merged.get("es_frontera"),
+                    merged.get("salario_minimo_usado"),
+                    merged.get("exento_he_usado"),
+                    merged.get("zona_salario_raw"),
+                    merged.get("fuente_salario_operativo"),
+                    merged.get("fuente_valor_x_he"),
+                    merged.get("fuente_numero_empleado"),
+                    merged.get("fuente_nss"),
+                    merged.get("contpaq_match_status"),
+                    merged.get("nomina_match_status"),
+                    "manual_link",
+                    RECORD_HEADCOUNT_CANONICAL,
+                    json.dumps(merged.get("warnings") or [], ensure_ascii=False),
+                    json.dumps(merged.get("editable_json") or {}, ensure_ascii=False),
+                    now_iso,
+                    int(target["id"]),
+                ),
+            )
+            conn.execute(
+                "UPDATE nomina_empleado_parametros SET is_active = 0, updated_at = ? WHERE id = ?",
+                (now_iso, int(row_id)),
+            )
+        else:
+            ed = dict(source_dict.get("editable_json") or {})
+            ed["manual_headcount_nss"] = headcount_nss
+            ed["manual_headcount_link_at"] = now_iso
+            ed["manual_headcount_link_by"] = linked_by
+            conn.execute(
+                """
+                UPDATE nomina_empleado_parametros SET
+                    nombre = ?, nombre_normalizado = ?, nss = COALESCE(?, nss),
+                    cliente = COALESCE(?, cliente),
+                    headcount_match_status = 'manual_link',
+                    record_kind = ?,
+                    editable_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    headcount_nombre or source_dict.get("nombre"),
+                    _norm_name(headcount_nombre or source_dict.get("nombre")),
+                    headcount_nss or None,
+                    headcount_cliente or None,
+                    RECORD_HEADCOUNT_CANONICAL,
+                    json.dumps(ed, ensure_ascii=False),
+                    now_iso,
+                    int(row_id),
+                ),
+            )
         conn.commit()
         return True
     finally:

@@ -312,6 +312,209 @@ def test_compute_parametros_stats_from_headcount(tmp_path):
     assert stats["registros_externos_sin_vinculo"] >= 1
 
 
+def test_legacy_stats_do_not_inflate_activos_headcount(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, get_parametros_stats, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_consolidado import RECORD_EXTERNAL_CONTPAQ
+
+    db = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "CONTPAQ", "cliente": "", "source_filename": "c.xlsx", "total_rows": 1039},
+        created_by=None,
+        now_iso=iso,
+    )
+    rows = [
+        {
+            "nombre": f"Externo {i}",
+            "nombre_normalizado": f"EXTERNO {i}",
+            "nss": f"9000000000{i}",
+            "headcount_match_status": "no_match_headcount",
+            "contpaq_match_status": "imported",
+            "record_kind": RECORD_EXTERNAL_CONTPAQ,
+            "warnings": [],
+            "editable_json": {},
+        }
+        for i in range(5)
+    ]
+    upsert_empleado_parametros(db, rows, import_id=imp_id, now_iso=iso)
+    stats = get_parametros_stats(db, None)
+    assert stats["stats_mode"] == "legacy"
+    assert stats["activos_headcount"] == 0
+    assert stats["total_registros_parametros"] == 5
+    assert stats["registros_contpaq_importados"] == 1039
+
+
+def test_manual_link_merges_and_deactivates_external(tmp_path):
+    import sqlite3
+
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_consolidado import (
+        RECORD_EXTERNAL_NOMINA,
+        RECORD_HEADCOUNT_CANONICAL,
+        apply_manual_headcount_link,
+        build_consolidado_view,
+    )
+
+    db = str(tmp_path / "link.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Pedro Alfonso Martinez Vaca",
+                "nombre_normalizado": "PEDRO ALFONSO MARTINEZ VACA",
+                "nss": "11122233344",
+                "cliente": "Carrier",
+                "record_kind": RECORD_HEADCOUNT_CANONICAL,
+                "headcount_match_status": "headcount_canonical",
+                "warnings": [],
+                "editable_json": {},
+            },
+            {
+                "nombre": "Pedro Martinez",
+                "nombre_normalizado": "PEDRO MARTINEZ",
+                "nss": None,
+                "cliente": "Carrier",
+                "salario_operativo": 3000.0,
+                "valor_x_he": 80.0,
+                "nomina_match_status": "imported",
+                "record_kind": RECORD_EXTERNAL_NOMINA,
+                "headcount_match_status": "no_match_headcount",
+                "warnings": [],
+                "editable_json": {},
+            },
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    conn = sqlite3.connect(db)
+    external_id = conn.execute(
+        "SELECT id FROM nomina_empleado_parametros WHERE nombre = 'Pedro Martinez'"
+    ).fetchone()[0]
+    conn.close()
+
+    ok = apply_manual_headcount_link(
+        db,
+        int(external_id),
+        headcount_nss="11122233344",
+        headcount_nombre="Pedro Alfonso Martinez Vaca",
+        headcount_cliente="Carrier",
+        linked_by=1,
+        now_iso=iso,
+    )
+    assert ok
+
+    conn = sqlite3.connect(db)
+    ext_active = conn.execute(
+        "SELECT is_active FROM nomina_empleado_parametros WHERE id = ?", (int(external_id),)
+    ).fetchone()[0]
+    canonical = conn.execute(
+        "SELECT salario_operativo, valor_x_he, headcount_match_status FROM nomina_empleado_parametros WHERE nss = '11122233344'"
+    ).fetchone()
+    conn.close()
+    assert int(ext_active) == 0
+    assert float(canonical[0]) == 3000.0
+    assert float(canonical[1]) == 80.0
+    assert canonical[2] == "manual_link"
+
+    hc = [
+        {
+            "nombre_completo": "Pedro Alfonso Martinez Vaca",
+            "nss": "11122233344",
+            "cliente": "Carrier",
+            "status_operacion": "ALTA",
+        }
+    ]
+    view = build_consolidado_view(db, hc, limit=100)
+    externals = [r for r in view if r.get("is_external")]
+    canonical_rows = [r for r in view if r.get("is_canonical")]
+    assert len(canonical_rows) == 1
+    assert canonical_rows[0]["salario_operativo"] == 3000.0
+    assert len(externals) == 0
+
+
+def test_limpiar_nomina_preserves_headcount_canonical(tmp_path):
+    from modules.nomina.db import ensure_nomina_tables, upsert_empleado_parametros, save_parametros_import
+    from modules.nomina.parametros_consolidado import RECORD_HEADCOUNT_CANONICAL, limpiar_importaciones_nomina
+    import sqlite3
+
+    db = str(tmp_path / "clean_nom.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-01-01 12:00:00"
+    imp_id = save_parametros_import(
+        db,
+        {"tipo_importacion": "NOMINA_ACTUAL", "cliente": "Carrier", "source_filename": "n.xlsx", "total_rows": 1},
+        created_by=None,
+        now_iso=iso,
+    )
+    upsert_empleado_parametros(
+        db,
+        [
+            {
+                "nombre": "Activo Uno",
+                "nombre_normalizado": "ACTIVO UNO",
+                "nss": "111",
+                "cliente": "Carrier",
+                "salario_operativo": 2500.0,
+                "nomina_match_status": "imported",
+                "record_kind": RECORD_HEADCOUNT_CANONICAL,
+                "headcount_match_status": "exact_nss",
+                "editable_json": {"manual_headcount_nss": "111"},
+                "warnings": [],
+            }
+        ],
+        import_id=imp_id,
+        now_iso=iso,
+    )
+    limpiar_importaciones_nomina(db, now_iso=iso)
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT is_active, salario_operativo, editable_json FROM nomina_empleado_parametros WHERE nss = '111'"
+    ).fetchone()
+    conn.close()
+    assert int(row[0]) == 1
+    assert row[1] is None
+    assert "manual_headcount_nss" in (row[2] or "")
+
+
+def test_search_active_headcount_by_token():
+    from modules.nomina.parametros_consolidado import search_active_headcount
+
+    hc = [
+        {
+            "nombre_completo": "Pedro Alfonso Martinez Vaca",
+            "nss": "11122233344",
+            "cliente": "Carrier",
+            "patron": "Planta A",
+            "status_operacion": "ALTA",
+        }
+    ]
+    hits = search_active_headcount(hc, "Martinez")
+    assert len(hits) == 1
+    hits2 = search_active_headcount(hc, "Pedro")
+    assert len(hits2) == 1
+
+
 def test_smg_frontera_vs_general_via_config():
     from modules.nomina.config import get_smg_for_year, get_exento_he_for_year
     assert float(get_smg_for_year(2026, "GENERAL")) == 315.04

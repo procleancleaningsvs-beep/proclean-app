@@ -2439,32 +2439,58 @@ def get_parametros_stats(db_path: str, headcount_rows: list[dict[str, Any]] | No
         pending = int(
             conn.execute(
                 """SELECT COUNT(*) FROM nomina_empleado_parametros
-                   WHERE headcount_match_status IN (
-                       'no_match_headcount',
-                       'pending_headcount_unavailable',
-                       'probable_match',
-                       'multiple_candidates',
-                       'pending_review'
-                   )
-                      OR contpaq_match_status IN (
-                       'no_match_contpaq',
-                       'pending_review',
-                       'probable_match'
-                   )
-                      OR COALESCE(warnings_json,'[]') <> '[]'"""
+                   WHERE COALESCE(is_active, 1) = 1
+                     AND (
+                       headcount_match_status IN (
+                           'no_match_headcount',
+                           'pending_headcount_unavailable',
+                           'probable_match',
+                           'multiple_candidates',
+                           'pending_review',
+                           'inactive_headcount'
+                       )
+                       OR contpaq_match_status IN (
+                           'no_match_contpaq',
+                           'pending_review',
+                           'probable_match'
+                       )
+                       OR COALESCE(warnings_json,'[]') <> '[]'
+                       OR record_kind IN ('external_nomina', 'external_contpaq')
+                     )"""
+            ).fetchone()[0]
+        )
+        contpaq_import_rows = int(
+            conn.execute(
+                """SELECT COALESCE(SUM(total_rows), 0) FROM nomina_parametros_imports
+                   WHERE tipo_importacion = 'CONTPAQ'"""
+            ).fetchone()[0]
+        )
+        nomina_import_rows = int(
+            conn.execute(
+                """SELECT COALESCE(SUM(total_rows), 0) FROM nomina_parametros_imports
+                   WHERE tipo_importacion = 'NOMINA_ACTUAL'"""
+            ).fetchone()[0]
+        )
+        external_rows = int(
+            conn.execute(
+                """SELECT COUNT(*) FROM nomina_empleado_parametros
+                   WHERE COALESCE(is_active, 1) = 1
+                     AND record_kind IN ('external_nomina', 'external_contpaq')"""
             ).fetchone()[0]
         )
         return {
+            "stats_mode": "legacy",
             "total_empleados": total,
-            "activos_headcount": total,
+            "activos_headcount": 0,
+            "total_registros_parametros": total,
             "missing_salario_operativo": missing_salary,
             "missing_valor_x_he": missing_he,
             "pendientes_revision": pending,
             "con_nomina_vinculada": 0,
             "con_contpaq_vinculado": 0,
-            "registros_externos_sin_vinculo": 0,
-            "registros_nomina_importados": 0,
-            "registros_contpaq_importados": 0,
+            "registros_externos_sin_vinculo": external_rows,
+            "registros_nomina_importados": nomina_import_rows,
+            "registros_contpaq_importados": contpaq_import_rows,
             "vinculos_manuales": 0,
         }
     finally:

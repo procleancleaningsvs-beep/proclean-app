@@ -131,6 +131,7 @@ from modules.nomina.parametros_consolidado import (
     apply_manual_headcount_link,
     borrar_vinculos_manuales,
     build_consolidado_view,
+    build_legacy_parametros_view,
     limpiar_importaciones_contpaq,
     limpiar_importaciones_nomina,
     preview_depuracion_parametros,
@@ -1806,19 +1807,31 @@ def parametros_index():
             "multiple_candidates",
             "pending_review",
             "manual_link",
+            "inactive_headcount",
         ]
 
     hc_rows, headcount_match_error = _headcount_for_match()
-    rows = build_consolidado_view(
-        db_path,
-        hc_rows,
-        cliente=cliente,
-        match_status_any=match_filters or None,
-        only_missing_salary=only_missing_salary,
-        only_missing_valor_he=only_missing_he,
-        limit=2000,
-    )
-    stats = get_parametros_stats(db_path, hc_rows if not headcount_match_error else None)
+    if headcount_match_error:
+        rows = build_legacy_parametros_view(
+            db_path,
+            cliente=cliente,
+            match_status_any=match_filters or None,
+            only_missing_salary=only_missing_salary,
+            only_missing_valor_he=only_missing_he,
+            limit=2000,
+        )
+        stats = get_parametros_stats(db_path, None)
+    else:
+        rows = build_consolidado_view(
+            db_path,
+            hc_rows,
+            cliente=cliente,
+            match_status_any=match_filters or None,
+            only_missing_salary=only_missing_salary,
+            only_missing_valor_he=only_missing_he,
+            limit=2000,
+        )
+        stats = get_parametros_stats(db_path, hc_rows)
     imports = list_parametros_imports(db_path, limit=20)
     localidades = list_localidades_frontera(db_path)
     dep_preview = preview_depuracion_parametros(db_path)
