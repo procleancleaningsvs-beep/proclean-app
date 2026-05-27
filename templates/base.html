@@ -43,6 +43,13 @@
       {% block content %}{% endblock %}
     </main>
   </div>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.511.0/dist/umd/lucide.min.js"></script>
+  <script src="{{ url_for('static', filename='lucide-icons.js') }}"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (window.pcLucideRefresh) window.pcLucideRefresh();
+    });
+  </script>
   {% if current_user %}
   <script src="{{ url_for('static', filename='shell-nav.js') }}" defer></script>
   {% endif %}

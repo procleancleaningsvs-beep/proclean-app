@@ -1,13 +1,14 @@
 {# Requiere: imp, asistencia_key_styles (dict JSON-serializable) #}
+{% from '_icon_button.html' import icon_link, icon_button %}
 {% set m = imp.operative_metrics %}
 {% set styles_json = asistencia_key_styles | tojson %}
 <section id="asistencia-viz-root" class="nomi-hub-viz" data-import-id="{{ imp.id }}">
   <div class="nomi-hub-viz-head">
     <h3>Visualizador de asistencia</h3>
-    <div class="nomi-hub-viz-actions">
-      <a class="btn btn-secondary" href="{{ url_for('nomina.master_hub') }}">Cerrar visualizador</a>
+    <div class="nomi-hub-viz-actions actions-cell">
+      {{ icon_link('x', 'Cerrar visualizador', url_for('nomina.master_hub'), variant='muted') }}
       {% if imp.has_original_file %}
-      <a class="btn btn-secondary" href="{{ url_for('nomina.descargar_asistencia_original', import_id=imp.id) }}">Descargar original</a>
+      {{ icon_link('download', 'Descargar archivo original', url_for('nomina.descargar_asistencia_original', import_id=imp.id), variant='success') }}
       {% endif %}
     </div>
   </div>

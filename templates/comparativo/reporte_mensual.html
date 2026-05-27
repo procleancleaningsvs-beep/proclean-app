@@ -32,11 +32,7 @@
 .rpt-pagination { display:flex; gap:.6rem; justify-content:flex-end; align-items:center; margin-top:.6rem; }
 .rpt-inline-err { color:#b91c1c; font-size:.9rem; margin:.45rem 0; }
 .rpt-inline-msg { color:#0f766e; font-size:.9rem; margin:.45rem 0; }
-.rpt-actions { display:flex; gap:12px; align-items:center; }
-.rpt-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:#334155; text-decoration:none; }
-.rpt-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
-.rpt-icon-btn.edit { color:#0d6efd; }
-.rpt-icon-btn.delete { color:#dc2626; }
+.rpt-actions { display:flex; gap:6px; align-items:center; }
 .rpt-editor-tools { display:flex; gap:.5rem; margin:.5rem 0 .8rem; }
 dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw); }
 .rpt-modal-head, .rpt-modal-foot { padding:1rem; border-bottom:1px solid #e5e7eb; }
@@ -167,15 +163,9 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   const cargarUrlTpl = "{{ url_for('comparativo.reporte_mensual_cargar', cliente='__C__', anio='__A__', mes='__M__') }}";
   const simModal = $("sim-modal");
 
-  function iconDownload() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h7l5 5v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M12 10v7"/><path d="m9 14 3 3 3-3"/></svg>';
-  }
-  function iconPencil() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>';
-  }
-  function iconTrash() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-  }
+  function iconDownload() { return pcLucideIcon('download'); }
+  function iconPencil() { return pcLucideIcon('pencil'); }
+  function iconTrash() { return pcLucideIcon('trash-2'); }
 
   async function fetchJson(url, opts) {
     const r = await fetch(url, opts);
@@ -244,7 +234,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     return `<div class="rpt-fecha-stack">
       <div class="rpt-fecha-inline">
         <span class="rpt-fecha-text">${texto}</span>
-        <button type="button" class="btn btn-secondary rpt-btn-mini btn-edit-fechas" data-idx="${rowIdx}" data-tipo="${tipoLabel}">Editar</button>
+        ${pcIconButton({ icon: 'pencil', title: 'Editar fechas', className: 'rpt-btn-mini btn-edit-fechas', attrs: `data-idx="${rowIdx}" data-tipo="${tipoLabel}"` })}
       </div>
       <div class="rpt-edit-list" data-edit-list="${rowIdx}-${tipoLabel}">${inputs}</div>
     </div>`;
@@ -305,7 +295,7 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       `<tr>
         <td><input type="text" data-fijo-idx="${idx}" data-fijo-field="nombre" value="${f.nombre || ""}"></td>
         <td>${f.en_headcount ? "Sí" : `⚠️ ${f.alerta || "No"}`}</td>
-        <td><button type="button" class="rpt-icon-btn delete btn-del-fijo" data-fijo-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
+        <td>${pcIconButton({ icon: 'trash-2', title: 'Eliminar', variant: 'danger', className: 'rpt-icon-btn delete btn-del-fijo', attrs: `data-fijo-idx="${idx}"` })}</td>
       </tr>`
     )).join("") || '<tr><td colspan="3">Sin personal fijo.</td></tr>';
 
@@ -323,10 +313,12 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
         <td>${renderFechaCell(idx, "baja", fechasBaja, alertas, tieneReingreso)}</td>
         <td>
           ${alertas.length ? `<span class="rpt-alert" title="${alertas.join(" | ")}">⚠️ ${alertas.join(" | ")}</span>` : "—"}
-          <button type="button" class="rpt-icon-btn delete btn-del-rot" data-rot-idx="${idx}" title="Eliminar">${iconTrash()}</button>
+          ${pcIconButton({ icon: 'trash-2', title: 'Eliminar', variant: 'danger', className: 'rpt-icon-btn delete btn-del-rot', attrs: `data-rot-idx="${idx}"` })}
         </td>
       </tr>`;
     }).join("") || '<tr><td colspan="4">Sin personal rotativo.</td></tr>';
+    pcLucideRefresh($("fijos-tbody"));
+    pcLucideRefresh($("rot-tbody"));
   }
 
   function openSimilitudes(list) {
@@ -462,13 +454,14 @@ dialog.rpt-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
         <td>${badge}</td>
         <td>
           <div class="rpt-actions">
-            <a class="rpt-icon-btn" title="Exportar Excel" href="${exportarUrlBase}?${q}">${iconDownload()}</a>
-            <button type="button" class="rpt-icon-btn edit hist-edit" title="Ver y editar reporte" data-cliente="${encodeURIComponent(r.cliente)}" data-mes="${r.mes}" data-anio="${r.anio}">${iconPencil()}</button>
-            <button type="button" class="rpt-icon-btn delete hist-del" title="Eliminar reporte" data-url="${delUrl}">${iconTrash()}</button>
+            ${pcIconButton({ tag: 'a', href: `${exportarUrlBase}?${q}`, icon: 'download', title: 'Exportar Excel', className: 'rpt-icon-btn' })}
+            ${pcIconButton({ icon: 'pencil', title: 'Ver y editar reporte', className: 'rpt-icon-btn edit hist-edit', attrs: `data-cliente="${encodeURIComponent(r.cliente)}" data-mes="${r.mes}" data-anio="${r.anio}"` })}
+            ${pcIconButton({ icon: 'trash-2', title: 'Eliminar reporte', variant: 'danger', className: 'rpt-icon-btn delete hist-del', attrs: `data-url="${delUrl}"` })}
           </div>
         </td>
       </tr>`;
     }).join("") || '<tr><td colspan="6">Sin reportes guardados.</td></tr>';
+    pcLucideRefresh($("hist-tbody"));
     $("hist-page").textContent = `${state.histPage} / ${state.histPages}`;
   }
 

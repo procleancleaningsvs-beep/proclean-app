@@ -1521,8 +1521,17 @@ th {
 .actions-cell {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 6px;
   align-items: center;
+}
+.actions-cell > .inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.actions-cell--nowrap {
+  flex-wrap: nowrap;
 }
 
 .danger-btn {
@@ -1764,33 +1773,6 @@ th {
   gap: 6px;
   flex-wrap: nowrap;
 }
-.checkid-btn-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--primary-dark);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.checkid-btn-icon:hover {
-  background: var(--panel-soft);
-  border-color: var(--primary);
-}
-.checkid-btn-icon:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.checkid-btn-icon--danger {
-  color: var(--error-text);
-}
-.checkid-btn-icon--danger:hover {
-  border-color: var(--error-text);
-}
 .checkid-history-delete {
   padding: 6px 10px;
   font-size: 0.78rem;
@@ -1840,19 +1822,15 @@ th {
   margin: 0;
   font-size: 1.05rem;
 }
-.checkid-modal__close {
+.checkid-modal__close.btn-icon {
+  width: 32px;
+  height: 32px;
   border: none;
   background: transparent;
-  font-size: 1.5rem;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--muted);
-  padding: 4px 8px;
-  border-radius: 8px;
 }
-.checkid-modal__close:hover {
+.checkid-modal__close.btn-icon:hover {
   background: var(--panel-soft);
-  color: var(--text);
+  border: none;
 }
 .checkid-modal__body {
   padding: 16px 18px 20px;
@@ -1974,11 +1952,15 @@ th {
 }
 
 /* Botón icono global — reutilizable en cualquier módulo */
-.btn-icon {
+.btn-icon,
+.checkid-btn-icon,
+.cmp-icon-btn,
+.imss-icon-btn,
+.rpt-icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   flex-shrink: 0;
   border-radius: var(--radius-sm);
@@ -1987,26 +1969,58 @@ th {
   color: var(--primary-dark);
   cursor: pointer;
   font-family: var(--font-sans);
+  text-decoration: none;
   transition: background var(--transition), border-color var(--transition), color var(--transition);
 }
-.btn-icon:hover {
+.btn-icon:hover,
+.checkid-btn-icon:hover,
+.cmp-icon-btn:hover,
+.imss-icon-btn:hover,
+.rpt-icon-btn:hover {
   background: var(--panel-soft);
   border-color: var(--brand-blue);
   color: var(--brand-blue);
 }
-.btn-icon:focus-visible {
+.btn-icon:focus-visible,
+.checkid-btn-icon:focus-visible,
+.cmp-icon-btn:focus-visible,
+.imss-icon-btn:focus-visible,
+.rpt-icon-btn:focus-visible {
   outline: 3px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.btn-icon:disabled {
+.btn-icon:disabled,
+.checkid-btn-icon:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   pointer-events: none;
 }
-.btn-icon--danger {
+.btn-icon .lucide,
+.checkid-btn-icon .lucide,
+.cmp-icon-btn .lucide,
+.imss-icon-btn .lucide,
+.rpt-icon-btn .lucide,
+.btn-icon svg.lucide,
+.checkid-btn-icon svg.lucide,
+.cmp-icon-btn svg.lucide,
+.imss-icon-btn svg.lucide,
+.rpt-icon-btn svg.lucide {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+.btn-icon--danger,
+.checkid-btn-icon--danger,
+.cmp-icon-btn.delete,
+.imss-icon-btn.delete,
+.rpt-icon-btn.delete {
   color: #991b1b;
 }
-.btn-icon--danger:hover {
+.btn-icon--danger:hover,
+.checkid-btn-icon--danger:hover,
+.cmp-icon-btn.delete:hover,
+.imss-icon-btn.delete:hover,
+.rpt-icon-btn.delete:hover {
   border-color: #EF4444;
   background: #FEE2E2;
   color: #7f1d1d;
@@ -2024,6 +2038,31 @@ th {
 .btn-icon--muted:hover {
   color: var(--text);
   border-color: var(--muted);
+}
+.cmp-icon-btn.edit,
+.imss-icon-btn.edit,
+.rpt-icon-btn.edit {
+  color: var(--brand-blue);
+}
+.cmp-icon-btn.edit:hover,
+.imss-icon-btn.edit:hover,
+.rpt-icon-btn.edit:hover {
+  border-color: var(--brand-blue);
+  background: #eff6ff;
+}
+.imss-icon-btn.sync {
+  color: #0f766e;
+}
+.imss-icon-btn.sync:hover {
+  border-color: #0f766e;
+  background: #ecfdf5;
+}
+.imss-icon-btn.view {
+  color: #7c3aed;
+}
+.imss-icon-btn.view:hover {
+  border-color: #7c3aed;
+  background: #f5f3ff;
 }
 
 /* Hover de filas de tabla */

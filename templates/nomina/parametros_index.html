@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <style>
 .param-wrap { display:grid; gap:1rem; }
@@ -252,12 +253,12 @@
               </ul>
               {% else %}—{% endif %}
             </td>
-            <td style="white-space:nowrap;">
+            <td class="actions-cell actions-cell--nowrap">
               {% if row.id %}
-              <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_detalle', row_id=row.id) }}">Detalle</a>
-              <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_editar', row_id=row.id) }}">Editar</a>
+              {{ icon_link('eye', 'Ver detalle del empleado', url_for('nomina.parametros_detalle', row_id=row.id)) }}
+              {{ icon_link('pencil', 'Editar parámetros', url_for('nomina.parametros_editar', row_id=row.id)) }}
               {% if row.is_external or row.headcount_match_status in ['no_match_headcount', 'probable_match', 'multiple_candidates', 'pending_review'] %}
-              <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_vincular', row_id=row.id) }}">Vincular</a>
+              {{ icon_link('link', 'Vincular con Headcount', url_for('nomina.parametros_vincular', row_id=row.id)) }}
               {% endif %}
               {% else %}—{% endif %}
             </td>

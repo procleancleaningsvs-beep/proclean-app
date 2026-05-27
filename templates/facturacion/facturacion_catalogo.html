@@ -1,4 +1,5 @@
 {% extends "facturacion_shell.html" %}
+{% from '_icon_button.html' import icon_button %}
 {% set fx_nav_active = 'catalogo' %}
 {% block fx_main %}
 <div class="fx-hero">
@@ -62,12 +63,12 @@
             <label style="font-size:0.75rem">Tipo<select name="tipo_correo"><option value="EMAIL" {% if m.tipo == 'EMAIL' %}selected{% endif %}>EMAIL</option><option value="DOMINIO" {% if m.tipo == 'DOMINIO' %}selected{% endif %}>DOMINIO</option></select></label>
             <label style="font-size:0.75rem">Valor<input type="text" name="valor_correo" value="{{ m.valor }}" required></label>
             <label style="font-size:0.75rem">Cliente<input type="text" name="cliente_principal_correo" value="{{ m.cliente_principal }}" required></label>
-            <button type="submit" class="fx-btn fx-btn--ghost">Actualizar</button>
+            <button type="submit" class="btn-icon" title="Actualizar mapeo" aria-label="Actualizar mapeo"><i data-lucide="save" aria-hidden="true"></i></button>
           </form>
           <form method="post" style="margin-top:0.35rem" onsubmit="return confirm('¿Eliminar este mapeo?');">
             <input type="hidden" name="action" value="del_correo_map">
             <input type="hidden" name="id" value="{{ m.id }}">
-            <button type="submit" class="fx-btn fx-btn--danger">Eliminar</button>
+            {{ icon_button('trash-2', 'Eliminar mapeo', 'danger', type='submit') }}
           </form>
         </td>
       </tr>
@@ -90,14 +91,14 @@
             <input type="hidden" name="id" value="{{ m.id }}">
             <label style="flex:2;min-width:12rem">Razón social<input type="text" name="razon_social" value="{{ m.razon_social }}" required></label>
             <label style="flex:1;min-width:9rem">Cliente principal<input type="text" name="cliente_principal" value="{{ m.cliente_principal }}" required></label>
-            <button type="submit" class="fx-btn fx-btn--ghost">Actualizar</button>
+            <button type="submit" class="btn-icon" title="Actualizar mapeo" aria-label="Actualizar mapeo"><i data-lucide="save" aria-hidden="true"></i></button>
           </form>
         </td>
         <td style="vertical-align:middle;white-space:nowrap;padding:0.65rem 1rem">
           <form method="post" onsubmit="return confirm('¿Eliminar este mapeo?');">
             <input type="hidden" name="action" value="del_razon">
             <input type="hidden" name="id" value="{{ m.id }}">
-            <button type="submit" class="fx-btn fx-btn--danger">Eliminar</button>
+            {{ icon_button('trash-2', 'Eliminar mapeo', 'danger', type='submit') }}
           </form>
         </td>
       </tr>
@@ -121,7 +122,7 @@
           <form method="post" onsubmit="return confirm('¿Quitar este cliente del catálogo de crédito?');">
             <input type="hidden" name="action" value="del_credito">
             <input type="hidden" name="cliente_principal" value="{{ c.cliente_principal }}">
-            <button type="submit" class="fx-btn fx-btn--ghost">Quitar</button>
+            {{ icon_button('x', 'Quitar cliente del catálogo de crédito', 'muted', type='submit') }}
           </form>
         </td>
       </tr>

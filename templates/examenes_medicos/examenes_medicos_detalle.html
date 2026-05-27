@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_button %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
@@ -13,7 +14,7 @@
   <div class="page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
     {% if is_admin %}
-    <button type="button" class="btn btn-secondary danger-btn" id="em-del-btn" data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}">Eliminar expediente</button>
+    {{ icon_button('trash-2', 'Eliminar expediente', 'danger', class='em-del-btn', extra_attrs='id="em-del-btn" data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=row.id) ~ '"') }}
     {% endif %}
   </div>
 </section>

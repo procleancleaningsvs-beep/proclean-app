@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <style>
 .nom-hub { display:grid; gap:1rem; max-width:1280px; margin:0 auto; }
@@ -173,14 +174,14 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
             <td>{{ h.error_count }}</td>
             <td>{{ h.warning_count }}</td>
             <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ h.original_filename or h.filename }}">{{ h.original_filename or h.filename }}</td>
-            <td style="white-space:nowrap;">
-              <a class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;" href="{{ url_for('nomina.master_hub', import_id=h.id) }}">Abrir</a>
+            <td class="actions-cell actions-cell--nowrap">
+              {{ icon_link('folder-open', 'Abrir importación', url_for('nomina.master_hub', import_id=h.id)) }}
               {% if h.has_file_blob %}
-              <a class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;" href="{{ url_for('nomina.descargar_asistencia_original', import_id=h.id) }}">Descargar</a>
+              {{ icon_link('download', 'Descargar archivo original', url_for('nomina.descargar_asistencia_original', import_id=h.id), variant='success') }}
               {% endif %}
               {% if user_role == 'admin' %}
-              <form method="post" action="{{ url_for('nomina.eliminar_asistencia_import', import_id=h.id) }}" style="display:inline;" onsubmit="return confirm('¿Eliminar esta importación?');">
-                <button type="submit" class="btn btn-secondary" style="padding:.15rem .4rem;font-size:.75rem;color:#b91c1c;">Eliminar</button>
+              <form method="post" action="{{ url_for('nomina.eliminar_asistencia_import', import_id=h.id) }}" class="inline-form" onsubmit="return confirm('¿Eliminar esta importación?');">
+                {{ icon_button('trash-2', 'Eliminar importación', 'danger', type='submit') }}
               </form>
               {% endif %}
             </td>

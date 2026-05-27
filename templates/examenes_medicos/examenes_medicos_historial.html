@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
@@ -52,20 +53,10 @@
           </td>
           <td class="em-date-cell">{{ r.last_export_at }}</td>
           <td>{{ r.username or '—' }}</td>
-          <td class="em-actions-cell">
-            <a class="btn btn-secondary em-btn-compact" href="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}">
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 10s3.5-6 8.5-6 8.5 6 8.5 6-3.5 6-8.5 6-8.5-6-8.5-6z"/><circle cx="10" cy="10" r="2.5"/></svg>
-              Detalle
-            </a>
+          <td class="em-actions-cell actions-cell actions-cell--nowrap">
+            {{ icon_link('eye', 'Ver detalle del expediente', url_for('examenes_medicos.historial_detalle', rid=r.id)) }}
             {% if is_admin %}
-            <button
-              type="button"
-              class="btn btn-danger em-btn-compact em-del-exp-btn"
-              data-url="{{ url_for('examenes_medicos.api_historial_item', rid=r.id) }}"
-            >
-              <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h14m-2 0l-1 11H6L5 6m3 0V4h4v2"/></svg>
-              Eliminar
-            </button>
+            {{ icon_button('trash-2', 'Eliminar expediente del historial', 'danger', class='em-del-exp-btn', extra_attrs='data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=r.id) ~ '"') }}
             {% endif %}
           </td>
         </tr>

@@ -27,12 +27,7 @@
 .imss-badge.alta { background:#dcfce7; border:1px solid #bbf7d0; color:#166534; }
 .imss-badge.baja { background:#fee2e2; border:1px solid #fecaca; color:#991b1b; }
 .imss-actions { display:flex; gap:12px; align-items:center; }
-.imss-icon-btn { display:inline-flex; align-items:center; justify-content:center; border:0; background:none; cursor:pointer; padding:0; color:#334155; text-decoration:none; }
-.imss-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
-.imss-icon-btn.edit { color:#0d6efd; }
-.imss-icon-btn.sync { color:#0f766e; }
-.imss-icon-btn.delete { color:#dc2626; }
-.imss-icon-btn.view { color:#7c3aed; }
+.imss-actions { display:flex; gap:6px; align-items:center; }
 .imss-radio { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
 .imss-radio button { border:1px solid #cbd5e1; border-radius:999px; background:#fff; padding:.25rem .6rem; font-size:.82rem; cursor:pointer; }
 .imss-radio button.active { border-color:#0d6efd; color:#0d6efd; }
@@ -499,13 +494,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     eliminarHistorial: "{{ url_for('exportacion_imss.historial_exportaciones_delete', exportacion_id='__ID__') }}",
   };
 
-  function iconDoc() { return '<svg viewBox="0 0 24 24"><path d="M7 3h8l5 5v13a1 1 0 0 1-1 1H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M8 13h8"/><path d="M8 17h6"/></svg>'; }
-  function iconPencil() { return '<svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>'; }
-  function iconSync() { return '<svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>'; }
-  function iconTrash() { return '<svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>'; }
-  function iconDownload() { return '<svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>'; }
-  function iconCheck() { return '<svg viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></svg>'; }
-  function iconX() { return '<svg viewBox="0 0 24 24"><path d="m18 6-12 12"/><path d="m6 6 12 12"/></svg>'; }
+  function iconDoc() { return pcLucideIcon('file-text'); }
+  function iconPencil() { return pcLucideIcon('pencil'); }
+  function iconSync() { return pcLucideIcon('refresh-cw'); }
+  function iconTrash() { return pcLucideIcon('trash-2'); }
+  function iconDownload() { return pcLucideIcon('download'); }
+  function iconCheck() { return pcLucideIcon('check'); }
+  function iconX() { return pcLucideIcon('x'); }
 
   function setMsg(id, text, kind) {
     const el = $(id);
@@ -833,6 +828,9 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     tbAltas.innerHTML = renderMovementRows(altasPuras);
     tbBajas.innerHTML = renderMovementRows(bajasPuras);
     tbReing.innerHTML = renderMovementRows(reingresoMovs);
+    pcLucideRefresh(tbAltas);
+    pcLucideRefresh(tbBajas);
+    pcLucideRefresh(tbReing);
   }
 
   function getMainPayload() {
@@ -1446,6 +1444,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         </td>
       </tr>`;
     }).join("") || '<tr><td colspan="8">Sin historial de exportaciones.</td></tr>';
+    pcLucideRefresh($("hist-tbody"));
     $("hist-page").textContent = `${state.histPage} / ${state.histPages}`;
   }
 

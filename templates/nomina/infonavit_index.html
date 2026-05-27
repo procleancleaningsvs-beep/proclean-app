@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_link %}
 {% block extra_head %}
 <style>
 .ni-wrap { display:grid; gap:1rem; }
@@ -154,7 +155,7 @@
               <div class="ni-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td><a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_editar', row_id=row.id) }}">Editar</a></td>
+            <td>{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
           </tr>
           {% endfor %}
           {% if not rows %}

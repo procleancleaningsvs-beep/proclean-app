@@ -1,4 +1,5 @@
 {% extends "facturacion_shell.html" %}
+{% from '_icon_button.html' import icon_link, icon_button %}
 {% set fx_nav_active = 'facturas' %}
 {% block fx_main %}
 <div class="fx-hero">
@@ -14,10 +15,12 @@
   <div class="fx-actions">
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.facturas_list') }}">← Lista</a>
     {% if is_admin and row.es_factura_activa %}
-    <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_editar', fid=row.id) }}">Editar</a>
+    {{ icon_link('pencil', 'Editar factura', url_for('facturacion.factura_editar', fid=row.id)) }}
     <form method="post" action="{{ url_for('facturacion.factura_marcar_listo', fid=row.id) }}" style="display:inline"><button type="submit" class="fx-btn fx-btn--primary">Marcar LISTO</button></form>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_refacturar', fid=row.id) }}">Refacturar</a>
-    <form method="post" action="{{ url_for('facturacion.factura_eliminar', fid=row.id) }}" onsubmit="return confirm('¿Desactivar esta factura?');" style="display:inline"><button type="submit" class="fx-btn fx-btn--danger">Eliminar</button></form>
+    <form method="post" action="{{ url_for('facturacion.factura_eliminar', fid=row.id) }}" class="inline-form" onsubmit="return confirm('¿Desactivar esta factura?');">
+      {{ icon_button('trash-2', 'Desactivar factura', 'danger', type='submit') }}
+    </form>
     {% endif %}
   </div>
 </div>

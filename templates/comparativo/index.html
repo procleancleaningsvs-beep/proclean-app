@@ -34,11 +34,7 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 .cmp-sim-item { border:1px solid var(--line); border-radius:10px; padding:.6rem; margin-bottom:.5rem; }
 .cmp-inline-msg { margin:.5rem 0; font-size:.92rem; color:#0f766e; }
 .cmp-inline-err { margin:.5rem 0; font-size:.92rem; color:#b91c1c; }
-.cmp-actions { display:flex; gap:12px; align-items:center; }
-.cmp-icon-btn { display:inline-flex; align-items:center; justify-content:center; background:none; border:0; padding:0; cursor:pointer; color:var(--text); text-decoration:none; }
-.cmp-icon-btn svg { width:18px; height:18px; stroke:currentColor; fill:none; stroke-width:1.8; }
-.cmp-icon-btn.edit { color:var(--brand-blue); }
-.cmp-icon-btn.delete { color:var(--error-text); }
+.cmp-actions { display:flex; gap:6px; align-items:center; }
 .cmp-modal-edit-table td input { width:100%; }
 .cmp-edit-section { margin:.7rem 0; }
 @media (max-width: 1024px) {
@@ -293,17 +289,9 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     el.hidden = !msg;
   }
 
-  function iconDownload() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h7l5 5v11a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M15 3v5h5"/><path d="M12 10v7"/><path d="m9 14 3 3 3-3"/></svg>';
-  }
-
-  function iconPencil() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="m16.5 3.5 4 4L8 20l-5 1 1-5 12.5-12.5Z"/></svg>';
-  }
-
-  function iconTrash() {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
-  }
+  function iconDownload() { return pcLucideIcon('download'); }
+  function iconPencil() { return pcLucideIcon('pencil'); }
+  function iconTrash() { return pcLucideIcon('trash-2'); }
 
   async function fetchJson(url, opts) {
     const r = await fetch(url, opts);
@@ -409,16 +397,18 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
       `<tr>
         <td><input type="text" data-edit-row="alta" data-edit-idx="${idx}" data-edit-field="nombre" value="${r.nombre || ""}"></td>
         <td><input type="date" data-edit-row="alta" data-edit-idx="${idx}" data-edit-field="fecha_alta" value="${toInputDate(r.fecha_alta)}"></td>
-        <td><button type="button" class="cmp-icon-btn delete edit-row-del" data-edit-row="alta" data-edit-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
+        <td>${pcIconButton({ icon: 'trash-2', title: 'Eliminar', variant: 'danger', className: 'cmp-icon-btn delete edit-row-del', attrs: `data-edit-row="alta" data-edit-idx="${idx}"` })}</td>
       </tr>`
     )).join("") || '<tr><td colspan="3">Sin altas.</td></tr>';
     $("edit-bajas-tbody").innerHTML = edit.bajas.map((r, idx) => (
       `<tr>
         <td><input type="text" data-edit-row="baja" data-edit-idx="${idx}" data-edit-field="nombre" value="${r.nombre || ""}"></td>
         <td><input type="date" data-edit-row="baja" data-edit-idx="${idx}" data-edit-field="fecha_baja" value="${toInputDate(r.fecha_baja)}"></td>
-        <td><button type="button" class="cmp-icon-btn delete edit-row-del" data-edit-row="baja" data-edit-idx="${idx}" title="Eliminar">${iconTrash()}</button></td>
+        <td>${pcIconButton({ icon: 'trash-2', title: 'Eliminar', variant: 'danger', className: 'cmp-icon-btn delete edit-row-del', attrs: `data-edit-row="baja" data-edit-idx="${idx}"` })}</td>
       </tr>`
     )).join("") || '<tr><td colspan="3">Sin bajas.</td></tr>';
+    pcLucideRefresh($("edit-altas-tbody"));
+    pcLucideRefresh($("edit-bajas-tbody"));
   }
 
   async function abrirEdicionHistorial(comparativoId) {
@@ -600,13 +590,14 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
         <td>${it.fecha_generacion || ""}</td>
         <td>
           <div class="cmp-actions">
-            <a class="cmp-icon-btn" title="Exportar Excel" href="${exportUrlTemplate.replace('__ID__', encodeURIComponent(it.id))}">${iconDownload()}</a>
-            <button type="button" class="cmp-icon-btn edit hist-edit" title="Editar comparativo" data-id="${it.id}">${iconPencil()}</button>
-            <button type="button" class="cmp-icon-btn delete hist-del" title="Eliminar" data-id="${it.id}">${iconTrash()}</button>
+            ${pcIconButton({ tag: 'a', href: exportUrlTemplate.replace('__ID__', encodeURIComponent(it.id)), icon: 'download', title: 'Exportar Excel', className: 'cmp-icon-btn' })}
+            ${pcIconButton({ icon: 'pencil', title: 'Editar comparativo', className: 'cmp-icon-btn edit hist-edit', attrs: `data-id="${it.id}"` })}
+            ${pcIconButton({ icon: 'trash-2', title: 'Eliminar', variant: 'danger', className: 'cmp-icon-btn delete hist-del', attrs: `data-id="${it.id}"` })}
           </div>
         </td>
       </tr>`
     )).join("") || '<tr><td colspan="6">Sin registros.</td></tr>';
+    pcLucideRefresh($("hist-tbody"));
     $("hist-page").textContent = `${state.historialPage} / ${state.historialPages}`;
     } catch (e) {
       $("hist-tbody").innerHTML = '<tr><td colspan="6">No hay registros suficientes para generar el comparativo semanal.</td></tr>';

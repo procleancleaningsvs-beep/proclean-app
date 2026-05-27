@@ -1,3 +1,4 @@
+{% from '_icon_button.html' import icon_button %}
 <div class="hc-detalle-meta" id="hc-detalle-meta">
   <span>Mostrando <strong id="hc-detalle-count">{{ detalle_filtrado|default(detalle|length) }}</strong> de <strong>{{ detalle_total|default(detalle|length) }}</strong> registros SUA</span>
 </div>
@@ -77,7 +78,7 @@
           <span class="hc-badge ok" title="{{ info_estado_label(row.info_estado) }}">{{ row.info_estado }}</span>
           {% endif %}
         </td>
-        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="det-{{ row.registro_no or loop.index }}">Ver</button></td>
+        <td>{{ icon_button('eye', 'Ver detalle del registro', class='hc-toggle-detail', extra_attrs='data-target="det-' ~ (row.registro_no or loop.index) ~ '"') }}</td>
       </tr>
       <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}" data-detail-for="{{ row.registro_no or loop.index }}">
         <td colspan="17"><div class="hc-detail-inner">

@@ -1,3 +1,4 @@
+{% from '_icon_button.html' import icon_button %}
 <div class="hc-table-wrap">
   <table class="hc-table" id="hc-cliente-table">
     <thead>
@@ -24,7 +25,7 @@
         <td>{{ r.apellido_materno|default('', true) }}</td>
         <td>{{ r.nombre|default('', true) }}</td>
         <td>{{ r.nombre_completo|default('', true) }}</td>
-        <td><button type="button" class="btn btn-secondary btn-sm hc-toggle-detail" data-target="hc-row-{{ loop.index }}">Ver más</button></td>
+        <td>{{ icon_button('eye', 'Ver más detalle', class='hc-toggle-detail', extra_attrs='data-target="hc-row-' ~ loop.index ~ '"') }}</td>
       </tr>
       <tr class="hc-detail-row" id="hc-row-{{ loop.index }}">
         <td colspan="15">

@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_icon_button.html' import icon_link %}
 {% block extra_head %}
 <style>
 .nv-wrap { display:grid; gap:1rem; }
@@ -125,8 +126,8 @@
               <div class="nv-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td class="nv-actions">
-              <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_detalle', row_id=row.id, fecha_corte=fecha_corte) }}">Detalle</a>
+            <td class="nv-actions actions-cell actions-cell--nowrap">
+              {{ icon_link('eye', 'Ver detalle de vacaciones', url_for('nomina.vacaciones_detalle', row_id=row.id, fecha_corte=fecha_corte)) }}
             </td>
           </tr>
           {% endfor %}

@@ -1,0 +1,17 @@
+{# Botón icon-only con Lucide Icons. Requiere lucide-icons.js + Lucide CDN en base.html #}
+{% macro icon_button(icon, title, variant='', tag='button', href='', type='button', class='', disabled=false, extra_attrs='') %}
+  {% set cls = 'btn-icon' ~ (' btn-icon--' ~ variant if variant else '') ~ (' ' ~ class if class else '') | trim %}
+  {% if tag == 'a' %}
+    <a href="{{ href }}" class="{{ cls }}" title="{{ title }}" aria-label="{{ title }}" {{ extra_attrs | safe }}>
+      <i data-lucide="{{ icon }}" aria-hidden="true"></i>
+    </a>
+  {% else %}
+    <button type="{{ type }}" class="{{ cls }}" title="{{ title }}" aria-label="{{ title }}"{% if disabled %} disabled{% endif %} {{ extra_attrs | safe }}>
+      <i data-lucide="{{ icon }}" aria-hidden="true"></i>
+    </button>
+  {% endif %}
+{% endmacro %}
+
+{% macro icon_link(icon, title, href, variant='', class='', extra_attrs='') %}
+  {{ icon_button(icon, title, variant, 'a', href, class=class, extra_attrs=extra_attrs) }}
+{% endmacro %}
