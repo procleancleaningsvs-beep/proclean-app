@@ -392,9 +392,17 @@ def conteo_personal():
     patron = (request.args.get("patron") or "").strip()
     status = (request.args.get("status_operacion") or "").strip()
     busqueda = (request.args.get("q") or "").strip()
+    page = max(1, int(request.args.get("page") or 1))
+    per_page = 50
+
+    from modules.headcount.snapshot_service import headcount_snapshot_page_context
+
+    db_path = _db_path()
+    snap_ctx = headcount_snapshot_page_context(db_path)
+    snapshot_missing = not snap_ctx.get("has_data")
 
     t0 = time.perf_counter()
-    base_regs = obtener_registros_headcount(solo_activos=solo_activos)
+    base_regs = obtener_registros_headcount(solo_activos=solo_activos, db_path=db_path)
     t_loaded = time.perf_counter()
 
     registros = base_regs
@@ -423,6 +431,10 @@ def conteo_personal():
             or q in normalize_text(r.get("cliente"))
         ]
 
+    total_filtered = len(registros)
+    start = (page - 1) * per_page
+    registros_page = registros[start : start + per_page]
+
     resumen = resumen_cliente_view(registros)
     if not solo_activos:
         resumen["clientes"] = len({r.get("cliente") for r in registros if r.get("cliente")})
@@ -437,24 +449,29 @@ def conteo_personal():
     t_filtered = time.perf_counter()
 
     if should_mask_sensitive_data(_role()):
-        registros = [mask_registro_for_display(r, role=_role()) for r in registros]
+        registros_page = [mask_registro_for_display(r, role=_role()) for r in registros_page]
 
     headcount_error = None
-    if not registros and not any([cliente, ubicacion, patron, status, busqueda]):
+    if snapshot_missing and not any([cliente, ubicacion, patron, status, busqueda]):
+        headcount_error = (
+            "Headcount pendiente de actualización. Se requiere generar la primera copia local."
+        )
+    elif not registros_page and not any([cliente, ubicacion, patron, status, busqueda]) and not snapshot_missing:
         headcount_error = "No hay registros activos disponibles para mostrar."
 
     current_app.logger.info(
-        "conteo_personal: load=%.3fs filter=%.3fs total=%.3fs base_rows=%d visible_rows=%d",
+        "conteo_personal: snapshot=%.3fs filter=%.3fs total=%.3fs base_rows=%d visible_rows=%d page=%d",
         t_loaded - t0,
         t_filtered - t_loaded,
         t_filtered - t0,
         len(base_regs),
-        len(registros),
+        len(registros_page),
+        page,
     )
 
     return render_template(
         "headcount/conteo_personal.html",
-        registros=registros,
+        registros=registros_page,
         resumen=resumen,
         clientes=clientes,
         ubicaciones=ubicaciones,
@@ -468,7 +485,40 @@ def conteo_personal():
         can_patron_filter=not solo_activos,
         mask_sensitive=should_mask_sensitive_data(_role()),
         headcount_error=headcount_error,
+        snapshot_message=snap_ctx.get("message"),
+        snapshot_stale=snap_ctx.get("stale"),
+        snapshot_refreshing=snap_ctx.get("refreshing"),
+        snapshot_missing=snapshot_missing,
+        snapshot_activos=snap_ctx.get("activos_count"),
+        snapshot_last_refresh=snap_ctx.get("last_refresh_at"),
+        page=page,
+        per_page=per_page,
+        total_filtered=total_filtered,
+        total_pages=max(1, (total_filtered + per_page - 1) // per_page),
     )
+
+
+@headcount_bp.post("/actualizar-headcount")
+@_login_required_page
+def actualizar_headcount_headcount():
+    _require_cliente()
+    from modules.headcount.snapshot_service import refresh_headcount_snapshot
+
+    result = refresh_headcount_snapshot(_db_path(), force=True, source="headcount_manual")
+    if result.get("ok"):
+        flash(
+            f"Headcount actualizado: {result.get('activos_count', 0)} activos, "
+            f"{result.get('total_rows', 0)} registros guardados.",
+            "success",
+        )
+    elif result.get("skipped"):
+        flash("Headcount ya se está actualizando. Intenta de nuevo en unos minutos.", "warning")
+    else:
+        flash(
+            "No se pudo actualizar Headcount. Se conserva la última copia válida si existía.",
+            "error",
+        )
+    return redirect(request.referrer or url_for("headcount.conteo_personal"))
 
 
 def _current_filters() -> dict:
@@ -541,5 +591,32 @@ def _headcount_template_helpers():
 
 
 def register_headcount(app) -> None:
+    import os
+
+    from flask import abort, jsonify, request
+
+    from services.perf_logging import perf_span
+
     ensure_headcount_tables(str(app.config["DATABASE"]))
     app.register_blueprint(headcount_bp)
+
+    @app.post("/internal/headcount/refresh")
+    def internal_headcount_refresh():
+        expected = (os.environ.get("INTERNAL_REFRESH_TOKEN") or "").strip()
+        token = (
+            request.headers.get("X-Internal-Token")
+            or request.form.get("token")
+            or request.args.get("token")
+            or ""
+        ).strip()
+        if not expected or token != expected:
+            abort(403)
+        from modules.headcount.snapshot_service import refresh_headcount_snapshot
+
+        with perf_span("headcount.snapshot_internal_refresh"):
+            result = refresh_headcount_snapshot(
+                str(app.config["DATABASE"]),
+                source="internal_cron",
+            )
+        status = 200 if result.get("ok") else 500
+        return jsonify(result), status

@@ -40,6 +40,12 @@ _INSERT_SNAPSHOT_SQL = """
 
 
 def _snapshot_ttl_sec() -> int:
+    stale_min = (os.environ.get("HEADCOUNT_STALE_AFTER_MINUTES") or "").strip()
+    if stale_min:
+        try:
+            return max(60, int(stale_min) * 60)
+        except ValueError:
+            pass
     raw = (
         os.environ.get(_SNAPSHOT_TTL_ENV)
         or os.environ.get("HEADCOUNT_CACHE_TTL_SECONDS")

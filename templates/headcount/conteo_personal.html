@@ -6,7 +6,13 @@
     <span class="eyebrow">Headcount</span>
     <h2>Conteo de personal activo</h2>
     <p>Consulta compacta del personal por cliente, ubicación y patrón.</p>
+    {% if snapshot_message %}
+    <p style="color:#64748b;font-size:.9rem;margin-top:.35rem;">{{ snapshot_message }}</p>
+    {% endif %}
   </div>
+  <form method="POST" action="{{ url_for('headcount.actualizar_headcount_headcount') }}" style="margin:0;">
+    <button type="submit" class="btn btn-secondary">Actualizar Headcount ahora</button>
+  </form>
 </section>
 
 <div class="hc-panel">
@@ -69,5 +75,17 @@
   </div>
 
   {% include 'headcount/partials/_headcount_cliente_table.html' %}
+
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:.5rem;align-items:center;margin-top:.75rem;">
+    {% if page > 1 %}
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('headcount.conteo_personal', page=page-1, cliente=cliente_sel, ubicacion=ubicacion_sel, patron=patron_sel, status_operacion=status_sel, q=busqueda) }}">Anterior</a>
+    {% endif %}
+    <span>Página {{ page }} de {{ total_pages }} ({{ total_filtered }} registros)</span>
+    {% if page < total_pages %}
+    <a class="btn btn-secondary btn-sm" href="{{ url_for('headcount.conteo_personal', page=page+1, cliente=cliente_sel, ubicacion=ubicacion_sel, patron=patron_sel, status_operacion=status_sel, q=busqueda) }}">Siguiente</a>
+    {% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

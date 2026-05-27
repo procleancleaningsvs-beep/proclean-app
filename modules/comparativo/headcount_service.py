@@ -96,8 +96,10 @@ def _headcount_url() -> str:
 
 
 def obtener_df_headcount() -> pd.DataFrame:
+    from modules.headcount.remote_guard import assert_remote_headcount_allowed
     from services.perf_logging import perf_log_enabled, perf_span
 
+    assert_remote_headcount_allowed("obtener_df_headcount")
     url = _headcount_url()
     if not url:
         raise ValueError("No está configurada la variable HEADCOUNT_ONEDRIVE_URL.")
@@ -162,13 +164,28 @@ def actualizar_headcount(_file=None) -> dict[str, Any]:
         _cache_stale_warning = None
     return {
         "message": (
-            "Caché invalidado. El headcount se actualizará automáticamente desde "
-            "OneDrive en la próxima consulta."
+            "Caché en memoria invalidada. Use refresh_headcount_snapshot o el botón "
+            "«Actualizar Headcount» para regenerar la copia local."
         )
     }
 
 
-def obtener_activos(cliente: str | None = None) -> list[dict[str, Any]]:
+def obtener_activos(cliente: str | None = None, *, db_path: str | None = None) -> list[dict[str, Any]]:
+    from modules.headcount.snapshot_service import (
+        get_headcount_active_rows_from_snapshot,
+        resolve_headcount_db_path,
+    )
+
+    path = resolve_headcount_db_path(db_path)
+    activos = get_headcount_active_rows_from_snapshot(path)
+    if cliente:
+        filtro = str(cliente).strip().casefold()
+        activos = [item for item in activos if str(item.get("cliente", "")).strip().casefold() == filtro]
+    return activos
+
+
+def _obtener_activos_from_onedrive(cliente: str | None = None) -> list[dict[str, Any]]:
+    """Legacy OneDrive path — solo refresh/CLI; bloqueado en GET."""
     try:
         df = obtener_df_headcount()
         header_row_idx = None
@@ -264,17 +281,18 @@ def buscar_trabajador(nombre_completo: str) -> dict[str, Any] | None:
         raise ValueError(f"No se pudo buscar trabajador: {exc}") from exc
 
 
-def obtener_metadata_headcount() -> dict[str, Any]:
-    with _cache_lock:
-        loaded_at = _cache_loaded_at
-    fecha = None
-    if loaded_at > 0:
-        try:
-            approx_dt = datetime.now() - pd.to_timedelta(time.monotonic() - loaded_at, unit="s")
-            fecha = approx_dt.strftime("%d/%m/%Y %H:%M:%S")
-        except Exception:
-            fecha = None
+def obtener_metadata_headcount(*, db_path: str | None = None) -> dict[str, Any]:
+    from modules.headcount.snapshot_service import resolve_headcount_db_path
+    from modules.nomina.headcount_snapshot import get_headcount_snapshot_meta_fast
+
+    path = resolve_headcount_db_path(db_path)
+    meta = get_headcount_snapshot_meta_fast(path)
+    last = str(meta.get("last_refresh_at") or "").strip()
+    fecha = last if last else None
     return {
         "url_configurada": bool(_headcount_url()),
         "fecha_actualizacion": fecha,
+        "snapshot_status": meta.get("status"),
+        "activos_count": meta.get("activos_count"),
+        "total_rows": meta.get("total_rows"),
     }

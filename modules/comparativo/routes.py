@@ -222,8 +222,26 @@ def index():
 def actualizar_headcount_route():
     _ensure_dirs()
     try:
-        result = actualizar_headcount()
-        return jsonify({"ok": True, "message": result.get("message", "Caché de headcount invalidado.")})
+        from flask import current_app
+
+        from modules.headcount.snapshot_service import refresh_headcount_snapshot
+
+        db_path = str(current_app.config["DATABASE"])
+        result = refresh_headcount_snapshot(db_path, force=True, source="comparativo_manual")
+        if result.get("ok"):
+            return jsonify(
+                {
+                    "ok": True,
+                    "message": (
+                        f"Headcount actualizado: {result.get('activos_count', 0)} activos, "
+                        f"{result.get('total_rows', 0)} registros."
+                    ),
+                    **result,
+                }
+            )
+        if result.get("skipped"):
+            return jsonify({"ok": False, "error": "refresh_already_running", "skipped": True}), 409
+        return jsonify({"ok": False, "error": result.get("error") or "refresh_failed"}), 500
     except Exception as exc:
         flash(str(exc), "error")
         return jsonify({"ok": False, "error": str(exc)}), 500

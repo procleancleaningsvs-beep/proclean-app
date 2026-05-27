@@ -342,29 +342,20 @@ def _clientes_from_local_history() -> tuple[list[str], dict[str, list[str]], str
 
 
 def _available_clientes_headcount() -> tuple[list[str], dict[str, list[str]], str | None, str]:
-    """Headcount completo — solo para rutas que lo requieran explícitamente (no GET /nomina/)."""
-    try:
-        from modules.comparativo.headcount_service import obtener_activos
+    """Clientes desde snapshot local; fallback a historial local si no hay copia."""
+    from modules.headcount.snapshot_service import get_headcount_clientes_from_snapshot
 
-        with perf_span("nomina.headcount_clientes"):
-            clientes = sorted({str(a.get("cliente") or "").strip() for a in obtener_activos() if str(a.get("cliente") or "").strip()})
-        agrupaciones_raw = alias_service.obtener_agrupaciones()
-        agrupaciones: dict[str, list[str]] = {}
-        for name, members in (agrupaciones_raw or {}).items():
-            group_clients = [str(c).strip() for c in (members or []) if str(c).strip() in clientes]
-            if group_clients:
-                agrupaciones[str(name).strip()] = group_clients
-        return clientes, agrupaciones, None, "headcount"
-    except Exception as exc:
-        fallback = nomina_clientes_from_history(_db_path())
-        if fallback:
-            return (
-                fallback,
-                {},
-                f"Headcount no disponible ({exc}). Se muestran clientes detectados en historial de Nóminas.",
-                "historial_fallback",
-            )
-        return [], {}, str(exc), "sin_fuente"
+    clientes = get_headcount_clientes_from_snapshot(_db_path())
+    if not clientes:
+        return _clientes_from_local_history()
+    agrupaciones_raw = alias_service.obtener_agrupaciones()
+    agrupaciones: dict[str, list[str]] = {}
+    for name, members in (agrupaciones_raw or {}).items():
+        group_clients = [str(c).strip() for c in (members or []) if str(c).strip() in clientes]
+        if group_clients:
+            agrupaciones[str(name).strip()] = group_clients
+    return clientes, agrupaciones, None, "headcount_snapshot"
+
 
 def _normalize_planta_key(value: str) -> str:
     return " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()

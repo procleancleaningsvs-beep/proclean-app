@@ -20,14 +20,25 @@ from services.perf_logging import perf_headcount_log
 _HEADER_MARKERS = frozenset({"STATUS OPERACIÓN", "STATUS OPERACION"})
 _COLS = (
     ("nombre_completo", "NOMBRE COMPLETO"),
+    ("nombre", "NOMBRE"),
+    ("apellido_paterno", "APELLIDO PATERNO"),
+    ("apellido_materno", "APELLIDO MATERNO"),
     ("cliente", "CLIENTE"),
+    ("ubicacion", "UBICACION"),
     ("patron", "PATRON"),
     ("fecha_ingreso", "FECHA DE INGRESO"),
     ("sueldo_diario", "SUELDO DIARIO"),
+    ("sueldo_semanal", "SUELDO SEMANAL"),
     ("puesto", "PUESTO"),
     ("nss", "NSS"),
     ("status_operacion", "STATUS OPERACIÓN"),
     ("status_imss", "STATUS IMSS"),
+    ("rfc_homoclave", "RFC HOMOCLAVE"),
+    ("cp_fiscal", "CP FISCAL"),
+    ("curp", "CURP"),
+    ("genero", "GENERO"),
+    ("fecha_nacimiento", "FECHA DE NACIMIENTO"),
+    ("lugar_nacimiento", "LUGAR DE NACIMIENTO"),
 )
 _KNOWN_STATUS = frozenset(
     {"ALTA", "BAJA", "ACTIVO", "INACTIVO", "SUSPENDIDO", "VACACIONES", "LICENCIA"}
@@ -119,14 +130,27 @@ def _row_to_record(row: tuple[Any, ...], col_idx: dict[str, int | None]) -> dict
     sueldo_raw = _cell(row, col_idx.get("sueldo_diario"))
     return {
         "nombre_completo": nombre,
+        "nombre": hc_normalize_spaces(str(_cell(row, col_idx.get("nombre")) or "").strip()),
+        "apellido_paterno": hc_normalize_spaces(str(_cell(row, col_idx.get("apellido_paterno")) or "").strip()),
+        "apellido_materno": hc_normalize_spaces(str(_cell(row, col_idx.get("apellido_materno")) or "").strip()),
         "cliente": hc_normalize_spaces(str(_cell(row, col_idx.get("cliente")) or "").strip()),
+        "ubicacion": hc_normalize_spaces(str(_cell(row, col_idx.get("ubicacion")) or "").strip()),
         "patron": hc_normalize_spaces(str(_cell(row, col_idx.get("patron")) or "").strip()),
         "fecha_ingreso": _format_fecha(_cell(row, col_idx.get("fecha_ingreso"))),
         "sueldo_diario": None if hc_is_empty(sueldo_raw) else sueldo_raw,
+        "sueldo_semanal": None
+        if hc_is_empty(_cell(row, col_idx.get("sueldo_semanal")))
+        else _cell(row, col_idx.get("sueldo_semanal")),
         "puesto": hc_normalize_spaces(str(_cell(row, col_idx.get("puesto")) or "").strip()),
         "nss": hc_normalize_spaces(str(_cell(row, col_idx.get("nss")) or "").strip()),
         "status_operacion": status_op or "DESCONOCIDO",
         "status_imss": status_imss or "DESCONOCIDO",
+        "rfc_homoclave": hc_normalize_spaces(str(_cell(row, col_idx.get("rfc_homoclave")) or "").strip()),
+        "cp_fiscal": hc_normalize_spaces(str(_cell(row, col_idx.get("cp_fiscal")) or "").strip()),
+        "curp": hc_normalize_spaces(str(_cell(row, col_idx.get("curp")) or "").strip()).upper(),
+        "genero": hc_normalize_spaces(str(_cell(row, col_idx.get("genero")) or "").strip()),
+        "fecha_nacimiento": _format_fecha(_cell(row, col_idx.get("fecha_nacimiento"))),
+        "lugar_nacimiento": hc_normalize_spaces(str(_cell(row, col_idx.get("lugar_nacimiento")) or "").strip()),
     }
 
 
@@ -262,7 +286,10 @@ def fetch_and_parse_headcount() -> HeadcountParseResult:
 
 
 def obtener_headcount_completo() -> list[dict[str, Any]]:
-    """Compat: parsea Headcount remoto y devuelve solo filas reales."""
+    """Compat: parsea Headcount remoto y devuelve solo filas reales (refresh/CLI only)."""
+    from modules.headcount.remote_guard import assert_remote_headcount_allowed
+
+    assert_remote_headcount_allowed("obtener_headcount_completo")
     result = fetch_and_parse_headcount()
     if result.guardrail_triggered:
         raise ValueError(result.guardrail_reason or "Headcount inválido.")

@@ -435,44 +435,27 @@ def obtener_registros_headcount(
     *,
     solo_activos: bool = False,
     patron: str | None = None,
+    db_path: str | None = None,
 ) -> list[dict[str, Any]]:
+    from modules.headcount.snapshot_service import get_headcount_rows_from_snapshot, resolve_headcount_db_path
+
     t0 = time.perf_counter()
-    try:
-        df = obtener_df_headcount()
-    except ValueError as exc:
-        _logger.warning("Headcount no disponible al leer registros: %s", exc)
-        return []
-    t_load = time.perf_counter()
-
-    if df is None or getattr(df, "empty", True):
+    path = resolve_headcount_db_path(db_path)
+    snap = get_headcount_rows_from_snapshot(path, activos_only=solo_activos)
+    if not snap.get("has_data"):
+        if not snap.get("snapshot_exists"):
+            _logger.warning("Headcount snapshot no disponible: %s", snap.get("message"))
         return []
 
-    header_row_idx, header_map = _find_header(df)
-    if header_row_idx < 0 or not header_map:
-        _logger.warning("Headcount sin encabezado reconocible para conteo de personal.")
-        return []
-
-    body = _extract_body_dataframe(df, header_row_idx, header_map)
-    t_extract = time.perf_counter()
-    if body.empty:
-        return []
-
-    data = _prepare_body_dataframe(body)
-    if solo_activos:
-        data = data[data["status_op_norm"].isin(_STATUS_ACTIVO_OPERACION)]
+    registros = list(snap.get("records") or [])
     if patron:
         patron_objetivo = normalize_text(patron)
-        patron_norm = _vector_sanitize_text_series(data["patron"]).map(normalize_text)
-        data = data[patron_norm == patron_objetivo]
+        registros = [r for r in registros if normalize_text(r.get("patron")) == patron_objetivo]
 
-    registros = _build_records_from_dataframe(data.reset_index(drop=True))
-    t_build = time.perf_counter()
+    t_done = time.perf_counter()
     _logger.info(
-        "headcount registros: load=%.3fs extract=%.3fs build=%.3fs total=%.3fs rows=%d solo_activos=%s",
-        t_load - t0,
-        t_extract - t_load,
-        t_build - t_extract,
-        t_build - t0,
+        "headcount registros: snapshot=%.3fs rows=%d solo_activos=%s",
+        t_done - t0,
         len(registros),
         solo_activos,
     )

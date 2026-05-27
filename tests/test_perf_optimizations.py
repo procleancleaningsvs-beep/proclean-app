@@ -953,9 +953,10 @@ def test_corrupt_meta_total_saved_marks_invalid(tmp_path):
     assert meta.get("status") == "invalid"
 
 
-def test_invalid_snapshot_skips_row_load(tmp_path, caplog):
+def test_invalid_snapshot_skips_row_load(tmp_path, caplog, monkeypatch):
     from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows
 
+    monkeypatch.setenv("PERF_LOG_ENABLED", "1")
     db = str(tmp_path / "skip_load.db")
     conn = sqlite3.connect(db)
     from modules.nomina.db import ensure_nomina_tables
@@ -965,7 +966,8 @@ def test_invalid_snapshot_skips_row_load(tmp_path, caplog):
     conn.close()
     _seed_snapshot_meta(db, total_rows=1_048_570)
     _insert_dummy_snapshot_rows(db, 100)
-    rows = load_headcount_snapshot_rows(db)
+    with caplog.at_level("INFO"):
+        rows = load_headcount_snapshot_rows(db)
     assert rows == []
     assert any("snapshot_invalid_skip_load" in r.message for r in caplog.records)
 
@@ -1189,3 +1191,159 @@ def test_dashboard_shows_reconstruction_message(tmp_path, monkeypatch):
     body = resp.data.decode("utf-8", errors="replace")
     assert resp.status_code == 200
     assert "requiere reconstrucción" in body.lower() or "Reconstruir Headcount" in body
+
+
+# --- Hotfix 0.6: Headcount snapshot unificado ---
+
+
+def test_conteo_personal_get_uses_snapshot_not_onedrive(tmp_path, monkeypatch):
+    download_calls = {"n": 0}
+
+    def fake_download(_url: str) -> bytes:
+        download_calls["n"] += 1
+        raise AssertionError("OneDrive must not run on GET /headcount/conteo-personal")
+
+    monkeypatch.setattr(
+        "modules.finiquitos.excel_mirror_fecha_ingreso.descargar_excel_desde_onedrive",
+        fake_download,
+    )
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    _seed_snapshot(db, now_iso="2026-05-26 10:00:00")
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/headcount/conteo-personal", follow_redirects=True)
+    assert resp.status_code == 200
+    body = resp.data.decode("utf-8", errors="replace")
+    assert "Conteo de personal" in body or "conteo" in body.lower()
+    assert download_calls["n"] == 0
+
+
+def test_conteo_personal_without_snapshot_shows_limited_mode(tmp_path, monkeypatch):
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/headcount/conteo-personal", follow_redirects=True)
+    body = resp.data.decode("utf-8", errors="replace")
+    assert resp.status_code == 200
+    assert "pendiente de actualización" in body.lower() or "Actualizar Headcount" in body
+
+
+def test_auditoria_sua_get_no_onedrive(tmp_path, monkeypatch):
+    download_calls = {"n": 0}
+
+    def fake_download(_url: str) -> bytes:
+        download_calls["n"] += 1
+        raise AssertionError("OneDrive must not run on GET auditoria-sua")
+
+    monkeypatch.setattr(
+        "modules.finiquitos.excel_mirror_fecha_ingreso.descargar_excel_desde_onedrive",
+        fake_download,
+    )
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            resp = client.get("/headcount/auditoria-sua", follow_redirects=True)
+    assert resp.status_code == 200
+    assert download_calls["n"] == 0
+
+
+def test_internal_headcount_refresh_rejects_without_token(tmp_path, monkeypatch):
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+    monkeypatch.setenv("INTERNAL_REFRESH_TOKEN", "secret-token")
+    with app.app_context():
+        with app.test_client() as client:
+            resp = client.post("/internal/headcount/refresh")
+    assert resp.status_code == 403
+
+
+def test_internal_headcount_refresh_updates_with_valid_token(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+
+    app, db = _perf_test_app(tmp_path, monkeypatch)
+    monkeypatch.setenv("INTERNAL_REFRESH_TOKEN", "cron-secret")
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    with app.app_context():
+        with app.test_client() as client:
+            resp = client.post(
+                "/internal/headcount/refresh",
+                headers={"X-Internal-Token": "cron-secret"},
+            )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data.get("ok") is True
+    from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows
+
+    assert len(load_headcount_snapshot_rows(db)) == 2
+
+
+def test_headcount_refresh_job_cli(tmp_path, monkeypatch):
+    from modules.nomina.headcount_bridge import HeadcountParseResult
+
+    db = str(tmp_path / "job.db")
+    monkeypatch.setattr("app.DB_PATH", __import__("pathlib").Path(db))
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    sample = _sample_hc()
+    monkeypatch.setattr(
+        "modules.nomina.headcount_bridge.fetch_and_parse_headcount",
+        lambda: HeadcountParseResult(
+            rows=sample,
+            source_rows_scanned=len(sample),
+            saved_rows=len(sample),
+            skipped_empty_rows=0,
+            guardrail_triggered=False,
+        ),
+    )
+    monkeypatch.setattr("modules.comparativo.headcount_service.actualizar_headcount", lambda: None)
+    from modules.headcount.refresh_snapshot_job import main
+
+    rc = main()
+    assert rc == 0
+    from modules.nomina.headcount_snapshot import load_headcount_snapshot_rows
+
+    assert len(load_headcount_snapshot_rows(db)) == 2
+
+
+def test_obtener_df_headcount_blocked_on_get(tmp_path, monkeypatch):
+    from modules.comparativo.headcount_service import obtener_df_headcount
+
+    app, _db = _perf_test_app(tmp_path, monkeypatch)
+    monkeypatch.setenv("HEADCOUNT_ONEDRIVE_URL", "https://example.test/hc.xlsx")
+    with app.app_context():
+        with app.test_client() as client:
+            client.post("/login", data={"username": "perfadmin", "password": "secret"}, follow_redirects=True)
+            with client.application.test_request_context("/headcount/conteo-personal", method="GET"):
+                with pytest.raises(RuntimeError, match="bloqueado en GET"):
+                    obtener_df_headcount()
+
+
+def test_manual_headcount_refresh_respects_lock(tmp_path, monkeypatch):
+    from modules.nomina.headcount_snapshot import acquire_headcount_refresh_lock, refresh_headcount_snapshot
+
+    db = str(tmp_path / "lock.db")
+    conn = sqlite3.connect(db)
+    ensure_nomina_tables(conn)
+    conn.commit()
+    conn.close()
+    iso = "2026-05-26 12:00:00"
+    assert acquire_headcount_refresh_lock(db, now_iso=iso) is True
+    result = refresh_headcount_snapshot(db, now_iso=iso)
+    assert result.get("skipped") is True
+    assert result.get("ok") is False
+
