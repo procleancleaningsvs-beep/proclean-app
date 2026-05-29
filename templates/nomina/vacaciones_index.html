@@ -1,142 +1,1005 @@
 {% extends 'base.html' %}
-{% from '_icon_button.html' import icon_link %}
+{% from '_icon_button.html' import icon_button, icon_link %}
 {% block extra_head %}
 <style>
-.nv-wrap { display:grid; gap:1rem; }
-.nv-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.8rem; }
-.nv-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.nv-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
-.nv-kpi span { display:block; font-size:.82rem; color:#64748b; }
-.nv-kpi strong { font-size:1.05rem; }
-.nv-form-inline { display:grid; grid-template-columns:repeat(6,1fr); gap:.6rem; }
-.nv-table-wrap { overflow:auto; }
-.nv-table { width:100%; border-collapse:collapse; min-width:1900px; }
-.nv-table th, .nv-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.88rem; }
-.nv-warn { color:#b45309; font-size:.82rem; }
-.nv-actions { display:flex; gap:.35rem; flex-wrap:wrap; }
-.nv-tag { display:inline-block; padding:.1rem .35rem; border-radius:6px; background:#f1f5f9; font-size:.78rem; }
-@media (max-width: 1200px) { .nv-grid, .nv-form-inline { grid-template-columns:1fr; } }
+/* ─── Vacaciones Hub ─────────────────────────────────────── */
+.vac-wrap { display:grid; gap:1rem; }
+
+/* KPIs */
+.vac-kpi-grid { display:grid; grid-template-columns:repeat(8,1fr); gap:.6rem; }
+.vac-kpi { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:.65rem .75rem; }
+.vac-kpi__label { display:block; font-size:.76rem; color:#64748b; margin-bottom:.1rem; }
+.vac-kpi__value { font-size:1.05rem; font-weight:600; color:#0f172a; }
+.vac-kpi--alert .vac-kpi__value { color:#dc2626; }
+.vac-kpi--warn  .vac-kpi__value { color:#b45309; }
+
+/* Card */
+.vac-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem 1.1rem; }
+.vac-card h3 { margin:0 0 .7rem; font-size:.95rem; font-weight:600; }
+
+/* Import panel */
+.vac-import-row { display:grid; grid-template-columns:1.5fr 1fr auto auto; gap:.6rem; align-items:end; }
+
+/* Filters */
+.vac-filters-grid { display:grid; grid-template-columns:1.8fr repeat(4,1fr) auto; gap:.6rem; align-items:end; }
+.vac-filter-group { display:flex; flex-direction:column; gap:.22rem; }
+.vac-filter-group > label { font-size:.77rem; color:#64748b; font-weight:500; }
+.vac-filter-group select,
+.vac-filter-group input[type=text],
+.vac-filter-group input[type=date] { font-size:.86rem; }
+.vac-filter-btns { display:flex; gap:.4rem; align-items:flex-end; }
+
+/* Table */
+.vac-table-wrap { overflow-x:auto; }
+.vac-table { width:100%; border-collapse:collapse; min-width:1380px; font-size:.85rem; }
+.vac-table th {
+  background:#f8fafc; border-bottom:2px solid #e5e7eb;
+  padding:.45rem .55rem; text-align:left; font-weight:600;
+  font-size:.78rem; color:#475569; white-space:nowrap;
+}
+.vac-table td { border-bottom:1px solid #f1f5f9; padding:.42rem .55rem; vertical-align:middle; }
+.vac-table tbody tr:hover td { background:#fafafa; }
+
+/* Badges */
+.vac-badge {
+  display:inline-flex; align-items:center; gap:.2rem;
+  padding:.12rem .42rem; border-radius:5px;
+  font-size:.74rem; font-weight:500; white-space:nowrap; line-height:1.4;
+}
+.vac-badge--ok     { background:#dcfce7; color:#166534; }
+.vac-badge--warn   { background:#fef3c7; color:#92400e; }
+.vac-badge--error  { background:#fee2e2; color:#991b1b; }
+.vac-badge--neutral{ background:#f1f5f9; color:#475569; }
+.vac-badge--info   { background:#eff6ff; color:#1d4ed8; }
+.vac-badge--multi  { background:#f3e8ff; color:#6b21a8; }
+
+/* Saldo coloring */
+.vac-saldo-neg { color:#dc2626; font-weight:600; }
+.vac-saldo-pos { color:#166534; }
+.vac-saldo-zer { color:#64748b; }
+
+/* Alerts stack */
+.vac-alert-stack { display:flex; flex-direction:column; gap:.18rem; }
+
+/* Worker name */
+.vac-worker-name { font-weight:500; }
+.vac-worker-sub  { font-size:.74rem; color:#94a3b8; display:block; margin-top:.05rem; }
+
+/* Action cell */
+.vac-actions-cell { display:flex; gap:.2rem; }
+
+/* ── Drawer ────────────────────────────────────────────── */
+.vac-drawer-overlay {
+  position:fixed; inset:0; background:rgba(15,23,42,.35);
+  z-index:1000; display:none;
+}
+.vac-drawer-overlay.is-open { display:block; }
+
+.vac-drawer {
+  position:fixed; top:0; right:0; width:min(580px,96vw); height:100vh;
+  background:#fff; box-shadow:-6px 0 36px rgba(15,23,42,.16);
+  z-index:1001; transform:translateX(100%);
+  transition:transform .22s ease;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.vac-drawer.is-open { transform:translateX(0); }
+
+.vac-drawer-header {
+  display:flex; align-items:flex-start; justify-content:space-between;
+  padding:1rem 1.1rem .7rem; border-bottom:1px solid #e5e7eb; flex-shrink:0;
+}
+.vac-drawer-title  { margin:0; font-size:1rem; font-weight:600; line-height:1.3; }
+.vac-drawer-subtitle { font-size:.78rem; color:#64748b; margin:.1rem 0 0; }
+
+.vac-drawer-tabs {
+  display:flex; border-bottom:1px solid #e5e7eb;
+  padding:0 1.1rem; gap:0; flex-shrink:0; overflow-x:auto;
+}
+.vac-drawer-tab {
+  padding:.5rem .7rem; font-size:.81rem; font-weight:500;
+  color:#64748b; border:none; background:none; cursor:pointer;
+  border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap;
+  flex-shrink:0;
+}
+.vac-drawer-tab.is-active { color:#1e40af; border-bottom-color:#1e40af; }
+
+.vac-drawer-body { flex:1; overflow-y:auto; }
+
+.vac-drawer-panel { display:none; padding:.9rem 1.1rem 1.5rem; }
+.vac-drawer-panel.is-active { display:block; }
+
+.vac-dl {
+  display:grid; grid-template-columns:1fr 1fr;
+  gap:.28rem .8rem; font-size:.85rem;
+}
+.vac-dl dt { color:#64748b; }
+.vac-dl dd { font-weight:500; margin:0; word-break:break-word; }
+
+.vac-sec-title {
+  font-size:.82rem; font-weight:600; color:#0f172a;
+  margin:.85rem 0 .3rem; border-top:1px solid #f1f5f9; padding-top:.6rem;
+}
+
+.vac-drawer-table {
+  width:100%; border-collapse:collapse; font-size:.82rem; margin-top:.35rem;
+}
+.vac-drawer-table th {
+  background:#f8fafc; padding:.3rem .45rem; text-align:left;
+  border-bottom:1px solid #e5e7eb; font-weight:600; font-size:.76rem; color:#475569;
+}
+.vac-drawer-table td { padding:.3rem .45rem; border-bottom:1px solid #f1f5f9; }
+
+.vac-warn-list { list-style:none; padding:0; margin:0; }
+.vac-warn-item {
+  display:flex; gap:.5rem; align-items:flex-start;
+  padding:.38rem 0; border-bottom:1px solid #f1f5f9; font-size:.83rem;
+}
+.vac-warn-item:last-child { border-bottom:none; }
+
+.vac-note-box {
+  background:#fffbeb; border:1px solid #fde68a; border-radius:8px;
+  padding:.55rem .75rem; font-size:.8rem; color:#92400e; margin:.6rem 0;
+}
+.vac-loading { text-align:center; padding:2.5rem 1rem; color:#94a3b8; font-size:.9rem; }
+
+/* ── Admin Modal ──────────────────────────────────────── */
+.vac-admin-dialog {
+  width:min(660px,96vw); border:none; border-radius:16px;
+  box-shadow:0 24px 60px rgba(15,23,42,.25); padding:0;
+  overflow:hidden;
+}
+.vac-admin-dialog::backdrop { background:rgba(15,23,42,.45); }
+.vac-admin-inner { padding:1.3rem 1.4rem 1.2rem; position:relative; max-height:90vh; overflow-y:auto; }
+.vac-admin-close {
+  position:absolute; top:12px; right:14px; border:none;
+  background:transparent; font-size:1.5rem; line-height:1;
+  cursor:pointer; color:#94a3b8; padding:.1rem .3rem; border-radius:4px;
+}
+.vac-admin-close:hover { background:#f1f5f9; color:#0f172a; }
+.vac-admin-title { margin:0 0 .25rem; font-size:1.15rem; font-weight:600; }
+
+.vac-admin-tabs {
+  display:flex; gap:0; border-bottom:1px solid #e5e7eb; margin:.9rem 0 .8rem;
+}
+.vac-admin-tab {
+  padding:.46rem .8rem; font-size:.83rem; font-weight:500; color:#64748b;
+  border:none; background:none; cursor:pointer;
+  border-bottom:2px solid transparent; margin-bottom:-1px;
+}
+.vac-admin-tab.is-active { color:#1e40af; border-bottom-color:#1e40af; }
+
+.vac-admin-panel { display:none; }
+.vac-admin-panel.is-active { display:block; }
+
+.vac-admin-section {
+  background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;
+  padding:.7rem .9rem; margin-bottom:.7rem;
+}
+.vac-admin-section h4 { margin:0 0 .45rem; font-size:.88rem; font-weight:600; }
+.vac-admin-dl {
+  display:grid; grid-template-columns:1fr 1fr;
+  gap:.22rem .8rem; font-size:.85rem;
+}
+.vac-admin-dl dt { color:#64748b; }
+.vac-admin-dl dd { font-weight:500; margin:0; }
+.vac-admin-danger { background:#fff5f5; border-color:#fca5a5; }
+.vac-admin-danger h4 { color:#991b1b; }
+.vac-admin-confirm-inp { width:100%; font-size:.88rem; margin-top:.3rem; }
+.vac-action-form { display:flex; gap:.45rem; align-items:flex-end; flex-wrap:wrap; }
+.vac-action-form .vac-filter-group { flex:1; min-width:160px; }
+
+/* Responsive */
+@media (max-width:1400px) { .vac-kpi-grid { grid-template-columns:repeat(4,1fr); } }
+@media (max-width:960px) {
+  .vac-kpi-grid { grid-template-columns:repeat(2,1fr); }
+  .vac-filters-grid { grid-template-columns:1fr 1fr; }
+  .vac-import-row { grid-template-columns:1fr 1fr; }
+}
+@media (max-width:600px) {
+  .vac-filters-grid { grid-template-columns:1fr; }
+}
 </style>
 {% endblock %}
 
 {% block content %}
+
+{# ── Header ─────────────────────────────────────────────── #}
 <section class="page-head">
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
-    <h2>Vacaciones históricas</h2>
-    <p>Importación histórica Carrier, match por nombre completo y desglose semanal.</p>
+    <h2>Vacaciones</h2>
+    <p>Control histórico, saldos, primas y desglose semanal</p>
   </div>
   <div class="nv-actions">
+    <button type="button" class="btn btn-secondary" id="btn-toggle-import"
+            title="Importar archivo Excel histórico">
+      <i data-lucide="upload" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Importar
+    </button>
     {% if is_admin %}
-    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_admin') }}">Limpiar base / Admin</a>
+    <button type="button" class="btn btn-secondary" id="btn-open-admin"
+            title="Panel de administración de Vacaciones">
+      <i data-lucide="shield" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Panel Admin
+    </button>
     {% endif %}
-    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}"
+       title="Volver al dashboard de Nóminas">
+      <i data-lucide="arrow-left" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Dashboard
+    </a>
   </div>
 </section>
 
-<div class="nv-wrap">
-  <section class="nv-card">
-    <h3>KPIs</h3>
-    <div class="nv-grid">
-      <div class="nv-kpi"><span>Empleados importados</span><strong>{{ stats.empleados_importados }}</strong></div>
-      <div class="nv-kpi"><span>Con match Headcount</span><strong>{{ stats.empleados_match_headcount }}</strong></div>
-      <div class="nv-kpi"><span>Sin match</span><strong>{{ stats.empleados_sin_match }}</strong></div>
-      <div class="nv-kpi"><span>Discrepancias ingreso</span><strong>{{ stats.discrepancias_fecha_ingreso }}</strong></div>
-      <div class="nv-kpi"><span>Primas pagadas</span><strong>{{ stats.primas_pagadas }}</strong></div>
-      <div class="nv-kpi"><span>Pendientes revisión</span><strong>{{ stats.saldos_pendientes_revision }}</strong></div>
+<div class="vac-wrap">
+
+{# ── KPIs ───────────────────────────────────────────────── #}
+<section class="vac-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.65rem">
+    <h3 style="margin:0">Resumen</h3>
+    <span style="font-size:.8rem;color:#64748b">
+      Corte: <strong style="color:#0f172a">{{ fecha_corte }}</strong>
+      &nbsp;·&nbsp;
+      Importación: <strong style="color:#0f172a">
+        {% if imports %}#{{ imports[0].id }}{% else %}—{% endif %}
+      </strong>
+    </span>
+  </div>
+
+  {# compute saldos negativos from loaded rows #}
+  {% set ns = namespace(saldos_neg=0) %}
+  {% for r in rows %}
+    {% if r.saldo_calculado is not none and r.saldo_calculado < 0 %}
+      {% set ns.saldos_neg = ns.saldos_neg + 1 %}
+    {% endif %}
+  {% endfor %}
+
+  <div class="vac-kpi-grid">
+    <div class="vac-kpi">
+      <span class="vac-kpi__label">Importados</span>
+      <span class="vac-kpi__value">{{ stats.empleados_importados }}</span>
     </div>
-  </section>
+    <div class="vac-kpi">
+      <span class="vac-kpi__label">Con match HC</span>
+      <span class="vac-kpi__value">{{ stats.empleados_match_headcount }}</span>
+    </div>
+    <div class="vac-kpi {% if stats.empleados_sin_match > 0 %}vac-kpi--warn{% endif %}">
+      <span class="vac-kpi__label">Sin match</span>
+      <span class="vac-kpi__value">{{ stats.empleados_sin_match }}</span>
+    </div>
+    <div class="vac-kpi {% if stats.saldos_pendientes_revision > 0 %}vac-kpi--warn{% endif %}">
+      <span class="vac-kpi__label">Pendientes revisión</span>
+      <span class="vac-kpi__value">{{ stats.saldos_pendientes_revision }}</span>
+    </div>
+    <div class="vac-kpi {% if ns.saldos_neg > 0 %}vac-kpi--alert{% endif %}">
+      <span class="vac-kpi__label">Saldos negativos</span>
+      <span class="vac-kpi__value">{{ ns.saldos_neg }}</span>
+    </div>
+    <div class="vac-kpi">
+      <span class="vac-kpi__label">Primas pagadas</span>
+      <span class="vac-kpi__value">{{ stats.primas_pagadas }}</span>
+    </div>
+    <div class="vac-kpi">
+      <span class="vac-kpi__label">Última importación</span>
+      <span class="vac-kpi__value" style="font-size:.84rem">
+        {% if imports %}{{ imports[0].created_at[:10] if imports[0].created_at else '—' }}{% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="vac-kpi {% if stats.discrepancias_fecha_ingreso > 0 %}vac-kpi--warn{% endif %}">
+      <span class="vac-kpi__label">Discrepancias ingreso</span>
+      <span class="vac-kpi__value">{{ stats.discrepancias_fecha_ingreso }}</span>
+    </div>
+  </div>
+</section>
 
-  <section class="nv-card">
-    <h3>Importar histórico</h3>
-    <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data" class="nv-form-inline">
-      <input type="file" name="excel_file" accept=".xlsx,.xlsm" required>
-      <label>Fecha corte
-        <input type="date" name="fecha_corte" value="{{ fecha_corte }}">
-      </label>
-      <button type="submit" class="btn btn-primary">Importar Excel histórico</button>
-    </form>
-  </section>
+{# ── Import panel (collapsible) ─────────────────────────── #}
+<section class="vac-card" id="vac-import-panel" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem">
+    <h3 style="margin:0">Importar histórico</h3>
+    <button type="button" class="btn-icon" id="btn-close-import" title="Cerrar panel de importación">
+      <i data-lucide="x" aria-hidden="true"></i>
+    </button>
+  </div>
+  <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data">
+    <div class="vac-import-row">
+      <div class="vac-filter-group">
+        <label for="vac-file-input">Archivo Excel (.xlsx / .xlsm)</label>
+        <input id="vac-file-input" type="file" name="excel_file" accept=".xlsx,.xlsm" required>
+      </div>
+      <div class="vac-filter-group">
+        <label for="vac-fecha-import">Fecha de corte</label>
+        <input id="vac-fecha-import" type="date" name="fecha_corte" value="{{ fecha_corte }}">
+      </div>
+      <div style="align-self:end">
+        <button type="submit" class="btn btn-primary">Importar</button>
+      </div>
+    </div>
+    <p style="font-size:.78rem;color:#94a3b8;margin:.45rem 0 0">
+      Al importar se archivan lógicamente los registros activos anteriores.
+      {% if imports %}
+        Última importación: #{{ imports[0].id }} —
+        {{ imports[0].source_filename or '—' }}
+        ({{ imports[0].created_at[:10] if imports[0].created_at else '?' }})
+      {% endif %}
+    </p>
+  </form>
+</section>
 
-  <section class="nv-card">
-    <h3>Filtros</h3>
-    <form class="nv-form-inline" method="get" action="{{ url_for('nomina.vacaciones_index') }}">
-      <select name="import_id">
+{# ── Filters ────────────────────────────────────────────── #}
+<section class="vac-card">
+  <form class="vac-filters-grid" method="get"
+        action="{{ url_for('nomina.vacaciones_index') }}" id="vac-filter-form">
+
+    <div class="vac-filter-group">
+      <label for="f-cliente">Buscar (nombre / planta / cliente)</label>
+      <input id="f-cliente" type="text" name="cliente"
+             value="{{ filtros.cliente }}" placeholder="Nombre, planta, cliente…">
+    </div>
+
+    <div class="vac-filter-group">
+      <label for="f-match">Match</label>
+      <select id="f-match" name="match_status">
+        <option value="">Todos</option>
+        <option value="MATCH_OK"          {% if filtros.match_status == 'MATCH_OK'          %}selected{% endif %}>Match OK</option>
+        <option value="SIN_MATCH"         {% if filtros.match_status == 'SIN_MATCH'         %}selected{% endif %}>Sin match</option>
+        <option value="MATCH_AMBIGUO"     {% if filtros.match_status == 'MATCH_AMBIGUO'     %}selected{% endif %}>Múltiple match</option>
+        <option value="PENDIENTE_REVISION"{% if filtros.match_status == 'PENDIENTE_REVISION'%}selected{% endif %}>Pendiente revisión</option>
+      </select>
+    </div>
+
+    <div class="vac-filter-group">
+      <label for="f-activo">Estatus trabajador</label>
+      <select id="f-activo" name="activo">
+        <option value="">Todos</option>
+        <option value="1" {% if filtros.activo == '1' %}selected{% endif %}>Activo</option>
+        <option value="0" {% if filtros.activo == '0' %}selected{% endif %}>Baja</option>
+      </select>
+    </div>
+
+    <div class="vac-filter-group">
+      <label for="f-prima">Prima vacacional</label>
+      <select id="f-prima" name="prima_pagada">
+        <option value="">Todos</option>
+        <option value="1" {% if filtros.prima_pagada == '1' %}selected{% endif %}>Pagada</option>
+        <option value="0" {% if filtros.prima_pagada == '0' %}selected{% endif %}>Pendiente</option>
+      </select>
+    </div>
+
+    <div class="vac-filter-group">
+      <label for="f-fecha-corte">Fecha corte</label>
+      <input id="f-fecha-corte" type="date" name="fecha_corte" value="{{ fecha_corte }}">
+    </div>
+
+    <div class="vac-filter-btns">
+      <button class="btn btn-primary" type="submit">Aplicar</button>
+      <a class="btn btn-secondary"
+         href="{{ url_for('nomina.vacaciones_index') }}">Limpiar</a>
+    </div>
+  </form>
+
+  <div style="margin-top:.5rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <label style="font-size:.82rem;color:#64748b;display:flex;align-items:center;gap:.3rem;cursor:pointer">
+      <input type="checkbox" form="vac-filter-form" name="con_alerta" value="1"
+             {% if filtros.con_alerta == '1' %}checked{% endif %}> Solo con alertas
+    </label>
+
+    {# import selector inline #}
+    <label style="font-size:.82rem;color:#64748b;display:flex;align-items:center;gap:.3rem">
+      Importación:
+      <select name="import_id" form="vac-filter-form" style="font-size:.83rem">
+        <option value="">Última activa</option>
         {% for imp in imports %}
-        <option value="{{ imp.id }}" {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
-          #{{ imp.id }} - {{ imp.created_at }} - {{ imp.source_filename }}
+        <option value="{{ imp.id }}"
+          {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
+          #{{ imp.id }} — {{ imp.created_at[:10] if imp.created_at else '' }}
         </option>
         {% endfor %}
       </select>
-      <input type="date" name="fecha_corte" value="{{ fecha_corte }}" title="Fecha corte para saldo">
-      <select name="match_status">
-        <option value="">Estado match</option>
-        <option value="MATCH_OK" {% if filtros.match_status == 'MATCH_OK' %}selected{% endif %}>MATCH_OK</option>
-        <option value="MATCH_AMBIGUO" {% if filtros.match_status == 'MATCH_AMBIGUO' %}selected{% endif %}>MATCH_AMBIGUO</option>
-        <option value="SIN_MATCH" {% if filtros.match_status == 'SIN_MATCH' %}selected{% endif %}>SIN_MATCH</option>
-        <option value="PENDIENTE_REVISION" {% if filtros.match_status == 'PENDIENTE_REVISION' %}selected{% endif %}>PENDIENTE_REVISION</option>
-      </select>
-      <label><input type="checkbox" name="con_alerta" value="1" {% if filtros.con_alerta == '1' %}checked{% endif %}> Con alerta</label>
-      <button class="btn btn-primary" type="submit">Aplicar</button>
-    </form>
-  </section>
+    </label>
+  </div>
+</section>
 
-  <section class="nv-card">
-    <h3>Empleados</h3>
-    <div class="nv-table-wrap">
-      <table class="nv-table">
-        <thead>
-          <tr>
-            <th>Trabajador</th>
-            <th>NSS</th>
-            <th>Cliente / Planta HC</th>
-            <th>Ingreso HC</th>
-            <th>Sueldo HC</th>
-            <th>Días generados</th>
-            <th>Días usados (sem.)</th>
-            <th>Días usados (Excel)</th>
-            <th>Vac. laboradas</th>
-            <th>Saldo calc.</th>
-            <th>Estatus trabajador</th>
-            <th>Estado match</th>
-            <th>Warnings</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for row in rows %}
-          <tr>
-            <td>{{ row.headcount_nombre_original or row.excel_nombre_original }}</td>
-            <td>{{ row.nss or '—' }}</td>
-            <td>{{ row.cliente or '—' }} / {{ row.planta_headcount or row.planta_historica or '—' }}</td>
-            <td>{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
-            <td>{{ row.sueldo_headcount if row.sueldo_headcount is not none else '—' }}</td>
-            <td>{{ row.dias_generados if row.dias_generados is not none else '—' }}</td>
-            <td>{{ row.dias_utilizados_calculado_semanal if row.dias_utilizados_calculado_semanal is not none else row.dias_utilizados }}</td>
-            <td>{{ row.dias_utilizados_excel_resumen if row.dias_utilizados_excel_resumen is not none else row.dias_utilizados }}</td>
-            <td>{{ row.vacaciones_laboradas }}</td>
-            <td>{{ row.saldo_calculado if row.saldo_calculado is not none else '—' }}</td>
-            <td><span class="nv-tag">{{ row.status_headcount }}</span></td>
-            <td>
-              <span class="nv-tag">{{ row.match_status_display }}</span><br>
-              <small>{{ row.match_method_display }}</small>
-            </td>
-            <td>
-              {% for w in row.warnings %}
-              <div class="nv-warn">{{ w }}</div>
-              {% endfor %}
-            </td>
-            <td class="nv-actions actions-cell actions-cell--nowrap">
-              {{ icon_link('eye', 'Ver detalle de vacaciones', url_for('nomina.vacaciones_detalle', row_id=row.id, fecha_corte=fecha_corte)) }}
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not rows %}
-          <tr><td colspan="14">Sin registros de vacaciones.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+{# ── Main Table ─────────────────────────────────────────── #}
+<section class="vac-card">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+    <h3 style="margin:0">
+      Empleados
+      <span style="font-weight:400;color:#64748b;font-size:.88rem">({{ rows|length }})</span>
+    </h3>
+  </div>
+
+  <div class="vac-table-wrap">
+    <table class="vac-table">
+      <thead>
+        <tr>
+          <th>Trabajador</th>
+          <th>Match</th>
+          <th>Estatus</th>
+          <th>Cliente / Planta</th>
+          <th>Ingreso usado</th>
+          <th>Sueldo usado</th>
+          <th>Generados</th>
+          <th>Usados total</th>
+          <th>Usados semanas</th>
+          <th>Laboradas</th>
+          <th>Saldo</th>
+          <th>Prima</th>
+          <th>Alertas</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        {% set saldo = row.saldo_calculado %}
+        <tr>
+          <td>
+            <span class="vac-worker-name">{{ row.headcount_nombre_original or row.excel_nombre_original }}</span>
+            {% if row.nss %}<span class="vac-worker-sub">{{ row.nss }}</span>{% endif %}
+          </td>
+
+          <td>
+            {% set ms = row.match_status_display %}
+            {% if ms == 'MATCH_OK' %}
+              <span class="vac-badge vac-badge--ok">OK</span>
+            {% elif ms == 'SIN_MATCH' %}
+              <span class="vac-badge vac-badge--error">Sin match</span>
+            {% elif ms == 'MATCH_AMBIGUO' %}
+              <span class="vac-badge vac-badge--multi">Múltiple</span>
+            {% else %}
+              <span class="vac-badge vac-badge--neutral">{{ ms }}</span>
+            {% endif %}
+          </td>
+
+          <td>
+            {% set sh = (row.status_headcount or '')|upper %}
+            {% if 'ACTIV' in sh %}
+              <span class="vac-badge vac-badge--ok">Activo</span>
+            {% elif 'BAJA' in sh %}
+              <span class="vac-badge vac-badge--neutral">Baja</span>
+            {% elif 'INACTIV' in sh %}
+              <span class="vac-badge vac-badge--neutral">Inactivo</span>
+            {% else %}
+              <span class="vac-badge vac-badge--neutral">{{ row.status_headcount or '—' }}</span>
+            {% endif %}
+          </td>
+
+          <td style="font-size:.82rem">
+            {{ row.cliente or '—' }}
+            {% set planta = row.planta_headcount or row.planta_historica %}
+            {% if planta %}<span class="vac-worker-sub">{{ planta }}</span>{% endif %}
+          </td>
+
+          <td style="font-size:.82rem">{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
+
+          <td style="font-size:.82rem">
+            {{ row.sueldo_headcount if row.sueldo_headcount is not none
+               else (row.sueldo_historico if row.sueldo_historico is not none else '—') }}
+          </td>
+
+          <td>{{ row.dias_generados if row.dias_generados is not none else '—' }}</td>
+
+          <td>{{ row.dias_utilizados_excel_resumen
+                 if row.dias_utilizados_excel_resumen is not none
+                 else (row.dias_utilizados if row.dias_utilizados is not none else '—') }}</td>
+
+          <td>{{ row.dias_utilizados_calculado_semanal
+                 if row.dias_utilizados_calculado_semanal is not none else '—' }}</td>
+
+          <td>{{ row.vacaciones_laboradas if row.vacaciones_laboradas is not none else '—' }}</td>
+
+          <td>
+            {% if saldo is not none %}
+              {% set sv = saldo|float %}
+              {% if sv < 0 %}
+                <span class="vac-saldo-neg">{{ saldo }}</span>
+              {% elif sv == 0 %}
+                <span class="vac-saldo-zer">0</span>
+              {% else %}
+                <span class="vac-saldo-pos">{{ saldo }}</span>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+
+          <td>
+            {% if row.prima_pagada %}
+              <span class="vac-badge vac-badge--info">Pagada</span>
+            {% else %}
+              <span class="vac-badge vac-badge--neutral">—</span>
+            {% endif %}
+          </td>
+
+          <td>
+            <div class="vac-alert-stack">
+              {% if not row.warnings %}
+                <span class="vac-badge vac-badge--ok">Sin alertas</span>
+              {% else %}
+                {% set wf = namespace(neg=false,sinmatch=false,diff=false,prima=false,other=false) %}
+                {% for w in row.warnings %}
+                  {% set wl = w|lower %}
+                  {% if 'negativ' in wl %}
+                    {% set wf.neg = true %}
+                  {% elif 'sin match' in wl or 'sin_match' in wl %}
+                    {% set wf.sinmatch = true %}
+                  {% elif 'diferencia' in wl or 'no coincide' in wl %}
+                    {% set wf.diff = true %}
+                  {% elif 'prima' in wl %}
+                    {% set wf.prima = true %}
+                  {% else %}
+                    {% set wf.other = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if wf.neg     %}<span class="vac-badge vac-badge--error">Saldo negativo</span>{% endif %}
+                {% if wf.sinmatch%}<span class="vac-badge vac-badge--error">Sin match</span>{% endif %}
+                {% if wf.diff    %}<span class="vac-badge vac-badge--warn">Diferencia días</span>{% endif %}
+                {% if wf.prima   %}<span class="vac-badge vac-badge--info">Prima pagada</span>{% endif %}
+                {% if wf.other   %}<span class="vac-badge vac-badge--warn">Revisión</span>{% endif %}
+              {% endif %}
+            </div>
+          </td>
+
+          <td>
+            <div class="vac-actions-cell">
+              <button type="button" class="btn-icon"
+                      title="Ver detalle"
+                      onclick="vacDrawerOpen({{ row.id }}, {{ (row.headcount_nombre_original or row.excel_nombre_original)|tojson }})">
+                <i data-lucide="eye" aria-hidden="true"></i>
+              </button>
+              <a class="btn-icon"
+                 href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}"
+                 title="Ajuste manual">
+                <i data-lucide="pencil" aria-hidden="true"></i>
+              </a>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+        {% if not rows %}
+        <tr>
+          <td colspan="14" style="text-align:center;color:#94a3b8;padding:2rem">
+            Sin registros de vacaciones. Importa un archivo Excel histórico para comenzar.
+          </td>
+        </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+</div>{# /vac-wrap #}
+
+
+{# ── Worker Detail Drawer ───────────────────────────────── #}
+<div class="vac-drawer-overlay" id="vac-drawer-overlay"
+     onclick="vacDrawerClose()" aria-hidden="true"></div>
+
+<aside class="vac-drawer" id="vac-drawer"
+       role="dialog" aria-modal="true" aria-labelledby="vac-drawer-title">
+  <div class="vac-drawer-header">
+    <div>
+      <h2 class="vac-drawer-title" id="vac-drawer-title">—</h2>
+      <p class="vac-drawer-subtitle" id="vac-drawer-subtitle"></p>
     </div>
-  </section>
-</div>
+    <button type="button" class="btn-icon" onclick="vacDrawerClose()" title="Cerrar">
+      <i data-lucide="x" aria-hidden="true"></i>
+    </button>
+  </div>
+
+  <div class="vac-drawer-tabs" role="tablist">
+    <button class="vac-drawer-tab is-active" role="tab" data-tab="resumen">Resumen</button>
+    <button class="vac-drawer-tab" role="tab" data-tab="saldos">Saldos</button>
+    <button class="vac-drawer-tab" role="tab" data-tab="movimientos">Movimientos</button>
+    <button class="vac-drawer-tab" role="tab" data-tab="prima">Prima</button>
+    <button class="vac-drawer-tab" role="tab" data-tab="alertas">Alertas</button>
+  </div>
+
+  <div class="vac-drawer-body">
+    <div id="vac-tab-resumen"    class="vac-drawer-panel is-active"></div>
+    <div id="vac-tab-saldos"     class="vac-drawer-panel"></div>
+    <div id="vac-tab-movimientos"class="vac-drawer-panel"></div>
+    <div id="vac-tab-prima"      class="vac-drawer-panel"></div>
+    <div id="vac-tab-alertas"    class="vac-drawer-panel"></div>
+  </div>
+</aside>
+
+
+{# ── Admin Modal ────────────────────────────────────────── #}
+{% if is_admin %}
+<dialog class="vac-admin-dialog" id="vac-admin-dialog">
+  <div class="vac-admin-inner">
+    <button type="button" class="vac-admin-close"
+            onclick="document.getElementById('vac-admin-dialog').close()"
+            title="Cerrar" aria-label="Cerrar">×</button>
+    <h2 class="vac-admin-title">Panel Admin — Vacaciones</h2>
+    <p style="font-size:.81rem;color:#64748b;margin:.15rem 0 0">
+      Solo administradores. Los registros se archivan lógicamente (is_active=0), no se eliminan.
+    </p>
+
+    <div class="vac-admin-tabs">
+      <button class="vac-admin-tab is-active" data-admtab="estado">Estado actual</button>
+      <button class="vac-admin-tab" data-admtab="acciones">Acciones</button>
+      <button class="vac-admin-tab" data-admtab="limpiar">Limpiar base</button>
+    </div>
+
+    {# ── Tab: Estado ── #}
+    <div class="vac-admin-panel is-active" id="vac-admtab-estado">
+      <div class="vac-admin-section">
+        <h4>Vista previa — base actual</h4>
+        <dl class="vac-admin-dl">
+          <dt>Registros activos</dt>
+          <dd>{{ preview_limpieza.total_registros if preview_limpieza else '—' }}</dd>
+          <dt>Eventos activos</dt>
+          <dd>{{ preview_limpieza.total_eventos if preview_limpieza else '—' }}</dd>
+          <dt>Importaciones activas</dt>
+          <dd>{{ preview_limpieza.total_importaciones if preview_limpieza else '—' }}</dd>
+          <dt>Trabajadores afectados</dt>
+          <dd>{{ preview_limpieza.trabajadores_afectados if preview_limpieza else '—' }}</dd>
+          <dt>Último movimiento</dt>
+          <dd>{{ (preview_limpieza.ultimo_movimiento or '—') if preview_limpieza else '—' }}</dd>
+        </dl>
+      </div>
+      <div class="vac-admin-section">
+        <h4>Validación importación vigente (#{{ selected_import_id or 'N/D' }})</h4>
+        <dl class="vac-admin-dl">
+          <dt>Registros</dt>
+          <dd>{{ resumen_admin.total_registros if resumen_admin else '—' }}</dd>
+          <dt>Conflictos match</dt>
+          <dd>{{ resumen_admin.conflictos_match if resumen_admin else '—' }}</dd>
+          <dt>Saldos negativos</dt>
+          <dd>{{ resumen_admin.saldos_negativos if resumen_admin else '—' }}</dd>
+          <dt>Con alertas</dt>
+          <dd>{{ resumen_admin.con_alertas if resumen_admin else '—' }}</dd>
+        </dl>
+      </div>
+    </div>
+
+    {# ── Tab: Acciones ── #}
+    <div class="vac-admin-panel" id="vac-admtab-acciones">
+      <div class="vac-admin-section">
+        <h4>Validar base</h4>
+        <form method="post"
+              action="{{ url_for('nomina.vacaciones_admin_validar') }}"
+              class="vac-action-form">
+          <div class="vac-filter-group">
+            <label for="adm-val-import">Importación</label>
+            <select id="adm-val-import" name="import_id">
+              {% for imp in imports %}
+              <option value="{{ imp.id }}"
+                {% if selected_import_id == imp.id %}selected{% endif %}>
+                #{{ imp.id }} — {{ imp.created_at[:10] if imp.created_at else '' }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="align-self:flex-end">
+            <button type="submit" class="btn btn-secondary">Validar</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="vac-admin-section">
+        <h4>Recalcular saldos</h4>
+        <form method="post"
+              action="{{ url_for('nomina.vacaciones_admin_recalcular') }}"
+              class="vac-action-form">
+          <div class="vac-filter-group">
+            <label for="adm-rec-import">Importación</label>
+            <select id="adm-rec-import" name="import_id">
+              {% for imp in imports %}
+              <option value="{{ imp.id }}"
+                {% if selected_import_id == imp.id %}selected{% endif %}>
+                #{{ imp.id }} — {{ imp.created_at[:10] if imp.created_at else '' }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="vac-filter-group">
+            <label for="adm-rec-fecha">Fecha corte</label>
+            <input id="adm-rec-fecha" type="date" name="fecha_corte" value="{{ fecha_corte }}">
+          </div>
+          <div style="align-self:flex-end">
+            <button type="submit" class="btn btn-secondary">Recalcular</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Tab: Limpiar ── #}
+    <div class="vac-admin-panel" id="vac-admtab-limpiar">
+      <div class="vac-admin-section vac-admin-danger">
+        <h4>Limpiar base actual de vacaciones</h4>
+        <p style="font-size:.83rem;color:#7f1d1d;margin:.2rem 0 .6rem">
+          Crea backup lógico obligatorio y archiva todos los registros activos.
+          Esta acción no elimina datos físicamente.
+        </p>
+        <form method="post"
+              action="{{ url_for('nomina.vacaciones_admin_limpiar_base') }}">
+          <label class="vac-admin-confirm-label"
+                 for="adm-confirm-inp" style="font-size:.87rem">
+            Escribe <strong style="color:#dc2626">LIMPIAR VACACIONES</strong> para confirmar:
+          </label>
+          <input id="adm-confirm-inp" class="vac-admin-confirm-inp"
+                 type="text" name="confirmacion" required
+                 autocomplete="off" placeholder="LIMPIAR VACACIONES">
+          <div style="display:flex;gap:.5rem;margin-top:.7rem">
+            <button type="submit" class="btn btn-primary">
+              Ejecutar limpieza segura
+            </button>
+            <button type="button" class="btn btn-secondary"
+                    onclick="document.getElementById('vac-admin-dialog').close()">
+              Cancelar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </div>{# /vac-admin-inner #}
+</dialog>
+{% endif %}
+
+
+{# ── Inline Scripts ─────────────────────────────────────── #}
+<script>
+(function () {
+  'use strict';
+
+  /* ── Import panel toggle ── */
+  var importPanel = document.getElementById('vac-import-panel');
+  var btnOpen  = document.getElementById('btn-toggle-import');
+  var btnClose = document.getElementById('btn-close-import');
+  if (btnOpen) {
+    btnOpen.addEventListener('click', function () {
+      var hidden = importPanel.style.display === 'none' || importPanel.style.display === '';
+      importPanel.style.display = hidden ? 'block' : 'none';
+      if (hidden && window.pcLucideRefresh) window.pcLucideRefresh();
+    });
+  }
+  if (btnClose) {
+    btnClose.addEventListener('click', function () { importPanel.style.display = 'none'; });
+  }
+
+  /* ── Admin modal ── */
+  var btnAdmin = document.getElementById('btn-open-admin');
+  var dlgAdmin = document.getElementById('vac-admin-dialog');
+  if (btnAdmin && dlgAdmin) {
+    btnAdmin.addEventListener('click', function () { dlgAdmin.showModal(); });
+    dlgAdmin.addEventListener('click', function (e) {
+      /* close on backdrop click */
+      if (e.target === dlgAdmin) dlgAdmin.close();
+    });
+  }
+
+  /* Admin tabs */
+  document.querySelectorAll('.vac-admin-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var key = this.dataset.admtab;
+      document.querySelectorAll('.vac-admin-tab').forEach(function (t) { t.classList.remove('is-active'); });
+      document.querySelectorAll('.vac-admin-panel').forEach(function (p) { p.classList.remove('is-active'); });
+      this.classList.add('is-active');
+      var panel = document.getElementById('vac-admtab-' + key);
+      if (panel) panel.classList.add('is-active');
+    });
+  });
+
+  /* ── Drawer tabs ── */
+  document.querySelectorAll('.vac-drawer-tab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      var key = this.dataset.tab;
+      document.querySelectorAll('.vac-drawer-tab').forEach(function (t) { t.classList.remove('is-active'); });
+      document.querySelectorAll('.vac-drawer-panel').forEach(function (p) { p.classList.remove('is-active'); });
+      this.classList.add('is-active');
+      var panel = document.getElementById('vac-tab-' + key);
+      if (panel) panel.classList.add('is-active');
+    });
+  });
+
+  /* Escape closes drawer */
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && window._vacDrawerOpen) vacDrawerClose();
+  });
+
+})();
+
+/* ── Drawer ──────────────────────────────────────────────── */
+window._vacDrawerOpen = false;
+
+function vacDrawerOpen(rowId, name) {
+  var drawer  = document.getElementById('vac-drawer');
+  var overlay = document.getElementById('vac-drawer-overlay');
+  var titleEl = document.getElementById('vac-drawer-title');
+  var subEl   = document.getElementById('vac-drawer-subtitle');
+
+  titleEl.textContent = name || '—';
+  subEl.textContent   = 'Cargando datos…';
+  window._vacDrawerOpen = true;
+
+  /* reset tabs */
+  document.querySelectorAll('.vac-drawer-tab').forEach(function (t) { t.classList.remove('is-active'); });
+  document.querySelectorAll('.vac-drawer-panel').forEach(function (p) { p.classList.remove('is-active'); p.innerHTML = ''; });
+  var firstTab   = document.querySelector('.vac-drawer-tab');
+  var firstPanel = document.getElementById('vac-tab-resumen');
+  if (firstTab)   firstTab.classList.add('is-active');
+  if (firstPanel) { firstPanel.classList.add('is-active'); firstPanel.innerHTML = '<div class="vac-loading">Cargando…</div>'; }
+
+  drawer.classList.add('is-open');
+  overlay.classList.add('is-open');
+
+  /* fetch */
+  var fc = (document.getElementById('f-fecha-corte') || {}).value || '{{ fecha_corte }}';
+  fetch('/nomina/vacaciones/' + rowId + '/detalle-json?fecha_corte=' + encodeURIComponent(fc))
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      subEl.textContent = 'ID: ' + rowId + '  ·  Corte: ' + (data.fecha_corte || fc);
+      _vacDrawerRender(data);
+    })
+    .catch(function (err) {
+      if (firstPanel) firstPanel.innerHTML = '<div class="vac-loading" style="color:#dc2626">Error al cargar datos. ' + _esc(err.message) + '</div>';
+    });
+}
+
+function vacDrawerClose() {
+  document.getElementById('vac-drawer').classList.remove('is-open');
+  document.getElementById('vac-drawer-overlay').classList.remove('is-open');
+  window._vacDrawerOpen = false;
+}
+
+/* helpers */
+function _esc(s) {
+  if (s == null) return '—';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function _fmtN(v) { return (v !== null && v !== undefined) ? String(v) : '—'; }
+function _badge(cls, text) { return '<span class="vac-badge vac-badge--' + cls + '">' + _esc(text) + '</span>'; }
+function _secTitle(txt) { return '<p class="vac-sec-title">' + _esc(txt) + '</p>'; }
+
+function _vacDrawerRender(d) {
+  var row     = d.row     || {};
+  var calc    = d.calc    || {};
+  var desgl   = row.desglose_semanal || [];
+  var semanas = d.eventos_semanales  || [];
+  var otros   = d.otros_eventos      || [];
+  var primas  = d.prima_eventos      || [];
+
+  /* ── Tab Resumen ── */
+  var ms = row.match_status_display || '';
+  var matchBadge = ms === 'MATCH_OK'      ? _badge('ok',   'Match OK')
+                 : ms === 'SIN_MATCH'     ? _badge('error','Sin match')
+                 : ms === 'MATCH_AMBIGUO' ? _badge('multi','Múltiple match')
+                 : _badge('neutral', ms || '—');
+  var sh = (row.status_headcount || '').toUpperCase();
+  var stBadge = sh.indexOf('ACTIV') >= 0 ? _badge('ok',    'Activo')
+              : sh.indexOf('BAJA')  >= 0 ? _badge('neutral','Baja')
+              : sh.indexOf('INACT') >= 0 ? _badge('neutral','Inactivo')
+              : _badge('neutral', row.status_headcount || '—');
+
+  var html = '<dl class="vac-dl">'
+    + '<dt>Nombre</dt><dd>' + _esc(row.headcount_nombre_original || row.excel_nombre_original) + '</dd>'
+    + '<dt>NSS</dt><dd>' + _esc(row.nss) + '</dd>'
+    + '<dt>Match HC</dt><dd>' + matchBadge + '</dd>'
+    + '<dt>Estatus</dt><dd>' + stBadge + '</dd>'
+    + '</dl>';
+
+  html += _secTitle('Origen de datos');
+  html += '<dl class="vac-dl">'
+    + '<dt>Planta Excel</dt><dd>'      + _esc(row.planta_historica)      + '</dd>'
+    + '<dt>Planta Headcount</dt><dd>'  + _esc(row.planta_headcount)      + '</dd>'
+    + '<dt>Cliente</dt><dd>'           + _esc(row.cliente)               + '</dd>'
+    + '<dt>&nbsp;</dt><dd></dd>'
+    + '<dt>Ingreso Excel</dt><dd>'     + _esc(row.fecha_ingreso_historica)+ '</dd>'
+    + '<dt>Ingreso Headcount</dt><dd>' + _esc(row.fecha_ingreso_headcount)+ '</dd>'
+    + '<dt>Ingreso usado</dt><dd>'     + _esc(row.fecha_ingreso_usada)   + '</dd>'
+    + '<dt>&nbsp;</dt><dd></dd>'
+    + '<dt>Sueldo Excel</dt><dd>'      + _fmtN(row.sueldo_historico)     + '</dd>'
+    + '<dt>Sueldo Headcount</dt><dd>'  + _fmtN(row.sueldo_headcount)     + '</dd>'
+    + '<dt>Sueldo usado</dt><dd>'      + _fmtN(row.sueldo_usado || row.sueldo_headcount || row.sueldo_historico) + '</dd>'
+    + '</dl>';
+
+  if (row.comentarios) {
+    html += _secTitle('Comentarios del Excel');
+    html += '<p style="font-size:.84rem;white-space:pre-wrap">' + _esc(row.comentarios) + '</p>';
+  }
+  document.getElementById('vac-tab-resumen').innerHTML = html;
+
+  /* ── Tab Saldos ── */
+  var semVal = calc.dias_utilizados_calculado_semanal;
+  var exlVal = calc.dias_utilizados_excel_resumen;
+  var diff   = (semVal != null && exlVal != null)
+    ? (parseFloat(semVal) - parseFloat(exlVal)).toFixed(2)
+    : null;
+  var sv = parseFloat(calc.saldo_calculado);
+  var saldoStyle = isNaN(sv) ? '' : sv < 0 ? 'color:#dc2626;font-weight:600' : sv > 0 ? 'color:#166534' : 'color:#64748b';
+
+  var hs = '<dl class="vac-dl">'
+    + '<dt>Días generados</dt><dd>'           + _fmtN(calc.dias_generados)                    + '</dd>'
+    + '<dt>Usados total (Excel)</dt><dd>'     + _fmtN(calc.dias_utilizados_excel_resumen)      + '</dd>'
+    + '<dt>Usados por semanas</dt><dd>'       + _fmtN(calc.dias_utilizados_calculado_semanal)  + '</dd>'
+    + '<dt>Diferencia sem. vs resumen</dt><dd>' + (diff !== null ? diff : '—')                + '</dd>'
+    + '<dt>Vacaciones laboradas</dt><dd>'     + _fmtN(calc.vacaciones_laboradas)               + '</dd>'
+    + '<dt>Días pagados (ref.)</dt><dd>'      + _fmtN(calc.dias_pagados)                       + '</dd>'
+    + '<dt>Días restantes Excel</dt><dd>'     + _fmtN(row.dias_restantes_historico)            + '</dd>'
+    + '<dt>Saldo calculado</dt><dd><span style="' + saldoStyle + '">' + _fmtN(calc.saldo_calculado) + '</span></dd>'
+    + '<dt>Prima pendiente est.</dt><dd>'     + _fmtN(calc.prima_pendiente)                    + '</dd>'
+    + '</dl>';
+  hs += '<div class="vac-note-box">Vacaciones laboradas no se suman doble — ya forman parte de días utilizados. DIAS PAGADOS no se suma a DIAS UTILIZADOS.</div>';
+
+  if (calc.pasos && calc.pasos.length) {
+    hs += _secTitle('Cálculo paso a paso');
+    calc.pasos.forEach(function (p) {
+      hs += '<p style="font-size:.82rem"><strong>' + _esc(p.titulo) + ':</strong> ' + _esc(p.detalle) + '</p>';
+    });
+  }
+  document.getElementById('vac-tab-saldos').innerHTML = hs;
+
+  /* ── Tab Movimientos ── */
+  var hm = '';
+  if (!desgl.length && !semanas.length) {
+    hm = '<p style="color:#94a3b8;padding:.5rem 0">Sin desglose semanal importado.</p>';
+  } else {
+    hm = '<table class="vac-drawer-table"><thead><tr>'
+       + '<th>Año / periodo</th><th>Semana</th><th>Días</th><th>Fuente</th><th>Revisión</th>'
+       + '</tr></thead><tbody>';
+    desgl.forEach(function (s) {
+      hm += '<tr><td>' + _esc(s.anio) + '</td><td>' + _esc(s.semana || s.period_label) + '</td><td>' + _fmtN(s.days) + '</td><td>Excel histórico</td><td>—</td></tr>';
+    });
+    semanas.forEach(function (e) {
+      hm += '<tr><td>' + _esc(e.notes) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.source) + '</td><td>' + (e.is_reviewed ? 'Revisado' : 'Pendiente') + '</td></tr>';
+    });
+    hm += '</tbody></table>';
+  }
+  if (otros.length) {
+    hm += _secTitle('Otros eventos');
+    hm += '<table class="vac-drawer-table"><thead><tr><th>Tipo</th><th>Periodo</th><th>Días</th><th>Notas</th></tr></thead><tbody>';
+    otros.forEach(function (e) {
+      hm += '<tr><td>' + _esc(e.event_type) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.notes) + '</td></tr>';
+    });
+    hm += '</tbody></table>';
+  }
+  hm += '<div class="vac-note-box">Diferencia entre semanas y días utilizados puede ser válida. No sumar vacaciones laboradas doble.</div>';
+  document.getElementById('vac-tab-movimientos').innerHTML = hm;
+
+  /* ── Tab Prima ── */
+  var hp = '<dl class="vac-dl">'
+    + '<dt>Prima pagada</dt><dd>' + (row.prima_pagada ? _badge('info','Pagada') : _badge('neutral','Sin registro')) + '</dd>'
+    + '<dt>Prima pendiente est.</dt><dd>' + _fmtN(calc.prima_pendiente) + '</dd>'
+    + '</dl>';
+  if (primas.length) {
+    hp += _secTitle('Eventos de prima');
+    hp += '<table class="vac-drawer-table"><thead><tr><th>Tipo</th><th>Periodo</th><th>Días</th><th>Notas</th></tr></thead><tbody>';
+    primas.forEach(function (e) {
+      hp += '<tr><td>' + _esc(e.event_type) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.notes) + '</td></tr>';
+    });
+    hp += '</tbody></table>';
+  }
+  hp += '<div class="vac-note-box">La prima pagada evita duplicados, pero no bloquea diferencias futuras si corresponde mayor base.</div>';
+  document.getElementById('vac-tab-prima').innerHTML = hp;
+
+  /* ── Tab Alertas ── */
+  var warnings = (calc.warnings && calc.warnings.length) ? calc.warnings : (row.warnings || []);
+  var ha = '';
+  if (!warnings.length) {
+    ha = '<div style="display:flex;align-items:center;gap:.5rem;padding:.75rem 0;color:#166534">'
+       + _badge('ok','Sin alertas') + ' No se detectaron advertencias.</div>';
+  } else {
+    ha = '<ul class="vac-warn-list">';
+    warnings.forEach(function (w) {
+      var wl = String(w).toLowerCase();
+      var sev = 'info', lab = 'Info';
+      if (wl.indexOf('negativ') >= 0)                          { sev='error'; lab='Error'; }
+      else if (wl.indexOf('sin match') >= 0 || wl.indexOf('sin_match') >= 0) { sev='error'; lab='Sin match'; }
+      else if (wl.indexOf('diferencia') >= 0 || wl.indexOf('no coincide') >= 0) { sev='warn'; lab='Atención'; }
+      ha += '<li class="vac-warn-item">' + _badge(sev, lab) + '<span>' + _esc(w) + '</span></li>';
+    });
+    ha += '</ul>';
+    ha += '<div class="vac-note-box">Saldo negativo no es error fatal. Diferencia entre semanas y días Excel puede ser válida. Vacaciones laboradas no se suman doble.</div>';
+  }
+  if (row.comentarios) {
+    ha += _secTitle('Comentarios del Excel');
+    ha += '<p style="font-size:.84rem;white-space:pre-wrap">' + _esc(row.comentarios) + '</p>';
+  }
+  document.getElementById('vac-tab-alertas').innerHTML = ha;
+
+  /* refresh Lucide icons rendered inside drawer */
+  if (window.pcLucideRefresh) window.pcLucideRefresh();
+}
+</script>
 {% endblock %}

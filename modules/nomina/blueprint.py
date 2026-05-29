@@ -1300,6 +1300,13 @@ def vacaciones_index():
     fecha_corte = _vacaciones_fecha_corte_from_request()
     is_admin = _current_role() == "admin"
     rows = [enrich_vacaciones_row_for_display(r) for r in rows]
+    # Admin-only panel data (preview + validation summary for the inline modal)
+    preview_limpieza: dict = {}
+    resumen_admin: dict = {}
+    if is_admin:
+        preview_limpieza = preview_limpieza_vacaciones_base(_db_path())
+        if selected_import_id:
+            resumen_admin = validar_vacaciones_base(_db_path(), import_id=selected_import_id)
     return render_template(
         "nomina/vacaciones_index.html",
         stats=stats,
@@ -1319,6 +1326,8 @@ def vacaciones_index():
         imports=imports,
         latest_import_id=latest_import_id,
         selected_import_id=selected_import_id,
+        preview_limpieza=preview_limpieza,
+        resumen_admin=resumen_admin,
     )
 
 
@@ -1399,7 +1408,7 @@ def vacaciones_importar():
         f"{events_saved} eventos guardados.",
         "success",
     )
-    return redirect(url_for("nomina.vacaciones_import_detail", import_id=import_id))
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
 @nomina_bp.get("/vacaciones/imports/<int:import_id>")
@@ -1515,6 +1524,43 @@ def vacaciones_detalle(row_id: int):
     )
 
 
+def _json_safe(obj: Any) -> Any:
+    """Recursively convert types not serializable by Flask's JSON encoder."""
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, (date, datetime)):
+        return obj.isoformat()
+    return obj
+
+
+@nomina_bp.get("/vacaciones/<int:row_id>/detalle-json")
+@_nomina_dashboard_required
+def vacaciones_detalle_json(row_id: int):
+    """JSON endpoint used by the in-page worker detail drawer."""
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        return jsonify({"error": "no encontrado"}), 404
+    row = enrich_vacaciones_row_for_display(row)
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc = calcular_balance_vacaciones_trabajador(row, fecha_corte=fecha_corte)
+    eventos = list_vacaciones_eventos(_db_path(), empleado_id=row_id, active_only=True)
+    eventos_semanales = [e for e in eventos if e.get("event_type") == "vacaciones_tomadas"]
+    otros_eventos = [e for e in eventos if e.get("event_type") != "vacaciones_tomadas"]
+    prima_eventos = [e for e in eventos if "prima" in (e.get("event_type") or "").lower()]
+    return jsonify(_json_safe({
+        "row": row,
+        "calc": calc,
+        "eventos_semanales": eventos_semanales,
+        "otros_eventos": otros_eventos,
+        "prima_eventos": prima_eventos,
+        "fecha_corte": fecha_corte.isoformat(),
+    }))
+
+
 @nomina_bp.post("/vacaciones/<int:row_id>/recalcular")
 @_nomina_dashboard_required
 def vacaciones_recalcular_trabajador(row_id: int):
@@ -1580,7 +1626,7 @@ def vacaciones_admin_validar():
         f"{resumen['conflictos_match']} conflictos, {resumen['saldos_negativos']} saldos negativos.",
         "success",
     )
-    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id or ""))
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id or ""))
 
 
 @nomina_bp.post("/vacaciones/admin/recalcular")
@@ -1591,12 +1637,12 @@ def vacaciones_admin_recalcular():
     import_id = int(import_id_raw) if import_id_raw.isdigit() else get_latest_vacaciones_import_id(_db_path())
     if import_id is None:
         flash("No hay importación de vacaciones para recalcular.", "error")
-        return redirect(url_for("nomina.vacaciones_admin"))
+        return redirect(url_for("nomina.vacaciones_index"))
     fecha_corte = _vacaciones_fecha_corte_from_request()
     now_iso = _now_iso()
     count = _recalcular_vacaciones_import(_db_path(), int(import_id), fecha_corte, now_iso)
     flash(f"Recalculados {count} registros.", "success")
-    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
 @nomina_bp.post("/vacaciones/admin/archivar")
@@ -1608,14 +1654,14 @@ def vacaciones_admin_archivar():
     if import_id_raw == "older_than_latest" and latest is not None:
         archived = archive_vacaciones_import_empleados(_db_path(), import_id=None, exclude_import_id=int(latest))
         flash(f"Archivados {archived} registros de importaciones anteriores.", "success")
-        return redirect(url_for("nomina.vacaciones_admin", import_id=latest))
+        return redirect(url_for("nomina.vacaciones_index", import_id=latest))
     import_id = int(import_id_raw) if import_id_raw.isdigit() else None
     if import_id is None:
         flash("Selecciona una importación para archivar.", "error")
-        return redirect(url_for("nomina.vacaciones_admin"))
+        return redirect(url_for("nomina.vacaciones_index"))
     archived = archive_vacaciones_import_empleados(_db_path(), import_id=int(import_id), exclude_import_id=None)
     flash(f"Archivados {archived} registros (inactivos, no eliminados).", "success")
-    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
 @nomina_bp.post("/vacaciones/admin/limpiar-base")
@@ -1625,7 +1671,7 @@ def vacaciones_admin_limpiar_base():
     confirmacion = (request.form.get("confirmacion") or "").strip()
     if confirmacion != "LIMPIAR VACACIONES":
         flash("Confirmación incorrecta. Debes escribir exactamente: LIMPIAR VACACIONES", "error")
-        return redirect(url_for("nomina.vacaciones_admin"))
+        return redirect(url_for("nomina.vacaciones_index"))
     uid = int(g.user["id"]) if g.user is not None else None
     now_iso = _now_iso()
     result = ejecutar_limpieza_base_vacaciones(_db_path(), created_by=uid, now_iso=now_iso)
@@ -1636,7 +1682,7 @@ def vacaciones_admin_limpiar_base():
         f"{result['archived']['importaciones']} importaciones.",
         "success",
     )
-    return redirect(url_for("nomina.vacaciones_admin"))
+    return redirect(url_for("nomina.vacaciones_index"))
 
 
 @nomina_bp.post("/vacaciones/admin/confirmar-limpieza")
@@ -1647,7 +1693,7 @@ def vacaciones_admin_confirmar_limpieza():
     import_id = int(import_id_raw) if import_id_raw.isdigit() else get_latest_vacaciones_import_id(_db_path())
     if import_id is None:
         flash("No hay importación activa.", "error")
-        return redirect(url_for("nomina.vacaciones_admin"))
+        return redirect(url_for("nomina.vacaciones_index"))
     uid = int(g.user["id"]) if g.user is not None else None
     now_iso = _now_iso()
     rows = list_vacaciones_empleados_all(_db_path(), import_id=int(import_id), include_inactive=True)
@@ -1668,7 +1714,7 @@ def vacaciones_admin_confirmar_limpieza():
         f"recalculados {recalculated} registros vigentes.",
         "success",
     )
-    return redirect(url_for("nomina.vacaciones_admin", import_id=import_id))
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
 @nomina_bp.get("/infonavit")
