@@ -211,6 +211,10 @@
     <p>Control histórico, saldos, primas y desglose semanal</p>
   </div>
   <div class="nv-actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_descargar_plantilla') }}"
+       title="Descargar plantilla oficial de Vacaciones">
+      <i data-lucide="download" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Descargar plantilla
+    </a>
     <button type="button" class="btn btn-secondary" id="btn-toggle-import"
             title="Importar archivo Excel histórico">
       <i data-lucide="upload" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Importar
@@ -300,6 +304,13 @@
   <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data">
     <div class="vac-import-row">
       <div class="vac-filter-group">
+        <label for="vac-import-type">Tipo de importación</label>
+        <select id="vac-import-type" name="import_type" required>
+          <option value="SIMPLE_TEMPLATE">Plantilla simple</option>
+          <option value="NORMALIZED_HISTORY">Histórico normalizado</option>
+        </select>
+      </div>
+      <div class="vac-filter-group">
         <label for="vac-file-input">Archivo Excel (.xlsx / .xlsm)</label>
         <input id="vac-file-input" type="file" name="excel_file" accept=".xlsx,.xlsm" required>
       </div>
@@ -312,7 +323,7 @@
       </div>
     </div>
     <p style="font-size:.78rem;color:#94a3b8;margin:.45rem 0 0">
-      Al importar se archivan lógicamente los registros activos anteriores.
+      La importación primero se guarda en staging para preview; no reemplaza la base hasta confirmar.
       {% if imports %}
         Última importación: #{{ imports[0].id }} —
         {{ imports[0].source_filename or '—' }}
@@ -321,6 +332,36 @@
     </p>
   </form>
 </section>
+
+{% if preview_import %}
+<section class="vac-card" id="vac-preview-panel">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:.5rem">
+    <div>
+      <h3 style="margin:0">Preview de importación (staging)</h3>
+      <p style="margin:.2rem 0 0;color:#64748b;font-size:.82rem">
+        Batch #{{ preview_import.id }} — {{ preview_import.source_filename }} — tipo:
+        <strong>{{ preview_summary.tipo_archivo_importado or preview_import.raw_json.import_type_detected or 'N/D' }}</strong>
+      </p>
+    </div>
+    <form method="post" action="{{ url_for('nomina.vacaciones_confirmar_import', import_id=preview_import.id) }}">
+      <button type="submit" class="btn btn-primary">Confirmar y activar importación</button>
+    </form>
+  </div>
+  <div class="vac-kpi-grid" style="grid-template-columns:repeat(5,1fr)">
+    <div class="vac-kpi"><span class="vac-kpi__label">Trabajadores</span><span class="vac-kpi__value">{{ preview_summary.total_trabajadores or 0 }}</span></div>
+    <div class="vac-kpi"><span class="vac-kpi__label">Movimientos</span><span class="vac-kpi__value">{{ preview_summary.total_movimientos or 0 }}</span></div>
+    <div class="vac-kpi"><span class="vac-kpi__label">Primas</span><span class="vac-kpi__value">{{ preview_summary.total_primas or 0 }}</span></div>
+    <div class="vac-kpi {% if (preview_summary.total_warnings or 0) > 0 %}vac-kpi--warn{% endif %}"><span class="vac-kpi__label">Warnings</span><span class="vac-kpi__value">{{ preview_summary.total_warnings or 0 }}</span></div>
+    <div class="vac-kpi"><span class="vac-kpi__label">Corte</span><span class="vac-kpi__value" style="font-size:.86rem">{{ preview_summary.fecha_corte or '—' }}</span></div>
+  </div>
+  <p style="margin:.6rem 0 0;font-size:.8rem;color:#64748b">
+    Sin match: <strong>{{ preview_summary.sin_match or 0 }}</strong> ·
+    Múltiple match: <strong>{{ preview_summary.multiple_match or 0 }}</strong> ·
+    Saldos negativos: <strong>{{ preview_summary.saldos_negativos or 0 }}</strong> ·
+    Diferencias conciliación: <strong>{{ preview_summary.diferencias_conciliacion or 0 }}</strong>
+  </p>
+</section>
+{% endif %}
 
 {# ── Filters ────────────────────────────────────────────── #}
 <section class="vac-card">
@@ -527,6 +568,7 @@
                 {% endfor %}
                 {% if wf.neg     %}<span class="vac-badge vac-badge--error">Saldo negativo</span>{% endif %}
                 {% if wf.sinmatch%}<span class="vac-badge vac-badge--error">Sin match</span>{% endif %}
+                {% if row.match_status_display == 'MATCH_AMBIGUO' %}<span class="vac-badge vac-badge--multi">Múltiple match</span>{% endif %}
                 {% if wf.diff    %}<span class="vac-badge vac-badge--warn">Diferencia días</span>{% endif %}
                 {% if wf.prima   %}<span class="vac-badge vac-badge--info">Prima pagada</span>{% endif %}
                 {% if wf.other   %}<span class="vac-badge vac-badge--warn">Revisión</span>{% endif %}
@@ -874,6 +916,7 @@ function _vacDrawerRender(d) {
 
   var html = '<dl class="vac-dl">'
     + '<dt>Nombre</dt><dd>' + _esc(row.headcount_nombre_original || row.excel_nombre_original) + '</dd>'
+    + '<dt>Nombre normalizado</dt><dd>' + _esc(row.nombre_normalizado) + '</dd>'
     + '<dt>NSS</dt><dd>' + _esc(row.nss) + '</dd>'
     + '<dt>Match HC</dt><dd>' + matchBadge + '</dd>'
     + '<dt>Estatus</dt><dd>' + stBadge + '</dd>'
@@ -888,10 +931,13 @@ function _vacDrawerRender(d) {
     + '<dt>Ingreso Excel</dt><dd>'     + _esc(row.fecha_ingreso_historica)+ '</dd>'
     + '<dt>Ingreso Headcount</dt><dd>' + _esc(row.fecha_ingreso_headcount)+ '</dd>'
     + '<dt>Ingreso usado</dt><dd>'     + _esc(row.fecha_ingreso_usada)   + '</dd>'
+    + '<dt>Fuente fecha ingreso</dt><dd>' + _esc(row.fuente_fecha_ingreso || (row.excel_resumen || {}).fuente_fecha_ingreso) + '</dd>'
     + '<dt>&nbsp;</dt><dd></dd>'
     + '<dt>Sueldo Excel</dt><dd>'      + _fmtN(row.sueldo_historico)     + '</dd>'
+    + '<dt>Salario Parámetros</dt><dd>' + _fmtN(row.salario_parametros_nomina || (row.excel_resumen || {}).salario_parametros_nomina) + '</dd>'
     + '<dt>Sueldo Headcount</dt><dd>'  + _fmtN(row.sueldo_headcount)     + '</dd>'
     + '<dt>Sueldo usado</dt><dd>'      + _fmtN(row.sueldo_usado || row.sueldo_headcount || row.sueldo_historico) + '</dd>'
+    + '<dt>Fuente salario</dt><dd>'    + _esc(row.fuente_salario || (row.excel_resumen || {}).fuente_salario) + '</dd>'
     + '</dl>';
 
   if (row.comentarios) {
@@ -918,6 +964,8 @@ function _vacDrawerRender(d) {
     + '<dt>Días pagados (ref.)</dt><dd>'      + _fmtN(calc.dias_pagados)                       + '</dd>'
     + '<dt>Días restantes Excel</dt><dd>'     + _fmtN(row.dias_restantes_historico)            + '</dd>'
     + '<dt>Saldo calculado</dt><dd><span style="' + saldoStyle + '">' + _fmtN(calc.saldo_calculado) + '</span></dd>'
+    + '<dt>Diferencia detectada</dt><dd>'      + _fmtN(row.diferencia_detectada || (row.excel_resumen || {}).diferencia_detectada) + '</dd>'
+    + '<dt>Clasificación conciliación</dt><dd>' + _esc(row.clasificacion_conciliacion || (row.excel_resumen || {}).clasificacion_conciliacion) + '</dd>'
     + '<dt>Prima pendiente est.</dt><dd>'     + _fmtN(calc.prima_pendiente)                    + '</dd>'
     + '</dl>';
   hs += '<div class="vac-note-box">Vacaciones laboradas no se suman doble — ya forman parte de días utilizados. DIAS PAGADOS no se suma a DIAS UTILIZADOS.</div>';
@@ -936,13 +984,13 @@ function _vacDrawerRender(d) {
     hm = '<p style="color:#94a3b8;padding:.5rem 0">Sin desglose semanal importado.</p>';
   } else {
     hm = '<table class="vac-drawer-table"><thead><tr>'
-       + '<th>Año / periodo</th><th>Semana</th><th>Días</th><th>Fuente</th><th>Revisión</th>'
+       + '<th>Año / periodo</th><th>Semana</th><th>Días</th><th>Tipo</th><th>Origen</th><th>Observaciones</th>'
        + '</tr></thead><tbody>';
     desgl.forEach(function (s) {
-      hm += '<tr><td>' + _esc(s.anio) + '</td><td>' + _esc(s.semana || s.period_label) + '</td><td>' + _fmtN(s.days) + '</td><td>Excel histórico</td><td>—</td></tr>';
+      hm += '<tr><td>' + _esc(s.anio) + '</td><td>' + _esc(s.semana || s.period_label) + '</td><td>' + _fmtN(s.days) + '</td><td>' + _esc(s.tipo_movimiento || 'VACACIONES') + '</td><td>' + _esc(s.source || 'Excel') + '</td><td>' + _esc(s.observaciones || '') + '</td></tr>';
     });
     semanas.forEach(function (e) {
-      hm += '<tr><td>' + _esc(e.notes) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.source) + '</td><td>' + (e.is_reviewed ? 'Revisado' : 'Pendiente') + '</td></tr>';
+      hm += '<tr><td>' + _esc(e.notes) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.event_type || 'VACACIONES') + '</td><td>' + _esc(e.source) + '</td><td>' + _esc(e.notes || '') + '</td></tr>';
     });
     hm += '</tbody></table>';
   }
@@ -962,7 +1010,15 @@ function _vacDrawerRender(d) {
     + '<dt>Prima pagada</dt><dd>' + (row.prima_pagada ? _badge('info','Pagada') : _badge('neutral','Sin registro')) + '</dd>'
     + '<dt>Prima pendiente est.</dt><dd>' + _fmtN(calc.prima_pendiente) + '</dd>'
     + '</dl>';
-  if (primas.length) {
+  var primaDetalle = row.prima_historica_detalle || [];
+  if (primaDetalle.length) {
+    hp += _secTitle('Histórico de prima vacacional');
+    hp += '<table class="vac-drawer-table"><thead><tr><th>Año</th><th>Pagada</th><th>Indicador</th><th>Semana pago</th><th>Fecha pago</th><th>Fórmula</th><th>Comentarios</th></tr></thead><tbody>';
+    primaDetalle.forEach(function (p) {
+      hp += '<tr><td>' + _esc(p.anio) + '</td><td>' + (p.prima_pagada ? 'Sí' : 'No') + '</td><td>' + _esc(p.indicador_original) + '</td><td>' + _esc(p.semana_pago) + '</td><td>' + _esc(p.fecha_pago) + '</td><td>' + _esc(p.formula_historica || 'sueldo_diario_x_3') + '</td><td>' + _esc(p.comentarios || '') + '</td></tr>';
+    });
+    hp += '</tbody></table>';
+  } else if (primas.length) {
     hp += _secTitle('Eventos de prima');
     hp += '<table class="vac-drawer-table"><thead><tr><th>Tipo</th><th>Periodo</th><th>Días</th><th>Notas</th></tr></thead><tbody>';
     primas.forEach(function (e) {
@@ -975,20 +1031,29 @@ function _vacDrawerRender(d) {
 
   /* ── Tab Alertas ── */
   var warnings = (calc.warnings && calc.warnings.length) ? calc.warnings : (row.warnings || []);
+  var warningsDetalle = row.warnings_detalle || [];
   var ha = '';
   if (!warnings.length) {
     ha = '<div style="display:flex;align-items:center;gap:.5rem;padding:.75rem 0;color:#166534">'
        + _badge('ok','Sin alertas') + ' No se detectaron advertencias.</div>';
   } else {
     ha = '<ul class="vac-warn-list">';
-    warnings.forEach(function (w) {
-      var wl = String(w).toLowerCase();
-      var sev = 'info', lab = 'Info';
-      if (wl.indexOf('negativ') >= 0)                          { sev='error'; lab='Error'; }
-      else if (wl.indexOf('sin match') >= 0 || wl.indexOf('sin_match') >= 0) { sev='error'; lab='Sin match'; }
-      else if (wl.indexOf('diferencia') >= 0 || wl.indexOf('no coincide') >= 0) { sev='warn'; lab='Atención'; }
-      ha += '<li class="vac-warn-item">' + _badge(sev, lab) + '<span>' + _esc(w) + '</span></li>';
-    });
+    if (warningsDetalle.length) {
+      warningsDetalle.forEach(function (w) {
+        var sev = String(w.severidad || 'warning').toLowerCase();
+        var cls = sev === 'error' ? 'error' : (sev === 'info' ? 'info' : 'warn');
+        ha += '<li class="vac-warn-item">' + _badge(cls, sev.toUpperCase()) + '<span><strong>' + _esc(w.campo_afectado || 'Campo') + ':</strong> ' + _esc(w.detalle || '') + (w.accion_recomendada ? ' · Acción: ' + _esc(w.accion_recomendada) : '') + '</span></li>';
+      });
+    } else {
+      warnings.forEach(function (w) {
+        var wl = String(w).toLowerCase();
+        var sev = 'info', lab = 'Info';
+        if (wl.indexOf('negativ') >= 0)                          { sev='error'; lab='Error'; }
+        else if (wl.indexOf('sin match') >= 0 || wl.indexOf('sin_match') >= 0) { sev='error'; lab='Sin match'; }
+        else if (wl.indexOf('diferencia') >= 0 || wl.indexOf('no coincide') >= 0) { sev='warn'; lab='Atención'; }
+        ha += '<li class="vac-warn-item">' + _badge(sev, lab) + '<span>' + _esc(w) + '</span></li>';
+      });
+    }
     ha += '</ul>';
     ha += '<div class="vac-note-box">Saldo negativo no es error fatal. Diferencia entre semanas y días Excel puede ser válida. Vacaciones laboradas no se suman doble.</div>';
   }

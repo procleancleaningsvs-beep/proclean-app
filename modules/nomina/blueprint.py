@@ -47,6 +47,8 @@ from modules.nomina.db import (
     list_vacaciones_imports,
     list_vacaciones_empleados,
     save_vacaciones_import,
+    update_vacaciones_import_raw_json,
+    activate_vacaciones_import_batch,
     get_vacaciones_import,
     get_vacaciones_empleado,
     update_vacaciones_empleado,
@@ -100,7 +102,11 @@ from modules.nomina.calc_service import (
     resync_row_totales,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
-from modules.nomina.vacaciones_excel import parse_vacaciones_historico_excel
+from modules.nomina.vacaciones_excel import (
+    IMPORT_KIND_NORMALIZED,
+    IMPORT_KIND_SIMPLE,
+    parse_vacaciones_historico_excel,
+)
 from modules.nomina.vacaciones_logic import (
     aplicar_calculo_a_fila,
     build_migration_events_from_row,
@@ -248,6 +254,93 @@ def _parse_semana_range(semana: str) -> tuple[date, date] | None:
 
 def _db_path() -> str:
     return str(current_app.config["DATABASE"])
+
+
+def _vacaciones_template_simple_path() -> Path:
+    return _BASE / "modules" / "nomina" / "templates_excel" / "plantilla_importacion_vacaciones_carrier_simple.xlsx"
+
+
+def _vacaciones_upload_dir() -> Path:
+    generated_dir = Path(str(current_app.config.get("GENERATED_DIR") or "generated"))
+    upload_dir = generated_dir / "uploads" / "vacaciones"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    return upload_dir
+
+
+def _save_vacaciones_original_file(
+    *,
+    file_bytes: bytes,
+    original_filename: str,
+    import_type: str,
+) -> dict[str, str]:
+    safe_base = re.sub(r"[^A-Za-z0-9._-]+", "_", Path(original_filename or "vacaciones.xlsx").name).strip("._")
+    safe_base = safe_base or "vacaciones.xlsx"
+    ts = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y%m%d_%H%M%S")
+    type_label = re.sub(r"[^A-Za-z0-9_-]+", "", (import_type or "AUTO").upper()) or "AUTO"
+    stored_name = f"{ts}_{type_label}_{safe_base}"
+    output_path = _vacaciones_upload_dir() / stored_name
+    output_path.write_bytes(file_bytes)
+    return {
+        "stored_filename": stored_name,
+        "stored_path": str(output_path),
+    }
+
+
+def _build_vacaciones_preview_summary(
+    *,
+    rows: list[dict[str, Any]],
+    parsed_preview: dict[str, Any],
+    import_type: str,
+    fecha_corte: date,
+) -> dict[str, Any]:
+    warnings_total = 0
+    warnings_severity = {"error": 0, "warning": 0, "info": 0}
+    sin_match = 0
+    multiple_match = 0
+    saldos_negativos = 0
+    diferencias = 0
+    movimientos = 0
+    primas = 0
+    for row in rows:
+        row_warnings = list(row.get("warnings") or [])
+        warnings_total += len(row_warnings)
+        warnings_detail = (row.get("editable_json") or {}).get("warnings_detalle") or []
+        if warnings_detail:
+            for detail in warnings_detail:
+                sev = str(detail.get("severidad") or "warning").lower()
+                if sev in warnings_severity:
+                    warnings_severity[sev] += 1
+                else:
+                    warnings_severity["warning"] += 1
+        else:
+            warnings_severity["warning"] += len(row_warnings)
+        status = str(row.get("match_status") or "")
+        if status in {SIN_MATCH, "NO_MATCH"}:
+            sin_match += 1
+        if status in {MATCH_AMBIGUO, "MULTIPLE_MATCH"}:
+            multiple_match += 1
+        if float(row.get("saldo_calculado") or row.get("dias_restantes_calculado") or 0) < 0:
+            saldos_negativos += 1
+        if str(row.get("clasificacion_conciliacion") or "") not in {"", "CONCILIADO_COMPLETO"}:
+            diferencias += 1
+        movimientos += len(row.get("desglose_semanal") or [])
+        primas += len(((row.get("editable_json") or {}).get("prima_historica_detalle") or []))
+    summary = {
+        "tipo_archivo_importado": import_type,
+        "fecha_corte": fecha_corte.isoformat(),
+        "total_trabajadores": len(rows),
+        "total_movimientos": movimientos,
+        "total_primas": primas,
+        "total_warnings": warnings_total,
+        "warnings_por_severidad": warnings_severity,
+        "sin_match": sin_match,
+        "multiple_match": multiple_match,
+        "saldos_negativos": saldos_negativos,
+        "diferencias_conciliacion": diferencias,
+    }
+    if parsed_preview:
+        summary.update({k: v for k, v in parsed_preview.items() if k not in summary or not summary[k]})
+    return summary
 
 
 def _current_role() -> str:
@@ -976,6 +1069,9 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
                 match_method = MATCH_METHOD_NOMBRE
                 match_notes = f"Múltiples candidatos en Headcount ({len(candidates)}) para el mismo nombre"
                 row_warnings.append("Múltiples candidatos por nombre en Headcount; requiere revisión.")
+                editable = dict(row.get("editable_json") or {})
+                editable["requiere_revision_manual"] = True
+                row["editable_json"] = editable
                 row["status_headcount"] = "SIN STATUS HEADCOUNT"
                 row["estatus_headcount"] = "SIN STATUS HEADCOUNT"
                 row["match_status"] = match_status
@@ -984,6 +1080,15 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
                 row["match_score"] = None
                 row["headcount_source"] = source
                 row["headcount_raw_status"] = ""
+                salario_parametros = row.get("salario_parametros_nomina")
+                if salario_parametros not in (None, ""):
+                    row["sueldo_usado"] = salario_parametros
+                    row["fuente_salario"] = "PARAMETROS_NOMINA"
+                else:
+                    row["sueldo_usado"] = row.get("sueldo_historico")
+                    row["fuente_salario"] = "EXCEL"
+                row["fecha_ingreso_usada"] = row.get("fecha_ingreso_historica")
+                row["fuente_fecha_ingreso"] = "EXCEL"
                 row["warnings"] = row_warnings
                 warnings_total += len(row_warnings)
                 continue
@@ -998,6 +1103,15 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
             row["match_score"] = None
             row["headcount_source"] = source
             row["headcount_raw_status"] = ""
+            salario_parametros = row.get("salario_parametros_nomina")
+            if salario_parametros not in (None, ""):
+                row["sueldo_usado"] = salario_parametros
+                row["fuente_salario"] = "PARAMETROS_NOMINA"
+            else:
+                row["sueldo_usado"] = row.get("sueldo_historico")
+                row["fuente_salario"] = "EXCEL"
+            row["fecha_ingreso_usada"] = row.get("fecha_ingreso_historica")
+            row["fuente_fecha_ingreso"] = "EXCEL"
             row["warnings"] = row_warnings
             warnings_total += len(row_warnings)
             continue
@@ -1014,8 +1128,18 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
         row["status_headcount"] = status_hc
         row["estatus_headcount"] = status_hc
         row["sueldo_headcount"] = hc_row.get("sueldo_diario")
-        row["sueldo_usado"] = row["sueldo_headcount"] if row.get("sueldo_headcount") not in (None, "") else row.get("sueldo_historico")
+        salario_parametros = row.get("salario_parametros_nomina")
+        if salario_parametros not in (None, ""):
+            row["sueldo_usado"] = salario_parametros
+            row["fuente_salario"] = "PARAMETROS_NOMINA"
+        elif row.get("sueldo_headcount") not in (None, ""):
+            row["sueldo_usado"] = row["sueldo_headcount"]
+            row["fuente_salario"] = "HEADCOUNT"
+        else:
+            row["sueldo_usado"] = row.get("sueldo_historico")
+            row["fuente_salario"] = "EXCEL"
         row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount") or row.get("fecha_ingreso_historica")
+        row["fuente_fecha_ingreso"] = "HEADCOUNT" if row.get("fecha_ingreso_headcount") else "EXCEL"
         if not row.get("nss"):
             row["nss"] = sanitize_display_value(hc_row.get("nss"))
         if not _is_headcount_active(hc_row):
@@ -1034,6 +1158,7 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
         hc_ord = _iso_to_ordinal(str(row.get("fecha_ingreso_headcount") or ""))
         if hc_ord is not None:
             row["fecha_ingreso_usada"] = row.get("fecha_ingreso_headcount")
+            row["fuente_fecha_ingreso"] = "HEADCOUNT"
         if hist_ord is not None and hc_ord is not None and hist_ord != hc_ord:
             row_warnings.append("Fecha de ingreso del Excel difiere de Headcount")
             if hc_ord - hist_ord > 30:
@@ -1083,7 +1208,7 @@ def _persist_vacaciones_events_for_import(
     created_by: int | None,
     now_iso: str,
 ) -> int:
-    saved_rows = list_vacaciones_empleados_all(db_path, import_id=import_id, include_inactive=False)
+    saved_rows = list_vacaciones_empleados_all(db_path, import_id=import_id, include_inactive=True)
     all_events: list[dict[str, Any]] = []
     for row in saved_rows:
         row_events = build_migration_events_from_row(
@@ -1094,6 +1219,7 @@ def _persist_vacaciones_events_for_import(
         )
         for ev in row_events:
             ev["empleado_id"] = row.get("id")
+            ev["is_active"] = int(row.get("is_active", 1))
         all_events.extend(row_events)
     return save_vacaciones_events(db_path, all_events, created_by=created_by)
 
@@ -1270,12 +1396,29 @@ def _prepare_infonavit_rows(parsed_rows: list[dict], fecha_corte: str, db_path: 
     return prepared, headcount_source
 
 
+@nomina_bp.get("/vacaciones/plantilla")
+@_nomina_dashboard_required
+def vacaciones_descargar_plantilla():
+    template_path = _vacaciones_template_simple_path()
+    if not template_path.exists():
+        flash("No se encontró la plantilla oficial de vacaciones.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    return send_file(
+        str(template_path),
+        as_attachment=True,
+        download_name="plantilla_importacion_vacaciones_carrier_simple.xlsx",
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 @nomina_bp.get("/vacaciones")
 @_nomina_dashboard_required
 def vacaciones_index():
     latest_import_id = get_latest_vacaciones_import_id(_db_path())
     import_id_raw = (request.args.get("import_id") or "").strip()
+    preview_import_id_raw = (request.args.get("preview_import_id") or "").strip()
     selected_import_id = int(import_id_raw) if import_id_raw.isdigit() else latest_import_id
+    preview_import_id = int(preview_import_id_raw) if preview_import_id_raw.isdigit() else None
     cliente = (request.args.get("cliente") or "").strip() or None
     match_status = (request.args.get("match_status") or "").strip() or None
     activo = (request.args.get("activo") or "").strip() or None
@@ -1300,6 +1443,16 @@ def vacaciones_index():
     fecha_corte = _vacaciones_fecha_corte_from_request()
     is_admin = _current_role() == "admin"
     rows = [enrich_vacaciones_row_for_display(r) for r in rows]
+    preview_import: dict[str, Any] | None = None
+    preview_summary: dict[str, Any] = {}
+    if preview_import_id is not None:
+        imp = get_vacaciones_import(_db_path(), preview_import_id)
+        if imp is not None:
+            raw = dict(imp.get("raw_json") or {})
+            if raw.get("batch_status") == "staging_pending":
+                imp["rows"] = [enrich_vacaciones_row_for_display(r) for r in (imp.get("rows") or [])]
+                preview_import = imp
+                preview_summary = dict(raw.get("preview") or {})
     # Admin-only panel data (preview + validation summary for the inline modal)
     preview_limpieza: dict = {}
     resumen_admin: dict = {}
@@ -1326,6 +1479,8 @@ def vacaciones_index():
         imports=imports,
         latest_import_id=latest_import_id,
         selected_import_id=selected_import_id,
+        preview_import=preview_import,
+        preview_summary=preview_summary,
         preview_limpieza=preview_limpieza,
         resumen_admin=resumen_admin,
     )
@@ -1343,9 +1498,26 @@ def vacaciones_importar():
         flash("Formato no soportado. Usa .xlsx/.xlsm", "error")
         return redirect(url_for("nomina.vacaciones_index"))
 
+    import_type = (request.form.get("import_type") or "AUTO").strip().upper()
+    if import_type not in {"AUTO", IMPORT_KIND_SIMPLE, IMPORT_KIND_NORMALIZED}:
+        import_type = "AUTO"
+
     try:
         file_bytes = file.read()
-        parsed = parse_vacaciones_historico_excel(file_bytes, filename=filename)
+        if not file_bytes:
+            flash("El archivo está vacío.", "error")
+            return redirect(url_for("nomina.vacaciones_index"))
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        stored = _save_vacaciones_original_file(
+            file_bytes=file_bytes,
+            original_filename=filename,
+            import_type=import_type,
+        )
+        parsed = parse_vacaciones_historico_excel(
+            file_bytes,
+            filename=filename,
+            import_kind=import_type,
+        )
     except Exception as exc:
         flash(f"No se pudo leer el archivo de vacaciones: {exc}", "error")
         return redirect(url_for("nomina.vacaciones_index"))
@@ -1356,43 +1528,58 @@ def vacaciones_importar():
     rows = _enrich_vacaciones_rows_post_match(rows, fecha_corte)
     error_count = len(parsed.errors)
     if error_count > 0:
-        flash("Se omitieron filas con error de estructura en importación histórica.", "warning")
+        flash("Se omitieron filas con error de estructura en importación.", "warning")
     if not rows:
         flash("No se detectaron filas válidas para importar vacaciones.", "error")
         return redirect(url_for("nomina.vacaciones_index"))
 
-    # Evitar duplicar eventos activos: archivar importaciones previas antes de cargar una nueva
-    archived_prev = archive_all_active_vacaciones_data(_db_path())
-    if any(archived_prev.values()):
-        log_vacaciones_auditoria(
-            _db_path(),
-            action="archivo_pre_reimportacion",
-            usuario_id=int(g.user["id"]) if g.user is not None else None,
-            registros_afectados=sum(archived_prev.values()),
-            backup_id=None,
-            detalle={"archived": archived_prev, "motivo": "nueva_importacion_vacaciones"},
-            now_iso=_now_iso(),
-        )
+    # Staging: guardar importación inactiva hasta confirmación explícita.
+    for row in rows:
+        row["is_active"] = 0
+        editable = dict(row.get("editable_json") or {})
+        editable["staging_status"] = "pending_confirmation"
+        editable["import_kind"] = parsed.import_kind
+        row["editable_json"] = editable
 
+    preview_summary = _build_vacaciones_preview_summary(
+        rows=rows,
+        parsed_preview=dict(parsed.preview or {}),
+        import_type=parsed.import_kind,
+        fecha_corte=fecha_corte,
+    )
+
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
     payload = {
         "cliente": parsed.cliente or "Carrier",
         "source_filename": filename,
-        "file_hash": hashlib.sha256(file_bytes).hexdigest(),
+        "file_hash": file_hash,
         "total_rows": len(rows),
         "matched_count": matched_count,
         "warning_count": warning_count,
         "error_count": error_count,
         "rows": rows,
+        "is_active": 0,
         "raw_json": {
             "source": source,
+            "import_type_requested": import_type,
+            "import_type_detected": parsed.import_kind,
+            "batch_status": "staging_pending",
             "parse_warnings": parsed.warnings,
             "parse_errors": parsed.errors,
             "weekly_events_total": parsed.weekly_events_total,
+            "preview": preview_summary,
+            "source_file": {
+                "original_filename": filename,
+                "stored_filename": stored["stored_filename"],
+                "stored_path": stored["stored_path"],
+                "file_hash": file_hash,
+                "uploaded_by": uid,
+                "uploaded_at": now_iso,
+            },
             "created_for": "nomina_vacaciones",
         },
     }
-    uid = int(g.user["id"]) if g.user is not None else None
-    now_iso = _now_iso()
     import_id = save_vacaciones_import(_db_path(), payload, created_by=uid, now_iso=now_iso)
     events_saved = _persist_vacaciones_events_for_import(
         _db_path(),
@@ -1401,14 +1588,14 @@ def vacaciones_importar():
         created_by=uid,
         now_iso=now_iso,
     )
-    sin_match = sum(1 for r in rows if r.get("match_status") == SIN_MATCH)
     flash(
-        f"Importación procesada: {len(rows)} trabajadores, {matched_count} match OK, "
-        f"{sin_match} sin match, {parsed.weekly_events_total} eventos semanales, "
-        f"{events_saved} eventos guardados.",
+        f"Importación cargada a staging (batch #{import_id}): "
+        f"{len(rows)} trabajadores, {parsed.weekly_events_total} movimientos, "
+        f"{events_saved} eventos, {preview_summary['total_warnings']} warnings. "
+        "Revisa el preview y confirma para activar.",
         "success",
     )
-    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
+    return redirect(url_for("nomina.vacaciones_index", preview_import_id=import_id))
 
 
 @nomina_bp.get("/vacaciones/imports/<int:import_id>")
@@ -1419,6 +1606,55 @@ def vacaciones_import_detail(import_id: int):
         flash("Importación de vacaciones no encontrada.", "error")
         return redirect(url_for("nomina.vacaciones_index"))
     return render_template("nomina/vacaciones_import_detail.html", imp=imp)
+
+
+@nomina_bp.post("/vacaciones/imports/<int:import_id>/confirmar")
+@_nomina_dashboard_required
+def vacaciones_confirmar_import(import_id: int):
+    imp = get_vacaciones_import(_db_path(), import_id)
+    if imp is None:
+        flash("Batch de importación no encontrado.", "error")
+        return redirect(url_for("nomina.vacaciones_index"))
+    raw = dict(imp.get("raw_json") or {})
+    if raw.get("batch_status") != "staging_pending":
+        flash("El batch no está en estado de staging pendiente.", "warning")
+        return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
+
+    archived_prev = archive_all_active_vacaciones_data(_db_path())
+    activated = activate_vacaciones_import_batch(_db_path(), import_id)
+    now_iso = _now_iso()
+    uid = int(g.user["id"]) if g.user is not None else None
+
+    raw["batch_status"] = "active"
+    raw["activated_at"] = now_iso
+    raw["activated_by"] = uid
+    raw["activation_archived_previous"] = archived_prev
+    raw["activation_counts"] = activated
+    update_vacaciones_import_raw_json(_db_path(), import_id, raw, is_active=1)
+
+    if any(archived_prev.values()):
+        log_vacaciones_auditoria(
+            _db_path(),
+            action="confirmacion_staging_vacaciones",
+            usuario_id=uid,
+            registros_afectados=sum(archived_prev.values()),
+            backup_id=None,
+            detalle={
+                "import_id_activada": import_id,
+                "archived_previous": archived_prev,
+                "activated": activated,
+            },
+            now_iso=now_iso,
+        )
+
+    flash(
+        f"Batch #{import_id} activado. "
+        f"Archivados previos: {archived_prev.get('empleados', 0)} empleados / "
+        f"{archived_prev.get('eventos', 0)} eventos / "
+        f"{archived_prev.get('importaciones', 0)} importaciones.",
+        "success",
+    )
+    return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
 @nomina_bp.route("/vacaciones/<int:row_id>/editar", methods=["GET", "POST"])
@@ -1445,7 +1681,8 @@ def vacaciones_editar(row_id: int):
         if dias_vac is None:
             dias_vac = float(row.get("dias_vacaciones_historico") or 0.0)
         rest_manual = _f("dias_restantes_calculado")
-        consumed = max(dias_pagados, dias_utilizados + vacaciones_laboradas)
+        # DIAS UTILIZADOS ya incluye vacaciones laboradas (no sumar doble).
+        consumed = max(dias_pagados, dias_utilizados)
         rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
 
         merged = dict(row)

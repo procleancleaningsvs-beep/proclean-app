@@ -92,7 +92,8 @@ def calcular_balance_vacaciones_trabajador(
     dias_utilizados = dias_utilizados_semanal if dias_utilizados_semanal > 0 else dias_utilizados_excel
     vacaciones_laboradas = _f(row.get("vacaciones_laboradas"))
     dias_pagados = _f(row.get("dias_pagados"))
-    dias_consumidos = dias_utilizados + vacaciones_laboradas
+    # DIAS UTILIZADOS ya incluye vacaciones laboradas en la fuente histórica.
+    dias_consumidos = dias_utilizados
     if dias_pagados > dias_consumidos:
         dias_consumidos = dias_pagados
     saldo = round(dias_generados - dias_consumidos, 4)
@@ -133,7 +134,7 @@ def calcular_balance_vacaciones_trabajador(
             "titulo": "Consumo histórico",
             "detalle": (
                 f"Semanal importado: {dias_utilizados_semanal}; resumen Excel: {dias_utilizados_excel}; "
-                f"utilizados efectivos: {dias_utilizados}; laboradas: {vacaciones_laboradas}; "
+                f"utilizados efectivos: {dias_utilizados}; laboradas (incluidas en utilizados): {vacaciones_laboradas}; "
                 f"pagados (ref.): {dias_pagados}; consumo efectivo: {dias_consumidos:.4f}."
             ),
         },

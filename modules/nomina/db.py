@@ -1057,8 +1057,8 @@ def save_vacaciones_import(
             INSERT INTO nomina_vacaciones_imports (
                 cliente, source_filename, file_hash, total_rows,
                 matched_count, warning_count, error_count,
-                created_by, created_at, raw_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_by, created_at, raw_json, is_active
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(payload.get("cliente") or ""),
@@ -1071,6 +1071,7 @@ def save_vacaciones_import(
                 created_by,
                 now_iso,
                 json.dumps(payload.get("raw_json") or {}, ensure_ascii=False),
+                int(payload.get("is_active", 1)),
             ),
         )
         import_id = int(cur.lastrowid)
@@ -1174,6 +1175,64 @@ def get_vacaciones_import(db_path: str, import_id: int) -> dict[str, Any] | None
         conn.close()
 
 
+def update_vacaciones_import_raw_json(
+    db_path: str,
+    import_id: int,
+    raw_json: dict[str, Any],
+    *,
+    is_active: int | None = None,
+) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        if is_active is None:
+            cur = conn.execute(
+                "UPDATE nomina_vacaciones_imports SET raw_json = ? WHERE id = ?",
+                (json.dumps(raw_json or {}, ensure_ascii=False), int(import_id)),
+            )
+        else:
+            cur = conn.execute(
+                "UPDATE nomina_vacaciones_imports SET raw_json = ?, is_active = ? WHERE id = ?",
+                (json.dumps(raw_json or {}, ensure_ascii=False), int(is_active), int(import_id)),
+            )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def activate_vacaciones_import_batch(db_path: str, import_id: int) -> dict[str, int]:
+    conn = sqlite3.connect(db_path)
+    try:
+        cur_imp = conn.execute(
+            "UPDATE nomina_vacaciones_imports SET is_active = 1 WHERE id = ?",
+            (int(import_id),),
+        )
+        cur_emp = conn.execute(
+            """
+            UPDATE nomina_vacaciones_empleados
+            SET is_active = 1
+            WHERE import_id = ?
+            """,
+            (int(import_id),),
+        )
+        cur_evt = conn.execute(
+            """
+            UPDATE nomina_vacaciones_eventos
+            SET is_active = 1
+            WHERE import_batch_id = ?
+            """,
+            (int(import_id),),
+        )
+        conn.commit()
+        return {
+            "importaciones": int(cur_imp.rowcount),
+            "empleados": int(cur_emp.rowcount),
+            "eventos": int(cur_evt.rowcount),
+        }
+    finally:
+        conn.close()
+
+
 def list_vacaciones_empleados(
     db_path: str,
     *,
@@ -1203,16 +1262,16 @@ def list_vacaciones_empleados(
             query += " AND COALESCE(v.match_status,'') = ?"
             params.append(match_status)
         if activo:
-            if activo == "activo":
+            if activo in {"activo", "1", "true", "TRUE"}:
                 query += " AND UPPER(COALESCE(v.estatus_headcount,'')) LIKE '%ACTIVO%'"
-            elif activo == "inactivo":
+            elif activo in {"inactivo", "0", "false", "FALSE"}:
                 query += " AND UPPER(COALESCE(v.estatus_headcount,'')) NOT LIKE '%ACTIVO%'"
         if con_alerta is True:
             query += " AND COALESCE(v.warnings_json,'[]') <> '[]'"
         if prima_pagada:
-            if prima_pagada == "si":
+            if prima_pagada in {"si", "1", "true", "TRUE"}:
                 query += " AND (COALESCE(v.prima_2025_pagada,0)=1 OR COALESCE(v.prima_2026_pagada,0)=1)"
-            elif prima_pagada == "no":
+            elif prima_pagada in {"no", "0", "false", "FALSE"}:
                 query += " AND COALESCE(v.prima_2025_pagada,0)=0 AND COALESCE(v.prima_2026_pagada,0)=0"
         if revision_status:
             query += " AND COALESCE(v.editable_json,'') LIKE ?"

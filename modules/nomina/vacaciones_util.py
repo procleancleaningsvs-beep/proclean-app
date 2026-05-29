@@ -89,4 +89,22 @@ def enrich_vacaciones_row_for_display(row: dict[str, Any]) -> dict[str, Any]:
     editable = dict(row.get("editable_json") or {})
     out["desglose_semanal"] = editable.get("desglose_semanal") or []
     out["excel_resumen"] = editable.get("excel_resumen") or {}
+    out["warnings_detalle"] = editable.get("warnings_detalle") or []
+    out["prima_historica_detalle"] = editable.get("prima_historica_detalle") or []
+    out["prima_pagada"] = bool(row.get("prima_2025_pagada") or row.get("prima_2026_pagada"))
+    out["nombre_normalizado"] = sanitize_display_value(row.get("nombre_normalizado"), empty_label="")
+    out["clasificacion_conciliacion"] = sanitize_display_value(
+        row.get("clasificacion_conciliacion") or out["excel_resumen"].get("clasificacion_conciliacion"),
+        empty_label="",
+    )
+    out["diferencia_detectada"] = row.get("diferencia_detectada")
+    out["fuente_fecha_ingreso"] = sanitize_display_value(
+        row.get("fuente_fecha_ingreso") or out["excel_resumen"].get("fuente_fecha_ingreso"),
+        empty_label="EXCEL",
+    ) or "EXCEL"
+    out["fuente_salario"] = sanitize_display_value(
+        row.get("fuente_salario") or out["excel_resumen"].get("fuente_salario"),
+        empty_label="EXCEL",
+    ) or "EXCEL"
+    out["salario_parametros_nomina"] = row.get("salario_parametros_nomina") or out["excel_resumen"].get("salario_parametros_nomina")
     return out
