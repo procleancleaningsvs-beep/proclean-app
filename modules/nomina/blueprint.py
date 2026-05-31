@@ -1689,35 +1689,84 @@ def _apply_vacaciones_manual_update(
     if row is None:
         return False, "Registro de vacaciones no encontrado.", None
 
-    dias_utilizados = _vacaciones_parse_float(values, "dias_utilizados") or 0.0
-    vacaciones_laboradas = _vacaciones_parse_float(values, "vacaciones_laboradas") or 0.0
-    dias_pagados = _vacaciones_parse_float(values, "dias_pagados") or 0.0
-    dias_vac = _vacaciones_parse_float(values, "dias_vacaciones_historico")
-    if dias_vac is None:
-        dias_vac = float(row.get("dias_vacaciones_historico") or 0.0)
+    def _present(key: str) -> bool:
+        return key in values and str(values.get(key) if values.get(key) is not None else "").strip() != ""
+
+    dias_utilizados_raw = _vacaciones_parse_float(values, "dias_utilizados")
+    dias_utilizados = dias_utilizados_raw if _present("dias_utilizados") and dias_utilizados_raw is not None else float(row.get("dias_utilizados") or 0.0)
+    vacaciones_laboradas_raw = _vacaciones_parse_float(values, "vacaciones_laboradas")
+    vacaciones_laboradas = (
+        vacaciones_laboradas_raw
+        if _present("vacaciones_laboradas") and vacaciones_laboradas_raw is not None
+        else float(row.get("vacaciones_laboradas") or 0.0)
+    )
+    dias_pagados_raw = _vacaciones_parse_float(values, "dias_pagados")
+    dias_pagados = dias_pagados_raw if _present("dias_pagados") and dias_pagados_raw is not None else float(row.get("dias_pagados") or 0.0)
+    dias_vac_raw = _vacaciones_parse_float(values, "dias_vacaciones_historico")
+    dias_vac = dias_vac_raw if _present("dias_vacaciones_historico") and dias_vac_raw is not None else float(row.get("dias_vacaciones_historico") or 0.0)
     rest_manual = _vacaciones_parse_float(values, "dias_restantes_calculado")
     # DIAS UTILIZADOS ya incluye vacaciones laboradas (no sumar doble).
     consumed = max(dias_pagados, dias_utilizados)
-    rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
+    rest_calc = (
+        rest_manual
+        if _present("dias_restantes_calculado") and rest_manual is not None
+        else (float(row.get("dias_restantes_calculado")) if row.get("dias_restantes_calculado") not in (None, "") else (dias_vac - consumed))
+    )
 
     current_editable = dict(row.get("editable_json") or {})
     merged_editable = dict(current_editable)
-    merged_editable["revision_status"] = (str(values.get("revision_status") or "").strip() or "pending_revision")
+    merged_editable["revision_status"] = (
+        str(values.get("revision_status") or "").strip()
+        if _present("revision_status")
+        else (str(current_editable.get("revision_status") or "pending_revision"))
+    ) or "pending_revision"
+
+    sueldo_usado_new = _vacaciones_parse_float(values, "sueldo_usado")
+    sueldo_usado_final = (
+        sueldo_usado_new
+        if _present("sueldo_usado") and sueldo_usado_new is not None
+        else row.get("sueldo_usado")
+    )
+    fecha_ingreso_usada_final = (
+        str(values.get("fecha_ingreso_usada") or "").strip()
+        if _present("fecha_ingreso_usada")
+        else str(row.get("fecha_ingreso_usada") or "")
+    )
+    prima_2025_final = (
+        str(values.get("prima_2025_pagada") or "").strip().lower() in {"1", "on", "true", "si", "sí", "yes"}
+        if "prima_2025_pagada" in values
+        else bool(row.get("prima_2025_pagada"))
+    )
+    prima_2026_final = (
+        str(values.get("prima_2026_pagada") or "").strip().lower() in {"1", "on", "true", "si", "sí", "yes"}
+        if "prima_2026_pagada" in values
+        else bool(row.get("prima_2026_pagada"))
+    )
+    fecha_pago_prima_2026_final = (
+        str(values.get("fecha_pago_prima_2026") or "").strip()
+        if "fecha_pago_prima_2026" in values
+        else str(row.get("fecha_pago_prima_2026") or "")
+    )
+    comentarios_final = (
+        str(values.get("comentarios") or "").strip()
+        if "comentarios" in values
+        else str(row.get("comentarios") or "")
+    )
 
     merged = dict(row)
     merged.update(
         {
-            "fecha_ingreso_usada": str(values.get("fecha_ingreso_usada") or "").strip(),
-            "sueldo_usado": _vacaciones_parse_float(values, "sueldo_usado"),
+            "fecha_ingreso_usada": fecha_ingreso_usada_final,
+            "sueldo_usado": sueldo_usado_final,
             "dias_utilizados": dias_utilizados,
             "vacaciones_laboradas": vacaciones_laboradas,
             "dias_pagados": dias_pagados,
             "dias_restantes_calculado": rest_calc,
             "dias_vacaciones_historico": dias_vac,
-            "prima_2025_pagada": str(values.get("prima_2025_pagada") or "") in {"1", "on", "true"},
-            "prima_2026_pagada": str(values.get("prima_2026_pagada") or "") in {"1", "on", "true"},
-            "fecha_pago_prima_2026": str(values.get("fecha_pago_prima_2026") or "").strip(),
-            "comentarios": str(values.get("comentarios") or "").strip(),
+            "prima_2025_pagada": prima_2025_final,
+            "prima_2026_pagada": prima_2026_final,
+            "fecha_pago_prima_2026": fecha_pago_prima_2026_final,
+            "comentarios": comentarios_final,
             "editable_json": merged_editable,
         }
     )
@@ -1850,6 +1899,88 @@ def vacaciones_editar_json_save(row_id: int):
     fecha_corte = _vacaciones_fecha_corte_from_request()
     calc = calcular_balance_vacaciones_trabajador(updated_row or {}, fecha_corte=fecha_corte)
     return jsonify(_json_safe({"ok": True, "message": msg, "row": updated_row, "calc": calc}))
+
+
+def _vacaciones_section_payload(row: dict[str, Any], payload: dict[str, Any], section: str) -> dict[str, Any]:
+    """
+    Construye payload seguro por sección para evitar sobreescribir campos no permitidos.
+    """
+    base = {
+        "fecha_ingreso_usada": row.get("fecha_ingreso_usada") or "",
+        "sueldo_usado": row.get("sueldo_usado"),
+        "dias_utilizados": row.get("dias_utilizados"),
+        "vacaciones_laboradas": row.get("vacaciones_laboradas"),
+        "dias_pagados": row.get("dias_pagados"),
+        "dias_restantes_calculado": row.get("dias_restantes_calculado"),
+        "prima_2025_pagada": "1" if row.get("prima_2025_pagada") else "0",
+        "prima_2026_pagada": "1" if row.get("prima_2026_pagada") else "0",
+        "fecha_pago_prima_2026": row.get("fecha_pago_prima_2026") or "",
+        "comentarios": row.get("comentarios") or "",
+        "revision_status": (row.get("editable_json") or {}).get("revision_status") or "pending_revision",
+    }
+    section = section.strip().lower()
+    if section == "resumen":
+        for key in ("fecha_ingreso_usada", "sueldo_usado", "comentarios", "revision_status"):
+            if key in payload:
+                base[key] = payload.get(key)
+    elif section == "saldos":
+        for key in ("dias_utilizados", "vacaciones_laboradas", "dias_pagados", "dias_restantes_calculado", "comentarios", "revision_status"):
+            if key in payload:
+                base[key] = payload.get(key)
+    elif section == "prima":
+        for key in ("prima_2025_pagada", "prima_2026_pagada", "fecha_pago_prima_2026", "comentarios", "revision_status"):
+            if key in payload:
+                base[key] = payload.get(key)
+    elif section == "comentarios":
+        for key in ("comentarios", "revision_status"):
+            if key in payload:
+                base[key] = payload.get(key)
+    return base
+
+
+def _vacaciones_edit_section_json(row_id: int, section: str):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        return jsonify({"ok": False, "message": "Registro no encontrado"}), 404
+    payload = request.get_json(silent=True) if request.is_json else request.form.to_dict(flat=True)
+    payload = payload or {}
+    safe_values = _vacaciones_section_payload(row, payload, section)
+    uid = int(g.user["id"]) if g.user is not None else None
+    ok, msg, updated_row = _apply_vacaciones_manual_update(
+        row_id,
+        safe_values,
+        actor_id=uid,
+        now_iso=_now_iso(),
+    )
+    if not ok:
+        return jsonify({"ok": False, "message": msg}), 400
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc = calcular_balance_vacaciones_trabajador(updated_row or {}, fecha_corte=fecha_corte)
+    return jsonify(_json_safe({"ok": True, "message": msg, "row": updated_row, "calc": calc}))
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/editar-resumen-json")
+@_nomina_dashboard_required
+def vacaciones_editar_resumen_json(row_id: int):
+    return _vacaciones_edit_section_json(row_id, "resumen")
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/editar-saldos-json")
+@_nomina_dashboard_required
+def vacaciones_editar_saldos_json(row_id: int):
+    return _vacaciones_edit_section_json(row_id, "saldos")
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/editar-prima-json")
+@_nomina_dashboard_required
+def vacaciones_editar_prima_json(row_id: int):
+    return _vacaciones_edit_section_json(row_id, "prima")
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/editar-comentarios-json")
+@_nomina_dashboard_required
+def vacaciones_editar_comentarios_json(row_id: int):
+    return _vacaciones_edit_section_json(row_id, "comentarios")
 
 
 @nomina_bp.get("/vacaciones/<int:row_id>/detalle")

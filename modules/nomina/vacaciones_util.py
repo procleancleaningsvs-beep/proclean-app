@@ -74,6 +74,61 @@ def normalize_match_status_legacy(value: str | None) -> str:
     return legacy or PENDIENTE_REVISION
 
 
+def _looks_like_internal_company_label(value: str) -> bool:
+    txt = sanitize_display_value(value).upper()
+    if not txt:
+        return False
+    blocked_exact = {
+        "RAFAEL",
+        "DESARROLLO IN F",
+        "DESARROLLO INF",
+        "DESARROLLO INFONAVIT",
+    }
+    if txt in blocked_exact:
+        return True
+    blocked_contains = ("RAZON SOCIAL", "RAFAEL", "DESARROLLO IN F", "DESARROLLO INF")
+    return any(token in txt for token in blocked_contains)
+
+
+def _to_title_case_location(value: str) -> str:
+    raw = sanitize_display_value(value)
+    if not raw:
+        return ""
+    squashed = " ".join(raw.replace("_", " ").split())
+    up = squashed.upper()
+    m = re.search(r"CARRIER\s*([ABCD])\b", up)
+    if m:
+        return f"Carrier {m.group(1)}"
+    if "CARRIER" in up:
+        return "Carrier"
+    return squashed.title()
+
+
+def format_vacation_location(row: dict[str, Any]) -> str:
+    """
+    Ubicación amigable para UI de Vacaciones.
+    Evita mostrar razón social/internos (p.ej. RAFAEL/DESARROLLO IN F) como ubicación final.
+    """
+    candidates = [
+        row.get("ubicacion_headcount"),
+        row.get("planta_headcount"),
+        row.get("planta_historica"),
+    ]
+    for candidate in candidates:
+        clean = sanitize_display_value(candidate)
+        if not clean:
+            continue
+        if _looks_like_internal_company_label(clean):
+            continue
+        normalized = _to_title_case_location(clean)
+        if normalized:
+            return normalized
+    cliente = sanitize_display_value(row.get("cliente"))
+    if "CARRIER" in cliente.upper():
+        return "Carrier"
+    return "—"
+
+
 def enrich_vacaciones_row_for_display(row: dict[str, Any]) -> dict[str, Any]:
     """Enriquece fila para UI con campos separados y sanitizados."""
     out = dict(row)
@@ -113,4 +168,5 @@ def enrich_vacaciones_row_for_display(row: dict[str, Any]) -> dict[str, Any]:
         empty_label="EXCEL",
     ) or "EXCEL"
     out["salario_parametros_nomina"] = row.get("salario_parametros_nomina") or out["excel_resumen"].get("salario_parametros_nomina")
+    out["ubicacion_display"] = format_vacation_location(out)
     return out
