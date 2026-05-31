@@ -91,6 +91,12 @@ def enrich_vacaciones_row_for_display(row: dict[str, Any]) -> dict[str, Any]:
     out["excel_resumen"] = editable.get("excel_resumen") or {}
     out["warnings_detalle"] = editable.get("warnings_detalle") or []
     out["prima_historica_detalle"] = editable.get("prima_historica_detalle") or []
+    out["ubicacion_headcount"] = sanitize_display_value(
+        row.get("ubicacion_headcount")
+        or editable.get("ubicacion_headcount")
+        or row.get("planta_headcount"),
+        empty_label="",
+    )
     out["prima_pagada"] = bool(row.get("prima_2025_pagada") or row.get("prima_2026_pagada"))
     out["nombre_normalizado"] = sanitize_display_value(row.get("nombre_normalizado"), empty_label="")
     out["clasificacion_conciliacion"] = sanitize_display_value(

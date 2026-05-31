@@ -39,6 +39,8 @@
 }
 .vac-table td { border-bottom:1px solid #f1f5f9; padding:.42rem .55rem; vertical-align:middle; }
 .vac-table tbody tr:hover td { background:#fafafa; }
+.vac-num { text-align:right; font-variant-numeric: tabular-nums; }
+.vac-money { text-align:right; font-variant-numeric: tabular-nums; white-space:nowrap; }
 
 /* Badges */
 .vac-badge {
@@ -187,6 +189,17 @@
 .vac-admin-confirm-inp { width:100%; font-size:.88rem; margin-top:.3rem; }
 .vac-action-form { display:flex; gap:.45rem; align-items:flex-end; flex-wrap:wrap; }
 .vac-action-form .vac-filter-group { flex:1; min-width:160px; }
+
+/* Edit modal */
+.vac-edit-dialog {
+  width:min(720px,96vw); border:none; border-radius:16px; padding:0;
+  box-shadow:0 24px 60px rgba(15,23,42,.25); overflow:hidden;
+}
+.vac-edit-dialog::backdrop { background:rgba(15,23,42,.45); }
+.vac-edit-inner { padding:1rem 1.1rem 1.1rem; max-height:90vh; overflow-y:auto; }
+.vac-edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:.6rem .8rem; }
+.vac-edit-grid .vac-filter-group textarea { min-height:92px; resize:vertical; }
+@media (max-width: 760px) { .vac-edit-grid { grid-template-columns:1fr; } }
 
 /* Responsive */
 @media (max-width:1400px) { .vac-kpi-grid { grid-template-columns:repeat(4,1fr); } }
@@ -453,7 +466,7 @@
           <th>Trabajador</th>
           <th>Match</th>
           <th>Estatus</th>
-          <th>Cliente / Planta</th>
+          <th>Ubicación HC</th>
           <th>Ingreso usado</th>
           <th>Sueldo usado</th>
           <th>Generados</th>
@@ -469,7 +482,7 @@
       <tbody>
         {% for row in rows %}
         {% set saldo = row.saldo_calculado %}
-        <tr>
+        <tr id="vac-row-{{ row.id }}" data-row-id="{{ row.id }}">
           <td>
             <span class="vac-worker-name">{{ row.headcount_nombre_original or row.excel_nombre_original }}</span>
             {% if row.nss %}<span class="vac-worker-sub">{{ row.nss }}</span>{% endif %}
@@ -501,20 +514,26 @@
             {% endif %}
           </td>
 
-          <td style="font-size:.82rem">
-            {{ row.cliente or '—' }}
-            {% set planta = row.planta_headcount or row.planta_historica %}
-            {% if planta %}<span class="vac-worker-sub">{{ planta }}</span>{% endif %}
+          <td style="font-size:.82rem" data-col="ubicacion">
+            {% set ubic_hc = row.ubicacion_headcount or row.planta_headcount or row.planta_historica or row.cliente %}
+            {{ ubic_hc or '—' }}
+            {% if row.cliente %}
+              <span class="vac-worker-sub">{{ row.cliente }}</span>
+            {% endif %}
           </td>
 
-          <td style="font-size:.82rem">{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
+          <td style="font-size:.82rem" data-col="ingreso-usado">{{ row.fecha_ingreso_headcount or row.fecha_ingreso_usada or '—' }}</td>
 
-          <td style="font-size:.82rem">
-            {{ row.sueldo_headcount if row.sueldo_headcount is not none
-               else (row.sueldo_historico if row.sueldo_historico is not none else '—') }}
+          <td class="vac-money" data-col="sueldo-usado">
+            {% set sueldo_usado = row.sueldo_usado if row.sueldo_usado is not none else (row.sueldo_headcount if row.sueldo_headcount is not none else row.sueldo_historico) %}
+            {% if sueldo_usado is not none %}
+              $ {{ "{:,.2f}".format(sueldo_usado|float) }}
+            {% else %}—{% endif %}
           </td>
 
-          <td>{{ row.dias_generados if row.dias_generados is not none else '—' }}</td>
+          <td class="vac-num" data-col="generados">
+            {% if row.dias_generados is not none %}{{ "{:.2f}".format(row.dias_generados|float) }}{% else %}—{% endif %}
+          </td>
 
           <td>{{ row.dias_utilizados_excel_resumen
                  if row.dias_utilizados_excel_resumen is not none
@@ -523,7 +542,15 @@
           <td>{{ row.dias_utilizados_calculado_semanal
                  if row.dias_utilizados_calculado_semanal is not none else '—' }}</td>
 
-          <td>{{ row.vacaciones_laboradas if row.vacaciones_laboradas is not none else '—' }}</td>
+          <td data-col="laboradas">
+            {% set laboradas_val = row.vacaciones_laboradas|float if row.vacaciones_laboradas is not none else 0 %}
+            {% if laboradas_val > 0 %}
+              <span class="vac-badge vac-badge--info">Sí</span>
+              <span class="vac-worker-sub">{{ "{:.2f}".format(laboradas_val) }} días</span>
+            {% else %}
+              <span class="vac-badge vac-badge--neutral">No</span>
+            {% endif %}
+          </td>
 
           <td>
             {% if saldo is not none %}
@@ -578,16 +605,18 @@
 
           <td>
             <div class="vac-actions-cell">
-              <button type="button" class="btn-icon"
+              <button type="button" class="btn-icon js-open-detail"
                       title="Ver detalle"
-                      onclick="vacDrawerOpen({{ row.id }}, {{ (row.headcount_nombre_original or row.excel_nombre_original)|tojson }})">
+                      data-row-id="{{ row.id }}"
+                      data-row-name="{{ (row.headcount_nombre_original or row.excel_nombre_original)|e }}">
                 <i data-lucide="eye" aria-hidden="true"></i>
               </button>
-              <a class="btn-icon"
-                 href="{{ url_for('nomina.vacaciones_editar', row_id=row.id) }}"
-                 title="Ajuste manual">
+              <button type="button" class="btn-icon js-open-edit"
+                      title="Editar registro"
+                      data-row-id="{{ row.id }}"
+                      data-row-name="{{ (row.headcount_nombre_original or row.excel_nombre_original)|e }}">
                 <i data-lucide="pencil" aria-hidden="true"></i>
-              </a>
+              </button>
             </div>
           </td>
         </tr>
@@ -639,6 +668,82 @@
     <div id="vac-tab-alertas"    class="vac-drawer-panel"></div>
   </div>
 </aside>
+
+
+<dialog class="vac-edit-dialog" id="vac-edit-dialog">
+  <div class="vac-edit-inner">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:.8rem">
+      <div>
+        <h3 style="margin:0">Editar registro de vacaciones</h3>
+        <p id="vac-edit-subtitle" style="margin:.2rem 0 0;font-size:.82rem;color:#64748b">—</p>
+      </div>
+      <button type="button" class="btn-icon" id="vac-edit-close" title="Cerrar">
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+    </div>
+    <form id="vac-edit-form" style="margin-top:.75rem">
+      <input type="hidden" name="row_id" id="vac-edit-row-id">
+      <div class="vac-edit-grid">
+        <div class="vac-filter-group">
+          <label for="vac-edit-fecha-ingreso-usada">Fecha ingreso usada</label>
+          <input id="vac-edit-fecha-ingreso-usada" type="date" name="fecha_ingreso_usada">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-sueldo-usado">Sueldo usado</label>
+          <input id="vac-edit-sueldo-usado" type="number" step="0.01" name="sueldo_usado">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-dias-utilizados">Días utilizados Excel</label>
+          <input id="vac-edit-dias-utilizados" type="number" step="0.01" name="dias_utilizados">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-vac-laboradas">Vacaciones laboradas</label>
+          <input id="vac-edit-vac-laboradas" type="number" step="0.01" name="vacaciones_laboradas">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-dias-pagados">Días pagados/laboradas</label>
+          <input id="vac-edit-dias-pagados" type="number" step="0.01" name="dias_pagados">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-dias-restantes">Días restantes Excel</label>
+          <input id="vac-edit-dias-restantes" type="number" step="0.01" name="dias_restantes_calculado">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-fecha-prima-2026">Fecha pago prima 2026</label>
+          <input id="vac-edit-fecha-prima-2026" type="date" name="fecha_pago_prima_2026">
+        </div>
+        <div class="vac-filter-group">
+          <label for="vac-edit-revision-status">Estatus de revisión</label>
+          <select id="vac-edit-revision-status" name="revision_status">
+            <option value="pending_revision">pending_revision</option>
+            <option value="revisado">revisado</option>
+            <option value="corregido">corregido</option>
+            <option value="ignorar_historico">ignorar_historico</option>
+          </select>
+        </div>
+        <div class="vac-filter-group" style="display:flex;align-items:center;gap:.5rem;flex-direction:row">
+          <label style="display:flex;align-items:center;gap:.35rem;margin-top:1.25rem">
+            <input type="checkbox" id="vac-edit-prima-2025" name="prima_2025_pagada" value="1"> Prima 2025 pagada
+          </label>
+        </div>
+        <div class="vac-filter-group" style="display:flex;align-items:center;gap:.5rem;flex-direction:row">
+          <label style="display:flex;align-items:center;gap:.35rem;margin-top:1.25rem">
+            <input type="checkbox" id="vac-edit-prima-2026" name="prima_2026_pagada" value="1"> Prima 2026 pagada
+          </label>
+        </div>
+        <div class="vac-filter-group" style="grid-column:1 / -1">
+          <label for="vac-edit-comentarios">Comentarios</label>
+          <textarea id="vac-edit-comentarios" name="comentarios"></textarea>
+        </div>
+      </div>
+      <p id="vac-edit-status" style="margin:.55rem 0 0;font-size:.82rem;color:#64748b"></p>
+      <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem">
+        <button type="button" class="btn btn-secondary" id="vac-edit-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="vac-edit-submit">Guardar cambios</button>
+      </div>
+    </form>
+  </div>
+</dialog>
 
 
 {# ── Admin Modal ────────────────────────────────────────── #}
@@ -820,6 +925,26 @@
     });
   });
 
+  /* Table action buttons (robust data-* binding) */
+  document.addEventListener('click', function (e) {
+    var detailBtn = e.target.closest('.js-open-detail');
+    if (detailBtn) {
+      e.preventDefault();
+      var rowId = parseInt(detailBtn.getAttribute('data-row-id'), 10);
+      var rowName = detailBtn.getAttribute('data-row-name') || '—';
+      if (!isNaN(rowId)) vacDrawerOpen(rowId, rowName);
+      return;
+    }
+    var editBtn = e.target.closest('.js-open-edit');
+    if (editBtn) {
+      e.preventDefault();
+      var editRowId = parseInt(editBtn.getAttribute('data-row-id'), 10);
+      var editRowName = editBtn.getAttribute('data-row-name') || '—';
+      if (!isNaN(editRowId)) vacOpenEdit(editRowId, editRowName);
+      return;
+    }
+  });
+
   /* ── Drawer tabs ── */
   document.querySelectorAll('.vac-drawer-tab').forEach(function (tab) {
     tab.addEventListener('click', function () {
@@ -837,10 +962,35 @@
     if (e.key === 'Escape' && window._vacDrawerOpen) vacDrawerClose();
   });
 
+  /* Edit dialog controls */
+  var dlgEdit = document.getElementById('vac-edit-dialog');
+  var btnEditClose = document.getElementById('vac-edit-close');
+  var btnEditCancel = document.getElementById('vac-edit-cancel');
+  if (dlgEdit) {
+    if (btnEditClose) btnEditClose.addEventListener('click', function () { dlgEdit.close(); });
+    if (btnEditCancel) btnEditCancel.addEventListener('click', function () { dlgEdit.close(); });
+    dlgEdit.addEventListener('click', function (ev) {
+      if (ev.target === dlgEdit) dlgEdit.close();
+    });
+    var editForm = document.getElementById('vac-edit-form');
+    if (editForm) {
+      editForm.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        vacSubmitEdit();
+      });
+    }
+  }
+
 })();
 
 /* ── Drawer ──────────────────────────────────────────────── */
 window._vacDrawerOpen = false;
+var VAC_DETAIL_URL_TEMPLATE = '{{ url_for("nomina.vacaciones_detalle_json", row_id=0) }}';
+var VAC_EDIT_URL_TEMPLATE = '{{ url_for("nomina.vacaciones_editar_json", row_id=0) }}';
+
+function _vacRowUrl(urlTemplate, rowId) {
+  return String(urlTemplate || '').replace('/0/', '/' + String(rowId) + '/');
+}
 
 function vacDrawerOpen(rowId, name) {
   var drawer  = document.getElementById('vac-drawer');
@@ -865,7 +1015,7 @@ function vacDrawerOpen(rowId, name) {
 
   /* fetch */
   var fc = (document.getElementById('f-fecha-corte') || {}).value || '{{ fecha_corte }}';
-  fetch('/nomina/vacaciones/' + rowId + '/detalle-json?fecha_corte=' + encodeURIComponent(fc))
+  fetch(_vacRowUrl(VAC_DETAIL_URL_TEMPLATE, rowId) + '?fecha_corte=' + encodeURIComponent(fc), { credentials: 'same-origin' })
     .then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
@@ -893,6 +1043,21 @@ function _esc(s) {
 function _fmtN(v) { return (v !== null && v !== undefined) ? String(v) : '—'; }
 function _badge(cls, text) { return '<span class="vac-badge vac-badge--' + cls + '">' + _esc(text) + '</span>'; }
 function _secTitle(txt) { return '<p class="vac-sec-title">' + _esc(txt) + '</p>'; }
+function _fmtNumber2(v) {
+  var n = Number(v);
+  if (v === null || v === undefined || v === '' || Number.isNaN(n)) return '—';
+  return n.toFixed(2);
+}
+function formatCurrencyMXN(v) {
+  var n = Number(v);
+  if (v === null || v === undefined || v === '' || Number.isNaN(n)) return '—';
+  return '$ ' + n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function _laboradasBadgeHtml(v) {
+  var n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return '<span class="vac-badge vac-badge--neutral">No</span>';
+  return '<span class="vac-badge vac-badge--info">Sí</span><span class="vac-worker-sub">' + n.toFixed(2) + ' días</span>';
+}
 
 function _vacDrawerRender(d) {
   var row     = d.row     || {};
@@ -923,9 +1088,10 @@ function _vacDrawerRender(d) {
     + '</dl>';
 
   html += _secTitle('Origen de datos');
+  var ubicHC = row.ubicacion_headcount || row.planta_headcount || row.planta_historica || row.cliente || '';
   html += '<dl class="vac-dl">'
     + '<dt>Planta Excel</dt><dd>'      + _esc(row.planta_historica)      + '</dd>'
-    + '<dt>Planta Headcount</dt><dd>'  + _esc(row.planta_headcount)      + '</dd>'
+    + '<dt>Ubicación Headcount</dt><dd>'  + _esc(ubicHC)      + '</dd>'
     + '<dt>Cliente</dt><dd>'           + _esc(row.cliente)               + '</dd>'
     + '<dt>&nbsp;</dt><dd></dd>'
     + '<dt>Ingreso Excel</dt><dd>'     + _esc(row.fecha_ingreso_historica)+ '</dd>'
@@ -933,10 +1099,10 @@ function _vacDrawerRender(d) {
     + '<dt>Ingreso usado</dt><dd>'     + _esc(row.fecha_ingreso_usada)   + '</dd>'
     + '<dt>Fuente fecha ingreso</dt><dd>' + _esc(row.fuente_fecha_ingreso || (row.excel_resumen || {}).fuente_fecha_ingreso) + '</dd>'
     + '<dt>&nbsp;</dt><dd></dd>'
-    + '<dt>Sueldo Excel</dt><dd>'      + _fmtN(row.sueldo_historico)     + '</dd>'
-    + '<dt>Salario Parámetros</dt><dd>' + _fmtN(row.salario_parametros_nomina || (row.excel_resumen || {}).salario_parametros_nomina) + '</dd>'
-    + '<dt>Sueldo Headcount</dt><dd>'  + _fmtN(row.sueldo_headcount)     + '</dd>'
-    + '<dt>Sueldo usado</dt><dd>'      + _fmtN(row.sueldo_usado || row.sueldo_headcount || row.sueldo_historico) + '</dd>'
+    + '<dt>Sueldo Excel</dt><dd>'      + formatCurrencyMXN(row.sueldo_historico)     + '</dd>'
+    + '<dt>Salario Parámetros</dt><dd>' + formatCurrencyMXN(row.salario_parametros_nomina || (row.excel_resumen || {}).salario_parametros_nomina) + '</dd>'
+    + '<dt>Sueldo Headcount</dt><dd>'  + formatCurrencyMXN(row.sueldo_headcount)     + '</dd>'
+    + '<dt>Sueldo usado</dt><dd>'      + formatCurrencyMXN(row.sueldo_usado || row.sueldo_headcount || row.sueldo_historico) + '</dd>'
     + '<dt>Fuente salario</dt><dd>'    + _esc(row.fuente_salario || (row.excel_resumen || {}).fuente_salario) + '</dd>'
     + '</dl>';
 
@@ -956,19 +1122,24 @@ function _vacDrawerRender(d) {
   var saldoStyle = isNaN(sv) ? '' : sv < 0 ? 'color:#dc2626;font-weight:600' : sv > 0 ? 'color:#166534' : 'color:#64748b';
 
   var hs = '<dl class="vac-dl">'
-    + '<dt>Días generados</dt><dd>'           + _fmtN(calc.dias_generados)                    + '</dd>'
-    + '<dt>Usados total (Excel)</dt><dd>'     + _fmtN(calc.dias_utilizados_excel_resumen)      + '</dd>'
-    + '<dt>Usados por semanas</dt><dd>'       + _fmtN(calc.dias_utilizados_calculado_semanal)  + '</dd>'
+    + '<dt>Días generados</dt><dd>'           + _fmtNumber2(calc.dias_generados)                    + '</dd>'
+    + '<dt>Usados total (Excel)</dt><dd>'     + _fmtNumber2(calc.dias_utilizados_excel_resumen)      + '</dd>'
+    + '<dt>Usados por semanas</dt><dd>'       + _fmtNumber2(calc.dias_utilizados_calculado_semanal)  + '</dd>'
     + '<dt>Diferencia sem. vs resumen</dt><dd>' + (diff !== null ? diff : '—')                + '</dd>'
-    + '<dt>Vacaciones laboradas</dt><dd>'     + _fmtN(calc.vacaciones_laboradas)               + '</dd>'
-    + '<dt>Días pagados (ref.)</dt><dd>'      + _fmtN(calc.dias_pagados)                       + '</dd>'
-    + '<dt>Días restantes Excel</dt><dd>'     + _fmtN(row.dias_restantes_historico)            + '</dd>'
-    + '<dt>Saldo calculado</dt><dd><span style="' + saldoStyle + '">' + _fmtN(calc.saldo_calculado) + '</span></dd>'
-    + '<dt>Diferencia detectada</dt><dd>'      + _fmtN(row.diferencia_detectada || (row.excel_resumen || {}).diferencia_detectada) + '</dd>'
+    + '<dt>Vacaciones laboradas</dt><dd>'     + _fmtNumber2(calc.vacaciones_laboradas)               + '</dd>'
+    + '<dt>Días pagados (ref.)</dt><dd>'      + _fmtNumber2(calc.dias_pagados)                       + '</dd>'
+    + '<dt>Días restantes Excel</dt><dd>'     + _fmtNumber2(row.dias_restantes_historico)            + '</dd>'
+    + '<dt>Saldo calculado</dt><dd><span style="' + saldoStyle + '">' + _fmtNumber2(calc.saldo_calculado) + '</span></dd>'
+    + '<dt>Diferencia detectada</dt><dd>'      + _fmtNumber2(row.diferencia_detectada || (row.excel_resumen || {}).diferencia_detectada) + '</dd>'
     + '<dt>Clasificación conciliación</dt><dd>' + _esc(row.clasificacion_conciliacion || (row.excel_resumen || {}).clasificacion_conciliacion) + '</dd>'
     + '<dt>Prima pendiente est.</dt><dd>'     + _fmtN(calc.prima_pendiente)                    + '</dd>'
     + '</dl>';
   hs += '<div class="vac-note-box">Vacaciones laboradas no se suman doble — ya forman parte de días utilizados. DIAS PAGADOS no se suma a DIAS UTILIZADOS.</div>';
+  hs += _secTitle('Vacaciones laboradas');
+  hs += '<p style="font-size:.82rem">Tiene laboradas: <strong>' + (Number(calc.vacaciones_laboradas || 0) > 0 ? 'Sí' : 'No') + '</strong></p>';
+  hs += '<p style="font-size:.82rem">Total laboradas: <strong>' + _fmtNumber2(calc.vacaciones_laboradas) + '</strong></p>';
+  hs += '<p style="font-size:.82rem">Días pagados/laboradas: <strong>' + _fmtNumber2(calc.dias_pagados) + '</strong></p>';
+  hs += '<p style="font-size:.82rem;color:#92400e">No sumar laboradas doble; ya forman parte de días utilizados.</p>';
 
   if (calc.pasos && calc.pasos.length) {
     hs += _secTitle('Cálculo paso a paso');
@@ -981,7 +1152,7 @@ function _vacDrawerRender(d) {
   /* ── Tab Movimientos ── */
   var hm = '';
   if (!desgl.length && !semanas.length) {
-    hm = '<p style="color:#94a3b8;padding:.5rem 0">Sin desglose semanal importado.</p>';
+    hm = '<p style="color:#94a3b8;padding:.5rem 0">Sin movimientos registrados.</p>';
   } else {
     hm = '<table class="vac-drawer-table"><thead><tr>'
        + '<th>Año / periodo</th><th>Semana</th><th>Días</th><th>Tipo</th><th>Origen</th><th>Observaciones</th>'
@@ -1025,6 +1196,8 @@ function _vacDrawerRender(d) {
       hp += '<tr><td>' + _esc(e.event_type) + '</td><td>' + _esc(e.period_label) + '</td><td>' + _fmtN(e.days) + '</td><td>' + _esc(e.notes) + '</td></tr>';
     });
     hp += '</tbody></table>';
+  } else {
+    hp += '<p style="color:#94a3b8;padding:.4rem 0">Sin prima registrada.</p>';
   }
   hp += '<div class="vac-note-box">La prima pagada evita duplicados, pero no bloquea diferencias futuras si corresponde mayor base.</div>';
   document.getElementById('vac-tab-prima').innerHTML = hp;
@@ -1065,6 +1238,109 @@ function _vacDrawerRender(d) {
 
   /* refresh Lucide icons rendered inside drawer */
   if (window.pcLucideRefresh) window.pcLucideRefresh();
+}
+
+function vacOpenEdit(rowId, rowName) {
+  var dlg = document.getElementById('vac-edit-dialog');
+  if (!dlg) return;
+  document.getElementById('vac-edit-row-id').value = String(rowId);
+  document.getElementById('vac-edit-subtitle').textContent = rowName || ('ID ' + rowId);
+  document.getElementById('vac-edit-status').textContent = 'Cargando datos...';
+  dlg.showModal();
+  fetch(_vacRowUrl(VAC_EDIT_URL_TEMPLATE, rowId), { credentials: 'same-origin' })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function (data) {
+      var e = data.editable || {};
+      document.getElementById('vac-edit-fecha-ingreso-usada').value = e.fecha_ingreso_usada || '';
+      document.getElementById('vac-edit-sueldo-usado').value = e.sueldo_usado ?? '';
+      document.getElementById('vac-edit-dias-utilizados').value = e.dias_utilizados ?? '';
+      document.getElementById('vac-edit-vac-laboradas').value = e.vacaciones_laboradas ?? '';
+      document.getElementById('vac-edit-dias-pagados').value = e.dias_pagados ?? '';
+      document.getElementById('vac-edit-dias-restantes').value = e.dias_restantes_calculado ?? '';
+      document.getElementById('vac-edit-fecha-prima-2026').value = e.fecha_pago_prima_2026 || '';
+      document.getElementById('vac-edit-prima-2025').checked = !!e.prima_2025_pagada;
+      document.getElementById('vac-edit-prima-2026').checked = !!e.prima_2026_pagada;
+      document.getElementById('vac-edit-revision-status').value = e.revision_status || 'pending_revision';
+      document.getElementById('vac-edit-comentarios').value = e.comentarios || '';
+      document.getElementById('vac-edit-status').textContent = '';
+    })
+    .catch(function (err) {
+      document.getElementById('vac-edit-status').textContent = 'Error al cargar edición: ' + err.message;
+    });
+}
+
+function vacSubmitEdit() {
+  var rowId = parseInt(document.getElementById('vac-edit-row-id').value, 10);
+  if (!rowId) return;
+  var payload = {
+    fecha_ingreso_usada: document.getElementById('vac-edit-fecha-ingreso-usada').value || '',
+    sueldo_usado: document.getElementById('vac-edit-sueldo-usado').value || '',
+    dias_utilizados: document.getElementById('vac-edit-dias-utilizados').value || '',
+    vacaciones_laboradas: document.getElementById('vac-edit-vac-laboradas').value || '',
+    dias_pagados: document.getElementById('vac-edit-dias-pagados').value || '',
+    dias_restantes_calculado: document.getElementById('vac-edit-dias-restantes').value || '',
+    fecha_pago_prima_2026: document.getElementById('vac-edit-fecha-prima-2026').value || '',
+    prima_2025_pagada: document.getElementById('vac-edit-prima-2025').checked ? '1' : '0',
+    prima_2026_pagada: document.getElementById('vac-edit-prima-2026').checked ? '1' : '0',
+    revision_status: document.getElementById('vac-edit-revision-status').value || 'pending_revision',
+    comentarios: document.getElementById('vac-edit-comentarios').value || '',
+    fecha_corte: (document.getElementById('f-fecha-corte') || {}).value || '{{ fecha_corte }}'
+  };
+  var statusEl = document.getElementById('vac-edit-status');
+  var submitBtn = document.getElementById('vac-edit-submit');
+  if (statusEl) statusEl.textContent = 'Guardando...';
+  if (submitBtn) submitBtn.disabled = true;
+  fetch(_vacRowUrl(VAC_EDIT_URL_TEMPLATE, rowId), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); })
+    .then(function (res) {
+      if (!res.ok || !res.body.ok) {
+        throw new Error((res.body && res.body.message) || 'No se pudo guardar');
+      }
+      vacPatchRowFromSave(res.body.row || {});
+      if (statusEl) statusEl.textContent = 'Cambios guardados.';
+      setTimeout(function () {
+        var dlg = document.getElementById('vac-edit-dialog');
+        if (dlg) dlg.close();
+      }, 450);
+    })
+    .catch(function (err) {
+      if (statusEl) statusEl.textContent = 'Error al guardar: ' + err.message;
+    })
+    .finally(function () {
+      if (submitBtn) submitBtn.disabled = false;
+    });
+}
+
+function vacPatchRowFromSave(row) {
+  var tr = document.getElementById('vac-row-' + String(row.id || ''));
+  if (!tr) return;
+  var ubicCell = tr.querySelector('[data-col=\"ubicacion\"]');
+  if (ubicCell) {
+    var ubic = row.ubicacion_headcount || row.planta_headcount || row.planta_historica || row.cliente || '—';
+    var clienteSub = row.cliente ? '<span class=\"vac-worker-sub\">' + _esc(row.cliente) + '</span>' : '';
+    ubicCell.innerHTML = _esc(ubic) + clienteSub;
+  }
+  var ingCell = tr.querySelector('[data-col=\"ingreso-usado\"]');
+  if (ingCell) ingCell.textContent = row.fecha_ingreso_usada || row.fecha_ingreso_headcount || '—';
+  var sueldoCell = tr.querySelector('[data-col=\"sueldo-usado\"]');
+  if (sueldoCell) {
+    var sueldo = row.sueldo_usado;
+    if (sueldo === null || sueldo === undefined || sueldo === '') sueldo = row.sueldo_headcount;
+    if (sueldo === null || sueldo === undefined || sueldo === '') sueldo = row.sueldo_historico;
+    sueldoCell.textContent = formatCurrencyMXN(sueldo);
+  }
+  var genCell = tr.querySelector('[data-col=\"generados\"]');
+  if (genCell) genCell.textContent = _fmtNumber2(row.dias_generados);
+  var labCell = tr.querySelector('[data-col=\"laboradas\"]');
+  if (labCell) labCell.innerHTML = _laboradasBadgeHtml(row.vacaciones_laboradas);
 }
 </script>
 {% endblock %}

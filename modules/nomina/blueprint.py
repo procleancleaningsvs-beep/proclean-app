@@ -1122,7 +1122,18 @@ def _match_vacaciones_rows(rows: list[dict], db_path: str) -> tuple[list[dict], 
         row["headcount_nombre_normalizado"] = _normalize_name(hc_nombre)
         row["nombre_headcount"] = hc_nombre
         row["cliente"] = sanitize_display_value(hc_row.get("cliente")) or row.get("cliente")
-        row["planta_headcount"] = sanitize_display_value(hc_row.get("patron") or hc_row.get("planta"))
+        ubicacion_hc = sanitize_display_value(
+            hc_row.get("ubicacion")
+            or hc_row.get("ubicación")
+            or hc_row.get("location")
+            or hc_row.get("planta")
+            or hc_row.get("patron")
+        )
+        row["ubicacion_headcount"] = ubicacion_hc
+        row["planta_headcount"] = ubicacion_hc or sanitize_display_value(hc_row.get("patron") or hc_row.get("planta"))
+        editable = dict(row.get("editable_json") or {})
+        editable["ubicacion_headcount"] = row["planta_headcount"]
+        row["editable_json"] = editable
         row["fecha_ingreso_headcount"] = _to_date_iso_headcount(hc_row.get("fecha_ingreso"))
         status_hc = resolve_status_headcount(hc_row)
         row["status_headcount"] = status_hc
@@ -1657,6 +1668,126 @@ def vacaciones_confirmar_import(import_id: int):
     return redirect(url_for("nomina.vacaciones_index", import_id=import_id))
 
 
+def _vacaciones_parse_float(values: dict[str, Any], name: str) -> float | None:
+    raw = str(values.get(name) or "").strip().replace(",", "")
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _apply_vacaciones_manual_update(
+    row_id: int,
+    values: dict[str, Any],
+    *,
+    actor_id: int | None,
+    now_iso: str,
+) -> tuple[bool, str, dict[str, Any] | None]:
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        return False, "Registro de vacaciones no encontrado.", None
+
+    dias_utilizados = _vacaciones_parse_float(values, "dias_utilizados") or 0.0
+    vacaciones_laboradas = _vacaciones_parse_float(values, "vacaciones_laboradas") or 0.0
+    dias_pagados = _vacaciones_parse_float(values, "dias_pagados") or 0.0
+    dias_vac = _vacaciones_parse_float(values, "dias_vacaciones_historico")
+    if dias_vac is None:
+        dias_vac = float(row.get("dias_vacaciones_historico") or 0.0)
+    rest_manual = _vacaciones_parse_float(values, "dias_restantes_calculado")
+    # DIAS UTILIZADOS ya incluye vacaciones laboradas (no sumar doble).
+    consumed = max(dias_pagados, dias_utilizados)
+    rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
+
+    current_editable = dict(row.get("editable_json") or {})
+    merged_editable = dict(current_editable)
+    merged_editable["revision_status"] = (str(values.get("revision_status") or "").strip() or "pending_revision")
+
+    merged = dict(row)
+    merged.update(
+        {
+            "fecha_ingreso_usada": str(values.get("fecha_ingreso_usada") or "").strip(),
+            "sueldo_usado": _vacaciones_parse_float(values, "sueldo_usado"),
+            "dias_utilizados": dias_utilizados,
+            "vacaciones_laboradas": vacaciones_laboradas,
+            "dias_pagados": dias_pagados,
+            "dias_restantes_calculado": rest_calc,
+            "dias_vacaciones_historico": dias_vac,
+            "prima_2025_pagada": str(values.get("prima_2025_pagada") or "") in {"1", "on", "true"},
+            "prima_2026_pagada": str(values.get("prima_2026_pagada") or "") in {"1", "on", "true"},
+            "fecha_pago_prima_2026": str(values.get("fecha_pago_prima_2026") or "").strip(),
+            "comentarios": str(values.get("comentarios") or "").strip(),
+            "editable_json": merged_editable,
+        }
+    )
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc_row = aplicar_calculo_a_fila(merged, fecha_corte=fecha_corte)
+    updates = {
+        "fecha_ingreso_usada": calc_row.get("fecha_ingreso_usada"),
+        "sueldo_usado": calc_row.get("sueldo_usado"),
+        "dias_utilizados": calc_row.get("dias_utilizados"),
+        "vacaciones_laboradas": calc_row.get("vacaciones_laboradas"),
+        "dias_pagados": calc_row.get("dias_pagados"),
+        "dias_restantes_calculado": calc_row.get("dias_restantes_calculado"),
+        "dias_generados": calc_row.get("dias_generados"),
+        "saldo_calculado": calc_row.get("saldo_calculado"),
+        "prima_pendiente": calc_row.get("prima_pendiente"),
+        "dias_vacaciones_historico": calc_row.get("dias_vacaciones_historico"),
+        "warnings": calc_row.get("warnings") or [],
+        "prima_2025_pagada": merged.get("prima_2025_pagada"),
+        "prima_2026_pagada": merged.get("prima_2026_pagada"),
+        "fecha_pago_prima_2026": merged.get("fecha_pago_prima_2026"),
+        "comentarios": merged.get("comentarios"),
+        "editable_json": calc_row.get("editable_json") or merged_editable,
+        "monto_total_recalculado": calc_row.get("monto_total_recalculado"),
+    }
+    tracked_fields = [
+        "fecha_ingreso_usada",
+        "sueldo_usado",
+        "dias_utilizados",
+        "vacaciones_laboradas",
+        "dias_pagados",
+        "dias_restantes_calculado",
+        "prima_2025_pagada",
+        "prima_2026_pagada",
+        "fecha_pago_prima_2026",
+        "comentarios",
+    ]
+    changes: dict[str, Any] = {}
+    for key in tracked_fields:
+        before_v = row.get(key)
+        after_v = updates.get(key)
+        if before_v != after_v:
+            changes[key] = {"antes": before_v, "despues": after_v}
+    editable_out = dict(updates.get("editable_json") or {})
+    audits = list(editable_out.get("manual_edits_audit") or [])
+    if changes:
+        audits.append(
+            {
+                "edited_at": now_iso,
+                "edited_by": actor_id,
+                "row_id": row_id,
+                "changes": changes,
+            }
+        )
+    editable_out["manual_edits_audit"] = audits[-50:]
+    updates["editable_json"] = editable_out
+
+    ok = update_vacaciones_empleado(
+        _db_path(),
+        row_id,
+        updates,
+        updated_by=actor_id,
+        updated_at=now_iso,
+    )
+    if not ok:
+        return False, "No se pudo actualizar el registro.", None
+    updated_row = get_vacaciones_empleado(_db_path(), row_id) or {}
+    updated_row = enrich_vacaciones_row_for_display(updated_row)
+    return True, "Registro de vacaciones actualizado.", updated_row
+
+
 @nomina_bp.route("/vacaciones/<int:row_id>/editar", methods=["GET", "POST"])
 @_nomina_dashboard_required
 def vacaciones_editar(row_id: int):
@@ -1665,78 +1796,60 @@ def vacaciones_editar(row_id: int):
         flash("Registro de vacaciones no encontrado.", "error")
         return redirect(url_for("nomina.vacaciones_index"))
     if request.method == "POST":
-        def _f(name: str) -> float | None:
-            raw = (request.form.get(name) or "").strip().replace(",", "")
-            if not raw:
-                return None
-            try:
-                return float(raw)
-            except ValueError:
-                return None
-
-        dias_utilizados = _f("dias_utilizados") or 0.0
-        vacaciones_laboradas = _f("vacaciones_laboradas") or 0.0
-        dias_pagados = _f("dias_pagados") or 0.0
-        dias_vac = _f("dias_vacaciones_historico")
-        if dias_vac is None:
-            dias_vac = float(row.get("dias_vacaciones_historico") or 0.0)
-        rest_manual = _f("dias_restantes_calculado")
-        # DIAS UTILIZADOS ya incluye vacaciones laboradas (no sumar doble).
-        consumed = max(dias_pagados, dias_utilizados)
-        rest_calc = rest_manual if rest_manual is not None else (dias_vac - consumed)
-
-        merged = dict(row)
-        merged.update({
-            "fecha_ingreso_usada": (request.form.get("fecha_ingreso_usada") or "").strip(),
-            "sueldo_usado": _f("sueldo_usado"),
-            "dias_utilizados": dias_utilizados,
-            "vacaciones_laboradas": vacaciones_laboradas,
-            "dias_pagados": dias_pagados,
-            "dias_restantes_calculado": rest_calc,
-            "dias_vacaciones_historico": dias_vac,
-            "prima_2025_pagada": (request.form.get("prima_2025_pagada") or "") in {"1", "on", "true"},
-            "prima_2026_pagada": (request.form.get("prima_2026_pagada") or "") in {"1", "on", "true"},
-            "fecha_pago_prima_2026": (request.form.get("fecha_pago_prima_2026") or "").strip(),
-            "comentarios": (request.form.get("comentarios") or "").strip(),
-            "editable_json": {
-                "revision_status": (request.form.get("revision_status") or "").strip() or "pending_revision",
-            },
-        })
-        calc_row = aplicar_calculo_a_fila(merged, fecha_corte=_vacaciones_fecha_corte_from_request())
-        updates = {
-            "fecha_ingreso_usada": calc_row.get("fecha_ingreso_usada"),
-            "sueldo_usado": calc_row.get("sueldo_usado"),
-            "dias_utilizados": calc_row.get("dias_utilizados"),
-            "vacaciones_laboradas": calc_row.get("vacaciones_laboradas"),
-            "dias_pagados": calc_row.get("dias_pagados"),
-            "dias_restantes_calculado": calc_row.get("dias_restantes_calculado"),
-            "dias_generados": calc_row.get("dias_generados"),
-            "saldo_calculado": calc_row.get("saldo_calculado"),
-            "prima_pendiente": calc_row.get("prima_pendiente"),
-            "dias_vacaciones_historico": calc_row.get("dias_vacaciones_historico"),
-            "warnings": calc_row.get("warnings") or [],
-            "prima_2025_pagada": merged.get("prima_2025_pagada"),
-            "prima_2026_pagada": merged.get("prima_2026_pagada"),
-            "fecha_pago_prima_2026": merged.get("fecha_pago_prima_2026"),
-            "comentarios": merged.get("comentarios"),
-            "editable_json": calc_row.get("editable_json") or merged.get("editable_json"),
-            "monto_total_recalculado": calc_row.get("monto_total_recalculado"),
-        }
         uid = int(g.user["id"]) if g.user is not None else None
-        ok = update_vacaciones_empleado(
-            _db_path(),
+        ok, msg, _updated = _apply_vacaciones_manual_update(
             row_id,
-            updates,
-            updated_by=uid,
-            updated_at=_now_iso(),
+            request.form.to_dict(flat=True),
+            actor_id=uid,
+            now_iso=_now_iso(),
         )
-        if ok:
-            flash("Registro de vacaciones actualizado.", "success")
-        else:
-            flash("No se pudo actualizar el registro.", "error")
+        flash(msg, "success" if ok else "error")
         return redirect(url_for("nomina.vacaciones_editar", row_id=row_id))
 
     return render_template("nomina/vacaciones_edit.html", row=row, calc=row.get("editable_json", {}).get("calc_json"))
+
+
+@nomina_bp.get("/vacaciones/<int:row_id>/editar-json")
+@_nomina_dashboard_required
+def vacaciones_editar_json(row_id: int):
+    row = get_vacaciones_empleado(_db_path(), row_id)
+    if row is None:
+        return jsonify({"error": "Registro no encontrado"}), 404
+    row = enrich_vacaciones_row_for_display(row)
+    editable = {
+        "fecha_ingreso_usada": row.get("fecha_ingreso_usada") or "",
+        "sueldo_usado": row.get("sueldo_usado"),
+        "dias_utilizados": row.get("dias_utilizados"),
+        "vacaciones_laboradas": row.get("vacaciones_laboradas"),
+        "dias_pagados": row.get("dias_pagados"),
+        "dias_restantes_calculado": row.get("dias_restantes_calculado"),
+        "prima_2025_pagada": bool(row.get("prima_2025_pagada")),
+        "prima_2026_pagada": bool(row.get("prima_2026_pagada")),
+        "fecha_pago_prima_2026": row.get("fecha_pago_prima_2026") or "",
+        "comentarios": row.get("comentarios") or "",
+        "revision_status": (row.get("editable_json") or {}).get("revision_status") or "pending_revision",
+    }
+    return jsonify(_json_safe({"row": row, "editable": editable}))
+
+
+@nomina_bp.post("/vacaciones/<int:row_id>/editar-json")
+@_nomina_dashboard_required
+def vacaciones_editar_json_save(row_id: int):
+    payload = request.get_json(silent=True) if request.is_json else request.form.to_dict(flat=True)
+    payload = payload or {}
+    uid = int(g.user["id"]) if g.user is not None else None
+    ok, msg, updated_row = _apply_vacaciones_manual_update(
+        row_id,
+        payload,
+        actor_id=uid,
+        now_iso=_now_iso(),
+    )
+    if not ok:
+        status = 404 if "no encontrado" in msg.lower() else 400
+        return jsonify({"ok": False, "message": msg}), status
+    fecha_corte = _vacaciones_fecha_corte_from_request()
+    calc = calcular_balance_vacaciones_trabajador(updated_row or {}, fecha_corte=fecha_corte)
+    return jsonify(_json_safe({"ok": True, "message": msg, "row": updated_row, "calc": calc}))
 
 
 @nomina_bp.get("/vacaciones/<int:row_id>/detalle")
