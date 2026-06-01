@@ -146,11 +146,9 @@ def build_calculo_payload(
                 inf_id_map[k] = int(ir["id"])
 
     clientes_keys = {_norm_key(c) for c in clientes_filter if str(c).strip()}
-    if not clientes_keys:
-        clientes_keys = {_norm_key(str(imp.get("cliente") or ""))} if imp.get("cliente") else set()
-
-    rows_in = [r for r in imp.get("rows") or [] if _norm_key(str(r.get("cliente") or "")) in clientes_keys]
-    if not clientes_keys:
+    if clientes_keys:
+        rows_in = [r for r in imp.get("rows") or [] if _norm_key(str(r.get("cliente") or "")) in clientes_keys]
+    else:
         rows_in = list(imp.get("rows") or [])
 
     nss_clients: dict[str, set[str]] = {}

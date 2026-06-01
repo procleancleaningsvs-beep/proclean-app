@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<style>
+.cp-wrap { display:grid; gap:1rem; max-width:980px; }
+.cp-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
+.cp-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.7rem; }
+@media (max-width:860px){ .cp-grid { grid-template-columns:1fr; } }
+.cp-kpi { border:1px solid #e5e7eb; border-radius:10px; padding:.55rem .65rem; background:#f8fafc; }
+.cp-kpi span { display:block; color:#64748b; font-size:.76rem; text-transform:uppercase; letter-spacing:.02em; }
+.cp-kpi strong { font-size:.92rem; color:#0f172a; }
+.cp-list { margin:.4rem 0 0; padding-left:1.1rem; }
+.cp-list li { margin:.15rem 0; }
+.cp-alert-critical { border-color:#fecaca; background:#fff1f2; color:#9f1239; }
+.cp-alert-warn { border-color:#fcd34d; background:#fffbeb; color:#78350f; }
+.cp-question { border:1px solid #e5e7eb; border-radius:10px; padding:.7rem; margin-top:.7rem; }
+.cp-question legend { font-weight:600; color:#1e293b; margin-bottom:.35rem; }
+.cp-question label { display:block; margin:.3rem 0; color:#334155; font-size:.9rem; }
+.cp-actions { display:flex; gap:.55rem; align-items:center; margin-top:1rem; }
+</style>
+{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <span class="eyebrow">Nóminas</span>
+    <h2>Preguntas previas al cálculo</h2>
+    <p>Prevalidacion de la asistencia seleccionada antes de generar el borrador de nomina.</p>
+  </div>
+  <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver al listado</a>
+</section>
+
+<div class="cp-wrap">
+  <section class="cp-card">
+    <h3 style="margin:.1rem 0 .6rem;">Resumen de asistencia #{{ preflight.import_id }}</h3>
+    <div class="cp-grid">
+      <div class="cp-kpi">
+        <span>Periodo detectado</span>
+        <strong>{{ preflight.periodo_detectado or '—' }}</strong>
+      </div>
+      <div class="cp-kpi">
+        <span>Cliente / grupo detectado</span>
+        <strong>{{ preflight.cliente_grupo_detectado or 'NO_DETECTADO' }}</strong>
+      </div>
+      <div class="cp-kpi">
+        <span>Clientes detectados</span>
+        <strong>{{ (preflight.clientes_detectados or [])|join(', ') if preflight.clientes_detectados else 'Sin clientes detectados' }}</strong>
+      </div>
+      <div class="cp-kpi">
+        <span>Plantas detectadas</span>
+        <strong>{{ (preflight.plantas_detectadas or [])|join(', ') if preflight.plantas_detectadas else 'Sin plantas detectadas' }}</strong>
+      </div>
+      <div class="cp-kpi">
+        <span>Total de filas</span>
+        <strong>{{ preflight.total_filas or 0 }}</strong>
+      </div>
+      <div class="cp-kpi">
+        <span>Trabajadores validos</span>
+        <strong>{{ preflight.total_trabajadores_validos or 0 }}</strong>
+      </div>
+    </div>
+  </section>
+
+  {% if preflight.alertas_criticas %}
+  <section class="cp-card cp-alert-critical">
+    <h3 style="margin:.1rem 0 .35rem;">No se puede generar calculo</h3>
+    <ul class="cp-list">
+      {% for item in preflight.alertas_criticas %}
+      <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    <div class="cp-actions">
+      <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Regresar al historial</a>
+    </div>
+  </section>
+  {% else %}
+    {% if preflight.alertas_no_criticas %}
+    <section class="cp-card cp-alert-warn">
+      <h3 style="margin:.1rem 0 .35rem;">Alertas no criticas detectadas</h3>
+      <ul class="cp-list">
+        {% for item in preflight.alertas_no_criticas %}
+        <li>{{ item }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+
+    <section class="cp-card">
+      <h3 style="margin:.1rem 0 .35rem;">Configuracion previa</h3>
+      <p style="margin:.2rem 0;color:#475569;font-size:.88rem;">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
+      <form method="post" action="{{ url_for('nomina.calculo_generar') }}">
+        <input type="hidden" name="_from_preflight" value="1">
+        <input type="hidden" name="asistencia_import_id" value="{{ preflight.import_id }}">
+        {% for q in preflight.preguntas_necesarias %}
+        <fieldset class="cp-question">
+          <legend>{{ q.prompt }}</legend>
+          {% for opt in q.options %}
+          <label>
+            <input type="radio" name="q_{{ q.id }}" value="{{ opt.value }}" {% if opt.value == q.default %}checked{% endif %}>
+            {{ opt.label }}
+          </label>
+          {% endfor %}
+        </fieldset>
+        {% endfor %}
+        <div class="cp-actions">
+          <button type="submit" class="btn btn-primary">Confirmar y generar borrador</button>
+          <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Cancelar</a>
+        </div>
+      </form>
+    </section>
+  {% endif %}
+</div>
+{% endblock %}

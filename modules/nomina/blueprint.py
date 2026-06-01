@@ -101,6 +101,11 @@ from modules.nomina.calc_service import (
     index_overrides_from_calculo_rows,
     resync_row_totales,
 )
+from modules.nomina.calculo_preflight import (
+    CALCULO_DEFAULT_POLICY,
+    build_calculo_preflight,
+    resolve_config_from_preflight_answers,
+)
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import (
     IMPORT_KIND_NORMALIZED,
@@ -3047,48 +3052,59 @@ def _calculo_cliente_label(clientes: list[str]) -> str:
     return "MULTICLIENTE"
 
 
-@nomina_bp.get("/calculo")
-@_nomina_dashboard_required
-def calculo_index():
-    imports_list = list_asistencia_imports_for_calculo(_db_path(), limit=100)
-    clientes, agrupaciones, headcount_error, headcount_source = _available_clientes_headcount()
-    return render_template(
-        "nomina/calculo_index.html",
-        imports_list=imports_list,
-        clientes=clientes,
-        agrupaciones=agrupaciones,
-        headcount_error=headcount_error,
-        headcount_source=headcount_source,
-    )
-
-
-@nomina_bp.post("/calculo/generar")
-@_nomina_dashboard_required
-def calculo_generar():
-    db_path = _db_path()
+def _extract_import_id_from_form() -> int:
     try:
-        import_id = int(request.form.get("asistencia_import_id") or 0)
+        return int(request.form.get("asistencia_import_id") or 0)
     except ValueError:
-        import_id = 0
-    if import_id <= 0:
-        flash("Selecciona una importación de asistencia válida.", "error")
-        return redirect(url_for("nomina.calculo_index"))
-    clientes = _extract_selected_clientes_from_form()
-    cfg = _calculo_config_from_form()
-    try:
-        payload = build_calculo_payload(
-            db_path,
-            asistencia_import_id=import_id,
-            clientes_filter=clientes,
-            config_form=cfg,
-        )
-    except ValueError as exc:
-        flash(f"No se pudo generar el cálculo: {exc}", "error")
-        return redirect(url_for("nomina.calculo_index"))
+        return 0
+
+
+def _extract_preflight_answers(preflight: dict[str, Any]) -> tuple[dict[str, str], list[str]]:
+    answers: dict[str, str] = {}
+    errors: list[str] = []
+    for q in preflight.get("preguntas_necesarias") or []:
+        qid = str(q.get("id") or "").strip()
+        if not qid:
+            continue
+        raw = (request.form.get(f"q_{qid}") or q.get("default") or "").strip()
+        valid_values = {str(opt.get("value") or "") for opt in (q.get("options") or [])}
+        if not raw:
+            errors.append(f"Falta responder: {q.get('prompt')}")
+            continue
+        if valid_values and raw not in valid_values:
+            errors.append(f"Opcion invalida para: {q.get('prompt')}")
+            continue
+        answers[qid] = raw
+    return answers, errors
+
+
+def _create_calculo_run(
+    *,
+    db_path: str,
+    import_id: int,
+    clientes: list[str],
+    payload: dict[str, Any],
+    preflight: dict[str, Any] | None,
+    preflight_answers: dict[str, str],
+) -> int:
     uid = int(g.user["id"]) if g.user is not None else None
     now_iso = _now_iso()
+    raw_json = dict(payload.get("raw_json") or {})
+    if preflight is not None:
+        raw_json["preflight"] = {
+            "periodo_detectado": preflight.get("periodo_detectado"),
+            "cliente_grupo_detectado": preflight.get("cliente_grupo_detectado"),
+            "clientes_detectados": preflight.get("clientes_detectados") or [],
+            "plantas_detectadas": preflight.get("plantas_detectadas") or [],
+            "total_filas": int(preflight.get("total_filas") or 0),
+            "total_trabajadores_validos": int(preflight.get("total_trabajadores_validos") or 0),
+            "alertas_no_criticas": preflight.get("alertas_no_criticas") or [],
+            "preguntas_mostradas": [str(q.get("id") or "") for q in (preflight.get("preguntas_necesarias") or [])],
+        }
+    if preflight_answers:
+        raw_json["preflight_answers"] = dict(preflight_answers)
     run_payload = {
-        "asistencia_import_id": import_id,
+        "asistencia_import_id": int(import_id),
         "cliente": _calculo_cliente_label(clientes),
         "clientes_json": clientes,
         "fecha_inicio": payload["fecha_inicio"],
@@ -3098,7 +3114,7 @@ def calculo_generar():
         "total_empleados": payload["total_empleados"],
         "warning_count": payload["warning_count"],
         "block_count": payload["block_count"],
-        "raw_json": payload["raw_json"],
+        "raw_json": raw_json,
     }
     calculo_id = insert_nomina_calculo_run(db_path, run_payload, created_by=uid, now_iso=now_iso)
     for r in payload["rows"]:
@@ -3106,7 +3122,122 @@ def calculo_generar():
         r["updated_at"] = now_iso
     insert_nomina_calculo_rows_batch(db_path, calculo_id, payload["rows"])
     recount_calculo_run_totals(db_path, calculo_id, now_iso=now_iso)
-    flash("Cálculo preliminar guardado como borrador.", "success")
+    return calculo_id
+
+
+def _build_payload_from_preflight(
+    db_path: str,
+    *,
+    preflight: dict[str, Any],
+    preflight_answers: dict[str, str] | None = None,
+) -> tuple[dict[str, Any] | None, str | None, list[str], dict[str, Any]]:
+    answers = dict(preflight_answers or {})
+    import_id = int(preflight.get("import_id") or 0)
+    clientes = [str(c).strip() for c in (preflight.get("clientes_detectados") or []) if str(c).strip()]
+    cfg = resolve_config_from_preflight_answers(answers)
+    try:
+        payload = build_calculo_payload(
+            db_path,
+            asistencia_import_id=import_id,
+            clientes_filter=clientes,
+            config_form=cfg,
+        )
+    except ValueError as exc:
+        return None, f"No se pudo generar el calculo: {exc}", clientes, cfg
+    return payload, None, clientes, cfg
+
+
+def _render_preflight_or_generate(import_id: int):
+    db_path = _db_path()
+    preflight = build_calculo_preflight(db_path, import_id=int(import_id))
+    if preflight.get("alertas_criticas"):
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=True)
+    if preflight.get("preguntas_necesarias"):
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
+    payload, err, clientes, _ = _build_payload_from_preflight(db_path, preflight=preflight, preflight_answers={})
+    if payload is None:
+        flash(err or "No se pudo generar el calculo preliminar.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    calculo_id = _create_calculo_run(
+        db_path=db_path,
+        import_id=int(import_id),
+        clientes=clientes,
+        payload=payload,
+        preflight=preflight,
+        preflight_answers={},
+    )
+    flash("Prevalidacion completada. Calculo preliminar generado con defaults internos.", "success")
+    return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
+
+
+@nomina_bp.get("/calculo")
+@_nomina_dashboard_required
+def calculo_index():
+    imports_list = list_asistencia_imports_for_calculo(_db_path(), limit=100)
+    return render_template(
+        "nomina/calculo_index.html",
+        imports_list=imports_list,
+    )
+
+
+@nomina_bp.post("/calculo/preflight")
+@_nomina_dashboard_required
+def calculo_preflight():
+    import_id = _extract_import_id_from_form()
+    if import_id <= 0:
+        flash("Selecciona una importacion de asistencia valida.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    return _render_preflight_or_generate(import_id)
+
+
+@nomina_bp.post("/calculo/generar")
+@_nomina_dashboard_required
+def calculo_generar():
+    if request.form.get("_from_preflight") != "1":
+        import_id = _extract_import_id_from_form()
+        if import_id <= 0:
+            flash("Selecciona una importacion de asistencia valida.", "error")
+            return redirect(url_for("nomina.calculo_index"))
+        return _render_preflight_or_generate(import_id)
+
+    db_path = _db_path()
+    import_id = _extract_import_id_from_form()
+    if import_id <= 0:
+        flash("Selecciona una importacion de asistencia valida.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    preflight = build_calculo_preflight(db_path, import_id=import_id)
+    if preflight.get("alertas_criticas"):
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=True)
+    answers, answer_errors = _extract_preflight_answers(preflight)
+    if answer_errors:
+        for msg in answer_errors:
+            flash(msg, "error")
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
+    if str(answers.get("alertas_no_criticas") or "") == "cancelar":
+        flash("Operacion cancelada. Revisa la importacion antes de calcular.", "warning")
+        return redirect(url_for("nomina.calculo_index"))
+    payload, err, clientes, cfg = _build_payload_from_preflight(
+        db_path,
+        preflight=preflight,
+        preflight_answers=answers,
+    )
+    if payload is None:
+        flash(err or "No se pudo generar el calculo preliminar.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    payload_cfg = dict(payload.get("config_json") or {})
+    payload_cfg["preflight_answers"] = answers
+    payload_cfg["preflight_defaults"] = dict(CALCULO_DEFAULT_POLICY)
+    payload_cfg["domingo_opcion"] = str(cfg.get("domingo_opcion") or payload_cfg.get("domingo_opcion") or "proporcional")
+    payload["config_json"] = payload_cfg
+    calculo_id = _create_calculo_run(
+        db_path=db_path,
+        import_id=import_id,
+        clientes=clientes,
+        payload=payload,
+        preflight=preflight,
+        preflight_answers=answers,
+    )
+    flash("Calculo preliminar guardado como borrador.", "success")
     return redirect(url_for("nomina.calculo_ver", calculo_id=calculo_id))
 
 

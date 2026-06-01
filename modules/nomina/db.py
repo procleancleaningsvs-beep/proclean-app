@@ -2804,16 +2804,47 @@ def list_asistencia_imports_for_calculo(db_path: str, *, limit: int = 80) -> lis
     try:
         rows = conn.execute(
             """
-            SELECT id, semana, fecha_inicio, fecha_fin, cliente, coordinador, status,
-                   total_rows, error_count, warning_count, created_at, headcount_source
-            FROM nomina_asistencia_imports
+            SELECT i.id, i.semana, i.fecha_inicio, i.fecha_fin, i.cliente, i.coordinador, i.status,
+                   i.total_rows, i.error_count, i.warning_count, i.created_by, i.created_at, i.updated_at,
+                   i.headcount_source, i.clientes_json, i.raw_json,
+                   (
+                       SELECT COUNT(*)
+                       FROM nomina_asistencia_rows r
+                       WHERE r.import_id = i.id
+                         AND TRIM(COALESCE(r.errors_json, '[]')) IN ('[]', '')
+                   ) AS total_valid_rows,
+                   (
+                       SELECT COUNT(DISTINCT CASE
+                           WHEN TRIM(COALESCE(r.nss, '')) <> '' THEN 'nss:' || TRIM(r.nss)
+                           ELSE 'nombre:' || LOWER(TRIM(COALESCE(r.nombre_empleado, '')))
+                                || '|cliente:' || LOWER(TRIM(COALESCE(r.cliente, '')))
+                       END)
+                       FROM nomina_asistencia_rows r
+                       WHERE r.import_id = i.id
+                         AND TRIM(COALESCE(r.errors_json, '[]')) IN ('[]', '')
+                   ) AS total_valid_workers,
+                   (
+                       SELECT GROUP_CONCAT(DISTINCT TRIM(r.planta))
+                       FROM nomina_asistencia_rows r
+                       WHERE r.import_id = i.id
+                         AND TRIM(COALESCE(r.planta, '')) <> ''
+                   ) AS plantas_detectadas
+            FROM nomina_asistencia_imports i
             WHERE (COALESCE(TRIM(deleted_at), '') = '')
             ORDER BY datetime(created_at) DESC, id DESC
             LIMIT ?
             """,
             (int(limit),),
         ).fetchall()
-        return [dict(r) for r in rows]
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            d["clientes"] = json.loads(d.get("clientes_json") or "[]")
+            d["raw_json"] = json.loads(d.get("raw_json") or "{}")
+            plantas_csv = str(d.get("plantas_detectadas") or "")
+            d["plantas"] = [p.strip() for p in plantas_csv.split(",") if p.strip()]
+            out.append(d)
+        return out
     finally:
         conn.close()
 
