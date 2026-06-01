@@ -27,7 +27,10 @@ from flask import (
 )
 from zoneinfo import ZoneInfo
 
-from modules.nomina.asistencia_excel import build_asistencia_template_file
+from modules.nomina.asistencia_excel import (
+    build_asistencia_template_file,
+    format_period_slug,
+)
 from modules.nomina.asistencia_groups import (
     GROUP_AURIGA,
     GROUP_CARRIER,
@@ -958,20 +961,6 @@ def descargar_plantilla():
             cliente_header = GROUP_LABELS.get(base_group, base_group)
     else:
         clientes = _extract_selected_clientes_from_form()
-        if not clientes:
-            all_clientes, _, _, _ = _available_clientes_headcount()
-            if all_clientes:
-                clientes = list(all_clientes)
-                flash(
-                    "Sin clientes seleccionados: se usaron todos los clientes disponibles en Headcount para la plantilla.",
-                    "info",
-                )
-            else:
-                flash(
-                    "Selecciona al menos un cliente o captura uno en opciones avanzadas (no hay lista desde Headcount).",
-                    "error",
-                )
-                return redirect(url_for("nomina.master_hub"))
         cliente_header = _cliente_header_label(clientes)
 
     payload = build_asistencia_template_file(
@@ -983,16 +972,11 @@ def descargar_plantilla():
     )
     output = BytesIO(payload)
     output.seek(0)
+    period_slug = format_period_slug(fecha_inicio, fecha_fin)
     if base_group:
-        filename = (
-            f"Master_Asistencia_BASE_{base_group}_"
-            f"{fecha_inicio.strftime('%Y%m%d')}_{fecha_fin.strftime('%Y%m%d')}.xlsx"
-        )
+        filename = f"Master_Asistencia_BASE_{base_group}_{period_slug}.xlsx"
     else:
-        filename = (
-            "Master_Asistencia_Vacia_"
-            f"{fecha_inicio.strftime('%Y%m%d')}_{fecha_fin.strftime('%Y%m%d')}.xlsx"
-        )
+        filename = f"Master_Asistencia_Vacia_{period_slug}.xlsx"
     return send_file(
         output,
         as_attachment=True,

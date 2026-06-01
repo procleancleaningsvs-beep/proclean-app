@@ -39,6 +39,20 @@ COL_OBSERVACIONES = 21          # U
 
 START_DATA_ROW = 5
 DAILY_HEADER_ROW = 4
+MONTH_ABBR_ES = {
+    1: "ene",
+    2: "feb",
+    3: "mar",
+    4: "abr",
+    5: "may",
+    6: "jun",
+    7: "jul",
+    8: "ago",
+    9: "sep",
+    10: "oct",
+    11: "nov",
+    12: "dic",
+}
 
 
 def _resolve_template_xlsx_path() -> Path:
@@ -101,8 +115,36 @@ def _resolve_columns(ws: Worksheet) -> dict[str, int]:
     return resolved
 
 
+def format_period_label(fecha_inicio: date, fecha_fin: date) -> str:
+    if fecha_inicio.year == fecha_fin.year and fecha_inicio.month == fecha_fin.month:
+        return f"{fecha_inicio.day} al {fecha_fin.day} {MONTH_ABBR_ES[fecha_inicio.month]} {fecha_inicio.year}"
+    if fecha_inicio.year == fecha_fin.year:
+        return (
+            f"{fecha_inicio.day:02d} {MONTH_ABBR_ES[fecha_inicio.month]} "
+            f"al {fecha_fin.day:02d} {MONTH_ABBR_ES[fecha_fin.month]} {fecha_inicio.year}"
+        )
+    return (
+        f"{fecha_inicio.day:02d} {MONTH_ABBR_ES[fecha_inicio.month]} {fecha_inicio.year} "
+        f"al {fecha_fin.day:02d} {MONTH_ABBR_ES[fecha_fin.month]} {fecha_fin.year}"
+    )
+
+
+def format_period_slug(fecha_inicio: date, fecha_fin: date) -> str:
+    if fecha_inicio.year == fecha_fin.year and fecha_inicio.month == fecha_fin.month:
+        return f"{fecha_inicio.day}_al_{fecha_fin.day}_{MONTH_ABBR_ES[fecha_inicio.month]}_{fecha_inicio.year}"
+    if fecha_inicio.year == fecha_fin.year:
+        return (
+            f"{fecha_inicio.day:02d}_{MONTH_ABBR_ES[fecha_inicio.month]}_al_"
+            f"{fecha_fin.day:02d}_{MONTH_ABBR_ES[fecha_fin.month]}_{fecha_inicio.year}"
+        )
+    return (
+        f"{fecha_inicio.day:02d}_{MONTH_ABBR_ES[fecha_inicio.month]}_{fecha_inicio.year}_al_"
+        f"{fecha_fin.day:02d}_{MONTH_ABBR_ES[fecha_fin.month]}_{fecha_fin.year}"
+    )
+
+
 def week_label(fecha_inicio: date, fecha_fin: date) -> str:
-    return f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    return format_period_label(fecha_inicio, fecha_fin)
 
 
 def build_daily_headers(fecha_inicio: date) -> list[str]:

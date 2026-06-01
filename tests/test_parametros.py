@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 
-from modules.nomina.asistencia_excel import build_asistencia_template_file
+from modules.nomina.asistencia_excel import (
+    build_asistencia_template_file,
+    format_period_label,
+    format_period_slug,
+)
 from modules.nomina.contpaq_excel import parse_contpaq
 from modules.nomina.db import NominaBaseRow
 from modules.nomina.parametros_excel import parse_nomina_actual
@@ -54,7 +58,7 @@ def test_master_v4_template_uses_horas_extra_normales():
     )
     parsed = parse_and_validate_asistencia_excel(data, filename="master_v4.xlsx")
     assert parsed["cliente"] == "Carrier"
-    assert parsed["semana"].startswith("01/05/2026")
+    assert parsed["semana"] == "1 al 7 may 2026"
     assert parsed["total_rows"] == 1
     row = parsed["rows"][0]
     # FE precargado en V1 (1 mayo 2026)
@@ -92,6 +96,15 @@ def test_master_v4_preserves_cf_and_validations():
     ws = wb["Asistencia"]
     assert len(list(ws.conditional_formatting._cf_rules.keys())) >= 1
     assert len(ws.data_validations.dataValidation) >= 1
+
+
+def test_period_format_label_and_slug_variants():
+    assert format_period_label(date(2026, 5, 22), date(2026, 5, 28)) == "22 al 28 may 2026"
+    assert format_period_slug(date(2026, 5, 22), date(2026, 5, 28)) == "22_al_28_may_2026"
+    assert format_period_label(date(2026, 5, 28), date(2026, 6, 3)) == "28 may al 03 jun 2026"
+    assert format_period_slug(date(2026, 5, 28), date(2026, 6, 3)) == "28_may_al_03_jun_2026"
+    assert format_period_label(date(2026, 12, 30), date(2027, 1, 5)) == "30 dic 2026 al 05 ene 2027"
+    assert format_period_slug(date(2026, 12, 30), date(2027, 1, 5)) == "30_dic_2026_al_05_ene_2027"
 
 
 def test_parse_nomina_carrier_extracts_base_params(carrier_bytes):
