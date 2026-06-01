@@ -99,6 +99,11 @@
     <div class="nomi-legend-grid" id="nomi-legend-host"></div>
   </details>
 
+  <div class="nomi-global-search-wrap">
+    <input type="search" id="nomi-global-search" class="nomi-global-search" placeholder="Buscar en asistencia…" autocomplete="off">
+    <button type="button" id="nomi-global-search-clear" class="nomi-global-search-clear" hidden aria-label="Limpiar búsqueda">×</button>
+  </div>
+
   <div class="nomi-table-wrap">
     <table class="nomi-table" id="asistencia-viz-table">
       <thead>
@@ -229,12 +234,66 @@
   const opClientesList = document.getElementById("op-clientes-list");
   const opPuestosList = document.getElementById("op-puestos-list");
   const opFilterHint = document.getElementById("op-filter-hint");
+  const globalSearchInput = document.getElementById("nomi-global-search");
+  const globalSearchClear = document.getElementById("nomi-global-search-clear");
 
   const columnFilters = {};
   let columnSort = null;
   let activeCol = null;
   let activeBtn = null;
   let debTimer = null;
+  let globalSearchQuery = "";
+  let globalSearchDebTimer = null;
+  let filterAnchorIndex = -1;
+  let skipNextFilterChange = false;
+
+  function normalizeForSearch(s) {
+    return normalizeSpaces(s).toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function buildRowSearchText(tr) {
+    const parts = [];
+    for (let c = 0; c < tr.children.length; c++) parts.push(cellText(tr, c));
+    parts.push(tr.getAttribute("data-mensajes") || "");
+    return normalizeForSearch(parts.join(" "));
+  }
+
+  function cacheRowSearchText() {
+    if (!tbody) return;
+    tbody.querySelectorAll("tr").forEach(function (tr) {
+      tr.dataset.searchText = buildRowSearchText(tr);
+    });
+  }
+
+  function passesGlobalSearch(tr) {
+    const q = normalizeForSearch(globalSearchQuery);
+    if (!q) return true;
+    const hay = tr.dataset.searchText || buildRowSearchText(tr);
+    return hay.indexOf(q) >= 0;
+  }
+
+  function passesColumnFilters(tr) {
+    for (const colStr of Object.keys(columnFilters)) {
+      const col = parseInt(colStr, 10);
+      const f = columnFilters[col];
+      if (!f) continue;
+      const isDaily = isDailyCol(col);
+      if (f.kind === "text") {
+        const q = (f.query || "").trim().toLowerCase();
+        if (!q) continue;
+        if (col === COL.mensajes) {
+          const pack = (tr.getAttribute("data-mensajes") || "").toLowerCase();
+          if (!pack.includes(q)) return false;
+        } else if (!cellText(tr, col).toLowerCase().includes(q)) {
+          return false;
+        }
+        continue;
+      }
+      if (f.kind === "set" && !passesSetFilter(tr, col, isDaily, f)) return false;
+    }
+    return true;
+  }
 
   function initOriginalRowOrder() {
     if (!tbody) return;
@@ -381,6 +440,7 @@
   function renderClientesSummary(el, clientCounts) {
     if (!el) return;
     el.innerHTML = "";
+    el.classList.remove("nomi-op-clientes--single");
     const entries = Array.from(clientCounts.entries())
       .sort(function (a, b) {
         if (b[1] !== a[1]) return b[1] - a[1];
@@ -399,6 +459,7 @@
       chip.innerHTML = entry[0] + " <strong>" + entry[1] + "</strong>";
       el.appendChild(chip);
     });
+    if (entries.length === 1) el.classList.add("nomi-op-clientes--single");
   }
 
   function renderPlantasSummary(el, plantaPuesto) {
@@ -428,25 +489,19 @@
       block.appendChild(title);
       const chips = document.createElement("div");
       chips.className = "nomi-op-puesto-chips";
-      const maxShow = 4;
-      puestos.slice(0, maxShow).forEach(function (pp) {
+      puestos.forEach(function (pp) {
         const chip = document.createElement("span");
         chip.className = "nomi-op-puesto-chip";
         chip.innerHTML = pp[0] + "<strong>" + pp[1] + "</strong>";
         chips.appendChild(chip);
       });
       block.appendChild(chips);
-      if (puestos.length > maxShow) {
-        const more = document.createElement("div");
-        more.className = "nomi-op-more";
-        more.textContent = "+" + (puestos.length - maxShow) + " más";
-        block.appendChild(more);
-      }
       el.appendChild(block);
     });
   }
 
   function hasAnyFilterActive() {
+    if (globalSearchQuery.trim()) return true;
     return Object.keys(columnFilters).some(function (colStr) {
       return filterIsActive(parseInt(colStr, 10));
     });
@@ -578,24 +633,8 @@
   }
 
   function rowMatches(tr) {
-    for (const colStr of Object.keys(columnFilters)) {
-      const col = parseInt(colStr, 10);
-      const f = columnFilters[col];
-      if (!f) continue;
-      const isDaily = isDailyCol(col);
-      if (f.kind === "text") {
-        const q = (f.query || "").trim().toLowerCase();
-        if (!q) continue;
-        if (col === COL.mensajes) {
-          const pack = (tr.getAttribute("data-mensajes") || "").toLowerCase();
-          if (!pack.includes(q)) return false;
-        } else if (!cellText(tr, col).toLowerCase().includes(q)) {
-          return false;
-        }
-        continue;
-      }
-      if (f.kind === "set" && !passesSetFilter(tr, col, isDaily, f)) return false;
-    }
+    if (!passesColumnFilters(tr)) return false;
+    if (!passesGlobalSearch(tr)) return false;
     return true;
   }
 
@@ -778,9 +817,14 @@
     renderSetList(col, isDaily);
   }
 
+  function getVisibleFilterCheckboxes() {
+    return Array.from(setList.querySelectorAll("input[type=checkbox]"));
+  }
+
   function openSetPanel(col, btn, label) {
     activeCol = col;
     activeBtn = btn;
+    filterAnchorIndex = -1;
     panelTitle.textContent = "Filtrar: " + label;
     setMode.hidden = false;
     textMode.hidden = true;
@@ -835,7 +879,45 @@
     selectAllInSetFilter(activeCol, isDailyCol(activeCol), setAll.checked);
   });
 
+  setList.addEventListener("click", function (ev) {
+    if (activeCol == null) return;
+    const cb = ev.target?.closest("input[type=checkbox]");
+    if (!cb || cb.id === "nomi-xfilter-all") return;
+    const col = activeCol;
+    const isDaily = isDailyCol(col);
+    const checkboxes = getVisibleFilterCheckboxes();
+    const idx = checkboxes.indexOf(cb);
+    if (idx < 0) return;
+
+    if (ev.shiftKey && filterAnchorIndex >= 0) {
+      ev.preventDefault();
+      skipNextFilterChange = true;
+      const start = Math.min(filterAnchorIndex, idx);
+      const end = Math.max(filterAnchorIndex, idx);
+      for (let i = start; i <= end; i++) checkboxes[i].checked = true;
+      applySetFilter(col, isDaily);
+      renderSetList(col, isDaily);
+      return;
+    }
+
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      skipNextFilterChange = true;
+      cb.checked = !cb.checked;
+      filterAnchorIndex = idx;
+      applySetFilter(col, isDaily);
+      renderSetList(col, isDaily);
+      return;
+    }
+
+    filterAnchorIndex = idx;
+  });
+
   setList.addEventListener("change", function (ev) {
+    if (skipNextFilterChange) {
+      skipNextFilterChange = false;
+      return;
+    }
     if (activeCol == null) return;
     const col = activeCol;
     const isDaily = isDailyCol(col);
@@ -891,10 +973,34 @@
   document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {
     Object.keys(columnFilters).forEach(function (k) { delete columnFilters[k]; });
     columnSort = null;
+    globalSearchQuery = "";
+    if (globalSearchInput) globalSearchInput.value = "";
+    if (globalSearchClear) globalSearchClear.hidden = true;
     textInput.value = "";
     setSearch.value = "";
     closePanel();
     runFilters();
+  });
+
+  function syncGlobalSearchClearBtn() {
+    if (globalSearchClear) globalSearchClear.hidden = !globalSearchQuery.trim();
+  }
+
+  globalSearchInput?.addEventListener("input", function () {
+    if (globalSearchDebTimer) clearTimeout(globalSearchDebTimer);
+    globalSearchDebTimer = setTimeout(function () {
+      globalSearchQuery = globalSearchInput.value || "";
+      syncGlobalSearchClearBtn();
+      runFilters();
+    }, 120);
+  });
+
+  globalSearchClear?.addEventListener("click", function () {
+    globalSearchQuery = "";
+    if (globalSearchInput) globalSearchInput.value = "";
+    syncGlobalSearchClearBtn();
+    runFilters();
+    globalSearchInput?.focus();
   });
 
   sortAscText?.addEventListener("click", function () {
@@ -928,6 +1034,7 @@
   if (vizRoot) vizRoot.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
 
   initOriginalRowOrder();
+  cacheRowSearchText();
   paintDailyCells();
   refreshMetricChipsVisibility();
   runFilters();

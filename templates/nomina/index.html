@@ -52,20 +52,26 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
 .nomi-op-kpi--primary { border-color:#cbd5e1; background:#fff; }
 .nomi-op-kpi span { display:block; color:#64748b; font-size:.72rem; }
 .nomi-op-kpi strong { font-size:.88rem; color:#0f172a; }
-.nomi-op-grid { display:grid; grid-template-columns:minmax(0, 35%) minmax(0, 65%); gap:.5rem; align-items:start; }
+.nomi-op-grid { display:grid; grid-template-columns:minmax(0, 25%) minmax(0, 75%); gap:.5rem; align-items:start; }
 .nomi-op-block { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.4rem .5rem; min-width:0; }
+.nomi-op-block--clientes { padding:.35rem .45rem; }
 .nomi-op-block h4 { margin:.05rem 0 .35rem; font-size:.78rem; color:#475569; font-weight:600; }
-.nomi-op-clientes { display:flex; flex-wrap:wrap; gap:.3rem; max-height:120px; overflow:auto; }
+.nomi-op-clientes { display:flex; flex-wrap:wrap; gap:.3rem; max-height:100px; overflow:auto; }
+.nomi-op-clientes--single { max-height:none; }
 .nomi-op-client-chip { display:inline-flex; align-items:center; gap:.35rem; font-size:.74rem; padding:.18rem .45rem; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; color:#334155; }
 .nomi-op-client-chip strong { font-size:.78rem; color:#0f172a; font-weight:700; }
-.nomi-op-plantas { display:grid; gap:.35rem; max-height:168px; overflow:auto; padding-right:.15rem; }
+.nomi-op-plantas { display:grid; gap:.35rem; max-height:200px; overflow:auto; padding-right:.15rem; }
 .nomi-op-planta-block { border:1px solid #e5e7eb; border-radius:8px; background:#fafafa; padding:.3rem .4rem; }
 .nomi-op-planta-name { font-size:.78rem; font-weight:700; color:#0f172a; margin-bottom:.25rem; }
 .nomi-op-puesto-chips { display:flex; flex-wrap:wrap; gap:.25rem; }
 .nomi-op-puesto-chip { font-size:.72rem; padding:.12rem .38rem; border-radius:999px; border:1px solid #e2e8f0; background:#fff; color:#334155; white-space:nowrap; }
 .nomi-op-puesto-chip strong { font-weight:700; color:#0f172a; margin-left:.15rem; }
-.nomi-op-more { font-size:.7rem; color:#64748b; margin-top:.15rem; font-style:italic; }
 .nomi-op-empty { font-size:.76rem; color:#94a3b8; margin:0; }
+.nomi-global-search-wrap { display:flex; align-items:center; gap:.35rem; margin:.45rem 0 .55rem; }
+.nomi-global-search { flex:1; min-width:0; padding:.35rem .55rem; border:1px solid #e5e7eb; border-radius:8px; font-size:.82rem; background:#fff; }
+.nomi-global-search:focus { outline:2px solid #dbeafe; border-color:#93c5fd; }
+.nomi-global-search-clear { flex-shrink:0; width:1.75rem; height:1.75rem; border:1px solid #e5e7eb; border-radius:6px; background:#f8fafc; color:#64748b; cursor:pointer; font-size:1rem; line-height:1; padding:0; }
+.nomi-global-search-clear:hover { background:#f1f5f9; color:#334155; }
 .nomi-hub-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:.5rem; margin-bottom:.75rem; }
 @media (max-width:900px){ .nomi-hub-kpis { grid-template-columns:1fr 1fr; } }
 @media (max-width:900px){ .nomi-op-kpis { grid-template-columns:1fr 1fr; } .nomi-op-grid { grid-template-columns:1fr; } .nomi-op-block--plantas { order:2; } }
