@@ -156,13 +156,14 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
               </div>
               {% if card.available %}
               <div class="nom-base-meta">
+                {% if card.note %}<div><span class="muted">{{ card.note }}</span></div>{% endif %}
                 <div><span class="muted">Periodo:</span> <strong>{{ card.periodo }}</strong></div>
                 <div><span class="muted">Carga:</span> {{ card.created_at[:16] if card.created_at else '—' }}</div>
                 <div title="{{ card.source_name }}"><span class="muted">Archivo:</span> {{ card.source_name_short }}</div>
                 <div><span class="muted">Regs/Err/War:</span> {{ card.total_rows }} / {{ card.error_count }} / {{ card.warning_count }}</div>
               </div>
               {% else %}
-              <div class="nom-base-meta">Sin carga previa para este grupo.</div>
+              <div class="nom-base-meta">{{ card.note or 'Sin carga previa para este grupo.' }}</div>
               {% endif %}
               <button type="submit" name="download_mode" value="base:{{ card.code }}" class="btn btn-secondary" {% if not card.available %}disabled{% endif %}>
                 Descargar base {{ card.label }}

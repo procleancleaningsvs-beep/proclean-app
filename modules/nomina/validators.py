@@ -9,6 +9,10 @@ from typing import Any
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
+from modules.nomina.asistencia_miercoles import (
+    is_miercoles_v3_excel,
+    parse_miercoles_v3_excel,
+)
 from modules.nomina.config import VALID_DAILY_KEYS
 
 # v4 column layout (1-based)
@@ -191,6 +195,12 @@ def _row_is_empty(ws: Worksheet, row_number: int, *, max_col: int) -> bool:
 
 
 def parse_and_validate_asistencia_excel(file_bytes: bytes, filename: str) -> dict[str, Any]:
+    if is_miercoles_v3_excel(file_bytes):
+        try:
+            return parse_miercoles_v3_excel(file_bytes, filename)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
     wb = load_workbook(BytesIO(file_bytes), data_only=True)
     if "Asistencia" not in wb.sheetnames:
         raise ValidationError("El archivo no contiene la hoja obligatoria 'Asistencia'.")

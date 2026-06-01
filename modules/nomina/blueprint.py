@@ -31,6 +31,7 @@ from modules.nomina.asistencia_excel import (
     build_asistencia_template_file,
     format_period_slug,
 )
+from modules.nomina.asistencia_miercoles import build_miercoles_template_file
 from modules.nomina.asistencia_groups import (
     GROUP_AURIGA,
     GROUP_CARRIER,
@@ -745,6 +746,24 @@ def _build_base_group_cards(history: list[dict[str, Any]]) -> list[dict[str, Any
     for code in _BASE_GROUP_ORDER:
         item = latest.get(code)
         if item is None:
+            if code == GROUP_AURIGA:
+                cards.append(
+                    {
+                        "code": code,
+                        "label": GROUP_LABELS.get(code, code.title()),
+                        "available": True,
+                        "status": "Plantilla miercoles",
+                        "note": "Sin carga previa; se descargara plantilla limpia",
+                        "periodo": "—",
+                        "created_at": "",
+                        "source_name": "Plantilla_Asistencia_Miercoles_v3.xlsx",
+                        "source_name_short": "Plantilla_Asistencia_Miercoles_v3.xlsx",
+                        "total_rows": 0,
+                        "error_count": 0,
+                        "warning_count": 0,
+                    }
+                )
+                continue
             cards.append(
                 {
                     "code": code,
@@ -769,6 +788,7 @@ def _build_base_group_cards(history: list[dict[str, Any]]) -> list[dict[str, Any
                 "total_rows": int(item.get("total_rows") or 0),
                 "error_count": int(item.get("error_count") or 0),
                 "warning_count": int(item.get("warning_count") or 0),
+                "note": "Plantilla miercoles" if code == GROUP_AURIGA else "",
             }
         )
     return cards
@@ -943,33 +963,44 @@ def descargar_plantilla():
         full_history = _load_asistencia_history_for_hub(limit=300)
         by_group = _latest_imports_by_base_group(full_history)
         latest = by_group.get(base_group)
-        if latest is None:
+        if latest is None and base_group != GROUP_AURIGA:
             flash(f"Sin carga previa para {GROUP_LABELS.get(base_group, base_group)}.", "warning")
             return redirect(url_for("nomina.master_hub"))
-        imp = get_asistencia_import(_db_path(), int(latest["id"]))
-        if imp is None or not _user_can_view_asistencia_import(imp):
-            flash("No se encontró la importación base o no tienes permiso para verla.", "error")
-            return redirect(url_for("nomina.master_hub"))
-        base_rows = _base_rows_from_asistencia_import(imp)
-        if not base_rows:
-            flash(
-                "La importación base existe pero no tiene filas válidas para precargar; se descargó con estructura vacía.",
-                "info",
-            )
-        cliente_header = _cliente_label_for_import(list(imp.get("clientes") or []))
-        if not cliente_header or cliente_header == "NO_DETECTADO":
+        if latest is not None:
+            imp = get_asistencia_import(_db_path(), int(latest["id"]))
+            if imp is None or not _user_can_view_asistencia_import(imp):
+                flash("No se encontró la importación base o no tienes permiso para verla.", "error")
+                return redirect(url_for("nomina.master_hub"))
+            base_rows = _base_rows_from_asistencia_import(imp)
+            if not base_rows:
+                flash(
+                    "La importación base existe pero no tiene filas válidas para precargar; se descargó con estructura vacía.",
+                    "info",
+                )
+            cliente_header = _cliente_label_for_import(list(imp.get("clientes") or []))
+            if not cliente_header or cliente_header == "NO_DETECTADO":
+                cliente_header = GROUP_LABELS.get(base_group, base_group)
+        else:
             cliente_header = GROUP_LABELS.get(base_group, base_group)
     else:
         clientes = _extract_selected_clientes_from_form()
         cliente_header = _cliente_header_label(clientes)
 
-    payload = build_asistencia_template_file(
-        fecha_inicio=fecha_inicio,
-        fecha_fin=fecha_fin,
-        cliente=cliente_header,
-        coordinador=coordinador,
-        base_rows=base_rows,
-    )
+    if base_group == GROUP_AURIGA:
+        payload = build_miercoles_template_file(
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            coordinador=coordinador,
+            base_rows=base_rows,
+        )
+    else:
+        payload = build_asistencia_template_file(
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            cliente=cliente_header,
+            coordinador=coordinador,
+            base_rows=base_rows,
+        )
     output = BytesIO(payload)
     output.seek(0)
     period_slug = format_period_slug(fecha_inicio, fecha_fin)
@@ -1030,11 +1061,14 @@ def importar_asistencia():
     parsed_rows, headcount_source, pending_matches, clientes_fuera = _enrich_rows_with_headcount(
         parsed_rows, _db_path()
     )
+    template_warnings = [str(x).strip() for x in (parsed.get("template_warnings") or []) if str(x).strip()]
     clientes_detectados = sorted(
         {str(r.get("cliente") or "").strip() for r in parsed_rows if str(r.get("cliente") or "").strip()}
     )
+    if str(parsed.get("template_kind") or "").strip().lower() == "miercoles_v3":
+        clientes_detectados = ["AURIGA"]
     error_count = sum(len(r.get("errors") or []) for r in parsed_rows)
-    warning_count = sum(len(r.get("warnings") or []) for r in parsed_rows)
+    warning_count = sum(len(r.get("warnings") or []) for r in parsed_rows) + len(template_warnings)
 
     payload = {
         "semana": parsed.get("semana") or "",
@@ -1063,6 +1097,9 @@ def importar_asistencia():
             "clientes_fuera_headcount": clientes_fuera,
             "headcount_source": headcount_source,
             "pending_headcount_matches": pending_matches,
+            "template_kind": parsed.get("template_kind") or "regular",
+            "template_warnings": template_warnings,
+            "source_sheet": parsed.get("source_sheet") or "",
         },
     }
     created_by = int(g.user["id"]) if g.user is not None else None
@@ -1075,6 +1112,8 @@ def importar_asistencia():
             + ("…" if len(clientes_fuera) > 6 else ""),
             "warning",
         )
+    for warning in template_warnings[:2]:
+        flash(warning, "warning")
     return redirect(url_for("nomina.master_hub", import_id=import_id))
 
 
