@@ -302,11 +302,35 @@
     return uniqColEntries(col, isDaily).map(function (e) { return e.key; });
   }
 
-  function selectedSetForCol(col, isDaily) {
+  function getSetFilterIncluded(col, isDaily) {
     const allKeys = allColKeys(col, isDaily);
     const f = columnFilters[col];
-    if (f && f.kind === "set" && f.values) return new Set(f.values);
+    if (f && f.kind === "set") {
+      const stored = f.included instanceof Set ? f.included : (f.values instanceof Set ? f.values : null);
+      if (stored) return new Set(stored);
+    }
     return new Set(allKeys);
+  }
+
+  function persistSetFilterIncluded(col, isDaily, included) {
+    const allKeys = allColKeys(col, isDaily);
+    if (included.size >= allKeys.length) {
+      delete columnFilters[col];
+    } else if (included.size === 0) {
+      columnFilters[col] = { kind: "set", included: new Set() };
+    } else {
+      columnFilters[col] = { kind: "set", included: new Set(included) };
+    }
+  }
+
+  function readCheckboxFilterKey(cb) {
+    if (!cb) return null;
+    if (cb.hasAttribute("data-filter-key")) return cb.getAttribute("data-filter-key");
+    return null;
+  }
+
+  function selectedSetForCol(col, isDaily) {
+    return getSetFilterIncluded(col, isDaily);
   }
 
   function filterIsActive(col) {
@@ -315,8 +339,9 @@
     if (f.kind === "text") return Boolean((f.query || "").trim());
     if (f.kind === "set") {
       const allKeys = allColKeys(col, isDailyCol(col));
-      if (!f.values || f.values.size === 0) return true;
-      return f.values.size < allKeys.length;
+      const included = f.included instanceof Set ? f.included : (f.values instanceof Set ? f.values : null);
+      if (!included || included.size === 0) return true;
+      return included.size < allKeys.length;
     }
     return false;
   }
@@ -326,6 +351,15 @@
       const col = parseInt(btn.getAttribute("data-col"), 10);
       btn.classList.toggle("is-active", filterIsActive(col) || (columnSort && columnSort.col === col));
     });
+  }
+
+  function passesSetFilter(tr, col, isDaily, f) {
+    const allKeys = allColKeys(col, isDaily);
+    const included = f.included instanceof Set ? f.included : (f.values instanceof Set ? f.values : null);
+    if (!included || included.size >= allKeys.length) return true;
+    if (included.size === 0) return false;
+    const cellKey = rowFilterKey(tr, col, isDaily);
+    return included.has(cellKey);
   }
 
   function rowMatches(tr) {
@@ -345,8 +379,7 @@
         }
         continue;
       }
-      const key = rowFilterKey(tr, col, isDaily);
-      if (!f.values || !f.values.has(key)) return false;
+      if (f.kind === "set" && !passesSetFilter(tr, col, isDaily, f)) return false;
     }
     return true;
   }
@@ -397,7 +430,10 @@
 
   function runFilters() {
     const rows = Array.from(table.querySelectorAll("tbody tr"));
-    rows.forEach(function (tr) { tr.style.display = rowMatches(tr) ? "" : "none"; });
+    rows.forEach(function (tr) {
+      const visible = rowMatches(tr);
+      tr.style.display = visible ? "" : "none";
+    });
     applySortToDom();
     applyFilteredMetrics(rows.filter(function (tr) { return tr.style.display !== "none"; }));
     syncFilterButtons();
@@ -460,7 +496,7 @@
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.checked = selected.has(entry.key);
-      cb.dataset.filterKey = entry.key;
+      cb.setAttribute("data-filter-key", entry.key);
       label.appendChild(cb);
       label.appendChild(document.createTextNode(" " + entry.label));
       setList.appendChild(label);
@@ -474,31 +510,31 @@
   }
 
   function applySetFilter(col, isDaily) {
-    const allKeys = allColKeys(col, isDaily);
-    const selected = selectedSetForCol(col, isDaily);
+    const prevIncluded = getSetFilterIncluded(col, isDaily);
+    const included = new Set();
+    const visibleKeys = new Set();
     setList.querySelectorAll("input[type=checkbox]").forEach(function (cb) {
-      const key = cb.dataset.filterKey;
-      if (cb.checked) selected.add(key);
-      else selected.delete(key);
+      const key = readCheckboxFilterKey(cb);
+      if (key === null) return;
+      visibleKeys.add(key);
+      if (cb.checked) included.add(key);
     });
-    if (selected.size === 0) {
-      columnFilters[col] = { kind: "set", values: new Set() };
-    } else if (selected.size >= allKeys.length) {
-      delete columnFilters[col];
-    } else {
-      columnFilters[col] = { kind: "set", values: selected };
-    }
+    prevIncluded.forEach(function (key) {
+      if (!visibleKeys.has(key)) included.add(key);
+    });
+    persistSetFilterIncluded(col, isDaily, included);
     runFilters();
   }
 
   function selectAllInSetFilter(col, isDaily, checked) {
     const q = (setSearch.value || "").trim().toLowerCase();
-    const selected = selectedSetForCol(col, isDaily);
+    const allKeys = allColKeys(col, isDaily);
+    let included = getSetFilterIncluded(col, isDaily);
     if (!q) {
       if (checked) {
         delete columnFilters[col];
       } else {
-        columnFilters[col] = { kind: "set", values: new Set() };
+        columnFilters[col] = { kind: "set", included: new Set() };
       }
       runFilters();
       renderSetList(col, isDaily);
@@ -506,17 +542,10 @@
     }
     uniqColEntries(col, isDaily).forEach(function (entry) {
       if (String(entry.label).toLowerCase().indexOf(q) < 0) return;
-      if (checked) selected.add(entry.key);
-      else selected.delete(entry.key);
+      if (checked) included.add(entry.key);
+      else included.delete(entry.key);
     });
-    const allKeys = allColKeys(col, isDaily);
-    if (selected.size === 0) {
-      columnFilters[col] = { kind: "set", values: new Set() };
-    } else if (selected.size >= allKeys.length) {
-      delete columnFilters[col];
-    } else {
-      columnFilters[col] = { kind: "set", values: selected };
-    }
+    persistSetFilterIncluded(col, isDaily, included);
     runFilters();
     renderSetList(col, isDaily);
   }
