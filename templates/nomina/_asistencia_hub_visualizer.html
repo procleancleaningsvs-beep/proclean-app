@@ -149,6 +149,15 @@
 
 <div id="nomi-xfilter-panel" class="nomi-xfilter-panel" hidden role="dialog" aria-modal="true">
   <div class="nomi-xfilter-title" id="nomi-xfilter-title">Filtrar</div>
+  <div class="nomi-xfilter-sort" id="nomi-xfilter-sort">
+    <div class="nomi-xfilter-sort-title">Ordenar</div>
+    <div class="nomi-xfilter-sort-btns">
+      <button type="button" data-sort="asc-text" id="nomi-sort-asc-text">A → Z</button>
+      <button type="button" data-sort="desc-text" id="nomi-sort-desc-text">Z → A</button>
+      <button type="button" data-sort="asc-num" id="nomi-sort-asc-num" hidden>Menor → mayor</button>
+      <button type="button" data-sort="desc-num" id="nomi-sort-desc-num" hidden>Mayor → menor</button>
+    </div>
+  </div>
   <div id="nomi-xfilter-set-mode" hidden>
     <input type="search" id="nomi-xfilter-search" class="nomi-xfilter-search" placeholder="Buscar valor…">
     <label class="nomi-xfilter-all"><input type="checkbox" id="nomi-xfilter-all" checked> Seleccionar todo</label>
@@ -170,6 +179,7 @@
 (function () {
   const STYLES = {{ styles_json | safe }};
   const DAILY_KEYS = ["A","F","V","PSS","PCS","I","D","DL","FE","FL","NI","B","R","S","OT"];
+  const EMPTY_SENTINEL = "(vacío)";
   const table = document.getElementById("asistencia-viz-table");
   if (!table) return;
 
@@ -181,22 +191,34 @@
   const setAll = document.getElementById("nomi-xfilter-all");
   const setList = document.getElementById("nomi-xfilter-list");
   const textInput = document.getElementById("nomi-xfilter-text");
+  const sortAscText = document.getElementById("nomi-sort-asc-text");
+  const sortDescText = document.getElementById("nomi-sort-desc-text");
+  const sortAscNum = document.getElementById("nomi-sort-asc-num");
+  const sortDescNum = document.getElementById("nomi-sort-desc-num");
+  const tbody = table.querySelector("tbody");
 
   const columnFilters = {};
+  let columnSort = null;
   let activeCol = null;
   let activeBtn = null;
   let activeKind = "set";
   let debTimer = null;
 
   function norm(s) { return (s || "").toString().replace(/\u00a0/g, " ").trim().toUpperCase(); }
-  function normDaily(s) { return norm(s); }
+
+  function toFilterKey(raw, isDaily) {
+    const t = (raw || "").toString().replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+    if (!t) return isDaily ? "" : EMPTY_SENTINEL;
+    return isDaily ? t.toUpperCase() : t;
+  }
+
   function cellText(tr, col) {
     const cell = tr.children[col];
-    return cell ? (cell.textContent || "").trim() : "";
+    return cell ? (cell.textContent || "").replace(/\u00a0/g, " ").trim() : "";
   }
-  function cellValue(tr, col, isDaily) {
-    const raw = cellText(tr, col);
-    return isDaily ? normDaily(raw) : raw;
+
+  function rowFilterKey(tr, col, isDaily) {
+    return toFilterKey(cellText(tr, col), isDaily);
   }
 
   function cellStyle(code) {
@@ -258,34 +280,51 @@
     set("mf-unk", mf.unknown_keys_total);
   }
 
-  function uniqColValues(col, isDaily) {
-    const out = new Set();
+  function isDailyCol(col) { return col >= 7 && col <= 13; }
+
+  function uniqColEntries(col, isDaily) {
+    const map = new Map();
     table.querySelectorAll("tbody tr").forEach(function (tr) {
-      const v = cellValue(tr, col, isDaily);
-      out.add(v || (isDaily ? "" : "(vacío)"));
+      const raw = cellText(tr, col);
+      const key = toFilterKey(raw, isDaily);
+      if (!map.has(key)) {
+        map.set(key, key === EMPTY_SENTINEL ? EMPTY_SENTINEL : raw);
+      }
     });
-    if (!isDaily && out.has("")) {
-      out.delete("");
-      out.add("(vacío)");
-    }
-    return Array.from(out).sort(function (a, b) {
-      return String(a).localeCompare(String(b), "es", { sensitivity: "base" });
-    });
+    return Array.from(map.entries())
+      .map(function (entry) { return { key: entry[0], label: entry[1] }; })
+      .sort(function (a, b) {
+        return String(a.label).localeCompare(String(b.label), "es", { sensitivity: "base" });
+      });
   }
 
-  function isDailyCol(col) { return col >= 7 && col <= 13; }
+  function allColKeys(col, isDaily) {
+    return uniqColEntries(col, isDaily).map(function (e) { return e.key; });
+  }
+
+  function selectedSetForCol(col, isDaily) {
+    const allKeys = allColKeys(col, isDaily);
+    const f = columnFilters[col];
+    if (f && f.kind === "set" && f.values) return new Set(f.values);
+    return new Set(allKeys);
+  }
 
   function filterIsActive(col) {
     const f = columnFilters[col];
     if (!f) return false;
     if (f.kind === "text") return Boolean((f.query || "").trim());
-    return f.values && f.values.size > 0;
+    if (f.kind === "set") {
+      const allKeys = allColKeys(col, isDailyCol(col));
+      if (!f.values || f.values.size === 0) return true;
+      return f.values.size < allKeys.length;
+    }
+    return false;
   }
 
   function syncFilterButtons() {
     table.querySelectorAll(".nomi-fbtn").forEach(function (btn) {
       const col = parseInt(btn.getAttribute("data-col"), 10);
-      btn.classList.toggle("is-active", filterIsActive(col));
+      btn.classList.toggle("is-active", filterIsActive(col) || (columnSort && columnSort.col === col));
     });
   }
 
@@ -306,19 +345,90 @@
         }
         continue;
       }
-      const val = cellValue(tr, col, isDaily);
-      const cmp = val || (isDaily ? "" : "(vacío)");
-      if (!f.values || !f.values.has(cmp)) return false;
+      const key = rowFilterKey(tr, col, isDaily);
+      if (!f.values || !f.values.has(key)) return false;
     }
     return true;
+  }
+
+  function parseNum(val) {
+    const s = (val || "").toString().replace(/,/g, "").trim();
+    if (!s) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function columnValueKind(col, isDaily) {
+    if (isDaily || col === 22) return "text";
+    const rows = table.querySelectorAll("tbody tr");
+    let numCount = 0, total = 0;
+    rows.forEach(function (tr) {
+      const v = cellText(tr, col);
+      if (!v) return;
+      total += 1;
+      if (parseNum(v) !== null) numCount += 1;
+    });
+    if (total === 0) return "text";
+    return numCount / total >= 0.75 ? "numeric" : "text";
+  }
+
+  function compareRows(a, b) {
+    if (!columnSort) return 0;
+    const col = columnSort.col;
+    const isDaily = isDailyCol(col);
+    const dir = columnSort.dir === "desc" ? -1 : 1;
+    const av = cellText(a, col);
+    const bv = cellText(b, col);
+    if (columnSort.kind === "numeric") {
+      const an = parseNum(av), bn = parseNum(bv);
+      if (an !== null && bn !== null) return (an - bn) * dir;
+      if (an !== null) return -1 * dir;
+      if (bn !== null) return 1 * dir;
+    }
+    return av.localeCompare(bv, "es", { sensitivity: "base", numeric: true }) * dir;
+  }
+
+  function applySortToDom() {
+    if (!tbody || !columnSort) return;
+    const rows = Array.from(tbody.querySelectorAll("tr"));
+    rows.sort(compareRows);
+    rows.forEach(function (tr) { tbody.appendChild(tr); });
   }
 
   function runFilters() {
     const rows = Array.from(table.querySelectorAll("tbody tr"));
     rows.forEach(function (tr) { tr.style.display = rowMatches(tr) ? "" : "none"; });
+    applySortToDom();
     applyFilteredMetrics(rows.filter(function (tr) { return tr.style.display !== "none"; }));
     syncFilterButtons();
     paintDailyCells();
+  }
+
+  function syncSortButtons(col) {
+    const kind = columnValueKind(col, isDailyCol(col));
+    sortAscText.hidden = false;
+    sortDescText.hidden = false;
+    sortAscNum.hidden = kind !== "numeric";
+    sortDescNum.hidden = kind !== "numeric";
+    [sortAscText, sortDescText, sortAscNum, sortDescNum].forEach(function (btn) {
+      btn.classList.remove("is-active");
+    });
+    if (columnSort && columnSort.col === col) {
+      const activeBtn = columnSort.dir === "asc"
+        ? (columnSort.kind === "numeric" ? sortAscNum : sortAscText)
+        : (columnSort.kind === "numeric" ? sortDescNum : sortDescText);
+      if (activeBtn && !activeBtn.hidden) activeBtn.classList.add("is-active");
+    }
+  }
+
+  function applySort(col, dir, kind) {
+    if (columnSort && columnSort.col === col && columnSort.dir === dir && columnSort.kind === kind) {
+      columnSort = null;
+    } else {
+      columnSort = { col: col, dir: dir, kind: kind };
+    }
+    runFilters();
+    syncSortButtons(col);
   }
 
   function closePanel() {
@@ -340,41 +450,75 @@
   }
 
   function renderSetList(col, isDaily) {
-    const allValues = uniqColValues(col, isDaily);
-    const f = columnFilters[col];
-    const selected = f && f.kind === "set" && f.values ? f.values : new Set(allValues);
+    const entries = uniqColEntries(col, isDaily);
+    const selected = selectedSetForCol(col, isDaily);
     const q = (setSearch.value || "").trim().toLowerCase();
     setList.innerHTML = "";
-    allValues.forEach(function (v) {
-      if (q && String(v).toLowerCase().indexOf(q) < 0) return;
-      const id = "xf-" + col + "-" + String(v).replace(/[^a-z0-9]+/gi, "_");
+    entries.forEach(function (entry) {
+      if (q && String(entry.label).toLowerCase().indexOf(q) < 0) return;
       const label = document.createElement("label");
       const cb = document.createElement("input");
       cb.type = "checkbox";
-      cb.value = v;
-      cb.checked = selected.has(v);
-      cb.dataset.value = v;
+      cb.checked = selected.has(entry.key);
+      cb.dataset.filterKey = entry.key;
       label.appendChild(cb);
-      label.appendChild(document.createTextNode(" " + (v || "(vacío)")));
+      label.appendChild(document.createTextNode(" " + entry.label));
       setList.appendChild(label);
     });
     const visible = setList.querySelectorAll("input[type=checkbox]");
     const checked = Array.from(visible).filter(function (c) { return c.checked; });
-    setAll.checked = visible.length > 0 && checked.length === visible.length;
+    const allKeys = allColKeys(col, isDaily);
+    const allSelected = selected.size >= allKeys.length;
+    setAll.checked = visible.length > 0 && checked.length === visible.length && (q ? checked.length > 0 : allSelected);
     setAll.indeterminate = checked.length > 0 && checked.length < visible.length;
   }
 
   function applySetFilter(col, isDaily) {
-    const allValues = uniqColValues(col, isDaily);
-    const checked = Array.from(setList.querySelectorAll("input[type=checkbox]:checked")).map(function (c) { return c.dataset.value; });
-    if (!checked.length) {
+    const allKeys = allColKeys(col, isDaily);
+    const selected = selectedSetForCol(col, isDaily);
+    setList.querySelectorAll("input[type=checkbox]").forEach(function (cb) {
+      const key = cb.dataset.filterKey;
+      if (cb.checked) selected.add(key);
+      else selected.delete(key);
+    });
+    if (selected.size === 0) {
       columnFilters[col] = { kind: "set", values: new Set() };
-    } else if (checked.length >= allValues.length) {
+    } else if (selected.size >= allKeys.length) {
       delete columnFilters[col];
     } else {
-      columnFilters[col] = { kind: "set", values: new Set(checked) };
+      columnFilters[col] = { kind: "set", values: selected };
     }
     runFilters();
+  }
+
+  function selectAllInSetFilter(col, isDaily, checked) {
+    const q = (setSearch.value || "").trim().toLowerCase();
+    const selected = selectedSetForCol(col, isDaily);
+    if (!q) {
+      if (checked) {
+        delete columnFilters[col];
+      } else {
+        columnFilters[col] = { kind: "set", values: new Set() };
+      }
+      runFilters();
+      renderSetList(col, isDaily);
+      return;
+    }
+    uniqColEntries(col, isDaily).forEach(function (entry) {
+      if (String(entry.label).toLowerCase().indexOf(q) < 0) return;
+      if (checked) selected.add(entry.key);
+      else selected.delete(entry.key);
+    });
+    const allKeys = allColKeys(col, isDaily);
+    if (selected.size === 0) {
+      columnFilters[col] = { kind: "set", values: new Set() };
+    } else if (selected.size >= allKeys.length) {
+      delete columnFilters[col];
+    } else {
+      columnFilters[col] = { kind: "set", values: selected };
+    }
+    runFilters();
+    renderSetList(col, isDaily);
   }
 
   function openSetPanel(col, btn, label) {
@@ -385,6 +529,7 @@
     setMode.hidden = false;
     textMode.hidden = true;
     setSearch.value = "";
+    syncSortButtons(col);
     renderSetList(col, isDailyCol(col));
     positionPanel(btn);
   }
@@ -398,8 +543,19 @@
     textMode.hidden = false;
     const f = columnFilters[col];
     textInput.value = f && f.kind === "text" ? (f.query || "") : "";
+    syncSortButtons(col);
     positionPanel(btn);
     textInput.focus();
+  }
+
+  function resetPageScroll() {
+    window.scrollTo({ left: 0, top: window.scrollY, behavior: "auto" });
+    document.documentElement.scrollLeft = 0;
+    document.body.scrollLeft = 0;
+    const main = document.querySelector(".main");
+    if (main) main.scrollLeft = 0;
+    const wrap = document.querySelector(".nomi-table-wrap");
+    if (wrap) wrap.scrollLeft = 0;
   }
 
   table.querySelectorAll(".nomi-fbtn").forEach(function (btn) {
@@ -420,13 +576,13 @@
   });
 
   setAll.addEventListener("change", function () {
-    const checks = setList.querySelectorAll("input[type=checkbox]");
-    checks.forEach(function (c) { c.checked = setAll.checked; });
-    if (activeCol != null) applySetFilter(activeCol, isDailyCol(activeCol));
+    if (activeCol == null) return;
+    selectAllInSetFilter(activeCol, isDailyCol(activeCol), setAll.checked);
   });
 
   setList.addEventListener("change", function () {
     if (activeCol != null) applySetFilter(activeCol, isDailyCol(activeCol));
+    if (activeCol != null) renderSetList(activeCol, isDailyCol(activeCol));
   });
 
   document.getElementById("nomi-xfilter-apply")?.addEventListener("click", function () {
@@ -460,10 +616,28 @@
 
   document.getElementById("nomi-clear-filters")?.addEventListener("click", function () {
     Object.keys(columnFilters).forEach(function (k) { delete columnFilters[k]; });
+    columnSort = null;
     textInput.value = "";
     setSearch.value = "";
     closePanel();
     runFilters();
+  });
+
+  sortAscText?.addEventListener("click", function () {
+    if (activeCol == null) return;
+    applySort(activeCol, "asc", "text");
+  });
+  sortDescText?.addEventListener("click", function () {
+    if (activeCol == null) return;
+    applySort(activeCol, "desc", "text");
+  });
+  sortAscNum?.addEventListener("click", function () {
+    if (activeCol == null) return;
+    applySort(activeCol, "asc", "numeric");
+  });
+  sortDescNum?.addEventListener("click", function () {
+    if (activeCol == null) return;
+    applySort(activeCol, "desc", "numeric");
   });
 
   document.addEventListener("click", function (ev) {
@@ -474,6 +648,10 @@
   });
   window.addEventListener("scroll", closePanel, true);
   window.addEventListener("resize", closePanel);
+
+  resetPageScroll();
+  const vizRoot = document.getElementById("asistencia-viz-root");
+  if (vizRoot) vizRoot.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
 
   paintDailyCells();
   runFilters();
