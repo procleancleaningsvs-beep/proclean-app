@@ -22,6 +22,7 @@ class NominaBaseRow:
     banco: str
     cuenta: str
     nss: str = ""
+    numero_empleado: str = ""
 
 
 def _normalize_cliente_key(value: str) -> str:

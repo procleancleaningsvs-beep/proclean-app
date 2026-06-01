@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 
 from modules.nomina.asistencia_excel import build_asistencia_template_file
 from modules.nomina.contpaq_excel import parse_contpaq
@@ -76,6 +78,20 @@ def test_master_v4_no_holiday_does_not_preload_fe():
     row = parsed["rows"][0]
     daily = [row[f"dia_{i}_value"] for i in range(1, 8)]
     assert all(v == "" for v in daily), f"FE no debería precargarse en semana no festiva: {daily}"
+
+
+def test_master_v4_preserves_cf_and_validations():
+    data = build_asistencia_template_file(
+        fecha_inicio=date(2026, 5, 1),
+        fecha_fin=date(2026, 5, 7),
+        cliente="Carrier",
+        coordinador="QA",
+        base_rows=[],
+    )
+    wb = load_workbook(BytesIO(data))
+    ws = wb["Asistencia"]
+    assert len(list(ws.conditional_formatting._cf_rules.keys())) >= 1
+    assert len(ws.data_validations.dataValidation) >= 1
 
 
 def test_parse_nomina_carrier_extracts_base_params(carrier_bytes):

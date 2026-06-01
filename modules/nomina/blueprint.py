@@ -28,12 +28,21 @@ from flask import (
 from zoneinfo import ZoneInfo
 
 from modules.nomina.asistencia_excel import build_asistencia_template_file
+from modules.nomina.asistencia_groups import (
+    GROUP_AURIGA,
+    GROUP_CARRIER,
+    GROUP_LABELS,
+    GROUP_PEPSI,
+    GROUP_PRIORITY,
+    GROUP_VITRO,
+    classify_asistencia_group,
+    normalize_group_text,
+)
 from modules.nomina.asistencia_metrics import compute_operative_metrics
 from modules.nomina.asistencia_palette import css_vars_for_json
 from modules.nomina.db import (
+    NominaBaseRow,
     get_asistencia_import,
-    get_latest_import_base_rows,
-    get_latest_import_base_rows_multi,
     list_asistencia_imports_master_hub,
     delete_asistencia_import,
     fetch_asistencia_original_file,
@@ -172,6 +181,7 @@ _TEMPLATE_DIR = _BASE / "templates" / "nomina"
 
 _NOMINA_ALLOWED_ROLES = {"admin", "nomina", "coordinador"}
 _NOMINA_DASHBOARD_ROLES = {"admin", "nomina"}
+_BASE_GROUP_ORDER = (GROUP_AURIGA, GROUP_PEPSI, GROUP_CARRIER, GROUP_VITRO)
 
 nomina_bp = Blueprint(
     "nomina",
@@ -674,6 +684,125 @@ def _cliente_header_label(clientes: list[str]) -> str:
     return "MULTICLIENTE: " + " + ".join(clientes)
 
 
+def _viewer_user_id() -> int | None:
+    if g.user is None:
+        return None
+    try:
+        return int(g.user.get("id"))
+    except Exception:
+        return None
+
+
+def _is_varios_clientes_label(value: str) -> bool:
+    txt = normalize_group_text(value)
+    return any(token in txt for token in ("MULTICLIENTE", "VARIOS CLIENTES", "VARIOS"))
+
+
+def _classify_asistencia_import_group(imp: dict[str, Any]) -> str | None:
+    clientes = [str(c).strip() for c in (imp.get("clientes") or []) if str(c).strip()]
+    cliente = str(imp.get("cliente") or "").strip()
+    raw_values = [cliente, *clientes]
+    is_varios_clients = len(clientes) > 1 or _is_varios_clientes_label(cliente)
+    return classify_asistencia_group(raw_values, is_varios_clients=is_varios_clients)
+
+
+def _latest_imports_by_base_group(history: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for item in history:
+        group = _classify_asistencia_import_group(item)
+        if not group or group in latest:
+            continue
+        latest[group] = item
+        if len(latest) >= len(GROUP_PRIORITY):
+            break
+    return latest
+
+
+def _period_label_from_import(imp: dict[str, Any]) -> str:
+    semana = str(imp.get("semana") or "").strip()
+    if semana:
+        return semana
+    ini = str(imp.get("fecha_inicio") or "").strip()
+    fin = str(imp.get("fecha_fin") or "").strip()
+    if ini or fin:
+        return f"{ini} -> {fin}".strip()
+    return "—"
+
+
+def _short_filename(name: str, *, max_len: int = 42) -> str:
+    text = str(name or "").strip()
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 1].rstrip() + "…"
+
+
+def _build_base_group_cards(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest = _latest_imports_by_base_group(history)
+    cards: list[dict[str, Any]] = []
+    for code in _BASE_GROUP_ORDER:
+        item = latest.get(code)
+        if item is None:
+            cards.append(
+                {
+                    "code": code,
+                    "label": GROUP_LABELS.get(code, code.title()),
+                    "available": False,
+                    "status": "Sin carga previa",
+                }
+            )
+            continue
+        source_name = str(item.get("original_filename") or item.get("filename") or "").strip()
+        cards.append(
+            {
+                "code": code,
+                "label": GROUP_LABELS.get(code, code.title()),
+                "available": True,
+                "status": "Disponible",
+                "import_id": int(item.get("id") or 0),
+                "periodo": _period_label_from_import(item),
+                "created_at": str(item.get("created_at") or "").strip(),
+                "source_name": source_name,
+                "source_name_short": _short_filename(source_name),
+                "total_rows": int(item.get("total_rows") or 0),
+                "error_count": int(item.get("error_count") or 0),
+                "warning_count": int(item.get("warning_count") or 0),
+            }
+        )
+    return cards
+
+
+def _base_rows_from_asistencia_import(imp: dict[str, Any]) -> list[NominaBaseRow]:
+    out: list[NominaBaseRow] = []
+    for row in imp.get("rows") or []:
+        if row.get("errors"):
+            continue
+        nombre = str(row.get("nombre_empleado") or "").strip()
+        if not nombre:
+            continue
+        out.append(
+            NominaBaseRow(
+                nombre_empleado=nombre,
+                cliente=str(row.get("cliente") or "").strip(),
+                planta=str(row.get("planta") or "").strip(),
+                puesto=str(row.get("puesto") or "").strip(),
+                banco=str(row.get("banco") or "").strip(),
+                cuenta=str(row.get("cuenta") or "").strip(),
+                nss=str(row.get("nss") or "").strip(),
+                numero_empleado=str(row.get("numero_empleado") or "").strip(),
+            )
+        )
+    return out
+
+
+def _load_asistencia_history_for_hub(*, limit: int = 250) -> list[dict[str, Any]]:
+    return list_asistencia_imports_master_hub(
+        _db_path(),
+        viewer_user_id=_viewer_user_id(),
+        role=_current_role(),
+        limit=limit,
+    )
+
+
 @nomina_bp.get("/")
 @_nomina_access_required
 def index():
@@ -699,6 +828,7 @@ def index():
         )
     with perf_span("nomina.index.master_hub_fast"):
         clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
+    full_history = _load_asistencia_history_for_hub(limit=250)
     import_id = request.args.get("import_id", type=int)
     imp = _maybe_load_asistencia_import_for_hub(import_id)
     if import_id and imp is None:
@@ -710,12 +840,8 @@ def index():
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
         headcount_source=headcount_source,
-        asistencia_history=list_asistencia_imports_master_hub(
-            db_path,
-            viewer_user_id=int(g.user["id"]) if g.user else None,
-            role=_current_role(),
-            limit=50,
-        ),
+        asistencia_history=full_history[:50],
+        base_group_cards=_build_base_group_cards(full_history),
         imp=imp,
         asistencia_key_styles=css_vars_for_json(),
     )
@@ -775,6 +901,7 @@ def master_hub():
     if import_id and imp is None:
         flash("No se encontró la importación o no tienes permiso para verla.", "error")
     clientes, agrupaciones, headcount_error, headcount_source = _clientes_from_local_history()
+    full_history = _load_asistencia_history_for_hub(limit=250)
     return render_template(
         "nomina/index.html",
         coordinador_display=_coordinador_display_name(),
@@ -782,12 +909,8 @@ def master_hub():
         agrupaciones=agrupaciones,
         headcount_error=headcount_error,
         headcount_source=headcount_source,
-        asistencia_history=list_asistencia_imports_master_hub(
-            _db_path(),
-            viewer_user_id=int(g.user["id"]) if g.user else None,
-            role=_current_role(),
-            limit=50,
-        ),
+        asistencia_history=full_history[:50],
+        base_group_cards=_build_base_group_cards(full_history),
         imp=imp,
         asistencia_key_styles=css_vars_for_json(),
     )
@@ -797,34 +920,60 @@ def master_hub():
 @_nomina_access_required
 def descargar_plantilla():
     fecha_inicio = _parse_fecha_inicio(request.form.get("fecha_inicio") or "")
-    clientes = _extract_selected_clientes_from_form()
     coordinador = _coordinador_display_name()
     if fecha_inicio is None:
         flash("La fecha inicio del periodo es obligatoria.", "error")
         return redirect(url_for("nomina.master_hub"))
-    if not clientes:
-        all_clientes, _, _, _ = _available_clientes_headcount()
-        if all_clientes:
-            clientes = list(all_clientes)
-            flash(
-                "Sin clientes seleccionados: se usaron todos los clientes disponibles en Headcount para la plantilla.",
-                "info",
-            )
-        else:
-            flash(
-                "Selecciona al menos un cliente o captura uno en opciones avanzadas (no hay lista desde Headcount).",
-                "error",
-            )
-            return redirect(url_for("nomina.master_hub"))
 
     fecha_fin = fecha_inicio + timedelta(days=6)
-    duplicate_base_warnings: list[str] = []
-    if len(clientes) == 1:
-        base_rows = get_latest_import_base_rows(_db_path(), clientes[0], fecha_inicio)
-    else:
-        base_rows, duplicate_base_warnings = get_latest_import_base_rows_multi(_db_path(), clientes, fecha_inicio)
+    mode_raw = str(request.form.get("download_mode") or "empty").strip().upper()
+    base_group: str | None = None
+    base_rows: list[NominaBaseRow] = []
+    cliente_header = ""
 
-    cliente_header = _cliente_header_label(clientes)
+    if mode_raw.startswith("BASE:"):
+        requested_group = mode_raw.split(":", 1)[1].strip().upper()
+        if requested_group not in _BASE_GROUP_ORDER:
+            flash("Grupo de base no válido.", "error")
+            return redirect(url_for("nomina.master_hub"))
+        base_group = requested_group
+        full_history = _load_asistencia_history_for_hub(limit=300)
+        by_group = _latest_imports_by_base_group(full_history)
+        latest = by_group.get(base_group)
+        if latest is None:
+            flash(f"Sin carga previa para {GROUP_LABELS.get(base_group, base_group)}.", "warning")
+            return redirect(url_for("nomina.master_hub"))
+        imp = get_asistencia_import(_db_path(), int(latest["id"]))
+        if imp is None or not _user_can_view_asistencia_import(imp):
+            flash("No se encontró la importación base o no tienes permiso para verla.", "error")
+            return redirect(url_for("nomina.master_hub"))
+        base_rows = _base_rows_from_asistencia_import(imp)
+        if not base_rows:
+            flash(
+                "La importación base existe pero no tiene filas válidas para precargar; se descargó con estructura vacía.",
+                "info",
+            )
+        cliente_header = _cliente_label_for_import(list(imp.get("clientes") or []))
+        if not cliente_header or cliente_header == "NO_DETECTADO":
+            cliente_header = GROUP_LABELS.get(base_group, base_group)
+    else:
+        clientes = _extract_selected_clientes_from_form()
+        if not clientes:
+            all_clientes, _, _, _ = _available_clientes_headcount()
+            if all_clientes:
+                clientes = list(all_clientes)
+                flash(
+                    "Sin clientes seleccionados: se usaron todos los clientes disponibles en Headcount para la plantilla.",
+                    "info",
+                )
+            else:
+                flash(
+                    "Selecciona al menos un cliente o captura uno en opciones avanzadas (no hay lista desde Headcount).",
+                    "error",
+                )
+                return redirect(url_for("nomina.master_hub"))
+        cliente_header = _cliente_header_label(clientes)
+
     payload = build_asistencia_template_file(
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
@@ -834,11 +983,15 @@ def descargar_plantilla():
     )
     output = BytesIO(payload)
     output.seek(0)
-    filename = f"Master_Asistencia_{fecha_inicio.strftime('%Y%m%d')}_{cliente_header.replace(' ', '_')}.xlsx"
-    if duplicate_base_warnings:
-        flash(
-            "Se omitieron posibles duplicados en base previa: " + " | ".join(duplicate_base_warnings[:3]),
-            "warning",
+    if base_group:
+        filename = (
+            f"Master_Asistencia_BASE_{base_group}_"
+            f"{fecha_inicio.strftime('%Y%m%d')}_{fecha_fin.strftime('%Y%m%d')}.xlsx"
+        )
+    else:
+        filename = (
+            "Master_Asistencia_Vacia_"
+            f"{fecha_inicio.strftime('%Y%m%d')}_{fecha_fin.strftime('%Y%m%d')}.xlsx"
         )
     return send_file(
         output,

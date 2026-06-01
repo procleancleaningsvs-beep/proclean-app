@@ -4,20 +4,20 @@ from datetime import date, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Iterable
+import re
+import unicodedata
 
 from openpyxl import load_workbook
-from openpyxl.formatting.formatting import ConditionalFormattingList
-from openpyxl.formatting.rule import FormulaRule
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
-from modules.nomina.asistencia_palette import CF_RULE_KEY_ORDER, ATTENDANCE_KEY_STYLES
 from modules.nomina.config import get_holidays_for_year
 from modules.nomina.db import NominaBaseRow
 
 BASE_DIR = Path(__file__).resolve().parent
-TEMPLATE_XLSX_PATH = BASE_DIR / "templates_excel" / "Plantilla_asistencia_v4.xlsx"
+TEMPLATE_CANDIDATES = (
+    BASE_DIR / "templates_excel" / "Plantilla_asistencia_ProC.xlsx",
+    BASE_DIR / "templates_excel" / "Plantilla_asistencia_v4.xlsx",
+)
 
 # --- v4 column layout (1-based) ---
 COL_NOMBRE = 1   # A
@@ -39,6 +39,66 @@ COL_OBSERVACIONES = 21          # U
 
 START_DATA_ROW = 5
 DAILY_HEADER_ROW = 4
+
+
+def _resolve_template_xlsx_path() -> Path:
+    for path in TEMPLATE_CANDIDATES:
+        if path.exists():
+            return path
+    first = TEMPLATE_CANDIDATES[0]
+    raise FileNotFoundError(f"No existe plantilla base: {first}")
+
+
+def _norm_header(value: str) -> str:
+    text = " ".join(str(value or "").replace("\u00a0", " ").replace("\n", " ").upper().split()).strip()
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"[^A-Z0-9 ]+", " ", text)
+    return " ".join(text.split()).strip()
+
+
+def _build_header_index(ws: Worksheet) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for col in range(1, (ws.max_column or COL_OBSERVACIONES) + 1):
+        key = _norm_header(ws.cell(row=DAILY_HEADER_ROW, column=col).value)
+        if key and key not in out:
+            out[key] = col
+    return out
+
+
+def _resolve_columns(ws: Worksheet) -> dict[str, int]:
+    headers = _build_header_index(ws)
+
+    def first(names: tuple[str, ...], fallback: int | None = None) -> int | None:
+        for name in names:
+            col = headers.get(_norm_header(name))
+            if col is not None:
+                return col
+        return fallback
+
+    resolved: dict[str, int] = {}
+    for key, names, fallback in (
+        ("nombre_empleado", ("NOMBRE DE EMPLEADO",), COL_NOMBRE),
+        ("cliente", ("CLIENTE",), COL_CLIENTE),
+        ("planta", ("PLANTA",), COL_PLANTA),
+        ("puesto", ("PUESTO",), COL_PUESTO),
+        ("banco", ("BANCO",), COL_BANCO),
+        ("cuenta", ("CUENTA",), COL_CUENTA),
+        ("nss", ("NSS",), None),
+        ("numero_empleado", ("NUMERO DE EMPLEADO", "NUM EMPLEADO", "NO EMPLEADO", "NUMERO EMPLEADO"), None),
+        ("horas_extra", ("HORAS EXTRA",), COL_HORAS_EXTRA),
+        ("horas_extra_normales", ("HORAS EXTRA NORMALES",), COL_HORAS_EXTRA_NORMALES),
+        ("dias_cubiertos_normales", ("DIAS CUBIERTOS NORMALES",), COL_DIAS_CUBIERTOS),
+        ("vacaciones_laboradas", ("VACACIONES LABORADAS",), COL_VACACIONES_LABORADAS),
+        ("prima_vacacional", ("PRIMA VACACIONAL",), COL_PRIMA_VACACIONAL),
+        ("bono", ("BONO",), COL_BONO),
+        ("deducciones", ("DEDUCCIONES",), COL_DEDUCCIONES),
+        ("observaciones", ("OBSERVACIONES",), COL_OBSERVACIONES),
+    ):
+        col = first(names, fallback)
+        if col is not None:
+            resolved[key] = col
+    return resolved
 
 
 def week_label(fecha_inicio: date, fecha_fin: date) -> str:
@@ -102,49 +162,39 @@ def _write_base_rows(
     base_rows: Iterable[NominaBaseRow],
     holiday_day_indices: list[int],
 ) -> int:
+    cols = _resolve_columns(ws)
     written = 0
     for i, item in enumerate(base_rows):
         row = START_DATA_ROW + i
-        ws.cell(row=row, column=COL_NOMBRE, value=item.nombre_empleado or "")
-        ws.cell(row=row, column=COL_CLIENTE, value=item.cliente or "")
-        ws.cell(row=row, column=COL_PLANTA, value=item.planta or "")
-        ws.cell(row=row, column=COL_PUESTO, value=item.puesto or "")
-        ws.cell(row=row, column=COL_BANCO, value=item.banco or "")
-        ws.cell(row=row, column=COL_CUENTA, value=item.cuenta or "")
+        ws.cell(row=row, column=cols["nombre_empleado"], value=item.nombre_empleado or "")
+        ws.cell(row=row, column=cols["cliente"], value=item.cliente or "")
+        ws.cell(row=row, column=cols["planta"], value=item.planta or "")
+        ws.cell(row=row, column=cols["puesto"], value=item.puesto or "")
+        ws.cell(row=row, column=cols["banco"], value=item.banco or "")
+        ws.cell(row=row, column=cols["cuenta"], value=item.cuenta or "")
+        nss_col = cols.get("nss")
+        if nss_col is not None:
+            ws.cell(row=row, column=nss_col, value=item.nss or "")
+        num_emp_col = cols.get("numero_empleado")
+        if num_emp_col is not None:
+            ws.cell(row=row, column=num_emp_col, value=item.numero_empleado or "")
         for idx in range(7):
             col = COL_DAY_START + idx
             ws.cell(row=row, column=col, value=("FE" if idx in holiday_day_indices else ""))
-        ws.cell(row=row, column=COL_HORAS_EXTRA, value="")
-        ws.cell(row=row, column=COL_HORAS_EXTRA_NORMALES, value="")
-        ws.cell(row=row, column=COL_DIAS_CUBIERTOS, value="")
-        ws.cell(row=row, column=COL_VACACIONES_LABORADAS, value="")
-        ws.cell(row=row, column=COL_PRIMA_VACACIONAL, value="N/A")
-        ws.cell(row=row, column=COL_BONO, value="")
-        ws.cell(row=row, column=COL_DEDUCCIONES, value="")
-        ws.cell(row=row, column=COL_OBSERVACIONES, value="")
+        for variable_col in (
+            cols.get("horas_extra"),
+            cols.get("horas_extra_normales"),
+            cols.get("dias_cubiertos_normales"),
+            cols.get("vacaciones_laboradas"),
+            cols.get("prima_vacacional"),
+            cols.get("bono"),
+            cols.get("deducciones"),
+            cols.get("observaciones"),
+        ):
+            if variable_col is not None:
+                ws.cell(row=row, column=variable_col, value="")
         written += 1
     return written
-
-
-def _apply_daily_conditional_formatting(ws: Worksheet, *, data_end_row: int) -> None:
-    """Regenera formato condicional en columnas diarias (G:M) para todo el periodo generado."""
-    last_row = max(int(data_end_row or START_DATA_ROW), START_DATA_ROW + 250)
-    c1 = get_column_letter(COL_DAY_START)
-    c2 = get_column_letter(COL_DAY_END)
-    top_left = f"{c1}{START_DATA_ROW}"
-    cell_range = f"{c1}{START_DATA_ROW}:{c2}{last_row}"
-    ws.conditional_formatting = ConditionalFormattingList()
-    for code in CF_RULE_KEY_ORDER:
-        st = ATTENDANCE_KEY_STYLES.get(code)
-        if st is None:
-            continue
-        fill = PatternFill("solid", fgColor=st.fill_hex)
-        font: Font | None = Font(bold=True) if st.font_bold else None
-        formula = [f'EXACT(UPPER(TRIM({top_left})),"{code}")']
-        ws.conditional_formatting.add(
-            cell_range,
-            FormulaRule(formula=formula, fill=fill, font=font, stopIfTrue=True),
-        )
 
 
 def build_asistencia_template_file(
@@ -155,18 +205,14 @@ def build_asistencia_template_file(
     coordinador: str,
     base_rows: Iterable[NominaBaseRow],
 ) -> bytes:
-    if not TEMPLATE_XLSX_PATH.exists():
-        raise FileNotFoundError(f"No existe plantilla base: {TEMPLATE_XLSX_PATH}")
-    wb = load_workbook(TEMPLATE_XLSX_PATH)
+    wb = load_workbook(_resolve_template_xlsx_path())
     if "Asistencia" not in wb.sheetnames:
         raise ValueError("La plantilla base no contiene la hoja 'Asistencia'.")
     ws = wb["Asistencia"]
     _write_superior_fields(ws, week_label(fecha_inicio, fecha_fin), cliente.strip(), coordinador.strip())
     _write_daily_headers(ws, build_daily_headers(fecha_inicio))
     holiday_map = _holidays_in_range(fecha_inicio)
-    written = _write_base_rows(ws, base_rows, sorted(holiday_map.keys()))
-    data_end = START_DATA_ROW + written - 1 if written else START_DATA_ROW - 1
-    _apply_daily_conditional_formatting(ws, data_end_row=data_end)
+    _write_base_rows(ws, base_rows, sorted(holiday_map.keys()))
 
     output = BytesIO()
     wb.save(output)
