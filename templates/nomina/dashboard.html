@@ -2,29 +2,122 @@
 {% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <style>
-.nd-wrap { display:grid; gap:1rem; }
+/* === Nómina Dashboard — estilos locales (scope: esta página únicamente) === */
+
+/* Layout */
+.nd-wrap { display:grid; gap:1.25rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
-.nd-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.6rem; }
-.nd-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
-.nd-kpi span { display:block; color:#64748b; font-size:.83rem; }
-.nd-kpi strong { font-size:1.05rem; }
-.nd-table-wrap { overflow:auto; }
+
+/* Card base */
+.nd-card {
+  background:#fff;
+  border:1px solid var(--pc-border, #e2e8f0);
+  border-radius:14px;
+  padding:1.25rem 1.35rem;
+  box-shadow:0 1px 4px rgba(15,23,42,.06);
+}
+
+/* Card: secciones en desarrollo */
+.nd-card--soon {
+  background:var(--panel-soft, #f8fafc);
+  border:1px dashed var(--muted, #cbd5e1);
+  box-shadow:none;
+  opacity:.88;
+}
+
+/* Badge visual "Próximamente" */
+.nd-soon-badge {
+  display:inline-block;
+  font-size:.68rem;
+  font-weight:600;
+  color:var(--muted, #94a3b8);
+  background:var(--panel, #f1f5f9);
+  border:1px solid var(--line, #e2e8f0);
+  border-radius:6px;
+  padding:.14rem .48rem;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  margin-left:.45rem;
+  vertical-align:middle;
+}
+
+/* KPIs */
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.75rem; }
+.nd-kpi {
+  background:var(--panel-soft, #f8fafc);
+  border:1px solid var(--pc-border, #e2e8f0);
+  border-radius:10px;
+  padding:.65rem .75rem;
+}
+.nd-kpi span { display:block; color:var(--muted, #64748b); font-size:.78rem; margin-bottom:.18rem; }
+.nd-kpi strong { display:block; font-size:1.2rem; font-weight:700; color:var(--text, #1e293b); }
+
+/* Tabla de historial */
+.nd-table-wrap {
+  overflow:auto;
+  border:1px solid var(--pc-border, #e2e8f0);
+  border-radius:12px;
+  margin-top:.5rem;
+}
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
-.nd-table th, .nd-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; }
-.nd-soon { color:#64748b; font-size:.9rem; }
-.nd-link { margin-top:.6rem; display:inline-block; }
+.nd-table thead tr { background:var(--panel-soft, #f8fafc); }
+.nd-table th {
+  border-bottom:1px solid var(--pc-border, #e2e8f0);
+  padding:10px 12px;
+  text-align:left;
+  font-size:.76rem;
+  font-weight:600;
+  color:var(--muted, #64748b);
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  white-space:nowrap;
+}
+.nd-table td {
+  border-bottom:1px solid var(--line, #f1f5f9);
+  padding:10px 12px;
+  text-align:left;
+  font-size:.88rem;
+  color:var(--text, #374151);
+}
+.nd-table tbody tr:last-child td { border-bottom:none; }
+.nd-table tbody tr:hover { background:var(--panel-soft, #f8fafc); }
+
+/* Misc */
+.nd-soon { color:var(--muted, #64748b); font-size:.9rem; }
+.nd-link { margin-top:.75rem; display:inline-block; }
 .nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
-.nd-del-hint { font-size:.8rem; color:#64748b; margin:.35rem 0 0; }
+.nd-del-hint { font-size:.8rem; color:var(--muted, #64748b); margin:.35rem 0 0; }
+
+/* Modal */
 .nd-modal { border:none; border-radius:12px; padding:0; max-width:min(440px, 94vw); box-shadow:0 12px 40px rgba(15,23,42,.18); }
 .nd-modal::backdrop { background:rgba(15,23,42,.35); }
 .nd-modal-inner { padding:1rem 1.1rem; }
 .nd-modal h4 { margin:0 0 .5rem; font-size:1rem; }
 .nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
-.nd-modal dt { color:#64748b; }
+.nd-modal dt { color:var(--muted, #64748b); }
 .nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
-.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid #e5e7eb; border-radius:8px; font-size:.95rem; margin-top:.35rem; }
+.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid var(--pc-border, #e2e8f0); border-radius:8px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
+
+/* === Sobrescritura local de botones (solo en esta página) === */
+.page-head .btn-primary,
+.nd-wrap .btn-primary {
+  background:#1d4ed8;
+  border-color:#1d4ed8;
+  color:#fff;
+  border-radius:10px;
+  background-image:none;
+  box-shadow:none;
+}
+.page-head .btn-primary:hover,
+.nd-wrap .btn-primary:hover {
+  background:#1e40af;
+  border-color:#1e40af;
+  box-shadow:none;
+}
+.page-head .btn-secondary,
+.nd-wrap .btn-secondary { border-radius:10px; }
+
 @media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
@@ -74,7 +167,7 @@
         <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
       </div>
-      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
+      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
     </section>
 
     <section class="nd-card">
@@ -87,7 +180,7 @@
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
         <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
       </div>
-      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
+      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
     </section>
 
     <section class="nd-card">
@@ -103,7 +196,7 @@
         <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
         <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
       </div>
-      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
+      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
     </section>
 
     <section class="nd-card">
@@ -117,17 +210,17 @@
         <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
         {% endif %}
       </div>
-      <a class="btn btn-primary nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
+      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
     </section>
 
-    <section class="nd-card">
-      <h3>Exportaciones</h3>
-      <p class="nd-soon">Próximamente: Excel de nómina, banco y pagos fuera de banco.</p>
+    <section class="nd-card nd-card--soon">
+      <h3>Exportaciones <span class="nd-soon-badge">Próximamente</span></h3>
+      <p class="nd-soon">Excel de nómina, banco y pagos fuera de banco.</p>
     </section>
 
-    <section class="nd-card">
-      <h3>Costeo / Facturación</h3>
-      <p class="nd-soon">Próximamente: costo semanal, carga social, margen y facturación aproximada.</p>
+    <section class="nd-card nd-card--soon">
+      <h3>Costeo / Facturación <span class="nd-soon-badge">Próximamente</span></h3>
+      <p class="nd-soon">Costo semanal, carga social, margen y facturación aproximada.</p>
     </section>
   </div>
 
