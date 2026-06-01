@@ -3,36 +3,42 @@
 {% block extra_head %}
 <style>
 /* === Nómina Dashboard — estilos locales (scope: esta página únicamente) === */
+/*
+   Paleta ProClean (referencia de tokens globales):
+   azul principal  → var(--pc-blue, #1A90C6)       hover → var(--brand-blue-deep, #0D7BAA)
+   verde acento    → var(--pc-green, #77BE3C)        deep → var(--brand-green-deep, #47A92C)
+   superficie azul → var(--pc-surface-blue, #F3FAFD)
+   superficie verde→ var(--pc-surface-green, #F7FBF1)
+*/
 
 /* Layout */
 .nd-wrap { display:grid; gap:1.25rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
 
-/* Card base */
+/* Card base — franja azul ProClean vía inset shadow (no afecta border) */
 .nd-card {
   background:#fff;
   border:1px solid var(--pc-border, #e2e8f0);
   border-radius:14px;
   padding:1.25rem 1.35rem;
-  box-shadow:0 1px 4px rgba(15,23,42,.06);
+  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 3px 0 var(--pc-blue, #1A90C6);
 }
 
-/* Card: secciones en desarrollo */
+/* Card: secciones en desarrollo — sin franja, sin sombra, borde neutro punteado */
 .nd-card--soon {
-  background:var(--panel-soft, #f8fafc);
+  background:var(--panel-soft, #f5f7fa);
   border:1px dashed var(--muted, #cbd5e1);
   box-shadow:none;
-  opacity:.88;
 }
 
-/* Badge visual "Próximamente" */
+/* Badge "Próximamente" — acento verde ProClean */
 .nd-soon-badge {
   display:inline-block;
   font-size:.68rem;
   font-weight:600;
-  color:var(--muted, #94a3b8);
-  background:var(--panel, #f1f5f9);
-  border:1px solid var(--line, #e2e8f0);
+  color:var(--brand-green-deep, #47A92C);
+  background:var(--pc-surface-green, #F7FBF1);
+  border:1px solid var(--pc-green, #77BE3C);
   border-radius:6px;
   padding:.14rem .48rem;
   text-transform:uppercase;
@@ -41,16 +47,16 @@
   vertical-align:middle;
 }
 
-/* KPIs */
+/* KPIs — superficie azul muy suave para reforzar identidad */
 .nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.75rem; }
 .nd-kpi {
-  background:var(--panel-soft, #f8fafc);
+  background:var(--pc-surface-blue, #F3FAFD);
   border:1px solid var(--pc-border, #e2e8f0);
   border-radius:10px;
   padding:.65rem .75rem;
 }
-.nd-kpi span { display:block; color:var(--muted, #64748b); font-size:.78rem; margin-bottom:.18rem; }
-.nd-kpi strong { display:block; font-size:1.2rem; font-weight:700; color:var(--text, #1e293b); }
+.nd-kpi span { display:block; color:var(--muted, #6E6E73); font-size:.78rem; margin-bottom:.18rem; }
+.nd-kpi strong { display:block; font-size:1.2rem; font-weight:700; color:var(--text, #1D1D1F); }
 
 /* Tabla de historial */
 .nd-table-wrap {
@@ -60,14 +66,14 @@
   margin-top:.5rem;
 }
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
-.nd-table thead tr { background:var(--panel-soft, #f8fafc); }
+.nd-table thead tr { background:var(--pc-surface-blue, #F3FAFD); }
 .nd-table th {
   border-bottom:1px solid var(--pc-border, #e2e8f0);
   padding:10px 12px;
   text-align:left;
   font-size:.76rem;
   font-weight:600;
-  color:var(--muted, #64748b);
+  color:var(--pc-blue, #1A90C6);
   text-transform:uppercase;
   letter-spacing:.06em;
   white-space:nowrap;
@@ -80,13 +86,13 @@
   color:var(--text, #374151);
 }
 .nd-table tbody tr:last-child td { border-bottom:none; }
-.nd-table tbody tr:hover { background:var(--panel-soft, #f8fafc); }
+.nd-table tbody tr:hover { background:var(--pc-surface-blue, #F3FAFD); }
 
 /* Misc */
-.nd-soon { color:var(--muted, #64748b); font-size:.9rem; }
+.nd-soon { color:var(--muted, #6E6E73); font-size:.9rem; }
 .nd-link { margin-top:.75rem; display:inline-block; }
 .nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
-.nd-del-hint { font-size:.8rem; color:var(--muted, #64748b); margin:.35rem 0 0; }
+.nd-del-hint { font-size:.8rem; color:var(--muted, #6E6E73); margin:.35rem 0 0; }
 
 /* Modal */
 .nd-modal { border:none; border-radius:12px; padding:0; max-width:min(440px, 94vw); box-shadow:0 12px 40px rgba(15,23,42,.18); }
@@ -94,27 +100,29 @@
 .nd-modal-inner { padding:1rem 1.1rem; }
 .nd-modal h4 { margin:0 0 .5rem; font-size:1rem; }
 .nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
-.nd-modal dt { color:var(--muted, #64748b); }
+.nd-modal dt { color:var(--muted, #6E6E73); }
 .nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
 .nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid var(--pc-border, #e2e8f0); border-radius:8px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
 
-/* === Sobrescritura local de botones (solo en esta página) === */
+/* === Sobrescritura local de botones (solo en esta página) ============= */
+/* Botón primario: azul ProClean sólido, sin degradado, con glow sutil   */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
-  background:#1d4ed8;
-  border-color:#1d4ed8;
+  background:var(--pc-blue, #1A90C6);
+  background-image:none;
+  border-color:var(--brand-blue-deep, #0D7BAA);
   color:#fff;
   border-radius:10px;
-  background-image:none;
-  box-shadow:none;
+  box-shadow:0 2px 8px rgba(26,144,198,.22);
 }
 .page-head .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
-  background:#1e40af;
-  border-color:#1e40af;
-  box-shadow:none;
+  background:var(--brand-blue-deep, #0D7BAA);
+  border-color:var(--brand-blue-deep, #0D7BAA);
+  box-shadow:0 4px 14px rgba(26,144,198,.30);
 }
+/* Botones secundarios (CTAs de cards): radio sobrio */
 .page-head .btn-secondary,
 .nd-wrap .btn-secondary { border-radius:10px; }
 
