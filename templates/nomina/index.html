@@ -44,8 +44,20 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
 .nomi-hub-metric-chips .chip { font-size:.78rem; padding:.2rem .45rem; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; }
 .nomi-hub-metric-chips .chip-warn { background:#fff7ed; border-color:#fed7aa; }
 .nomi-hub-metric-chips .chip-neutral { background:#f1f5f9; }
+.nomi-op-summary { border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; padding:.55rem; margin:0 0 .8rem; }
+.nomi-op-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.4rem; margin:.35rem 0 .55rem; }
+.nomi-op-kpi { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.35rem .45rem; font-size:.8rem; }
+.nomi-op-kpi span { display:block; color:#64748b; font-size:.72rem; }
+.nomi-op-kpi strong { font-size:.88rem; }
+.nomi-op-grid { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+.nomi-op-block { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.35rem .45rem; }
+.nomi-op-block h4 { margin:.05rem 0 .3rem; font-size:.78rem; color:#475569; }
+.nomi-op-list { margin:0; padding-left:1rem; font-size:.78rem; color:#334155; max-height:132px; overflow:auto; }
+.nomi-op-list li { margin:.12rem 0; }
+.nomi-op-empty { list-style:none; margin-left:-1rem; color:#94a3b8; }
 .nomi-hub-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:.5rem; margin-bottom:.75rem; }
 @media (max-width:900px){ .nomi-hub-kpis { grid-template-columns:1fr 1fr; } }
+@media (max-width:900px){ .nomi-op-kpis { grid-template-columns:1fr 1fr; } .nomi-op-grid { grid-template-columns:1fr; } }
 .nomi-hub-kpis .nomi-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.45rem; font-size:.82rem; }
 .nomi-hub-kpis .nomi-kpi span { display:block; color:#64748b; font-size:.75rem; }
 .nomi-hub-kpis .nomi-kpi strong { font-size:.88rem; word-break:break-word; }
