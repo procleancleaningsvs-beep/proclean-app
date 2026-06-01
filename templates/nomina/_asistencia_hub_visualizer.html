@@ -65,21 +65,24 @@
   </div>
 
   <section class="nomi-op-summary" id="nomi-op-summary">
-    <div class="nomi-hub-metrics-title">Resumen operativo</div>
+    <div class="nomi-op-head">
+      <div class="nomi-hub-metrics-title">Resumen operativo</div>
+      <span id="op-filter-hint" class="nomi-op-hint" hidden>datos visibles</span>
+    </div>
     <div class="nomi-op-kpis">
-      <div class="nomi-op-kpi"><span>Personal en plantilla</span><strong id="op-total-personal">—</strong></div>
-      <div class="nomi-op-kpi"><span>Personal visible</span><strong id="op-visible-personal">—</strong></div>
+      <div class="nomi-op-kpi nomi-op-kpi--primary"><span id="op-personal-label">Personal en plantilla</span><strong id="op-personal-value">—</strong></div>
       <div class="nomi-op-kpi"><span>Banorte</span><strong id="op-banorte">—</strong></div>
       <div class="nomi-op-kpi"><span>Pagos por fuera</span><strong id="op-pagos-fuera">—</strong></div>
+      <div class="nomi-op-kpi"><span>Clientes</span><strong id="op-clientes-count">—</strong></div>
     </div>
     <div class="nomi-op-grid">
-      <div class="nomi-op-block">
-        <h4>Headcount por cliente (visible)</h4>
-        <ul id="op-clientes-list" class="nomi-op-list"></ul>
+      <div class="nomi-op-block nomi-op-block--clientes">
+        <h4>Headcount por cliente</h4>
+        <div id="op-clientes-list" class="nomi-op-clientes"></div>
       </div>
-      <div class="nomi-op-block">
-        <h4>Puestos por planta (visible)</h4>
-        <ul id="op-puestos-list" class="nomi-op-list"></ul>
+      <div class="nomi-op-block nomi-op-block--plantas">
+        <h4>Puestos por planta</h4>
+        <div id="op-puestos-list" class="nomi-op-plantas"></div>
       </div>
     </div>
   </section>
@@ -218,18 +221,32 @@
   const sortDescNum = document.getElementById("nomi-sort-desc-num");
   const tbody = table.querySelector("tbody");
 
-  const opTotalPersonal = document.getElementById("op-total-personal");
-  const opVisiblePersonal = document.getElementById("op-visible-personal");
+  const opPersonalLabel = document.getElementById("op-personal-label");
+  const opPersonalValue = document.getElementById("op-personal-value");
   const opBanorte = document.getElementById("op-banorte");
   const opPagosFuera = document.getElementById("op-pagos-fuera");
+  const opClientesCount = document.getElementById("op-clientes-count");
   const opClientesList = document.getElementById("op-clientes-list");
   const opPuestosList = document.getElementById("op-puestos-list");
+  const opFilterHint = document.getElementById("op-filter-hint");
 
   const columnFilters = {};
   let columnSort = null;
   let activeCol = null;
   let activeBtn = null;
   let debTimer = null;
+
+  function initOriginalRowOrder() {
+    if (!tbody) return;
+    Array.from(tbody.querySelectorAll("tr")).forEach(function (tr, idx) {
+      tr.dataset.originalIndex = String(idx);
+    });
+  }
+
+  function getOriginalIndex(tr) {
+    const n = parseInt(tr.dataset.originalIndex || "0", 10);
+    return Number.isFinite(n) ? n : 0;
+  }
 
   function normalizeSpaces(s) {
     return (s || "").toString().replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
@@ -361,20 +378,77 @@
     return map;
   }
 
-  function renderSummaryList(el, items) {
+  function renderClientesSummary(el, clientCounts) {
     if (!el) return;
     el.innerHTML = "";
-    if (!items.length) {
-      const li = document.createElement("li");
-      li.className = "nomi-op-empty";
-      li.textContent = "Sin datos";
-      el.appendChild(li);
+    const entries = Array.from(clientCounts.entries())
+      .sort(function (a, b) {
+        if (b[1] !== a[1]) return b[1] - a[1];
+        return a[0].localeCompare(b[0], "es", { sensitivity: "base" });
+      });
+    if (!entries.length) {
+      const p = document.createElement("p");
+      p.className = "nomi-op-empty";
+      p.textContent = "Sin datos";
+      el.appendChild(p);
       return;
     }
-    items.forEach(function (text) {
-      const li = document.createElement("li");
-      li.textContent = text;
-      el.appendChild(li);
+    entries.forEach(function (entry) {
+      const chip = document.createElement("span");
+      chip.className = "nomi-op-client-chip";
+      chip.innerHTML = entry[0] + " <strong>" + entry[1] + "</strong>";
+      el.appendChild(chip);
+    });
+  }
+
+  function renderPlantasSummary(el, plantaPuesto) {
+    if (!el) return;
+    el.innerHTML = "";
+    const entries = Array.from(plantaPuesto.entries())
+      .sort(function (a, b) { return a[0].localeCompare(b[0], "es", { sensitivity: "base" }); });
+    if (!entries.length) {
+      const p = document.createElement("p");
+      p.className = "nomi-op-empty";
+      p.textContent = "Sin datos";
+      el.appendChild(p);
+      return;
+    }
+    entries.forEach(function (entry) {
+      const planta = entry[0];
+      const puestos = Array.from(entry[1].entries())
+        .sort(function (a, b) {
+          if (b[1] !== a[1]) return b[1] - a[1];
+          return a[0].localeCompare(b[0], "es", { sensitivity: "base" });
+        });
+      const block = document.createElement("div");
+      block.className = "nomi-op-planta-block";
+      const title = document.createElement("div");
+      title.className = "nomi-op-planta-name";
+      title.textContent = planta;
+      block.appendChild(title);
+      const chips = document.createElement("div");
+      chips.className = "nomi-op-puesto-chips";
+      const maxShow = 4;
+      puestos.slice(0, maxShow).forEach(function (pp) {
+        const chip = document.createElement("span");
+        chip.className = "nomi-op-puesto-chip";
+        chip.innerHTML = pp[0] + "<strong>" + pp[1] + "</strong>";
+        chips.appendChild(chip);
+      });
+      block.appendChild(chips);
+      if (puestos.length > maxShow) {
+        const more = document.createElement("div");
+        more.className = "nomi-op-more";
+        more.textContent = "+" + (puestos.length - maxShow) + " más";
+        block.appendChild(more);
+      }
+      el.appendChild(block);
+    });
+  }
+
+  function hasAnyFilterActive() {
+    return Object.keys(columnFilters).some(function (colStr) {
+      return filterIsActive(parseInt(colStr, 10));
     });
   }
 
@@ -385,11 +459,20 @@
     visibleEmployees.forEach(function (rec) {
       if (rec.isBanorte) banorteCount += 1;
     });
+    const totalPersonal = totalEmployees.size;
     const visiblePersonal = visibleEmployees.size;
     const pagosFuera = Math.max(0, visiblePersonal - banorteCount);
+    const filtersActive = hasAnyFilterActive();
 
-    if (opTotalPersonal) opTotalPersonal.textContent = totalEmployees.size;
-    if (opVisiblePersonal) opVisiblePersonal.textContent = visiblePersonal;
+    if (opFilterHint) opFilterHint.hidden = !filtersActive;
+    if (opPersonalLabel) {
+      opPersonalLabel.textContent = filtersActive ? "Personal visible" : "Personal en plantilla";
+    }
+    if (opPersonalValue) {
+      opPersonalValue.textContent = filtersActive
+        ? (visiblePersonal + " de " + totalPersonal)
+        : String(totalPersonal);
+    }
     if (opBanorte) opBanorte.textContent = banorteCount;
     if (opPagosFuera) opPagosFuera.textContent = pagosFuera;
 
@@ -399,13 +482,8 @@
         clientCounts.set(cliente, (clientCounts.get(cliente) || 0) + 1);
       });
     });
-    const clientItems = Array.from(clientCounts.entries())
-      .sort(function (a, b) {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0], "es", { sensitivity: "base" });
-      })
-      .map(function (entry) { return entry[0] + ": " + entry[1]; });
-    renderSummaryList(opClientesList, clientItems);
+    if (opClientesCount) opClientesCount.textContent = clientCounts.size;
+    renderClientesSummary(opClientesList, clientCounts);
 
     const plantaPuesto = new Map();
     visibleRows.forEach(function (tr) {
@@ -415,22 +493,7 @@
       const inner = plantaPuesto.get(planta);
       inner.set(puesto, (inner.get(puesto) || 0) + 1);
     });
-    const puestoItems = Array.from(plantaPuesto.entries())
-      .sort(function (a, b) { return a[0].localeCompare(b[0], "es", { sensitivity: "base" }); })
-      .map(function (entry) {
-        const planta = entry[0];
-        const top = Array.from(entry[1].entries())
-          .sort(function (a, b) {
-            if (b[1] !== a[1]) return b[1] - a[1];
-            return a[0].localeCompare(b[0], "es", { sensitivity: "base" });
-          })
-          .slice(0, 4)
-          .map(function (pp) { return pp[0] + " " + pp[1]; })
-          .join(", ");
-        const more = entry[1].size > 4 ? " (+" + (entry[1].size - 4) + " más)" : "";
-        return planta + ": " + top + more;
-      });
-    renderSummaryList(opPuestosList, puestoItems);
+    renderPlantasSummary(opPuestosList, plantaPuesto);
   }
 
   function isDailyCol(col) { return col >= 7 && col <= 13; }
@@ -559,26 +622,33 @@
   }
 
   function compareRows(a, b) {
-    if (!columnSort) return 0;
-    const col = columnSort.col;
-    const dir = columnSort.dir === "desc" ? -1 : 1;
-    const av = cellText(a, col);
-    const bv = cellText(b, col);
-    if (columnSort.kind === "numeric") {
-      const an = parseNum(av);
-      const bn = parseNum(bv);
-      if (an !== null && bn !== null) return (an - bn) * dir;
-      if (an !== null) return -1 * dir;
-      if (bn !== null) return 1 * dir;
+    if (columnSort) {
+      const col = columnSort.col;
+      const dir = columnSort.dir === "desc" ? -1 : 1;
+      const av = cellText(a, col);
+      const bv = cellText(b, col);
+      if (columnSort.kind === "numeric") {
+        const an = parseNum(av);
+        const bn = parseNum(bv);
+        if (an !== null && bn !== null) return (an - bn) * dir;
+        if (an !== null) return -1 * dir;
+        if (bn !== null) return 1 * dir;
+      }
+      const cmp = av.localeCompare(bv, "es", { sensitivity: "base", numeric: true }) * dir;
+      if (cmp !== 0) return cmp;
     }
-    return av.localeCompare(bv, "es", { sensitivity: "base", numeric: true }) * dir;
+    return getOriginalIndex(a) - getOriginalIndex(b);
   }
 
-  function applySortToDom() {
-    if (!tbody || !columnSort) return;
+  function applyRowOrderToDom() {
+    if (!tbody) return;
     const rows = Array.from(tbody.querySelectorAll("tr"));
     rows.sort(compareRows);
     rows.forEach(function (tr) { tbody.appendChild(tr); });
+  }
+
+  function clearColumnSort(col) {
+    if (columnSort && columnSort.col === col) columnSort = null;
   }
 
   function runFilters() {
@@ -589,7 +659,7 @@
       tr.style.display = visible ? "" : "none";
       if (visible) visibleRows.push(tr);
     });
-    applySortToDom();
+    applyRowOrderToDom();
     applyFilteredMetrics(visibleRows);
     updateOperationalSummary(visibleRows, rows);
     syncFilterButtons();
@@ -789,7 +859,10 @@
   });
 
   document.getElementById("nomi-xfilter-clear-col")?.addEventListener("click", function () {
-    if (activeCol != null) delete columnFilters[activeCol];
+    if (activeCol != null) {
+      clearColumnSort(activeCol);
+      delete columnFilters[activeCol];
+    }
     closePanel();
     runFilters();
   });
@@ -806,7 +879,10 @@
   });
 
   document.getElementById("nomi-xfilter-clear-text")?.addEventListener("click", function () {
-    if (activeCol != null) delete columnFilters[activeCol];
+    if (activeCol != null) {
+      clearColumnSort(activeCol);
+      delete columnFilters[activeCol];
+    }
     textInput.value = "";
     closePanel();
     runFilters();
@@ -851,6 +927,7 @@
   const vizRoot = document.getElementById("asistencia-viz-root");
   if (vizRoot) vizRoot.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
 
+  initOriginalRowOrder();
   paintDailyCells();
   refreshMetricChipsVisibility();
   runFilters();

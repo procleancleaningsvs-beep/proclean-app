@@ -44,20 +44,31 @@ details.nom-adv summary { cursor:pointer; font-weight:600; font-size:.88rem; col
 .nomi-hub-metric-chips .chip { font-size:.78rem; padding:.2rem .45rem; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; }
 .nomi-hub-metric-chips .chip-warn { background:#fff7ed; border-color:#fed7aa; }
 .nomi-hub-metric-chips .chip-neutral { background:#f1f5f9; }
-.nomi-op-summary { border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; padding:.55rem; margin:0 0 .8rem; }
-.nomi-op-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.4rem; margin:.35rem 0 .55rem; }
+.nomi-op-summary { border:1px solid #e5e7eb; border-radius:10px; background:#f8fafc; padding:.55rem .65rem; margin:0 0 .8rem; }
+.nomi-op-head { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:.15rem; }
+.nomi-op-hint { font-size:.68rem; color:#64748b; background:#eef2ff; border:1px solid #dbeafe; border-radius:999px; padding:.08rem .45rem; text-transform:lowercase; letter-spacing:.01em; }
+.nomi-op-kpis { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:.4rem; margin:.25rem 0 .55rem; }
 .nomi-op-kpi { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.35rem .45rem; font-size:.8rem; }
+.nomi-op-kpi--primary { border-color:#cbd5e1; background:#fff; }
 .nomi-op-kpi span { display:block; color:#64748b; font-size:.72rem; }
-.nomi-op-kpi strong { font-size:.88rem; }
-.nomi-op-grid { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
-.nomi-op-block { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.35rem .45rem; }
-.nomi-op-block h4 { margin:.05rem 0 .3rem; font-size:.78rem; color:#475569; }
-.nomi-op-list { margin:0; padding-left:1rem; font-size:.78rem; color:#334155; max-height:132px; overflow:auto; }
-.nomi-op-list li { margin:.12rem 0; }
-.nomi-op-empty { list-style:none; margin-left:-1rem; color:#94a3b8; }
+.nomi-op-kpi strong { font-size:.88rem; color:#0f172a; }
+.nomi-op-grid { display:grid; grid-template-columns:minmax(0, 35%) minmax(0, 65%); gap:.5rem; align-items:start; }
+.nomi-op-block { border:1px solid #e5e7eb; border-radius:8px; background:#fff; padding:.4rem .5rem; min-width:0; }
+.nomi-op-block h4 { margin:.05rem 0 .35rem; font-size:.78rem; color:#475569; font-weight:600; }
+.nomi-op-clientes { display:flex; flex-wrap:wrap; gap:.3rem; max-height:120px; overflow:auto; }
+.nomi-op-client-chip { display:inline-flex; align-items:center; gap:.35rem; font-size:.74rem; padding:.18rem .45rem; border-radius:999px; border:1px solid #e5e7eb; background:#f8fafc; color:#334155; }
+.nomi-op-client-chip strong { font-size:.78rem; color:#0f172a; font-weight:700; }
+.nomi-op-plantas { display:grid; gap:.35rem; max-height:168px; overflow:auto; padding-right:.15rem; }
+.nomi-op-planta-block { border:1px solid #e5e7eb; border-radius:8px; background:#fafafa; padding:.3rem .4rem; }
+.nomi-op-planta-name { font-size:.78rem; font-weight:700; color:#0f172a; margin-bottom:.25rem; }
+.nomi-op-puesto-chips { display:flex; flex-wrap:wrap; gap:.25rem; }
+.nomi-op-puesto-chip { font-size:.72rem; padding:.12rem .38rem; border-radius:999px; border:1px solid #e2e8f0; background:#fff; color:#334155; white-space:nowrap; }
+.nomi-op-puesto-chip strong { font-weight:700; color:#0f172a; margin-left:.15rem; }
+.nomi-op-more { font-size:.7rem; color:#64748b; margin-top:.15rem; font-style:italic; }
+.nomi-op-empty { font-size:.76rem; color:#94a3b8; margin:0; }
 .nomi-hub-kpis { display:grid; grid-template-columns:repeat(4, 1fr); gap:.5rem; margin-bottom:.75rem; }
 @media (max-width:900px){ .nomi-hub-kpis { grid-template-columns:1fr 1fr; } }
-@media (max-width:900px){ .nomi-op-kpis { grid-template-columns:1fr 1fr; } .nomi-op-grid { grid-template-columns:1fr; } }
+@media (max-width:900px){ .nomi-op-kpis { grid-template-columns:1fr 1fr; } .nomi-op-grid { grid-template-columns:1fr; } .nomi-op-block--plantas { order:2; } }
 .nomi-hub-kpis .nomi-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.45rem; font-size:.82rem; }
 .nomi-hub-kpis .nomi-kpi span { display:block; color:#64748b; font-size:.75rem; }
 .nomi-hub-kpis .nomi-kpi strong { font-size:.88rem; word-break:break-word; }
