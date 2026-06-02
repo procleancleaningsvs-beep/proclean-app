@@ -14,12 +14,14 @@
 
 <section class="panel imss-history-panel">
   {% if records %}
-  <div class="history-toolbar">
-    <label class="history-search-label">Buscar en historial
-      <input type="search" id="history-search" class="history-search-input" placeholder="Fecha movimiento, formato realizado, sueldo, NSS, nombre, archivo, folio, lote…" autocomplete="off" aria-label="Filtrar filas del historial">
-    </label>
+  <div class="imss-panel-search">
+    <div class="history-toolbar">
+      <label class="history-search-label">Buscar en historial
+        <input type="search" id="history-search" class="history-search-input" placeholder="Fecha movimiento, formato realizado, sueldo, NSS, nombre, archivo, folio, lote…" autocomplete="off" aria-label="Filtrar filas del historial">
+      </label>
+    </div>
+    <p id="history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
   </div>
-  <p id="history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
   <div class="table-wrap">
     <table class="history-table">
       <thead>
@@ -39,9 +41,9 @@
           <td class="history-cell-wrap">{{ item.movement_dates_line }}</td>
           <td class="history-cell-wrap">{{ item.formato_realizado_display }}</td>
           <td class="history-cell-wrap">{{ item.salarios_line }}</td>
-          <td>{{ item.filename }}</td>
+          <td class="imss-filename-cell">{{ item.filename }}</td>
           <td>{{ item.username }}</td>
-          <td>{{ item.movement_count }}</td>
+          <td class="imss-count-cell">{{ item.movement_count }}</td>
           <td class="actions-cell">
             <form method="post" action="{{ url_for('descargar_desde_historial', record_id=item.id) }}" class="inline-form history-download-form">
               <select name="output_format" class="history-download-select">

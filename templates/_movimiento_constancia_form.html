@@ -1,6 +1,6 @@
 {# Formulario compartido: Movimientos IMSS (Nuevo movimiento) y embebido en Carrier > Cursos. #}
 {% if not embed_movimiento_cursos %}
-<section class="page-head">
+<section class="page-head imss-page-head">
   <div>
     <span class="eyebrow">Movimientos IMSS</span>
     <h2>Nuevo movimiento</h2>
@@ -11,6 +11,10 @@
 
 <form method="post" class="form-card movement-form {% if embed_movimiento_cursos %}movement-form--embed{% endif %}" id="movement-form" action="{{ url_for('nuevo_formato') }}">
   <section class="lot-card">
+    <div class="imss-section-header">
+      <span class="imss-section-badge">Lote</span>
+      <span class="imss-section-label-text">Fecha y hora de recepción</span>
+    </div>
     <div class="grid-3 top-grid">
       <label>Fecha de recepción del lote
         <input type="date" name="fecha_lote" id="fecha_lote" required value="{{ current_date or '' }}">
@@ -86,6 +90,10 @@
   </div>
 
   <section class="export-section">
+    <div class="imss-section-header">
+      <span class="imss-section-badge imss-section-badge--green">Salida</span>
+      <span class="imss-section-label-text">Formato del documento generado</span>
+    </div>
     <div class="grid-2">
       <label>
         Salida

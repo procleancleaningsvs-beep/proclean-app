@@ -432,7 +432,90 @@
   margin: 0;
 }
 
-/* ── 11. Responsive ───────────────────────────────────────────── */
+/* ── 12. Form section headers (Lote / Salida) ────────────────── */
+
+/* Wrapper header inside lot-card and export-section */
+.imss-section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+/* Badge pill: blue (Lote) */
+.imss-section-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--pc-blue, #1A90C6);
+  background: var(--pc-surface-blue, #F1F8FC);
+  border: 1px solid rgba(26, 144, 198, 0.2);
+  border-radius: 50px;
+  padding: 2px 9px;
+}
+
+/* Badge pill: green (Salida) */
+.imss-section-badge--green {
+  color: var(--pc-green-deep, #5D9E2A);
+  background: var(--pc-surface-green, #F4FAF0);
+  border-color: rgba(93, 158, 42, 0.22);
+}
+
+/* Label text next to badge */
+.imss-section-label-text {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+/* ── 13. History panel search area ────────────────────────────── */
+
+.imss-panel-search {
+  margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+/* Remove redundant border from the toolbar since panel-search handles it */
+.imss-history-panel .history-toolbar {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+/* ── 14. Specialized table cells ─────────────────────────────── */
+
+/* Movement count — compact badge-like */
+.imss-count-cell {
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--pc-blue, #1A90C6);
+  white-space: nowrap;
+}
+
+/* Filename — monospace, compact, muted */
+.imss-filename-cell {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+  word-break: break-all;
+  max-width: 160px;
+}
+
+/* Salary column — semi-bold for readability */
+.imss-history-panel .history-cell-wrap:nth-child(3) {
+  font-weight: 500;
+  font-size: 0.83rem;
+}
+
+/* ── 15. Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 1024px) {
   .movement-row .grid-3 {
