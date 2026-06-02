@@ -2,119 +2,150 @@
 {% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <style>
-/* === Nómina Dashboard — estilos locales (scope: esta página únicamente) === */
-/*
-   Paleta ProClean usada aquí:
-   azul estructura → var(--pc-blue, #1A90C6)   (franja de cards, hover tabla)
-   verde primario  → var(--brand-green-deep, #47A92C) / var(--pc-green, #77BE3C)
-   sup. azul       → var(--pc-surface-blue, #F3FAFD)
-   sup. verde      → var(--pc-surface-green, #F7FBF1)
-   Sistema de botones: verde sólido › outline neutro › outline verde
-*/
+/* ═══════════════════════════════════════════════════════════════════════════
+   Nómina Dashboard — ProClean Premium Light  (scope: esta página únicamente)
+   ───────────────────────────────────────────────────────────────────────────
+   azul estructura → var(--pc-blue, #1A90C6)         deep: var(--brand-blue-deep, #0D7BAA)
+   verde acción    → var(--brand-green-deep, #47A92C)  mid: var(--pc-green, #77BE3C)
+   sup. azul       → var(--pc-surface-blue, #F3FAFD)   sup. verde: var(--pc-surface-green, #F7FBF1)
+   Botones: verde sólido pill · azul outline pill · verde outline pill
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Layout */
-.nd-wrap { display:grid; gap:1.25rem; }
-.nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+.nd-wrap { display:grid; gap:1.5rem; }
+.nd-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem; }
 
-/* Card base — franja azul ProClean uniforme en todas las cards activas */
+/* ── Cards base — premium: radio 20px, sombra difusa, franja azul 2px ─── */
 .nd-card {
   background:#fff;
-  border:1px solid var(--pc-border, #e2e8f0);
-  border-radius:14px;
-  padding:1.25rem 1.35rem;
-  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 2px 0 var(--pc-blue, #1A90C6);
+  border:1px solid rgba(226,232,240,.85);
+  border-radius:20px;
+  padding:1.5rem 1.75rem;
+  box-shadow:0 1px 3px rgba(15,23,42,.04),
+             0 4px 16px rgba(15,23,42,.05),
+             inset 0 2px 0 var(--pc-blue, #1A90C6);
+}
+.nd-card h3 {
+  margin:0 0 .9rem;
+  font-size:1.05rem;
+  font-weight:600;
+  color:var(--text, #1D1D1F);
+  letter-spacing:-.015em;
 }
 
-/* Card: secciones en desarrollo — sin franja, borde punteado neutro */
+/* ── Cards en desarrollo — sin franja, neutro sutil ─────────────────────── */
 .nd-card--soon {
-  background:var(--panel-soft, #f5f7fa);
-  border:1px dashed var(--muted, #cbd5e1);
+  background:#FAFBFC;
+  border:1px dashed rgba(176,190,200,.75);
   box-shadow:none;
 }
+.nd-card--soon h3 {
+  color:var(--muted, #8A9BB0);
+  font-weight:500;
+}
 
-/* Badge "Próximamente" — neutro, informativo */
+/* ── Badge "Próximamente" ──────────────────────────────────────────────── */
 .nd-soon-badge {
   display:inline-block;
-  font-size:.65rem;
+  font-size:.62rem;
   font-weight:500;
-  color:var(--muted, #6E6E73);
-  background:var(--panel-soft, #f5f7fa);
-  border:1px solid var(--muted, #cbd5e1);
+  color:#8A9BB0;
+  background:#F0F4F8;
+  border:1px solid #D8E2EC;
   border-radius:6px;
-  padding:.12rem .42rem;
+  padding:.1rem .4rem;
   text-transform:uppercase;
-  letter-spacing:.06em;
-  margin-left:.45rem;
+  letter-spacing:.07em;
+  margin-left:.4rem;
   vertical-align:middle;
 }
 
-/* KPIs */
-.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.75rem; }
+/* ── KPI tiles — blancos, radio 14px, tipografía premium ─────────────────
+   Labels: uppercase pequeño. Valores: grandes, negros, legibles.
+   ─────────────────────────────────────────────────────────────────────── */
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.65rem; margin-top:.85rem; }
 .nd-kpi {
-  background:var(--panel-soft, #f5f7fa);
-  border:1px solid var(--pc-border, #e2e8f0);
-  border-radius:10px;
-  padding:.65rem .75rem;
+  background:#fff;
+  border:1px solid rgba(226,232,240,.85);
+  border-radius:14px;
+  padding:.75rem 1rem;
+  box-shadow:0 1px 2px rgba(15,23,42,.04);
 }
-.nd-kpi span { display:block; color:var(--muted, #6E6E73); font-size:.78rem; margin-bottom:.18rem; }
-.nd-kpi strong { display:block; font-size:1.2rem; font-weight:700; color:var(--text, #1D1D1F); }
-
-/* Tabla de historial */
-.nd-table-wrap {
-  overflow:auto;
-  border:1px solid var(--pc-border, #e2e8f0);
-  border-radius:12px;
-  margin-top:.5rem;
-}
-.nd-table { width:100%; border-collapse:collapse; min-width:760px; }
-.nd-table thead tr { background:var(--panel-soft, #f5f7fa); }
-.nd-table th {
-  border-bottom:1px solid var(--pc-border, #e2e8f0);
-  padding:10px 12px;
-  text-align:left;
-  font-size:.76rem;
-  font-weight:600;
-  color:var(--muted, #6E6E73);
+.nd-kpi span {
+  display:block;
+  font-size:.72rem;
+  font-weight:500;
   text-transform:uppercase;
   letter-spacing:.06em;
+  color:#8A9BB0;
+  margin-bottom:.3rem;
+}
+.nd-kpi strong {
+  display:block;
+  font-size:1.4rem;
+  font-weight:700;
+  color:var(--text, #1D1D1F);
+  line-height:1.15;
+  letter-spacing:-.02em;
+}
+
+/* ── Tabla Historial — contenedor card premium ──────────────────────────── */
+.nd-table-wrap {
+  overflow:auto;
+  border:1px solid rgba(226,232,240,.85);
+  border-radius:16px;
+  margin-top:.75rem;
+  box-shadow:0 1px 3px rgba(15,23,42,.03);
+}
+.nd-table { width:100%; border-collapse:collapse; min-width:760px; }
+.nd-table thead tr { background:#FAFBFC; }
+.nd-table th {
+  border-bottom:1px solid rgba(226,232,240,.9);
+  padding:11px 14px;
+  text-align:left;
+  font-size:.7rem;
+  font-weight:600;
+  color:#8A9BB0;
+  text-transform:uppercase;
+  letter-spacing:.07em;
   white-space:nowrap;
 }
 .nd-table td {
-  border-bottom:1px solid var(--line, #f1f5f9);
-  padding:10px 12px;
+  border-bottom:1px solid rgba(226,232,240,.6);
+  padding:11px 14px;
   text-align:left;
-  font-size:.88rem;
+  font-size:.875rem;
   color:var(--text, #374151);
 }
 .nd-table tbody tr:last-child td { border-bottom:none; }
 .nd-table tbody tr:hover { background:var(--pc-surface-blue, #F3FAFD); }
 
-/* Misc */
-.nd-soon { color:var(--muted, #6E6E73); font-size:.9rem; }
-.nd-link { margin-top:.75rem; display:inline-block; }
+/* ── Misc ────────────────────────────────────────────────────────────────── */
+.nd-soon { color:#8A9BB0; font-size:.875rem; }
+.nd-link { margin-top:.9rem; display:inline-block; }
 .nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
 .nd-del-hint { font-size:.8rem; color:var(--muted, #6E6E73); margin:.35rem 0 0; }
 
-/* Modal */
-.nd-modal { border:none; border-radius:12px; padding:0; max-width:min(440px, 94vw); box-shadow:0 12px 40px rgba(15,23,42,.18); }
+/* ── Modal ───────────────────────────────────────────────────────────────── */
+.nd-modal { border:none; border-radius:16px; padding:0; max-width:min(440px,94vw); box-shadow:0 16px 48px rgba(15,23,42,.20); }
 .nd-modal::backdrop { background:rgba(15,23,42,.35); }
-.nd-modal-inner { padding:1rem 1.1rem; }
-.nd-modal h4 { margin:0 0 .5rem; font-size:1rem; }
+.nd-modal-inner { padding:1.25rem 1.5rem; }
+.nd-modal h4 { margin:0 0 .5rem; font-size:1rem; font-weight:600; }
 .nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
 .nd-modal dt { color:var(--muted, #6E6E73); }
 .nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
-.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid var(--pc-border, #e2e8f0); border-radius:8px; font-size:.95rem; margin-top:.35rem; }
+.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.5rem .65rem; border:1px solid rgba(226,232,240,.9); border-radius:10px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SISTEMA DE BOTONES — Nómina Dashboard (scope local)
-   Jerarquía de 3 niveles, todos en pill (border-radius:999px):
-     1. Primario   → verde sólido profundo  — "Ir al Master de Asistencia"
-     2. Secundario → outline neutro suave   — "Actualizar Headcount ahora"
-     3. Módulo     → outline verde ProClean — CTAs internos de cada card
+   SISTEMA DE BOTONES — ProClean Premium (scope: Nómina Dashboard)
+   ─────────────────────────────────────────────────────────────────────────
+   1. Primario   → verde sólido, pill  — "Ir al Master de Asistencia"
+   2. Secundario → azul outline, pill  — "Actualizar Headcount ahora"
+   3. Módulo     → verde outline, pill — CTAs internos de módulos
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Primario: verde ProClean sólido ───────────────────────────────── */
+/* ── 1. Primario — verde ProClean sólido, pill ───────────────────────── */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
   background:var(--brand-green-deep, #47A92C);
@@ -124,35 +155,35 @@
   border-radius:999px;
   font-weight:600;
   letter-spacing:.01em;
-  box-shadow:0 1px 3px rgba(71,169,44,.18), 0 3px 10px rgba(71,169,44,.10);
+  box-shadow:0 1px 4px rgba(71,169,44,.18), 0 4px 14px rgba(71,169,44,.12);
 }
 .page-head .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
-  background:#3d8f25;
-  border-color:#3d8f25;
-  box-shadow:0 2px 6px rgba(71,169,44,.24), 0 6px 18px rgba(71,169,44,.12);
+  background:#3a8f23;
+  border-color:#3a8f23;
+  box-shadow:0 2px 8px rgba(71,169,44,.26), 0 6px 20px rgba(71,169,44,.14);
 }
 
-/* ── 2. Secundario: outline neutro, discreto ──────────────────────────── */
+/* ── 2. Secundario — azul ProClean outline, pill ─────────────────────── */
 .page-head .btn-secondary,
 .nd-wrap .btn-secondary {
   background:#fff;
   background-image:none;
-  border:1px solid var(--pc-border, #e2e8f0);
-  color:var(--text, #1D1D1F);
+  border:1px solid var(--pc-blue, #1A90C6);
+  color:var(--pc-blue, #1A90C6);
   border-radius:999px;
   font-weight:500;
   box-shadow:none;
 }
 .page-head .btn-secondary:hover,
 .nd-wrap .btn-secondary:hover {
-  background:var(--panel-soft, #f5f7fa);
-  border-color:var(--muted, #a0aab4);
-  color:var(--text, #1D1D1F);
+  background:var(--pc-surface-blue, #F3FAFD);
+  border-color:var(--brand-blue-deep, #0D7BAA);
+  color:var(--brand-blue-deep, #0D7BAA);
   box-shadow:none;
 }
 
-/* ── 3. Módulo: outline verde ProClean, acción disponible ─────────────── */
+/* ── 3. Módulo — verde outline, pill ─────────────────────────────────── */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
@@ -170,7 +201,7 @@
   box-shadow:none;
 }
 
-@media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
+@media (max-width:1120px) { .nd-grid { grid-template-columns:1fr; } }
 </style>
 {% endblock %}
 
