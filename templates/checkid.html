@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_button %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='checkid/checkid.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head checkid-page-head">
   <div>
     <span class="eyebrow">Herramientas</span>
     <h2>CheckID</h2>
@@ -11,15 +14,16 @@
 
 <section class="form-card checkid-tool">
   <div class="checkid-search-row">
+    <span class="checkid-search-icon" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </span>
     <label class="checkid-search-label" for="checkid-term">
-      <span class="checkid-search-icon" aria-hidden="true">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-      </span>
       <input type="text" id="checkid-term" class="checkid-search-input" maxlength="18" placeholder="Introduce RFC o CURP para hacer una consulta" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text">
     </label>
     <button type="button" class="btn btn-primary checkid-search-submit" id="checkid-submit">Consultar</button>
     <span class="checkid-loader" id="checkid-loader" hidden aria-hidden="true">Consultando…</span>
   </div>
+  <p class="checkid-search-hint">RFC: 12–13 caracteres · CURP: 18 caracteres · Solo letras y números</p>
 
   <div id="checkid-notice" class="checkid-inline-notice" hidden role="status"></div>
   <div id="checkid-error" class="checkid-inline-error" hidden role="alert"></div>
@@ -32,8 +36,10 @@
 </section>
 
 <section class="form-card checkid-recent-panel">
-  <h3 class="checkid-recent-title">Consultas recientes</h3>
-  <p class="helper">Historial compartido de consultas exitosas CheckID (últimas 200). Tras una consulta nueva, actualiza la página para ver la nueva fila.</p>
+  <div class="checkid-recent-header">
+    <h3 class="checkid-recent-title">Consultas recientes</h3>
+    <p class="helper">Historial compartido de consultas exitosas CheckID (últimas 200). Tras una consulta nueva, actualiza la página para ver la nueva fila.</p>
+  </div>
   {% if checkid_history %}
   <div class="history-toolbar checkid-recent-toolbar">
     <label class="history-search-label">Buscar en consultas
