@@ -2,7 +2,7 @@
 <div class="hc-detalle-meta" id="hc-detalle-meta">
   <span>Mostrando <strong id="hc-detalle-count">{{ detalle_filtrado|default(detalle|length) }}</strong> de <strong>{{ detalle_total|default(detalle|length) }}</strong> registros SUA</span>
 </div>
-<div class="hc-table-wrap">
+<div class="hc-table-wrap hc-table-panel">
   <table class="hc-table" id="hc-detalle-table">
     <thead>
       <tr>
@@ -78,7 +78,7 @@
           <span class="hc-badge ok" title="{{ info_estado_label(row.info_estado) }}">{{ row.info_estado }}</span>
           {% endif %}
         </td>
-        <td>{{ icon_button('eye', 'Ver detalle del registro', class='hc-toggle-detail', extra_attrs='data-target="det-' ~ (row.registro_no or loop.index) ~ '"') }}</td>
+        <td class="actions-cell actions-cell--nowrap">{{ icon_button('eye', 'Ver detalle del registro', class='hc-toggle-detail', extra_attrs='data-target="det-' ~ (row.registro_no or loop.index) ~ '"') }}</td>
       </tr>
       <tr class="hc-detail-row" id="det-{{ row.registro_no or loop.index }}" data-detail-for="{{ row.registro_no or loop.index }}">
         <td colspan="17"><div class="hc-detail-inner">

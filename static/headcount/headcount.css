@@ -1,0 +1,682 @@
+/* ==============================================================
+   ProClean — Módulo Headcount — Visual Premium
+   Fase D.10 | Solo visual | Sin lógica ni backend
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page heads ───────────────────────────────────────────── */
+
+.hc-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 8px;
+}
+
+.hc-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.hc-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.hc-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.hc-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 640px;
+}
+
+.hc-snapshot-msg {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin-top: 6px;
+}
+
+/* ── 2. Index — link cards ─────────────────────────────────────── */
+
+.hc-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 8px;
+}
+
+.hc-link-card {
+  display: block;
+  padding: 20px 22px;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  text-decoration: none;
+  color: inherit;
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+  transition:
+    border-color var(--pc-transition),
+    box-shadow var(--pc-transition),
+    transform 0.14s ease;
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.hc-link-card:hover {
+  border-color: var(--pc-blue);
+  box-shadow: 0 4px 16px rgba(26, 119, 198, 0.1);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.hc-link-card strong {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin-bottom: 6px;
+}
+
+.hc-link-card p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+/* ── 3. Panels ─────────────────────────────────────────────────── */
+
+.hc-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 22px 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.hc-panel.form-card {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.hc-panel h3,
+.hc-panel h4 {
+  margin: 0 0 14px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.hc-panel-historial {
+  border-top: 3px solid var(--pc-green, #20A866);
+}
+
+.hc-panel-clientes {
+  padding-top: 18px;
+  background: var(--pc-surface-soft, #F5F9FD);
+}
+
+/* ── 4. Summary / KPI cards ────────────────────────────────────── */
+
+.hc-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.hc-card {
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 12px 14px;
+  transition: border-color var(--pc-transition);
+}
+
+.hc-card:hover {
+  border-color: rgba(26, 119, 198, 0.25);
+}
+
+.hc-card span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  margin-bottom: 4px;
+}
+
+.hc-card strong {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  line-height: 1.2;
+}
+
+.hc-card-wide {
+  grid-column: span 2;
+  min-width: 200px;
+}
+
+.hc-card-metric-hint {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--pc-text-muted);
+  font-weight: 400;
+  margin-top: 4px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── 5. Filters ────────────────────────────────────────────────── */
+
+.hc-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 16px;
+  padding: 16px 18px;
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.hc-filters label {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  margin-bottom: 4px;
+}
+
+.hc-filters input,
+.hc-filters select {
+  width: 100%;
+  font-size: 0.9rem;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface);
+  color: var(--pc-text);
+  transition: border-color var(--pc-transition), box-shadow var(--pc-transition);
+}
+
+.hc-filters input:focus,
+.hc-filters select:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 198, 0.12);
+}
+
+.hc-filters-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hc-filters .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* Upload form inside auditoría panel */
+.hc-panel.form-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.hc-panel.form-card input[type="file"],
+.hc-panel.form-card input[type="date"] {
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface);
+}
+
+/* ── 6. Tables ─────────────────────────────────────────────────── */
+
+.hc-table-wrap {
+  overflow: auto;
+  max-height: 62vh;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface);
+}
+
+.hc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+  min-width: 900px;
+}
+
+.hc-table th,
+.hc-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.hc-table th {
+  position: sticky;
+  top: 0;
+  background: var(--pc-surface-soft, #F5F9FD);
+  z-index: 1;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+}
+
+.hc-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.hc-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.hc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.hc-sortable {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.hc-sortable:hover {
+  color: var(--pc-blue);
+}
+
+.hc-sort-icon {
+  font-size: 0.65rem;
+  margin-left: 4px;
+  color: var(--pc-blue);
+}
+
+.hc-sortable.is-sorted {
+  background: var(--pc-surface-blue, #E3EFFA);
+  color: var(--pc-blue);
+}
+
+/* ── 7. Badges ─────────────────────────────────────────────────── */
+
+.hc-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 50px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--pc-surface-blue, #E3EFFA);
+  color: var(--pc-blue, #1A77D3);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  margin: 2px 4px 2px 0;
+}
+
+.hc-badge.warn {
+  background: #FEF3C7;
+  color: #92400E;
+  border-color: rgba(146, 64, 14, 0.2);
+}
+
+.hc-badge.err {
+  background: #FEE2E2;
+  color: #991B1B;
+  border-color: rgba(153, 27, 27, 0.2);
+}
+
+.hc-badge.ok {
+  background: var(--pc-surface-green, #E3F5EC);
+  color: var(--pc-green-deep, #1A7A4A);
+  border-color: rgba(26, 133, 80, 0.2);
+}
+
+/* ── 8. Detail expand rows ─────────────────────────────────────── */
+
+.hc-detail-row {
+  display: none;
+  background: var(--pc-surface-soft, #F5F9FD);
+}
+
+.hc-detail-row.open {
+  display: table-row;
+}
+
+.hc-detail-inner {
+  padding: 14px 16px;
+  font-size: 0.82rem;
+  color: var(--pc-text);
+  line-height: 1.5;
+  border-left: 3px solid var(--pc-green, #20A866);
+  margin: 4px 0;
+  background: var(--pc-surface);
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.hc-detalle-meta {
+  font-size: 0.85rem;
+  color: var(--pc-text-muted);
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  background: var(--pc-surface-soft);
+  border-radius: var(--pc-radius-md, 8px);
+  border: 1px solid var(--pc-border);
+}
+
+.hc-match-debug {
+  margin: 8px 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+}
+
+.hc-match-debug li {
+  margin: 4px 0;
+}
+
+/* ── 9. Alerts ─────────────────────────────────────────────────── */
+
+.hc-alert {
+  padding: 14px 18px;
+  border-radius: var(--pc-radius-lg, 12px);
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.hc-alert.error {
+  background: #FEF2F2;
+  border: 1px solid #FECACA;
+  color: #991B1B;
+}
+
+.hc-alert.info {
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.2);
+  color: #1E40AF;
+}
+
+.hc-empty-msg {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  padding: 12px 0;
+}
+
+/* ── 10. Client summary cards (auditoría) ──────────────────────── */
+
+.hc-cliente-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.hc-cliente-toolbar h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.hc-filter-active {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  padding: 8px 14px;
+  border-radius: var(--pc-radius-pill, 50px);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.2);
+  color: var(--pc-text);
+}
+
+.client-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.client-summary-card,
+.hc-cliente-card {
+  min-height: 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 14px 16px;
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color var(--pc-transition),
+    box-shadow var(--pc-transition),
+    transform 0.12s ease;
+}
+
+.client-summary-card:hover,
+.hc-cliente-card:hover {
+  border-color: var(--pc-blue);
+  box-shadow: 0 2px 10px rgba(26, 119, 198, 0.08);
+  text-decoration: none;
+}
+
+.client-summary-card.is-active,
+.hc-cliente-card.is-active {
+  border-color: var(--pc-blue);
+  background: var(--pc-surface-blue, #E3EFFA);
+  box-shadow: 0 0 0 1px var(--pc-blue);
+}
+
+.hc-cliente-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  flex: 1 1 auto;
+}
+
+.hc-cliente-card-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin-bottom: 6px;
+  color: var(--pc-text);
+}
+
+.hc-cliente-card-meta {
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+}
+
+.hc-cliente-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 8px;
+  font-size: 0.76rem;
+}
+
+.hc-cliente-stats li {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.hc-cliente-stats span {
+  color: var(--pc-text-muted);
+}
+
+.hc-cliente-card-tag {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-blue);
+}
+
+.location-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 64px;
+  overflow: auto;
+  margin-top: auto;
+}
+
+.location-chip,
+.hc-ubic-chip {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  padding: 3px 10px;
+  border-radius: var(--pc-radius-pill, 50px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--pc-transition), background var(--pc-transition);
+}
+
+.location-chip.is-active,
+.hc-ubic-chip.is-active {
+  border-color: var(--pc-blue);
+  background: var(--pc-surface-blue, #E3EFFA);
+  font-weight: 600;
+  color: var(--pc-blue);
+}
+
+/* ── 11. Actions toolbar ───────────────────────────────────────── */
+
+.hc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.hc-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.hc-actions .inline-form {
+  display: inline-flex;
+  margin: 0;
+}
+
+/* ── 12. Historial section ─────────────────────────────────────── */
+
+.hc-historial-section h3 {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.hc-historial-lead {
+  margin: 0 0 14px;
+  font-size: 0.85rem;
+  color: var(--pc-text-muted);
+}
+
+.hc-historial-actions {
+  white-space: nowrap;
+}
+
+.hc-inline-form {
+  display: inline;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── 13. Pagination ──────────────────────────────────────────────── */
+
+.hc-pagination {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+}
+
+.hc-pagination .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 14. Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .hc-page-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .hc-panel {
+    padding: 16px 14px;
+  }
+
+  .hc-filters {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .hc-card-wide {
+    grid-column: span 1;
+  }
+
+  .client-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hc-table {
+    min-width: 700px;
+  }
+}
