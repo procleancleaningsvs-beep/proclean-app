@@ -36,9 +36,9 @@
           <td class="em-imc-cell">{{ r.imc_label or '—' }}</td>
           <td class="em-chip-cell">
             <div class="em-chip-row">
-              {% if r.orina_pdf_relpath %}<span class="em-chip">Orina PDF</span>{% endif %}
+              {% if r.orina_pdf_relpath %}<span class="em-chip em-chip-pdf">Orina PDF</span>{% endif %}
               {% if r.orina_docx_relpath %}<span class="em-chip em-chip-muted">Orina DOCX</span>{% endif %}
-              {% if r.sangre_pdf_relpath %}<span class="em-chip">Sangre PDF</span>{% endif %}
+              {% if r.sangre_pdf_relpath %}<span class="em-chip em-chip-pdf">Sangre PDF</span>{% endif %}
               {% if r.sangre_docx_relpath %}<span class="em-chip em-chip-muted">Sangre DOCX</span>{% endif %}
               {% if not (r.orina_pdf_relpath or r.orina_docx_relpath or r.sangre_pdf_relpath or r.sangre_docx_relpath) %}
               <span class="em-chip em-chip-muted">Sin archivos</span>
