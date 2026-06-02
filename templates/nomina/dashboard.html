@@ -5,44 +5,34 @@
 /* === Nómina Dashboard — estilos locales (scope: esta página únicamente) === */
 /*
    Paleta ProClean usada aquí:
-   azul principal  → var(--pc-blue, #1A90C6)   hover: var(--brand-blue-deep, #0D7BAA)
-   verde acento    → var(--pc-green, #77BE3C)   deep:  var(--brand-green-deep, #47A92C)
+   azul estructura → var(--pc-blue, #1A90C6)   (franja de cards, hover tabla)
+   verde primario  → var(--brand-green-deep, #47A92C) / var(--pc-green, #77BE3C)
    sup. azul       → var(--pc-surface-blue, #F3FAFD)
    sup. verde      → var(--pc-surface-green, #F7FBF1)
-   Sistema de franjas: azul = datos/estructura, verde = módulos con acción disponible
+   Sistema de botones: verde sólido › outline neutro › outline verde
 */
 
 /* Layout */
 .nd-wrap { display:grid; gap:1.25rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
 
-/* Card base — sin franja por defecto */
+/* Card base — franja azul ProClean uniforme en todas las cards activas */
 .nd-card {
   background:#fff;
   border:1px solid var(--pc-border, #e2e8f0);
   border-radius:14px;
   padding:1.25rem 1.35rem;
-  box-shadow:0 1px 4px rgba(15,23,42,.06);
-}
-
-/* Franja azul: Headcount, Asistencias, Cálculo (datos/estructura) */
-.nd-card--blue {
   box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 2px 0 var(--pc-blue, #1A90C6);
 }
 
-/* Franja verde: Vacaciones, INFONAVIT, Parámetros (módulos activos) */
-.nd-card--green {
-  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 2px 0 var(--pc-green, #77BE3C);
-}
-
-/* Card: secciones en desarrollo — sin franja, sin sombra */
+/* Card: secciones en desarrollo — sin franja, borde punteado neutro */
 .nd-card--soon {
   background:var(--panel-soft, #f5f7fa);
   border:1px dashed var(--muted, #cbd5e1);
   box-shadow:none;
 }
 
-/* Badge "Próximamente" — neutro, informativo, no activo */
+/* Badge "Próximamente" — neutro, informativo */
 .nd-soon-badge {
   display:inline-block;
   font-size:.65rem;
@@ -58,7 +48,7 @@
   vertical-align:middle;
 }
 
-/* KPIs — fondo neutro para no saturar de azul */
+/* KPIs */
 .nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.75rem; }
 .nd-kpi {
   background:var(--panel-soft, #f5f7fa);
@@ -116,43 +106,67 @@
 .nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.45rem .55rem; border:1px solid var(--pc-border, #e2e8f0); border-radius:8px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
 
-/* === Sobrescritura local de botones (solo en esta página) ============= */
+/* ═══════════════════════════════════════════════════════════════════════════
+   SISTEMA DE BOTONES — Nómina Dashboard (scope local)
+   Jerarquía de 3 niveles, todos en pill (border-radius:999px):
+     1. Primario   → verde sólido profundo  — "Ir al Master de Asistencia"
+     2. Secundario → outline neutro suave   — "Actualizar Headcount ahora"
+     3. Módulo     → outline verde ProClean — CTAs internos de cada card
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-/* Botón primario: azul ProClean, único, sin degradado */
+/* ── 1. Primario: verde ProClean sólido ───────────────────────────────── */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
-  background:var(--pc-blue, #1A90C6);
+  background:var(--brand-green-deep, #47A92C);
   background-image:none;
-  border-color:var(--brand-blue-deep, #0D7BAA);
+  border:1px solid var(--brand-green-deep, #47A92C);
   color:#fff;
-  border-radius:10px;
-  box-shadow:0 2px 6px rgba(26,144,198,.16);
+  border-radius:999px;
+  font-weight:600;
+  letter-spacing:.01em;
+  box-shadow:0 1px 3px rgba(71,169,44,.18), 0 3px 10px rgba(71,169,44,.10);
 }
 .page-head .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
-  background:var(--brand-blue-deep, #0D7BAA);
-  border-color:var(--brand-blue-deep, #0D7BAA);
-  box-shadow:0 3px 10px rgba(26,144,198,.24);
+  background:#3d8f25;
+  border-color:#3d8f25;
+  box-shadow:0 2px 6px rgba(71,169,44,.24), 0 6px 18px rgba(71,169,44,.12);
 }
 
-/* Botón secundario global: radio sobrio */
+/* ── 2. Secundario: outline neutro, discreto ──────────────────────────── */
 .page-head .btn-secondary,
-.nd-wrap .btn-secondary { border-radius:10px; }
-
-/* Botón de módulo verde — CTAs internos de Vacaciones, INFONAVIT, Parámetros, Cálculo */
-.nd-wrap .nd-btn-module {
-  background:var(--pc-surface-green, #F7FBF1);
+.nd-wrap .btn-secondary {
+  background:#fff;
   background-image:none;
-  border:1px solid var(--pc-green, #77BE3C);
-  color:var(--brand-green-deep, #47A92C);
-  border-radius:10px;
-  box-shadow:none;
+  border:1px solid var(--pc-border, #e2e8f0);
+  color:var(--text, #1D1D1F);
+  border-radius:999px;
   font-weight:500;
+  box-shadow:none;
+}
+.page-head .btn-secondary:hover,
+.nd-wrap .btn-secondary:hover {
+  background:var(--panel-soft, #f5f7fa);
+  border-color:var(--muted, #a0aab4);
+  color:var(--text, #1D1D1F);
+  box-shadow:none;
+}
+
+/* ── 3. Módulo: outline verde ProClean, acción disponible ─────────────── */
+.nd-wrap .nd-btn-module {
+  background:#fff;
+  background-image:none;
+  border:1.5px solid var(--pc-green, #77BE3C);
+  color:var(--brand-green-deep, #47A92C);
+  border-radius:999px;
+  font-weight:500;
+  letter-spacing:.005em;
+  box-shadow:none;
 }
 .nd-wrap .nd-btn-module:hover {
-  background:var(--pc-green, #77BE3C);
+  background:var(--pc-surface-green, #F7FBF1);
   border-color:var(--brand-green-deep, #47A92C);
-  color:#fff;
+  color:var(--brand-green-deep, #47A92C);
   box-shadow:none;
 }
 
@@ -175,7 +189,7 @@
 
 <div class="nd-wrap">
   {% if headcount_notice %}
-  <section class="nd-card nd-card--blue">
+  <section class="nd-card">
     <h3>Headcount</h3>
     <p class="nd-soon">{{ headcount_notice }}</p>
     {% if snapshot_invalid %}
@@ -186,7 +200,7 @@
   </section>
   {% endif %}
   <div class="nd-grid">
-    <section class="nd-card nd-card--blue">
+    <section class="nd-card">
       <h3>Asistencias</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
@@ -195,7 +209,7 @@
       <p class="nd-soon" style="margin-top:.7rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
     </section>
 
-    <section class="nd-card nd-card--green">
+    <section class="nd-card">
       <h3>Vacaciones</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
@@ -208,7 +222,7 @@
       <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
     </section>
 
-    <section class="nd-card nd-card--green">
+    <section class="nd-card">
       <h3>INFONAVIT</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
@@ -221,7 +235,7 @@
       <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
     </section>
 
-    <section class="nd-card nd-card--green">
+    <section class="nd-card">
       <h3>Parámetros de Nómina</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'invalid' %}Requiere reconstrucción{% elif param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
@@ -237,7 +251,7 @@
       <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
     </section>
 
-    <section class="nd-card nd-card--blue">
+    <section class="nd-card">
       <h3>Cálculo de Nómina</h3>
       <p class="nd-soon">Borrador preliminar (sin exportación final, banco ni costeo).</p>
       <div class="nd-kpis">
