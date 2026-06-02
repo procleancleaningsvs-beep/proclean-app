@@ -68,6 +68,7 @@ body {
 }
 
 a { color: var(--primary-dark); text-decoration: none; }
+button { font-family: var(--font-sans); }
 body.nav-drawer-open { overflow: hidden; }
 
 .app-shell {
@@ -1173,6 +1174,7 @@ input[type="file"] {
 table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-sans);
 }
 th, td {
   padding: 14px 12px;
@@ -2674,7 +2676,7 @@ h1, h2, h3, h4, h5, h6 {
   --pc-text: #1D1D1F;
   --pc-text-muted: #6E6E73;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", Inter, Arial, sans-serif;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", ui-sans-serif, Arial, sans-serif;
   --font-size-body: 15px;
   --line-height-body: 1.48;
   --radius-sm: 10px;
@@ -2726,7 +2728,7 @@ h1, h2, h3, h4 {
 }
 
 h1, h2 {
-  font-weight: 650;
+  font-weight: 700;
 }
 
 h3, h4 {
@@ -2887,7 +2889,7 @@ h3, h4 {
 .page-head h2 {
   margin-top: 6px;
   font-size: clamp(1.75rem, 2.2vw, 2.15rem);
-  font-weight: 630;
+  font-weight: 700;
 }
 
 .page-head p {
@@ -3189,6 +3191,7 @@ tbody tr:hover td {
 
 html {
   font-size: 15px;
+  font-family: var(--font-sans);
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
