@@ -3,153 +3,283 @@
 {% block extra_head %}
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   Nómina Dashboard — ProClean Premium Clean UI v3 (scope: esta página)
-   ─────────────────────────────────────────────────────────────────────────
-   azul     → var(--pc-blue, #1A90C6)          deep: var(--pc-blue-deep, #0E79AD)
-   verde    → var(--brand-green-deep, #47A92C)  mid: var(--pc-green, #77BE3C)
-   sup.azul → var(--pc-surface-blue, #F1F8FC)  sup.verde: var(--pc-surface-green, #F4FAF0)
+   Nómina Dashboard — ProClean Premium v4 (scope: esta página)
+   Tokens globales de Fase B con fallback:
+   --pc-blue #1A90C6  --pc-green #77BE3C  --pc-green-deep #47A92C
+   --pc-surface #FFF  --pc-surface-blue #F3FAFD  --pc-surface-green #F7FBF1
+   --pc-border #E2E8F0  --pc-text #1D1D1F  --pc-text-muted #6E6E73
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-.nd-wrap { display:grid; gap:1.75rem; }
-.nd-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem; }
+.nd-wrap { display:grid; gap:2rem; }
+.nd-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.5rem; }
 
-/* ── Header premium con decoración de burbujas ──────────────────────────── */
-.nd-page-head {
-  position:relative;
-  overflow:hidden;
-  background:linear-gradient(120deg, #FFFFFF 0%, var(--pc-surface-blue, #F1F8FC) 58%, var(--pc-surface-green, #F4FAF0) 100%);
-  border:1px solid var(--pc-border, #E1E8EF);
-  border-radius:20px;
-  padding:1.5rem 1.75rem;
-  margin-bottom:1.75rem;
-}
-/* Burbuja grande (agua) — esquina superior derecha */
-.nd-page-head::before {
-  content:'';
-  position:absolute;
-  right:-25px;
-  top:-35px;
-  width:160px;
-  height:160px;
-  border-radius:50%;
-  background:radial-gradient(circle at 40% 40%, rgba(38,177,226,.09) 0%, transparent 68%);
-  pointer-events:none;
-}
-/* Burbuja pequeña (verdor) — esquina inferior derecha */
-.nd-page-head::after {
-  content:'';
-  position:absolute;
-  right:62px;
-  bottom:-28px;
-  width:88px;
-  height:88px;
-  border-radius:50%;
-  background:radial-gradient(circle at 50% 50%, rgba(119,190,60,.09) 0%, transparent 68%);
-  pointer-events:none;
-}
-/* Texto y botones por encima de las burbujas */
-.nd-page-head > * { position:relative; z-index:1; }
-
-/* h2 con más protagonismo */
-.nd-page-head h2 {
-  font-size:1.75rem;
-  font-weight:700;
-  letter-spacing:-.03em;
-  line-height:1.15;
-  margin:4px 0 4px;
-  color:var(--pc-text, #1B2634);
-}
-
-/* ── Cards base ─────────────────────────────────────────────────────────── */
-.nd-card {
-  background:#fff;
-  border:1px solid rgba(225,232,239,.9);
-  border-radius:20px;
-  padding:1.5rem 1.75rem;
-  box-shadow:0 1px 3px rgba(15,23,42,.04),
-             0 4px 16px rgba(15,23,42,.05),
-             inset 0 2px 0 var(--pc-blue, #1A90C6);
-}
-.nd-card h3 {
-  margin:0;
-  font-size:1.15rem;
-  font-weight:700;
-  color:var(--pc-text, #1B2634);
-  letter-spacing:-.02em;
-  line-height:1.2;
-}
-
-/* ── Variante acento verde — Vacaciones ─────────────────────────────────── */
-.nd-card--accent-green {
-  box-shadow:0 1px 3px rgba(15,23,42,.04),
-             0 4px 16px rgba(15,23,42,.05),
-             inset 0 2px 0 var(--pc-green, #77BE3C);
-}
-
-/* ── Card header con ícono (.nd-ch) ─────────────────────────────────────── */
-.nd-ch {
+/* ═══════════════════════════════════════════════════════════════════════════
+   A) HERO HEADER
+   Dos paneles: contenido (izquierda) + decoración visual (derecha)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-hero {
   display:flex;
   align-items:center;
-  gap:.75rem;
-  padding-bottom:.9rem;
-  border-bottom:1px solid rgba(225,232,239,.7);
-  margin-bottom:.95rem;
+  justify-content:space-between;
+  gap:2rem;
+  background:linear-gradient(130deg, #FFFFFF 0%, #EDF6FB 52%, #EFF8EA 100%);
+  border:1px solid rgba(26,144,198,.16);
+  border-radius:24px;
+  padding:2rem 2.5rem;
+  margin-bottom:2rem;
+  position:relative;
+  overflow:hidden;
 }
-.nd-ch h3 { margin:0; }
+.nd-hero-content {
+  flex:1;
+  min-width:0;
+  position:relative;
+  z-index:1;
+}
+/* Badge tipo pill azul */
+.nd-hero-badge {
+  display:inline-flex;
+  align-items:center;
+  gap:.35rem;
+  font-size:.68rem;
+  font-weight:700;
+  letter-spacing:.12em;
+  text-transform:uppercase;
+  color:var(--pc-blue,#1A90C6);
+  background:rgba(26,144,198,.09);
+  border:1px solid rgba(26,144,198,.22);
+  border-radius:9999px;
+  padding:.22rem .75rem;
+  margin-bottom:.9rem;
+}
+.nd-hero h2 {
+  font-size:2.1rem;
+  font-weight:800;
+  letter-spacing:-.045em;
+  line-height:1.08;
+  color:var(--pc-text,#1D1D1F);
+  margin:0 0 .45rem;
+}
+.nd-hero-sub {
+  font-size:.9rem;
+  color:var(--pc-text-muted,#6E6E73);
+  margin:0 0 1.5rem;
+  max-width:480px;
+  line-height:1.55;
+}
+.nd-hero-btns {
+  display:flex;
+  flex-wrap:wrap;
+  gap:.6rem;
+  align-items:center;
+}
+/* Panel decorativo — derecha */
+.nd-hero-deco {
+  width:195px;
+  flex-shrink:0;
+  pointer-events:none;
+  user-select:none;
+  position:relative;
+  z-index:0;
+}
+.nd-hero-deco svg { width:100%; height:auto; display:block; }
 
-/* ── Ícono de módulo ───────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   B) HEADCOUNT — bloque protagonista (full-width, horizontal)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-hc {
+  display:flex;
+  align-items:flex-start;
+  gap:1.25rem;
+  background:linear-gradient(118deg, #ECF6FD 0%, #E8F4F8 100%);
+  border:1px solid rgba(26,144,198,.2);
+  border-left:4px solid var(--pc-blue,#1A90C6);
+  border-radius:20px;
+  padding:1.5rem 2rem;
+  position:relative;
+  overflow:hidden;
+}
+/* Círculo decorativo derecho */
+.nd-hc::after {
+  content:'';
+  position:absolute;
+  right:-10px;
+  bottom:-15px;
+  width:90px;
+  height:90px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(26,144,198,.09) 0%, transparent 70%);
+  pointer-events:none;
+}
+.nd-hc-icon {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:52px;
+  height:52px;
+  border-radius:16px;
+  background:rgba(26,144,198,.13);
+  color:var(--pc-blue,#1A90C6);
+  flex-shrink:0;
+}
+.nd-hc-body { flex:1; min-width:0; position:relative; z-index:1; }
+.nd-hc h3 {
+  font-size:1.2rem;
+  font-weight:700;
+  color:var(--pc-text,#1D1D1F);
+  margin:0 0 .3rem;
+  letter-spacing:-.025em;
+}
+.nd-hc-notice {
+  font-size:.9rem;
+  color:var(--pc-text-muted,#6E6E73);
+  margin:0;
+  line-height:1.5;
+}
+.nd-hc-alert {
+  display:flex;
+  align-items:flex-start;
+  gap:.5rem;
+  margin-top:.65rem;
+  padding:.55rem .9rem;
+  border-radius:10px;
+  font-size:.84rem;
+  font-weight:500;
+  line-height:1.45;
+}
+.nd-hc-alert--error { background:#FEF2F2; border:1px solid #FECACA; color:#991b1b; }
+.nd-hc-alert--warn  { background:#FFFBEB; border:1px solid #FDE68A; color:#92400e; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   C) CARDS DE MÓDULO — tres zonas: head / body / foot
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-card {
+  background:#fff;
+  border:1px solid rgba(220,228,238,.9);
+  border-radius:22px;
+  overflow:hidden;
+  box-shadow:0 1px 3px rgba(15,23,42,.04),
+             0 4px 14px rgba(15,23,42,.05);
+  display:flex;
+  flex-direction:column;
+}
+/* Franja superior de acento */
+.nd-card--blue  { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-blue,#1A90C6); }
+.nd-card--green { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-green,#77BE3C); }
+
+/* Zona de cabecera de card — fondo suavemente tintado */
+.nd-ch {
+  background:#F7FBFD;
+  padding:1.25rem 1.5rem 1.1rem;
+  border-bottom:1px solid rgba(220,228,238,.8);
+  display:flex;
+  align-items:center;
+  gap:.8rem;
+}
+.nd-ch--green { background:#F6FBF4; }
+
+/* Ícono de módulo */
 .nd-micon {
   display:flex;
   align-items:center;
   justify-content:center;
-  width:36px;
-  height:36px;
-  border-radius:10px;
+  width:40px;
+  height:40px;
+  border-radius:12px;
   flex-shrink:0;
 }
-.nd-micon--blue  { background:var(--pc-surface-blue, #F1F8FC);  color:var(--pc-blue, #1A90C6); }
-.nd-micon--green { background:var(--pc-surface-green, #F4FAF0); color:var(--brand-green-deep, #47A92C); }
+.nd-micon--blue  { background:var(--pc-surface-blue,#F3FAFD);  color:var(--pc-blue,#1A90C6); }
+.nd-micon--green { background:var(--pc-surface-green,#F7FBF1); color:var(--pc-green-deep,#47A92C); }
 .nd-micon--slate { background:#F1F5F9; color:#64748B; }
 
-/* ── Hero card — Headcount ──────────────────────────────────────────────── */
-.nd-card--hero {
-  box-shadow:0 2px 8px rgba(15,23,42,.06),
-             0 8px 28px rgba(15,23,42,.07),
-             inset 0 3px 0 var(--pc-blue, #1A90C6);
+/* Título de la card */
+.nd-ch h3 {
+  font-size:1.15rem;
+  font-weight:700;
+  color:var(--pc-text,#1D1D1F);
+  letter-spacing:-.025em;
+  line-height:1.2;
+  margin:0;
+}
+
+/* Zona de cuerpo de card */
+.nd-body {
+  padding:1.1rem 1.5rem;
+  flex:1;
+}
+
+/* Texto de ayuda dentro de card */
+.nd-hint {
+  font-size:.875rem;
+  color:var(--pc-text-muted,#6E6E73);
+  margin:0;
+  line-height:1.55;
+}
+
+/* Zona de footer de card — acción del módulo */
+.nd-card-foot {
+  padding:.85rem 1.5rem;
+  border-top:1px solid rgba(220,228,238,.7);
+  display:flex;
+  align-items:center;
+  background:#FAFCFE;
+}
+.nd-card-foot--green { background:#F8FBF5; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   D) KPI TILES — MÉTRICAS PREMIUM (sin aspecto de campo/input)
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.55rem; }
+.nd-kpi {
+  background:#F2F7FB;
+  border-radius:12px;
+  padding:.85rem 1rem .75rem;
   position:relative;
   overflow:hidden;
 }
-/* Burbuja decorativa en hero */
-.nd-card--hero::after {
+/* Acento superior — NO es borde de input, es decorativo */
+.nd-kpi::before {
   content:'';
   position:absolute;
-  right:-18px;
-  top:-18px;
-  width:108px;
-  height:108px;
-  border-radius:50%;
-  background:radial-gradient(circle at 40% 40%, rgba(38,177,226,.07) 0%, transparent 68%);
-  pointer-events:none;
+  top:0; left:0; right:0;
+  height:2px;
+  background:linear-gradient(90deg, rgba(26,144,198,.38) 0%, transparent 60%);
 }
-.nd-card--hero > * { position:relative; z-index:1; }
+.nd-kpi span {
+  display:block;
+  font-size:.62rem;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:#8A9BB0;
+  margin-bottom:.32rem;
+}
+.nd-kpi strong {
+  display:block;
+  font-size:1.55rem;
+  font-weight:700;
+  color:var(--pc-text,#1D1D1F);
+  line-height:1;
+  letter-spacing:-.035em;
+}
 
-/* ── Cards próximamente ─────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   E) CARDS PRÓXIMAMENTE
+   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-card--soon {
   background:#FAFBFC;
-  border:1px dashed rgba(176,190,200,.65);
+  border:1px dashed rgba(176,190,200,.6);
   box-shadow:none;
-  opacity:.82;
+  opacity:.78;
 }
-.nd-card--soon h3 { color:#8A9BB0; font-weight:500; font-size:1rem; }
-/* Sin separador en cards "soon" */
-.nd-card--soon .nd-ch { border-bottom:none; padding-bottom:.4rem; margin-bottom:.4rem; }
+.nd-card--soon .nd-ch   { background:transparent; border-bottom-color:rgba(176,190,200,.45); }
+.nd-card--soon .nd-ch h3 { color:#8A9BB0; font-weight:500; font-size:1rem; }
 
-/* ── Badge "Próximamente" ───────────────────────────────────────────────── */
 .nd-soon-badge {
   display:inline-block;
-  font-size:.61rem;
-  font-weight:600;
+  font-size:.6rem;
+  font-weight:700;
   color:#8A9BB0;
   background:#EEF2F6;
   border:1px solid #D4DDED;
@@ -157,367 +287,393 @@
   padding:.1rem .45rem;
   text-transform:uppercase;
   letter-spacing:.07em;
-  margin-left:.45rem;
+  margin-left:.5rem;
   vertical-align:middle;
 }
 
-/* ── KPI tiles — métricas premium, no inputs ────────────────────────────── */
-.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.85rem; }
-.nd-kpi {
-  background:#FAFCFF;
-  border:1px solid rgba(225,232,239,.9);
-  border-radius:11px;
-  padding:.75rem 1rem;
-  box-shadow:inset 3px 0 0 rgba(26,144,198,.14);
-}
-.nd-kpi span {
-  display:block;
-  font-size:.67rem;
-  font-weight:600;
-  text-transform:uppercase;
-  letter-spacing:.07em;
-  color:#8A9BB0;
-  margin-bottom:.3rem;
-}
-.nd-kpi strong {
-  display:block;
-  font-size:1.3rem;
-  font-weight:700;
-  color:var(--pc-text, #1B2634);
-  line-height:1.15;
-  letter-spacing:-.025em;
-}
-
-/* ── Footer de card — zona de acción del módulo ─────────────────────────── */
-.nd-card-foot {
-  margin-top:.9rem;
-  padding-top:.85rem;
-  border-top:1px solid rgba(225,232,239,.65);
-  display:flex;
-  align-items:center;
-}
-
-/* ── Tabla Historial ─────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   F) TABLA HISTORIAL
+   ═══════════════════════════════════════════════════════════════════════════ */
 .nd-table-wrap {
   overflow:auto;
-  border:1px solid rgba(225,232,239,.85);
+  border:1px solid rgba(220,228,238,.85);
   border-radius:14px;
-  margin-top:.75rem;
+  margin-top:.65rem;
   box-shadow:0 1px 3px rgba(15,23,42,.03);
 }
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
 .nd-table thead tr { background:#F8FAFC; }
 .nd-table th {
-  border-bottom:1.5px solid rgba(225,232,239,.9);
+  border-bottom:1.5px solid rgba(220,228,238,.9);
   padding:11px 14px;
   text-align:left;
-  font-size:.69rem;
-  font-weight:600;
+  font-size:.68rem;
+  font-weight:700;
   color:#8A9BB0;
   text-transform:uppercase;
-  letter-spacing:.07em;
+  letter-spacing:.08em;
   white-space:nowrap;
 }
 .nd-table td {
-  border-bottom:1px solid rgba(225,232,239,.55);
+  border-bottom:1px solid rgba(220,228,238,.55);
   padding:11px 14px;
   text-align:left;
   font-size:.875rem;
-  color:var(--pc-text, #1B2634);
+  color:var(--pc-text,#1D1D1F);
 }
 .nd-table tbody tr:last-child td { border-bottom:none; }
-.nd-table tbody tr:hover { background:var(--pc-surface-blue, #F1F8FC); }
+.nd-table tbody tr:hover { background:var(--pc-surface-blue,#F3FAFD); }
 
-/* ── Misc ────────────────────────────────────────────────────────────────── */
-.nd-soon { color:#8A9BB0; font-size:.875rem; }
-.nd-link { margin-top:.9rem; display:inline-block; }
-.nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
-.nd-del-hint { font-size:.8rem; color:var(--muted, #60748A); margin:.35rem 0 0; }
+/* ═══════════════════════════════════════════════════════════════════════════
+   G) MISC / MODAL
+   ═══════════════════════════════════════════════════════════════════════════ */
+.nd-act      { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
+.nd-del-hint { font-size:.8rem; color:var(--pc-text-muted,#6E6E73); margin:.35rem 0 0; }
 
-/* ── Modal ────────────────────────────────────────────────────────────────── */
 .nd-modal { border:none; border-radius:16px; padding:0; max-width:min(440px,94vw); box-shadow:0 16px 48px rgba(15,23,42,.20); }
 .nd-modal::backdrop { background:rgba(15,23,42,.35); }
 .nd-modal-inner { padding:1.25rem 1.5rem; }
 .nd-modal h4 { margin:0 0 .5rem; font-size:1rem; font-weight:600; }
 .nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
-.nd-modal dt { color:var(--muted, #60748A); }
+.nd-modal dt { color:var(--pc-text-muted,#6E6E73); }
 .nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
-.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.5rem .65rem; border:1px solid rgba(225,232,239,.9); border-radius:10px; font-size:.95rem; margin-top:.35rem; }
+.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.5rem .65rem; border:1px solid rgba(220,228,238,.9); border-radius:10px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SISTEMA DE BOTONES (scope: Nómina Dashboard)
-   1. Primario   → verde sólido pill   — "Ir al Master de Asistencia"
-   2. Secundario → azul outline pill   — "Actualizar Headcount ahora"
-   3. Módulo     → verde outline pill  — CTAs internos de módulos
+   H) BOTONES (scope: Nómina Dashboard)
+   1 · Primario   — verde sólido pill + flecha
+   2 · Secundario — azul outline pill
+   3 · Módulo     — verde outline pill
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Primario — verde sólido pill ────────────────────────────────────── */
-.page-head .btn-primary,
+/* 1. Primario */
+.nd-hero .btn-primary,
 .nd-wrap .btn-primary {
-  background:var(--brand-green-deep, #47A92C);
+  background:var(--pc-green-deep,#47A92C);
   background-image:none;
-  border:1px solid var(--brand-green-deep, #47A92C);
+  border:1px solid var(--pc-green-deep,#47A92C);
   color:#fff;
   border-radius:9999px;
   font-weight:600;
   letter-spacing:.01em;
-  padding:10px 22px;
-  box-shadow:0 2px 8px rgba(71,169,44,.18), 0 4px 14px rgba(71,169,44,.10);
+  padding:11px 24px;
+  box-shadow:0 2px 8px rgba(71,169,44,.22),0 4px 16px rgba(71,169,44,.12);
   transform:none;
+  display:inline-flex;
+  align-items:center;
+  gap:.45rem;
 }
-.page-head .btn-primary:hover,
+.nd-hero .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
   background:#3a8f23;
   border-color:#3a8f23;
-  box-shadow:0 3px 10px rgba(71,169,44,.28), 0 6px 20px rgba(71,169,44,.14);
+  box-shadow:0 3px 12px rgba(71,169,44,.32),0 6px 22px rgba(71,169,44,.16);
   transform:none;
 }
 
-/* ── 2. Secundario — azul outline pill ──────────────────────────────────── */
-.page-head .btn-secondary,
+/* 2. Secundario */
+.nd-hero .btn-secondary,
 .nd-wrap .btn-secondary {
   background:#fff;
   background-image:none;
-  border:1.5px solid var(--pc-blue, #1A90C6);
-  color:var(--pc-blue, #1A90C6);
+  border:1.5px solid var(--pc-blue,#1A90C6);
+  color:var(--pc-blue,#1A90C6);
   border-radius:9999px;
   font-weight:500;
-  padding:9px 20px;
+  padding:10px 20px;
   box-shadow:none;
   transform:none;
 }
-.page-head .btn-secondary:hover,
+.nd-hero .btn-secondary:hover,
 .nd-wrap .btn-secondary:hover {
-  background:var(--pc-surface-blue, #F1F8FC);
-  border-color:var(--pc-blue-deep, #0E79AD);
-  color:var(--pc-blue-deep, #0E79AD);
+  background:var(--pc-surface-blue,#F3FAFD);
+  border-color:#0E79AD;
+  color:#0E79AD;
   box-shadow:none;
   transform:none;
 }
 
-/* ── 3. Módulo — verde outline pill ─────────────────────────────────────── */
+/* 3. Módulo */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
-  border:1.5px solid var(--pc-green, #77BE3C);
-  color:var(--brand-green-deep, #47A92C);
+  border:1.5px solid var(--pc-green,#77BE3C);
+  color:var(--pc-green-deep,#47A92C);
   border-radius:9999px;
   font-weight:600;
   font-size:.875rem;
   padding:8px 18px;
-  letter-spacing:.005em;
   box-shadow:none;
   min-height:0;
   transform:none;
 }
 .nd-wrap .nd-btn-module:hover {
-  background:var(--pc-surface-green, #F4FAF0);
-  border-color:var(--brand-green-deep, #47A92C);
-  color:var(--brand-green-deep, #47A92C);
+  background:var(--pc-surface-green,#F7FBF1);
+  border-color:var(--pc-green-deep,#47A92C);
+  color:var(--pc-green-deep,#47A92C);
   box-shadow:none;
   transform:none;
 }
 
-@media (max-width:1120px) { .nd-grid { grid-template-columns:1fr; } }
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+@media (max-width:1120px) {
+  .nd-grid        { grid-template-columns:1fr; }
+  .nd-hero        { flex-direction:column; align-items:flex-start; gap:1rem; }
+  .nd-hero-deco   { display:none; }
+  .nd-hc          { flex-direction:column; }
+}
+@media (max-width:720px) {
+  .nd-hero        { padding:1.5rem 1.25rem; }
+  .nd-hero h2     { font-size:1.6rem; }
+  .nd-hc          { padding:1.25rem 1.25rem; }
+  .nd-card-foot   { padding:.75rem 1.25rem; }
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<section class="page-head nd-page-head">
-  <div>
-    <span class="eyebrow">Nóminas</span>
+
+{# ── Hero Header ────────────────────────────────────────────────────────── #}
+<section class="page-head nd-hero">
+  <div class="nd-hero-content">
+    <span class="nd-hero-badge" aria-hidden="true">
+      <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor"><circle cx="4" cy="4" r="4"/></svg>
+      Nóminas
+    </span>
     <h2>Dashboard base</h2>
-    <p>Vista inicial para roles Nómina y Admin. Sin cálculos fiscales/laborales en esta microfase.</p>
+    <p class="nd-hero-sub">Vista inicial para roles Nómina y Admin. Sin cálculos fiscales/laborales en esta microfase.</p>
+    <div class="nd-hero-btns">
+      <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">
+        Ir al Master de Asistencia
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+      </a>
+      <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
+        <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
+      </form>
+    </div>
   </div>
-  <div class="page-head-actions">
-    <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
-    <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
-      <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
-    </form>
+
+  {# Panel decorativo: burbujas de agua + gota — visible pero muy sutil #}
+  <div class="nd-hero-deco" aria-hidden="true">
+    <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg" fill="none">
+      <circle cx="118" cy="56" r="52" fill="rgba(26,144,198,.07)"/>
+      <circle cx="170" cy="110" r="30" fill="rgba(119,190,60,.08)"/>
+      <circle cx="70"  cy="120" r="20" fill="rgba(26,144,198,.05)"/>
+      <path d="M156 10 C156 10 142 32 142 42 A14 14 0 0 0 170 42 C170 32 156 10 156 10Z" fill="rgba(26,144,198,.11)"/>
+      <circle cx="40"  cy="48"  r="4.5" fill="rgba(26,144,198,.2)"/>
+      <circle cx="182" cy="30"  r="3.5" fill="rgba(119,190,60,.22)"/>
+      <circle cx="22"  cy="126" r="3"   fill="rgba(26,144,198,.16)"/>
+      <circle cx="95"  cy="22"  r="3"   fill="rgba(119,190,60,.15)"/>
+      <circle cx="188" cy="148" r="2.5" fill="rgba(26,144,198,.14)"/>
+    </svg>
   </div>
 </section>
 
 <div class="nd-wrap">
+
+  {# ── Headcount — bloque protagonista ────────────────────────────────── #}
   {% if headcount_notice %}
-  <section class="nd-card nd-card--hero">
-    <div class="nd-ch">
-      <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+  <div class="nd-hc">
+    <span class="nd-hc-icon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </span>
+    <div class="nd-hc-body">
       <h3>Headcount</h3>
+      <p class="nd-hc-notice">{{ headcount_notice }}</p>
+      {% if snapshot_invalid %}
+      <div class="nd-hc-alert nd-hc-alert--error">Presione Reconstruir Headcount para regenerar la copia local.</div>
+      {% elif headcount_refreshing or headcount_stale %}
+      <div class="nd-hc-alert nd-hc-alert--warn">Headcount se está actualizando. Se muestran los últimos datos disponibles.</div>
+      {% endif %}
     </div>
-    <p class="nd-soon">{{ headcount_notice }}</p>
-    {% if snapshot_invalid %}
-    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#991b1b;">Presione Reconstruir Headcount para regenerar la copia local.</p>
-    {% elif headcount_refreshing or headcount_stale %}
-    <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#92400e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
-    {% endif %}
-  </section>
+  </div>
   {% endif %}
 
+  {# ── Grid de módulos ─────────────────────────────────────────────────── #}
   <div class="nd-grid">
 
-    <!-- Asistencias -->
-    <section class="nd-card">
+    {# Asistencias #}
+    <section class="nd-card nd-card--blue">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
         <h3>Asistencias</h3>
       </div>
-      <div class="nd-kpis">
-        <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
-        <div class="nd-kpi"><span>Pendientes con warnings</span><strong>{{ dash.pending_warnings }}</strong></div>
+      <div class="nd-body">
+        <div class="nd-kpis">
+          <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
+          <div class="nd-kpi"><span>Pendientes con warnings</span><strong>{{ dash.pending_warnings }}</strong></div>
+        </div>
+        <p class="nd-hint" style="margin-top:.75rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
       </div>
-      <p class="nd-soon" style="margin-top:.7rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
     </section>
 
-    <!-- Vacaciones — acento verde -->
-    <section class="nd-card nd-card--accent-green">
-      <div class="nd-ch">
-        <span class="nd-micon nd-micon--green" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
+    {# Vacaciones — acento verde #}
+    <section class="nd-card nd-card--green">
+      <div class="nd-ch nd-ch--green">
+        <span class="nd-micon nd-micon--green" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
         <h3>Vacaciones</h3>
       </div>
-      <div class="nd-kpis">
-        <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
-        <div class="nd-kpi"><span>Match Headcount</span><strong>{{ vac_stats.empleados_match_headcount }}</strong></div>
-        <div class="nd-kpi"><span>Sin match</span><strong>{{ vac_stats.empleados_sin_match }}</strong></div>
-        <div class="nd-kpi"><span>Discrepancia ingreso</span><strong>{{ vac_stats.discrepancias_fecha_ingreso }}</strong></div>
-        <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
-        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
+      <div class="nd-body">
+        <div class="nd-kpis">
+          <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
+          <div class="nd-kpi"><span>Match Headcount</span><strong>{{ vac_stats.empleados_match_headcount }}</strong></div>
+          <div class="nd-kpi"><span>Sin match</span><strong>{{ vac_stats.empleados_sin_match }}</strong></div>
+          <div class="nd-kpi"><span>Discrepancia ingreso</span><strong>{{ vac_stats.discrepancias_fecha_ingreso }}</strong></div>
+          <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
+          <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
+        </div>
       </div>
-      <div class="nd-card-foot">
+      <div class="nd-card-foot nd-card-foot--green">
         <a class="btn nd-btn-module" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
       </div>
     </section>
 
-    <!-- INFONAVIT -->
-    <section class="nd-card">
+    {# INFONAVIT #}
+    <section class="nd-card nd-card--blue">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
         <h3>INFONAVIT</h3>
       </div>
-      <div class="nd-kpis">
-        <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
-        <div class="nd-kpi"><span>Activos</span><strong>{{ inf_stats.activos }}</strong></div>
-        <div class="nd-kpi"><span>Modificados</span><strong>{{ inf_stats.modificados }}</strong></div>
-        <div class="nd-kpi"><span>Suspendidos</span><strong>{{ inf_stats.suspendidos }}</strong></div>
-        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
-        <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
+      <div class="nd-body">
+        <div class="nd-kpis">
+          <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
+          <div class="nd-kpi"><span>Activos</span><strong>{{ inf_stats.activos }}</strong></div>
+          <div class="nd-kpi"><span>Modificados</span><strong>{{ inf_stats.modificados }}</strong></div>
+          <div class="nd-kpi"><span>Suspendidos</span><strong>{{ inf_stats.suspendidos }}</strong></div>
+          <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
+          <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
+        </div>
       </div>
       <div class="nd-card-foot">
         <a class="btn nd-btn-module" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
       </div>
     </section>
 
-    <!-- Parámetros de Nómina -->
-    <section class="nd-card">
+    {# Parámetros de Nómina #}
+    <section class="nd-card nd-card--blue">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
         <h3>Parámetros de Nómina</h3>
       </div>
-      <div class="nd-kpis">
-        <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'invalid' %}Requiere reconstrucción{% elif param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
-        {% if param_stats.stats_mode == 'legacy' %}
-        <p style="color:#991b1b;font-size:.85rem;margin:0;">Headcount no disponible — KPIs en modo legacy.</p>
-        {% endif %}
-        <div class="nd-kpi"><span>Con nómina vinculada</span><strong>{{ param_stats.con_nomina_vinculada | default(0) }}</strong></div>
-        <div class="nd-kpi"><span>Sin salario operativo</span><strong>{{ param_stats.missing_salario_operativo }}</strong></div>
-        <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ param_stats.pendientes_revision }}</strong></div>
-        <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
-        <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
+      <div class="nd-body">
+        <div class="nd-kpis">
+          <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'invalid' %}Requiere reconstrucción{% elif param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
+          {% if param_stats.stats_mode == 'legacy' %}
+          <p style="color:#991b1b;font-size:.85rem;margin:0;">Headcount no disponible — KPIs en modo legacy.</p>
+          {% endif %}
+          <div class="nd-kpi"><span>Con nómina vinculada</span><strong>{{ param_stats.con_nomina_vinculada | default(0) }}</strong></div>
+          <div class="nd-kpi"><span>Sin salario operativo</span><strong>{{ param_stats.missing_salario_operativo }}</strong></div>
+          <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ param_stats.pendientes_revision }}</strong></div>
+          <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
+          <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
+        </div>
       </div>
       <div class="nd-card-foot">
         <a class="btn nd-btn-module" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
       </div>
     </section>
 
-    <!-- Cálculo de Nómina -->
-    <section class="nd-card">
+    {# Cálculo de Nómina #}
+    <section class="nd-card nd-card--blue">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
         <h3>Cálculo de Nómina</h3>
       </div>
-      <p class="nd-soon">Borrador preliminar (sin exportación final, banco ni costeo).</p>
-      <div class="nd-kpis">
-        <div class="nd-kpi"><span>Cálculos guardados</span><strong>{{ calc_kpis.total_calculos }}</strong></div>
-        <div class="nd-kpi"><span>Borradores / revisados</span><strong>{{ calc_kpis.borradores }}</strong></div>
-        {% if calc_kpis.last_run %}
-        <div class="nd-kpi"><span>Último ID</span><strong>#{{ calc_kpis.last_run.id }}</strong></div>
-        <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
-        {% endif %}
+      <div class="nd-body">
+        <p class="nd-hint" style="margin-bottom:.65rem;">Borrador preliminar (sin exportación final, banco ni costeo).</p>
+        <div class="nd-kpis">
+          <div class="nd-kpi"><span>Cálculos guardados</span><strong>{{ calc_kpis.total_calculos }}</strong></div>
+          <div class="nd-kpi"><span>Borradores / revisados</span><strong>{{ calc_kpis.borradores }}</strong></div>
+          {% if calc_kpis.last_run %}
+          <div class="nd-kpi"><span>Último ID</span><strong>#{{ calc_kpis.last_run.id }}</strong></div>
+          <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
+          {% endif %}
+        </div>
       </div>
       <div class="nd-card-foot">
         <a class="btn nd-btn-module" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
       </div>
     </section>
 
-    <!-- Exportaciones — próximamente -->
+    {# Exportaciones — próximamente #}
     <section class="nd-card nd-card--soon">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
         <h3>Exportaciones <span class="nd-soon-badge">Próximamente</span></h3>
       </div>
-      <p class="nd-soon">Excel de nómina, banco y pagos fuera de banco.</p>
+      <div class="nd-body">
+        <p class="nd-hint">Excel de nómina, banco y pagos fuera de banco.</p>
+      </div>
     </section>
 
-    <!-- Costeo / Facturación — próximamente -->
+    {# Costeo / Facturación — próximamente #}
     <section class="nd-card nd-card--soon">
       <div class="nd-ch">
-        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>
         <h3>Costeo / Facturación <span class="nd-soon-badge">Próximamente</span></h3>
       </div>
-      <p class="nd-soon">Costo semanal, carga social, margen y facturación aproximada.</p>
+      <div class="nd-body">
+        <p class="nd-hint">Costo semanal, carga social, margen y facturación aproximada.</p>
+      </div>
     </section>
 
-  </div>
+  </div>{# /nd-grid #}
 
-  <!-- Historial / Auditoría -->
-  <section class="nd-card">
+  {# ── Historial / Auditoría ────────────────────────────────────────────── #}
+  <section class="nd-card nd-card--blue">
     <div class="nd-ch">
-      <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+      <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
       <h3>Historial / Auditoría</h3>
     </div>
-    <p class="nd-soon">Importaciones de asistencia. Los registros archivados por administrador dejan de mostrarse aquí (soft delete).</p>
-    <div class="nd-table-wrap">
-      <table class="nd-table" id="nd-historial-imports">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Semana</th>
-            <th>Cliente</th>
-            <th>Coordinador</th>
-            <th>Total</th>
-            <th>Warnings</th>
-            <th>Creado</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in dash.recent_imports %}
-          <tr data-import-id="{{ item.id }}">
-            <td>{{ item.id }}</td>
-            <td>{{ item.semana }}</td>
-            <td>{{ item.cliente }}</td>
-            <td>{{ item.coordinador }}</td>
-            <td>{{ item.total_rows }}</td>
-            <td>{{ item.warning_count }}</td>
-            <td>{{ item.created_at }}</td>
-            <td>
-              <div class="nd-act actions-cell actions-cell--nowrap">
-                {{ icon_link('folder-open', 'Abrir importación', url_for('nomina.master_hub', import_id=item.id)) }}
-                {% if current_user and current_user.role == 'admin' %}
-                {{ icon_button('trash-2', 'Eliminar importación del historial', 'danger', class='js-nd-archivar', extra_attrs='data-id="' ~ item.id ~ '" data-semana="' ~ (item.semana | e) ~ '" data-cliente="' ~ (item.cliente | e) ~ '" data-coordinador="' ~ (item.coordinador | e) ~ '" data-total="' ~ item.total_rows ~ '" data-creado="' ~ (item.created_at | e) ~ '" data-url="' ~ url_for('nomina.dashboard_archivar_asistencia_import', import_id=item.id) ~ '"') }}
-                {% endif %}
-              </div>
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not dash.recent_imports %}
-          <tr><td colspan="8">Sin importaciones registradas todavía.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
+    <div class="nd-body">
+      <p class="nd-hint" style="margin-bottom:.65rem;">Importaciones de asistencia. Los registros archivados por administrador dejan de mostrarse aquí (soft delete).</p>
+      <div class="nd-table-wrap">
+        <table class="nd-table" id="nd-historial-imports">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Semana</th>
+              <th>Cliente</th>
+              <th>Coordinador</th>
+              <th>Total</th>
+              <th>Warnings</th>
+              <th>Creado</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in dash.recent_imports %}
+            <tr data-import-id="{{ item.id }}">
+              <td>{{ item.id }}</td>
+              <td>{{ item.semana }}</td>
+              <td>{{ item.cliente }}</td>
+              <td>{{ item.coordinador }}</td>
+              <td>{{ item.total_rows }}</td>
+              <td>{{ item.warning_count }}</td>
+              <td>{{ item.created_at }}</td>
+              <td>
+                <div class="nd-act actions-cell actions-cell--nowrap">
+                  {{ icon_link('folder-open', 'Abrir importación', url_for('nomina.master_hub', import_id=item.id)) }}
+                  {% if current_user and current_user.role == 'admin' %}
+                  {{ icon_button('trash-2', 'Eliminar importación del historial', 'danger', class='js-nd-archivar', extra_attrs='data-id="' ~ item.id ~ '" data-semana="' ~ (item.semana | e) ~ '" data-cliente="' ~ (item.cliente | e) ~ '" data-coordinador="' ~ (item.coordinador | e) ~ '" data-total="' ~ item.total_rows ~ '" data-creado="' ~ (item.created_at | e) ~ '" data-url="' ~ url_for('nomina.dashboard_archivar_asistencia_import', import_id=item.id) ~ '"') }}
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+            {% if not dash.recent_imports %}
+            <tr><td colspan="8">Sin importaciones registradas todavía.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
-</div>
+
+</div>{# /nd-wrap #}
 
 {% if current_user and current_user.role == 'admin' %}
 <dialog id="nd-archivar-dialog" class="nd-modal" aria-labelledby="nd-archivar-title">
@@ -541,7 +697,7 @@
     <div class="nd-modal-step" id="nd-archivar-step2" hidden>
       <h4>Confirmación final</h4>
       <p class="nd-del-hint">Esta acción no se puede deshacer desde la interfaz. Escribe <strong>ELIMINAR</strong> para habilitar el botón.</p>
-      <label for="nd-archivar-confirm-input" class="nd-soon">Confirmación</label>
+      <label for="nd-archivar-confirm-input" class="nd-hint">Confirmación</label>
       <input type="text" id="nd-archivar-confirm-input" autocomplete="off" spellcheck="false" placeholder="ELIMINAR">
       <div class="nd-modal-actions">
         <button type="button" class="btn btn-secondary btn-sm" id="nd-archivar-back">Atrás</button>
