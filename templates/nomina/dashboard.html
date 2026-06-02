@@ -3,29 +3,68 @@
 {% block extra_head %}
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   Nómina Dashboard — ProClean Premium Light 2.2 (scope: esta página)
-   ───────────────────────────────────────────────────────────────────────────
-   azul     → var(--pc-blue, #1A90C6)         deep: var(--brand-blue-deep, #0D7BAA)
+   Nómina Dashboard — ProClean Premium Clean UI v3 (scope: esta página)
+   ─────────────────────────────────────────────────────────────────────────
+   azul     → var(--pc-blue, #1A90C6)          deep: var(--pc-blue-deep, #0E79AD)
    verde    → var(--brand-green-deep, #47A92C)  mid: var(--pc-green, #77BE3C)
-   sup.azul → var(--pc-surface-blue, #F3FAFD)  sup.verde: var(--pc-surface-green, #F7FBF1)
+   sup.azul → var(--pc-surface-blue, #F1F8FC)  sup.verde: var(--pc-surface-green, #F4FAF0)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-.nd-wrap { display:grid; gap:1.5rem; }
+.nd-wrap { display:grid; gap:1.75rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem; }
 
-/* ── Refinamiento local del header de página ────────────────────────────── */
-.page-head h2 {
-  font-size:1.45rem;
+/* ── Header premium con decoración de burbujas ──────────────────────────── */
+.nd-page-head {
+  position:relative;
+  overflow:hidden;
+  background:linear-gradient(120deg, #FFFFFF 0%, var(--pc-surface-blue, #F1F8FC) 58%, var(--pc-surface-green, #F4FAF0) 100%);
+  border:1px solid var(--pc-border, #E1E8EF);
+  border-radius:20px;
+  padding:1.5rem 1.75rem;
+  margin-bottom:1.75rem;
+}
+/* Burbuja grande (agua) — esquina superior derecha */
+.nd-page-head::before {
+  content:'';
+  position:absolute;
+  right:-25px;
+  top:-35px;
+  width:160px;
+  height:160px;
+  border-radius:50%;
+  background:radial-gradient(circle at 40% 40%, rgba(38,177,226,.09) 0%, transparent 68%);
+  pointer-events:none;
+}
+/* Burbuja pequeña (verdor) — esquina inferior derecha */
+.nd-page-head::after {
+  content:'';
+  position:absolute;
+  right:62px;
+  bottom:-28px;
+  width:88px;
+  height:88px;
+  border-radius:50%;
+  background:radial-gradient(circle at 50% 50%, rgba(119,190,60,.09) 0%, transparent 68%);
+  pointer-events:none;
+}
+/* Texto y botones por encima de las burbujas */
+.nd-page-head > * { position:relative; z-index:1; }
+
+/* h2 con más protagonismo */
+.nd-page-head h2 {
+  font-size:1.75rem;
   font-weight:700;
-  letter-spacing:-.025em;
-  line-height:1.2;
+  letter-spacing:-.03em;
+  line-height:1.15;
+  margin:4px 0 4px;
+  color:var(--pc-text, #1B2634);
 }
 
-/* ── Cards base — 20px, sombra difusa, franja azul 2px ─────────────────── */
+/* ── Cards base ─────────────────────────────────────────────────────────── */
 .nd-card {
   background:#fff;
-  border:1px solid rgba(226,232,240,.85);
+  border:1px solid rgba(225,232,239,.9);
   border-radius:20px;
   padding:1.5rem 1.75rem;
   box-shadow:0 1px 3px rgba(15,23,42,.04),
@@ -33,115 +72,146 @@
              inset 0 2px 0 var(--pc-blue, #1A90C6);
 }
 .nd-card h3 {
-  margin:0 0 .9rem;
-  font-size:1rem;
-  font-weight:600;
-  color:var(--text, #1D1D1F);
-  letter-spacing:-.01em;
+  margin:0;
+  font-size:1.15rem;
+  font-weight:700;
+  color:var(--pc-text, #1B2634);
+  letter-spacing:-.02em;
+  line-height:1.2;
 }
 
-/* ── Card header con ícono (.nd-ch) ─────────────────────────────────────
-   Wrapper flex: ícono de módulo a la izquierda + h3 a la derecha.
-   .nd-ch h3 resetea el margin del h3 (lo hereda el wrapper).
-   ─────────────────────────────────────────────────────────────────────── */
+/* ── Variante acento verde — Vacaciones ─────────────────────────────────── */
+.nd-card--accent-green {
+  box-shadow:0 1px 3px rgba(15,23,42,.04),
+             0 4px 16px rgba(15,23,42,.05),
+             inset 0 2px 0 var(--pc-green, #77BE3C);
+}
+
+/* ── Card header con ícono (.nd-ch) ─────────────────────────────────────── */
 .nd-ch {
   display:flex;
   align-items:center;
-  gap:.7rem;
+  gap:.75rem;
+  padding-bottom:.9rem;
+  border-bottom:1px solid rgba(225,232,239,.7);
   margin-bottom:.95rem;
 }
 .nd-ch h3 { margin:0; }
 
-/* ── Contenedor de ícono de módulo ──────────────────────────────────────── */
+/* ── Ícono de módulo ───────────────────────────────────────────────────── */
 .nd-micon {
   display:flex;
   align-items:center;
   justify-content:center;
-  width:34px;
-  height:34px;
-  border-radius:9px;
+  width:36px;
+  height:36px;
+  border-radius:10px;
   flex-shrink:0;
 }
-.nd-micon--blue  { background:var(--pc-surface-blue, #F3FAFD);  color:var(--pc-blue, #1A90C6); }
-.nd-micon--green { background:var(--pc-surface-green, #F7FBF1); color:var(--brand-green-deep, #47A92C); }
+.nd-micon--blue  { background:var(--pc-surface-blue, #F1F8FC);  color:var(--pc-blue, #1A90C6); }
+.nd-micon--green { background:var(--pc-surface-green, #F4FAF0); color:var(--brand-green-deep, #47A92C); }
 .nd-micon--slate { background:#F1F5F9; color:#64748B; }
 
-/* ── Hero card — Headcount ────────────────────────────────────────────── */
+/* ── Hero card — Headcount ──────────────────────────────────────────────── */
 .nd-card--hero {
-  box-shadow:0 2px 6px rgba(15,23,42,.05),
+  box-shadow:0 2px 8px rgba(15,23,42,.06),
              0 8px 28px rgba(15,23,42,.07),
              inset 0 3px 0 var(--pc-blue, #1A90C6);
+  position:relative;
+  overflow:hidden;
 }
+/* Burbuja decorativa en hero */
+.nd-card--hero::after {
+  content:'';
+  position:absolute;
+  right:-18px;
+  top:-18px;
+  width:108px;
+  height:108px;
+  border-radius:50%;
+  background:radial-gradient(circle at 40% 40%, rgba(38,177,226,.07) 0%, transparent 68%);
+  pointer-events:none;
+}
+.nd-card--hero > * { position:relative; z-index:1; }
 
-/* ── Cards en desarrollo ────────────────────────────────────────────────── */
+/* ── Cards próximamente ─────────────────────────────────────────────────── */
 .nd-card--soon {
   background:#FAFBFC;
-  border:1px dashed rgba(176,190,200,.75);
+  border:1px dashed rgba(176,190,200,.65);
   box-shadow:none;
+  opacity:.82;
 }
-.nd-card--soon h3 { color:#8A9BB0; font-weight:500; }
+.nd-card--soon h3 { color:#8A9BB0; font-weight:500; font-size:1rem; }
+/* Sin separador en cards "soon" */
+.nd-card--soon .nd-ch { border-bottom:none; padding-bottom:.4rem; margin-bottom:.4rem; }
 
 /* ── Badge "Próximamente" ───────────────────────────────────────────────── */
 .nd-soon-badge {
   display:inline-block;
-  font-size:.62rem;
-  font-weight:500;
+  font-size:.61rem;
+  font-weight:600;
   color:#8A9BB0;
-  background:#F0F4F8;
-  border:1px solid #D8E2EC;
+  background:#EEF2F6;
+  border:1px solid #D4DDED;
   border-radius:6px;
-  padding:.1rem .4rem;
+  padding:.1rem .45rem;
   text-transform:uppercase;
   letter-spacing:.07em;
-  margin-left:.4rem;
+  margin-left:.45rem;
   vertical-align:middle;
 }
 
-/* ── KPI tiles — métricas, no inputs ─────────────────────────────────────
-   Acento lateral azul (inset shadow izquierdo) + tipografía fuerte.
-   ─────────────────────────────────────────────────────────────────────── */
-.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.65rem; margin-top:.85rem; }
+/* ── KPI tiles — métricas premium, no inputs ────────────────────────────── */
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.85rem; }
 .nd-kpi {
-  background:#fff;
-  border:1px solid rgba(226,232,240,.85);
-  border-radius:12px;
-  padding:.7rem .9rem;
-  box-shadow:0 1px 2px rgba(15,23,42,.04),
-             inset 3px 0 0 rgba(26,144,198,.18);
+  background:#FAFCFF;
+  border:1px solid rgba(225,232,239,.9);
+  border-radius:11px;
+  padding:.75rem 1rem;
+  box-shadow:inset 3px 0 0 rgba(26,144,198,.14);
 }
 .nd-kpi span {
   display:block;
-  font-size:.68rem;
-  font-weight:500;
+  font-size:.67rem;
+  font-weight:600;
   text-transform:uppercase;
   letter-spacing:.07em;
   color:#8A9BB0;
-  margin-bottom:.28rem;
+  margin-bottom:.3rem;
 }
 .nd-kpi strong {
   display:block;
-  font-size:1.35rem;
+  font-size:1.3rem;
   font-weight:700;
-  color:var(--text, #1D1D1F);
+  color:var(--pc-text, #1B2634);
   line-height:1.15;
-  letter-spacing:-.02em;
+  letter-spacing:-.025em;
 }
 
-/* ── Tabla Historial ────────────────────────────────────────────────────── */
+/* ── Footer de card — zona de acción del módulo ─────────────────────────── */
+.nd-card-foot {
+  margin-top:.9rem;
+  padding-top:.85rem;
+  border-top:1px solid rgba(225,232,239,.65);
+  display:flex;
+  align-items:center;
+}
+
+/* ── Tabla Historial ─────────────────────────────────────────────────────── */
 .nd-table-wrap {
   overflow:auto;
-  border:1px solid rgba(226,232,240,.85);
+  border:1px solid rgba(225,232,239,.85);
   border-radius:14px;
   margin-top:.75rem;
   box-shadow:0 1px 3px rgba(15,23,42,.03);
 }
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
-.nd-table thead tr { background:#FAFBFC; }
+.nd-table thead tr { background:#F8FAFC; }
 .nd-table th {
-  border-bottom:1px solid rgba(226,232,240,.9);
+  border-bottom:1.5px solid rgba(225,232,239,.9);
   padding:11px 14px;
   text-align:left;
-  font-size:.7rem;
+  font-size:.69rem;
   font-weight:600;
   color:#8A9BB0;
   text-transform:uppercase;
@@ -149,30 +219,30 @@
   white-space:nowrap;
 }
 .nd-table td {
-  border-bottom:1px solid rgba(226,232,240,.6);
+  border-bottom:1px solid rgba(225,232,239,.55);
   padding:11px 14px;
   text-align:left;
   font-size:.875rem;
-  color:var(--text, #374151);
+  color:var(--pc-text, #1B2634);
 }
 .nd-table tbody tr:last-child td { border-bottom:none; }
-.nd-table tbody tr:hover { background:var(--pc-surface-blue, #F3FAFD); }
+.nd-table tbody tr:hover { background:var(--pc-surface-blue, #F1F8FC); }
 
 /* ── Misc ────────────────────────────────────────────────────────────────── */
 .nd-soon { color:#8A9BB0; font-size:.875rem; }
 .nd-link { margin-top:.9rem; display:inline-block; }
 .nd-act { display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
-.nd-del-hint { font-size:.8rem; color:var(--muted, #6E6E73); margin:.35rem 0 0; }
+.nd-del-hint { font-size:.8rem; color:var(--muted, #60748A); margin:.35rem 0 0; }
 
-/* ── Modal ───────────────────────────────────────────────────────────────── */
+/* ── Modal ────────────────────────────────────────────────────────────────── */
 .nd-modal { border:none; border-radius:16px; padding:0; max-width:min(440px,94vw); box-shadow:0 16px 48px rgba(15,23,42,.20); }
 .nd-modal::backdrop { background:rgba(15,23,42,.35); }
 .nd-modal-inner { padding:1.25rem 1.5rem; }
 .nd-modal h4 { margin:0 0 .5rem; font-size:1rem; font-weight:600; }
 .nd-modal dl { margin:0; display:grid; grid-template-columns:auto 1fr; gap:.2rem .75rem; font-size:.88rem; }
-.nd-modal dt { color:var(--muted, #6E6E73); }
+.nd-modal dt { color:var(--muted, #60748A); }
 .nd-modal-actions { display:flex; flex-wrap:wrap; gap:.5rem; justify-content:flex-end; margin-top:.85rem; }
-.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.5rem .65rem; border:1px solid rgba(226,232,240,.9); border-radius:10px; font-size:.95rem; margin-top:.35rem; }
+.nd-modal input[type="text"] { width:100%; box-sizing:border-box; padding:.5rem .65rem; border:1px solid rgba(225,232,239,.9); border-radius:10px; font-size:.95rem; margin-top:.35rem; }
 .nd-modal-step[hidden] { display:none !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -182,60 +252,71 @@
    3. Módulo     → verde outline pill  — CTAs internos de módulos
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Primario ─────────────────────────────────────────────────────── */
+/* ── 1. Primario — verde sólido pill ────────────────────────────────────── */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
   background:var(--brand-green-deep, #47A92C);
   background-image:none;
   border:1px solid var(--brand-green-deep, #47A92C);
   color:#fff;
-  border-radius:999px;
+  border-radius:9999px;
   font-weight:600;
   letter-spacing:.01em;
-  box-shadow:0 1px 4px rgba(71,169,44,.18), 0 4px 14px rgba(71,169,44,.12);
+  padding:10px 22px;
+  box-shadow:0 2px 8px rgba(71,169,44,.18), 0 4px 14px rgba(71,169,44,.10);
+  transform:none;
 }
 .page-head .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
   background:#3a8f23;
   border-color:#3a8f23;
-  box-shadow:0 2px 8px rgba(71,169,44,.26), 0 6px 20px rgba(71,169,44,.14);
+  box-shadow:0 3px 10px rgba(71,169,44,.28), 0 6px 20px rgba(71,169,44,.14);
+  transform:none;
 }
 
-/* ── 2. Secundario ───────────────────────────────────────────────────── */
+/* ── 2. Secundario — azul outline pill ──────────────────────────────────── */
 .page-head .btn-secondary,
 .nd-wrap .btn-secondary {
   background:#fff;
   background-image:none;
-  border:1px solid var(--pc-blue, #1A90C6);
+  border:1.5px solid var(--pc-blue, #1A90C6);
   color:var(--pc-blue, #1A90C6);
-  border-radius:999px;
+  border-radius:9999px;
   font-weight:500;
+  padding:9px 20px;
   box-shadow:none;
+  transform:none;
 }
 .page-head .btn-secondary:hover,
 .nd-wrap .btn-secondary:hover {
-  background:var(--pc-surface-blue, #F3FAFD);
-  border-color:var(--brand-blue-deep, #0D7BAA);
-  color:var(--brand-blue-deep, #0D7BAA);
+  background:var(--pc-surface-blue, #F1F8FC);
+  border-color:var(--pc-blue-deep, #0E79AD);
+  color:var(--pc-blue-deep, #0E79AD);
   box-shadow:none;
+  transform:none;
 }
 
-/* ── 3. Módulo ───────────────────────────────────────────────────────── */
+/* ── 3. Módulo — verde outline pill ─────────────────────────────────────── */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
   border:1.5px solid var(--pc-green, #77BE3C);
   color:var(--brand-green-deep, #47A92C);
-  border-radius:999px;
-  font-weight:500;
+  border-radius:9999px;
+  font-weight:600;
+  font-size:.875rem;
+  padding:8px 18px;
   letter-spacing:.005em;
   box-shadow:none;
+  min-height:0;
+  transform:none;
 }
 .nd-wrap .nd-btn-module:hover {
-  background:var(--pc-surface-green, #F7FBF1);
+  background:var(--pc-surface-green, #F4FAF0);
   border-color:var(--brand-green-deep, #47A92C);
   color:var(--brand-green-deep, #47A92C);
   box-shadow:none;
+  transform:none;
 }
 
 @media (max-width:1120px) { .nd-grid { grid-template-columns:1fr; } }
@@ -243,16 +324,18 @@
 {% endblock %}
 
 {% block content %}
-<section class="page-head">
+<section class="page-head nd-page-head">
   <div>
     <span class="eyebrow">Nóminas</span>
     <h2>Dashboard base</h2>
     <p>Vista inicial para roles Nómina y Admin. Sin cálculos fiscales/laborales en esta microfase.</p>
   </div>
-  <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
-  <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
-    <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
-  </form>
+  <div class="page-head-actions">
+    <a class="btn btn-primary" href="{{ url_for('nomina.master_hub') }}">Ir al Master de Asistencia</a>
+    <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
+      <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
+    </form>
+  </div>
 </section>
 
 <div class="nd-wrap">
@@ -270,7 +353,10 @@
     {% endif %}
   </section>
   {% endif %}
+
   <div class="nd-grid">
+
+    <!-- Asistencias -->
     <section class="nd-card">
       <div class="nd-ch">
         <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
@@ -283,7 +369,8 @@
       <p class="nd-soon" style="margin-top:.7rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
     </section>
 
-    <section class="nd-card">
+    <!-- Vacaciones — acento verde -->
+    <section class="nd-card nd-card--accent-green">
       <div class="nd-ch">
         <span class="nd-micon nd-micon--green" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
         <h3>Vacaciones</h3>
@@ -296,9 +383,12 @@
         <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
       </div>
-      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
+      <div class="nd-card-foot">
+        <a class="btn nd-btn-module" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
+      </div>
     </section>
 
+    <!-- INFONAVIT -->
     <section class="nd-card">
       <div class="nd-ch">
         <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
@@ -312,9 +402,12 @@
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
         <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
       </div>
-      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
+      <div class="nd-card-foot">
+        <a class="btn nd-btn-module" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
+      </div>
     </section>
 
+    <!-- Parámetros de Nómina -->
     <section class="nd-card">
       <div class="nd-ch">
         <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
@@ -331,9 +424,12 @@
         <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
         <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
       </div>
-      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
+      <div class="nd-card-foot">
+        <a class="btn nd-btn-module" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
+      </div>
     </section>
 
+    <!-- Cálculo de Nómina -->
     <section class="nd-card">
       <div class="nd-ch">
         <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
@@ -348,20 +444,32 @@
         <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
         {% endif %}
       </div>
-      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
+      <div class="nd-card-foot">
+        <a class="btn nd-btn-module" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
+      </div>
     </section>
 
+    <!-- Exportaciones — próximamente -->
     <section class="nd-card nd-card--soon">
-      <h3>Exportaciones <span class="nd-soon-badge">Próximamente</span></h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+        <h3>Exportaciones <span class="nd-soon-badge">Próximamente</span></h3>
+      </div>
       <p class="nd-soon">Excel de nómina, banco y pagos fuera de banco.</p>
     </section>
 
+    <!-- Costeo / Facturación — próximamente -->
     <section class="nd-card nd-card--soon">
-      <h3>Costeo / Facturación <span class="nd-soon-badge">Próximamente</span></h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg></span>
+        <h3>Costeo / Facturación <span class="nd-soon-badge">Próximamente</span></h3>
+      </div>
       <p class="nd-soon">Costo semanal, carga social, margen y facturación aproximada.</p>
     </section>
+
   </div>
 
+  <!-- Historial / Auditoría -->
   <section class="nd-card">
     <div class="nd-ch">
       <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
@@ -528,4 +636,3 @@
 </script>
 {% endif %}
 {% endblock %}
-
