@@ -3,19 +3,26 @@
 {% block extra_head %}
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   Nómina Dashboard — ProClean Premium Light  (scope: esta página únicamente)
+   Nómina Dashboard — ProClean Premium Light 2.2 (scope: esta página)
    ───────────────────────────────────────────────────────────────────────────
-   azul estructura → var(--pc-blue, #1A90C6)         deep: var(--brand-blue-deep, #0D7BAA)
-   verde acción    → var(--brand-green-deep, #47A92C)  mid: var(--pc-green, #77BE3C)
-   sup. azul       → var(--pc-surface-blue, #F3FAFD)   sup. verde: var(--pc-surface-green, #F7FBF1)
-   Botones: verde sólido pill · azul outline pill · verde outline pill
+   azul     → var(--pc-blue, #1A90C6)         deep: var(--brand-blue-deep, #0D7BAA)
+   verde    → var(--brand-green-deep, #47A92C)  mid: var(--pc-green, #77BE3C)
+   sup.azul → var(--pc-surface-blue, #F3FAFD)  sup.verde: var(--pc-surface-green, #F7FBF1)
    ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ── Layout ─────────────────────────────────────────────────────────────── */
 .nd-wrap { display:grid; gap:1.5rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:1.25rem; }
 
-/* ── Cards base — premium: radio 20px, sombra difusa, franja azul 2px ─── */
+/* ── Refinamiento local del header de página ────────────────────────────── */
+.page-head h2 {
+  font-size:1.45rem;
+  font-weight:700;
+  letter-spacing:-.025em;
+  line-height:1.2;
+}
+
+/* ── Cards base — 20px, sombra difusa, franja azul 2px ─────────────────── */
 .nd-card {
   background:#fff;
   border:1px solid rgba(226,232,240,.85);
@@ -27,24 +34,54 @@
 }
 .nd-card h3 {
   margin:0 0 .9rem;
-  font-size:1.05rem;
+  font-size:1rem;
   font-weight:600;
   color:var(--text, #1D1D1F);
-  letter-spacing:-.015em;
+  letter-spacing:-.01em;
 }
 
-/* ── Cards en desarrollo — sin franja, neutro sutil ─────────────────────── */
+/* ── Card header con ícono (.nd-ch) ─────────────────────────────────────
+   Wrapper flex: ícono de módulo a la izquierda + h3 a la derecha.
+   .nd-ch h3 resetea el margin del h3 (lo hereda el wrapper).
+   ─────────────────────────────────────────────────────────────────────── */
+.nd-ch {
+  display:flex;
+  align-items:center;
+  gap:.7rem;
+  margin-bottom:.95rem;
+}
+.nd-ch h3 { margin:0; }
+
+/* ── Contenedor de ícono de módulo ──────────────────────────────────────── */
+.nd-micon {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:34px;
+  height:34px;
+  border-radius:9px;
+  flex-shrink:0;
+}
+.nd-micon--blue  { background:var(--pc-surface-blue, #F3FAFD);  color:var(--pc-blue, #1A90C6); }
+.nd-micon--green { background:var(--pc-surface-green, #F7FBF1); color:var(--brand-green-deep, #47A92C); }
+.nd-micon--slate { background:#F1F5F9; color:#64748B; }
+
+/* ── Hero card — Headcount ────────────────────────────────────────────── */
+.nd-card--hero {
+  box-shadow:0 2px 6px rgba(15,23,42,.05),
+             0 8px 28px rgba(15,23,42,.07),
+             inset 0 3px 0 var(--pc-blue, #1A90C6);
+}
+
+/* ── Cards en desarrollo ────────────────────────────────────────────────── */
 .nd-card--soon {
   background:#FAFBFC;
   border:1px dashed rgba(176,190,200,.75);
   box-shadow:none;
 }
-.nd-card--soon h3 {
-  color:var(--muted, #8A9BB0);
-  font-weight:500;
-}
+.nd-card--soon h3 { color:#8A9BB0; font-weight:500; }
 
-/* ── Badge "Próximamente" ──────────────────────────────────────────────── */
+/* ── Badge "Próximamente" ───────────────────────────────────────────────── */
 .nd-soon-badge {
   display:inline-block;
   font-size:.62rem;
@@ -60,40 +97,41 @@
   vertical-align:middle;
 }
 
-/* ── KPI tiles — blancos, radio 14px, tipografía premium ─────────────────
-   Labels: uppercase pequeño. Valores: grandes, negros, legibles.
+/* ── KPI tiles — métricas, no inputs ─────────────────────────────────────
+   Acento lateral azul (inset shadow izquierdo) + tipografía fuerte.
    ─────────────────────────────────────────────────────────────────────── */
 .nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.65rem; margin-top:.85rem; }
 .nd-kpi {
   background:#fff;
   border:1px solid rgba(226,232,240,.85);
-  border-radius:14px;
-  padding:.75rem 1rem;
-  box-shadow:0 1px 2px rgba(15,23,42,.04);
+  border-radius:12px;
+  padding:.7rem .9rem;
+  box-shadow:0 1px 2px rgba(15,23,42,.04),
+             inset 3px 0 0 rgba(26,144,198,.18);
 }
 .nd-kpi span {
   display:block;
-  font-size:.72rem;
+  font-size:.68rem;
   font-weight:500;
   text-transform:uppercase;
-  letter-spacing:.06em;
+  letter-spacing:.07em;
   color:#8A9BB0;
-  margin-bottom:.3rem;
+  margin-bottom:.28rem;
 }
 .nd-kpi strong {
   display:block;
-  font-size:1.4rem;
+  font-size:1.35rem;
   font-weight:700;
   color:var(--text, #1D1D1F);
   line-height:1.15;
   letter-spacing:-.02em;
 }
 
-/* ── Tabla Historial — contenedor card premium ──────────────────────────── */
+/* ── Tabla Historial ────────────────────────────────────────────────────── */
 .nd-table-wrap {
   overflow:auto;
   border:1px solid rgba(226,232,240,.85);
-  border-radius:16px;
+  border-radius:14px;
   margin-top:.75rem;
   box-shadow:0 1px 3px rgba(15,23,42,.03);
 }
@@ -138,14 +176,13 @@
 .nd-modal-step[hidden] { display:none !important; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   SISTEMA DE BOTONES — ProClean Premium (scope: Nómina Dashboard)
-   ─────────────────────────────────────────────────────────────────────────
-   1. Primario   → verde sólido, pill  — "Ir al Master de Asistencia"
-   2. Secundario → azul outline, pill  — "Actualizar Headcount ahora"
-   3. Módulo     → verde outline, pill — CTAs internos de módulos
+   SISTEMA DE BOTONES (scope: Nómina Dashboard)
+   1. Primario   → verde sólido pill   — "Ir al Master de Asistencia"
+   2. Secundario → azul outline pill   — "Actualizar Headcount ahora"
+   3. Módulo     → verde outline pill  — CTAs internos de módulos
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* ── 1. Primario — verde ProClean sólido, pill ───────────────────────── */
+/* ── 1. Primario ─────────────────────────────────────────────────────── */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
   background:var(--brand-green-deep, #47A92C);
@@ -164,7 +201,7 @@
   box-shadow:0 2px 8px rgba(71,169,44,.26), 0 6px 20px rgba(71,169,44,.14);
 }
 
-/* ── 2. Secundario — azul ProClean outline, pill ─────────────────────── */
+/* ── 2. Secundario ───────────────────────────────────────────────────── */
 .page-head .btn-secondary,
 .nd-wrap .btn-secondary {
   background:#fff;
@@ -183,7 +220,7 @@
   box-shadow:none;
 }
 
-/* ── 3. Módulo — verde outline, pill ─────────────────────────────────── */
+/* ── 3. Módulo ───────────────────────────────────────────────────────── */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
@@ -220,8 +257,11 @@
 
 <div class="nd-wrap">
   {% if headcount_notice %}
-  <section class="nd-card">
-    <h3>Headcount</h3>
+  <section class="nd-card nd-card--hero">
+    <div class="nd-ch">
+      <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+      <h3>Headcount</h3>
+    </div>
     <p class="nd-soon">{{ headcount_notice }}</p>
     {% if snapshot_invalid %}
     <p class="nd-soon" style="margin-top:.35rem;font-size:.85rem;color:#991b1b;">Presione Reconstruir Headcount para regenerar la copia local.</p>
@@ -232,7 +272,10 @@
   {% endif %}
   <div class="nd-grid">
     <section class="nd-card">
-      <h3>Asistencias</h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+        <h3>Asistencias</h3>
+      </div>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
         <div class="nd-kpi"><span>Pendientes con warnings</span><strong>{{ dash.pending_warnings }}</strong></div>
@@ -241,7 +284,10 @@
     </section>
 
     <section class="nd-card">
-      <h3>Vacaciones</h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--green" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
+        <h3>Vacaciones</h3>
+      </div>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
         <div class="nd-kpi"><span>Match Headcount</span><strong>{{ vac_stats.empleados_match_headcount }}</strong></div>
@@ -254,7 +300,10 @@
     </section>
 
     <section class="nd-card">
-      <h3>INFONAVIT</h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>
+        <h3>INFONAVIT</h3>
+      </div>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
         <div class="nd-kpi"><span>Activos</span><strong>{{ inf_stats.activos }}</strong></div>
@@ -267,7 +316,10 @@
     </section>
 
     <section class="nd-card">
-      <h3>Parámetros de Nómina</h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+        <h3>Parámetros de Nómina</h3>
+      </div>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'invalid' %}Requiere reconstrucción{% elif param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
         {% if param_stats.stats_mode == 'legacy' %}
@@ -283,7 +335,10 @@
     </section>
 
     <section class="nd-card">
-      <h3>Cálculo de Nómina</h3>
+      <div class="nd-ch">
+        <span class="nd-micon nd-micon--blue" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+        <h3>Cálculo de Nómina</h3>
+      </div>
       <p class="nd-soon">Borrador preliminar (sin exportación final, banco ni costeo).</p>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Cálculos guardados</span><strong>{{ calc_kpis.total_calculos }}</strong></div>
@@ -308,7 +363,10 @@
   </div>
 
   <section class="nd-card">
-    <h3>Historial / Auditoría</h3>
+    <div class="nd-ch">
+      <span class="nd-micon nd-micon--slate" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+      <h3>Historial / Auditoría</h3>
+    </div>
     <p class="nd-soon">Importaciones de asistencia. Los registros archivados por administrador dejan de mostrarse aquí (soft delete).</p>
     <div class="nd-table-wrap">
       <table class="nd-table" id="nd-historial-imports">
