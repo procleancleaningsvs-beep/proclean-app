@@ -3,8 +3,8 @@
 {% block extra_head %}
 <style>
 /* ═══════════════════════════════════════════════════════════════════════════
-   Nómina Dashboard — ProClean Premium v4 (scope: esta página)
-   Tokens globales de Fase B con fallback:
+   Nómina Dashboard — ProClean Premium v4.2 — Pulido final (scope: esta página)
+   Tokens globales Fase B con fallback:
    --pc-blue #1A90C6  --pc-green #77BE3C  --pc-green-deep #47A92C
    --pc-surface #FFF  --pc-surface-blue #F3FAFD  --pc-surface-green #F7FBF1
    --pc-border #E2E8F0  --pc-text #1D1D1F  --pc-text-muted #6E6E73
@@ -91,7 +91,7 @@
 .nd-hc {
   display:flex;
   align-items:flex-start;
-  gap:1.25rem;
+  gap:1.4rem;
   background:linear-gradient(118deg, #ECF6FD 0%, #E8F4F8 100%);
   border:1px solid rgba(26,144,198,.2);
   border-left:4px solid var(--pc-blue,#1A90C6);
@@ -128,21 +128,21 @@
   font-size:1.2rem;
   font-weight:700;
   color:var(--pc-text,#1D1D1F);
-  margin:0 0 .3rem;
+  margin:0 0 .4rem;
   letter-spacing:-.025em;
 }
 .nd-hc-notice {
   font-size:.9rem;
   color:var(--pc-text-muted,#6E6E73);
-  margin:0;
+  margin:0 0 .1rem;
   line-height:1.5;
 }
 .nd-hc-alert {
   display:flex;
   align-items:flex-start;
   gap:.5rem;
-  margin-top:.65rem;
-  padding:.55rem .9rem;
+  margin-top:.75rem;
+  padding:.6rem 1rem;
   border-radius:10px;
   font-size:.84rem;
   font-weight:500;
@@ -168,16 +168,16 @@
 .nd-card--blue  { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-blue,#1A90C6); }
 .nd-card--green { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-green,#77BE3C); }
 
-/* Zona de cabecera de card — fondo suavemente tintado */
+/* Zona de cabecera de card — gradiente sutil de profundidad */
 .nd-ch {
-  background:#F7FBFD;
+  background:linear-gradient(180deg, #F5FAFD 0%, #EEF4FB 100%);
   padding:1.25rem 1.5rem 1.1rem;
   border-bottom:1px solid rgba(220,228,238,.8);
   display:flex;
   align-items:center;
-  gap:.8rem;
+  gap:.9rem;
 }
-.nd-ch--green { background:#F6FBF4; }
+.nd-ch--green { background:linear-gradient(180deg, #F4FAF0 0%, #EBF4E6 100%); }
 
 /* Ícono de módulo */
 .nd-micon {
@@ -193,12 +193,12 @@
 .nd-micon--green { background:var(--pc-surface-green,#F7FBF1); color:var(--pc-green-deep,#47A92C); }
 .nd-micon--slate { background:#F1F5F9; color:#64748B; }
 
-/* Título de la card */
+/* Título de la card — más protagonismo */
 .nd-ch h3 {
-  font-size:1.15rem;
+  font-size:1.2rem;
   font-weight:700;
   color:var(--pc-text,#1D1D1F);
-  letter-spacing:-.025em;
+  letter-spacing:-.03em;
   line-height:1.2;
   margin:0;
 }
@@ -248,7 +248,7 @@
 }
 .nd-kpi span {
   display:block;
-  font-size:.62rem;
+  font-size:.65rem;
   font-weight:700;
   text-transform:uppercase;
   letter-spacing:.1em;
@@ -260,8 +260,10 @@
   font-size:1.55rem;
   font-weight:700;
   color:var(--pc-text,#1D1D1F);
-  line-height:1;
+  line-height:1.1;
   letter-spacing:-.035em;
+  word-break:break-word;
+  overflow-wrap:break-word;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -271,11 +273,12 @@
   background:#FAFBFC;
   border:1px dashed rgba(176,190,200,.6);
   box-shadow:none;
-  opacity:.78;
+  opacity:.75;
 }
 .nd-card--soon .nd-ch   { background:transparent; border-bottom-color:rgba(176,190,200,.45); }
 .nd-card--soon .nd-ch h3 { color:#8A9BB0; font-weight:500; font-size:1rem; }
 
+/* Badge pill — más moderno que el cuadrado anterior */
 .nd-soon-badge {
   display:inline-block;
   font-size:.6rem;
@@ -283,8 +286,8 @@
   color:#8A9BB0;
   background:#EEF2F6;
   border:1px solid #D4DDED;
-  border-radius:6px;
-  padding:.1rem .45rem;
+  border-radius:9999px;
+  padding:.1rem .5rem;
   text-transform:uppercase;
   letter-spacing:.07em;
   margin-left:.5rem;
@@ -321,6 +324,7 @@
   font-size:.875rem;
   color:var(--pc-text,#1D1D1F);
 }
+.nd-table tbody tr { transition:background .13s ease; }
 .nd-table tbody tr:last-child td { border-bottom:none; }
 .nd-table tbody tr:hover { background:var(--pc-surface-blue,#F3FAFD); }
 
@@ -394,7 +398,7 @@
   transform:none;
 }
 
-/* 3. Módulo */
+/* 3. Módulo — flecha deslizante en hover */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
@@ -407,6 +411,16 @@
   box-shadow:none;
   min-height:0;
   transform:none;
+  display:inline-flex;
+  align-items:center;
+  gap:.3rem;
+  transition:background .18s ease, border-color .18s ease, color .18s ease;
+}
+.nd-wrap .nd-btn-module::after {
+  content:'→';
+  font-size:.82em;
+  opacity:.65;
+  transition:transform .18s ease, opacity .18s ease;
 }
 .nd-wrap .nd-btn-module:hover {
   background:var(--pc-surface-green,#F7FBF1);
@@ -414,6 +428,10 @@
   color:var(--pc-green-deep,#47A92C);
   box-shadow:none;
   transform:none;
+}
+.nd-wrap .nd-btn-module:hover::after {
+  transform:translateX(3px);
+  opacity:1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -456,18 +474,30 @@
     </div>
   </div>
 
-  {# Panel decorativo: burbujas de agua + gota — visible pero muy sutil #}
+  {# Panel decorativo: burbujas con contorno + gotas de agua #}
   <div class="nd-hero-deco" aria-hidden="true">
     <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg" fill="none">
-      <circle cx="118" cy="56" r="52" fill="rgba(26,144,198,.07)"/>
-      <circle cx="170" cy="110" r="30" fill="rgba(119,190,60,.08)"/>
-      <circle cx="70"  cy="120" r="20" fill="rgba(26,144,198,.05)"/>
-      <path d="M156 10 C156 10 142 32 142 42 A14 14 0 0 0 170 42 C170 32 156 10 156 10Z" fill="rgba(26,144,198,.11)"/>
-      <circle cx="40"  cy="48"  r="4.5" fill="rgba(26,144,198,.2)"/>
-      <circle cx="182" cy="30"  r="3.5" fill="rgba(119,190,60,.22)"/>
-      <circle cx="22"  cy="126" r="3"   fill="rgba(26,144,198,.16)"/>
-      <circle cx="95"  cy="22"  r="3"   fill="rgba(119,190,60,.15)"/>
-      <circle cx="188" cy="148" r="2.5" fill="rgba(26,144,198,.14)"/>
+      <!-- Burbuja grande azul — fill + stroke de contorno real -->
+      <circle cx="118" cy="56" r="52" fill="rgba(26,144,198,.09)"/>
+      <circle cx="118" cy="56" r="52" stroke="rgba(26,144,198,.14)" stroke-width="1"/>
+      <!-- Burbuja verde -->
+      <circle cx="168" cy="108" r="29" fill="rgba(119,190,60,.09)"/>
+      <circle cx="168" cy="108" r="29" stroke="rgba(119,190,60,.15)" stroke-width="1"/>
+      <!-- Burbuja azul pequeña -->
+      <circle cx="70"  cy="120" r="19" fill="rgba(26,144,198,.06)"/>
+      <circle cx="70"  cy="120" r="19" stroke="rgba(26,144,198,.11)" stroke-width=".8"/>
+      <!-- Gota principal -->
+      <path d="M158 8 C158 8 143 32 143 43 a15 15 0 0 0 30 0 C173 32 158 8 158 8Z" fill="rgba(26,144,198,.13)"/>
+      <!-- Gota secundaria pequeña -->
+      <path d="M36 88 C36 88 30 98 30 103 a6 6 0 0 0 12 0 C42 98 36 88 36 88Z" fill="rgba(26,144,198,.19)"/>
+      <!-- Sparkle dot principal con anillo -->
+      <circle cx="44"  cy="46"  r="4.5" fill="rgba(26,144,198,.22)"/>
+      <circle cx="44"  cy="46"  r="7.5" stroke="rgba(26,144,198,.12)" stroke-width=".8"/>
+      <!-- Sparkle dots adicionales -->
+      <circle cx="183" cy="28"  r="3.5" fill="rgba(119,190,60,.24)"/>
+      <circle cx="20"  cy="128" r="3"   fill="rgba(26,144,198,.18)"/>
+      <circle cx="96"  cy="20"  r="3"   fill="rgba(119,190,60,.17)"/>
+      <circle cx="190" cy="148" r="2.5" fill="rgba(26,144,198,.16)"/>
     </svg>
   </div>
 </section>
