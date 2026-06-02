@@ -84,6 +84,27 @@
   z-index:0;
 }
 .nd-hero-deco svg { width:100%; height:auto; display:block; }
+/* Glows ambientales — profundidad detrás del contenido */
+.nd-hero::before {
+  content:'';
+  position:absolute;
+  top:-60px; left:-60px;
+  width:340px; height:340px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(26,144,198,.07) 0%, transparent 60%);
+  pointer-events:none;
+  z-index:0;
+}
+.nd-hero::after {
+  content:'';
+  position:absolute;
+  bottom:-55px; right:145px;
+  width:210px; height:210px;
+  border-radius:50%;
+  background:radial-gradient(circle, rgba(119,190,60,.08) 0%, transparent 65%);
+  pointer-events:none;
+  z-index:0;
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    B) HEADCOUNT — bloque protagonista (full-width, horizontal)
@@ -92,11 +113,11 @@
   display:flex;
   align-items:flex-start;
   gap:1.4rem;
-  background:linear-gradient(118deg, #ECF6FD 0%, #E8F4F8 100%);
-  border:1px solid rgba(26,144,198,.2);
-  border-left:4px solid var(--pc-blue,#1A90C6);
+  background:linear-gradient(118deg, #E6F3FC 0%, #DCEEF8 100%);
+  border:1px solid rgba(26,144,198,.24);
+  border-left:5px solid var(--pc-blue,#1A90C6);
   border-radius:20px;
-  padding:1.5rem 2rem;
+  padding:1.75rem 2.25rem;
   position:relative;
   overflow:hidden;
 }
@@ -116,10 +137,10 @@
   display:flex;
   align-items:center;
   justify-content:center;
-  width:52px;
-  height:52px;
-  border-radius:16px;
-  background:rgba(26,144,198,.13);
+  width:58px;
+  height:58px;
+  border-radius:18px;
+  background:rgba(26,144,198,.18);
   color:var(--pc-blue,#1A90C6);
   flex-shrink:0;
 }
@@ -159,14 +180,14 @@
   border:1px solid rgba(220,228,238,.9);
   border-radius:22px;
   overflow:hidden;
-  box-shadow:0 1px 3px rgba(15,23,42,.04),
-             0 4px 14px rgba(15,23,42,.05);
+  box-shadow:0 2px 4px rgba(15,23,42,.06),
+             0 6px 20px rgba(15,23,42,.08);
   display:flex;
   flex-direction:column;
 }
 /* Franja superior de acento */
-.nd-card--blue  { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-blue,#1A90C6); }
-.nd-card--green { box-shadow:0 1px 3px rgba(15,23,42,.04),0 4px 14px rgba(15,23,42,.05),inset 0 3px 0 var(--pc-green,#77BE3C); }
+.nd-card--blue  { box-shadow:0 2px 4px rgba(15,23,42,.06),0 6px 20px rgba(15,23,42,.08),inset 0 3px 0 var(--pc-blue,#1A90C6); }
+.nd-card--green { box-shadow:0 2px 4px rgba(15,23,42,.06),0 6px 20px rgba(15,23,42,.08),inset 0 3px 0 var(--pc-green,#77BE3C); }
 
 /* Zona de cabecera de card — gradiente sutil de profundidad */
 .nd-ch {
@@ -193,9 +214,9 @@
 .nd-micon--green { background:var(--pc-surface-green,#F7FBF1); color:var(--pc-green-deep,#47A92C); }
 .nd-micon--slate { background:#F1F5F9; color:#64748B; }
 
-/* Título de la card — más protagonismo */
+/* Título de la card — protagonismo real */
 .nd-ch h3 {
-  font-size:1.2rem;
+  font-size:1.32rem;
   font-weight:700;
   color:var(--pc-text,#1D1D1F);
   letter-spacing:-.03em;
@@ -219,7 +240,7 @@
 
 /* Zona de footer de card — acción del módulo */
 .nd-card-foot {
-  padding:.85rem 1.5rem;
+  padding:1rem 1.5rem;
   border-top:1px solid rgba(220,228,238,.7);
   display:flex;
   align-items:center;
@@ -230,21 +251,21 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    D) KPI TILES — MÉTRICAS PREMIUM (sin aspecto de campo/input)
    ═══════════════════════════════════════════════════════════════════════════ */
-.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.55rem; }
+.nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; }
 .nd-kpi {
-  background:#F2F7FB;
+  background:linear-gradient(145deg, #EAF3FA 0%, #F4F9FE 100%);
   border-radius:12px;
-  padding:.85rem 1rem .75rem;
+  padding:.9rem 1rem .8rem;
   position:relative;
   overflow:hidden;
 }
-/* Acento superior — NO es borde de input, es decorativo */
+/* Acento superior — métrica premium, no input */
 .nd-kpi::before {
   content:'';
   position:absolute;
   top:0; left:0; right:0;
-  height:2px;
-  background:linear-gradient(90deg, rgba(26,144,198,.38) 0%, transparent 60%);
+  height:3px;
+  background:linear-gradient(90deg, rgba(26,144,198,.60) 0%, transparent 65%);
 }
 .nd-kpi span {
   display:block;
@@ -252,7 +273,7 @@
   font-weight:700;
   text-transform:uppercase;
   letter-spacing:.1em;
-  color:#8A9BB0;
+  color:#5E7A96;
   margin-bottom:.32rem;
 }
 .nd-kpi strong {
@@ -351,7 +372,7 @@
    3 · Módulo     — verde outline pill
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* 1. Primario */
+/* 1. Primario — CTA premium */
 .nd-hero .btn-primary,
 .nd-wrap .btn-primary {
   background:var(--pc-green-deep,#47A92C);
@@ -360,9 +381,10 @@
   color:#fff;
   border-radius:9999px;
   font-weight:600;
+  font-size:.95rem;
   letter-spacing:.01em;
-  padding:11px 24px;
-  box-shadow:0 2px 8px rgba(71,169,44,.22),0 4px 16px rgba(71,169,44,.12);
+  padding:13px 30px;
+  box-shadow:0 2px 10px rgba(71,169,44,.28),0 5px 20px rgba(71,169,44,.15);
   transform:none;
   display:inline-flex;
   align-items:center;
@@ -372,7 +394,7 @@
 .nd-wrap .btn-primary:hover {
   background:#3a8f23;
   border-color:#3a8f23;
-  box-shadow:0 3px 12px rgba(71,169,44,.32),0 6px 22px rgba(71,169,44,.16);
+  box-shadow:0 4px 14px rgba(71,169,44,.38),0 8px 28px rgba(71,169,44,.20);
   transform:none;
 }
 
@@ -398,23 +420,23 @@
   transform:none;
 }
 
-/* 3. Módulo — flecha deslizante en hover */
+/* 3. Módulo — pill verde con flecha deslizante */
 .nd-wrap .nd-btn-module {
   background:#fff;
   background-image:none;
-  border:1.5px solid var(--pc-green,#77BE3C);
+  border:2px solid var(--pc-green,#77BE3C);
   color:var(--pc-green-deep,#47A92C);
   border-radius:9999px;
   font-weight:600;
   font-size:.875rem;
-  padding:8px 18px;
+  padding:10px 22px;
   box-shadow:none;
   min-height:0;
   transform:none;
   display:inline-flex;
   align-items:center;
   gap:.3rem;
-  transition:background .18s ease, border-color .18s ease, color .18s ease;
+  transition:background .18s ease, border-color .18s ease, color .18s ease, box-shadow .18s ease;
 }
 .nd-wrap .nd-btn-module::after {
   content:'→';
@@ -426,7 +448,7 @@
   background:var(--pc-surface-green,#F7FBF1);
   border-color:var(--pc-green-deep,#47A92C);
   color:var(--pc-green-deep,#47A92C);
-  box-shadow:none;
+  box-shadow:0 2px 8px rgba(71,169,44,.15);
   transform:none;
 }
 .nd-wrap .nd-btn-module:hover::after {
@@ -474,30 +496,30 @@
     </div>
   </div>
 
-  {# Panel decorativo: burbujas con contorno + gotas de agua #}
+  {# Panel decorativo: burbujas visibles + gotas ProClean #}
   <div class="nd-hero-deco" aria-hidden="true">
     <svg viewBox="0 0 200 160" xmlns="http://www.w3.org/2000/svg" fill="none">
-      <!-- Burbuja grande azul — fill + stroke de contorno real -->
-      <circle cx="118" cy="56" r="52" fill="rgba(26,144,198,.09)"/>
-      <circle cx="118" cy="56" r="52" stroke="rgba(26,144,198,.14)" stroke-width="1"/>
+      <!-- Burbuja grande azul -->
+      <circle cx="118" cy="56" r="52" fill="rgba(26,144,198,.14)"/>
+      <circle cx="118" cy="56" r="52" stroke="rgba(26,144,198,.28)" stroke-width="1.2"/>
       <!-- Burbuja verde -->
-      <circle cx="168" cy="108" r="29" fill="rgba(119,190,60,.09)"/>
-      <circle cx="168" cy="108" r="29" stroke="rgba(119,190,60,.15)" stroke-width="1"/>
+      <circle cx="168" cy="108" r="29" fill="rgba(119,190,60,.15)"/>
+      <circle cx="168" cy="108" r="29" stroke="rgba(119,190,60,.30)" stroke-width="1.2"/>
       <!-- Burbuja azul pequeña -->
-      <circle cx="70"  cy="120" r="19" fill="rgba(26,144,198,.06)"/>
-      <circle cx="70"  cy="120" r="19" stroke="rgba(26,144,198,.11)" stroke-width=".8"/>
+      <circle cx="70"  cy="120" r="19" fill="rgba(26,144,198,.11)"/>
+      <circle cx="70"  cy="120" r="19" stroke="rgba(26,144,198,.22)" stroke-width="1"/>
       <!-- Gota principal -->
-      <path d="M158 8 C158 8 143 32 143 43 a15 15 0 0 0 30 0 C173 32 158 8 158 8Z" fill="rgba(26,144,198,.13)"/>
+      <path d="M158 8 C158 8 143 32 143 43 a15 15 0 0 0 30 0 C173 32 158 8 158 8Z" fill="rgba(26,144,198,.24)"/>
       <!-- Gota secundaria pequeña -->
-      <path d="M36 88 C36 88 30 98 30 103 a6 6 0 0 0 12 0 C42 98 36 88 36 88Z" fill="rgba(26,144,198,.19)"/>
-      <!-- Sparkle dot principal con anillo -->
-      <circle cx="44"  cy="46"  r="4.5" fill="rgba(26,144,198,.22)"/>
-      <circle cx="44"  cy="46"  r="7.5" stroke="rgba(26,144,198,.12)" stroke-width=".8"/>
+      <path d="M36 88 C36 88 30 98 30 103 a6 6 0 0 0 12 0 C42 98 36 88 36 88Z" fill="rgba(26,144,198,.32)"/>
+      <!-- Sparkle dot con anillo -->
+      <circle cx="44"  cy="46"  r="4.5" fill="rgba(26,144,198,.38)"/>
+      <circle cx="44"  cy="46"  r="8"   stroke="rgba(26,144,198,.20)" stroke-width="1"/>
       <!-- Sparkle dots adicionales -->
-      <circle cx="183" cy="28"  r="3.5" fill="rgba(119,190,60,.24)"/>
-      <circle cx="20"  cy="128" r="3"   fill="rgba(26,144,198,.18)"/>
-      <circle cx="96"  cy="20"  r="3"   fill="rgba(119,190,60,.17)"/>
-      <circle cx="190" cy="148" r="2.5" fill="rgba(26,144,198,.16)"/>
+      <circle cx="183" cy="28"  r="4"   fill="rgba(119,190,60,.38)"/>
+      <circle cx="20"  cy="128" r="3.5" fill="rgba(26,144,198,.30)"/>
+      <circle cx="96"  cy="20"  r="3.5" fill="rgba(119,190,60,.28)"/>
+      <circle cx="190" cy="148" r="3"   fill="rgba(26,144,198,.26)"/>
     </svg>
   </div>
 </section>
