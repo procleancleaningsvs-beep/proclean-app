@@ -4779,3 +4779,274 @@ svg.lucide.user-box-icon {
   margin: 0;
   gap: 4px;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   ProClean — FASE D.9: Erradicar botones grises/nativos en acciones
+   Solo visual. Sin lógica, rutas ni permisos.
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Selectores maestros — icon buttons y acciones de tabla ───── */
+.btn-icon,
+.icon-button,
+.icon_button,
+.icon-link,
+.icon_link,
+.action-btn,
+.table-action,
+.checkid-btn-icon,
+.cmp-icon-btn,
+.imss-icon-btn,
+.rpt-icon-btn,
+.actions-cell > button:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-danger):not(.btn-sm):not(.fx-btn),
+.actions-cell > a:not(.btn):not(.btn-primary):not(.btn-secondary):not(.fx-btn),
+.actions-cell > form > button:not(.btn):not(.btn-primary):not(.btn-secondary),
+.actions-cell > .inline-form > button:not(.btn):not(.btn-primary):not(.btn-secondary),
+.actions-cell > .history-download-form > button:not(.btn),
+td.actions > a:not(.btn),
+td.actions > button:not(.btn),
+.table-actions > a:not(.btn),
+.table-actions > button:not(.btn),
+.table-actions a:not(.btn),
+.table-actions button:not(.btn),
+[class*="-actions-cell"] > .btn-icon,
+[class*="-actions-cell"] > button.btn-icon,
+[class*="-actions-cell"] > a.btn-icon,
+.checkid-h-actions .btn-icon,
+.hc-historial-actions .btn-icon,
+.em-actions-cell .btn-icon,
+.fx-actions .btn-icon,
+.vac-actions-cell .btn-icon,
+.nd-act .btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  margin: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  border-radius: var(--pc-radius-md, 10px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+  color: var(--pc-text-muted);
+  cursor: pointer;
+  line-height: 1;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 400;
+  text-decoration: none;
+  vertical-align: middle;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  box-shadow: none;
+  transition:
+    background var(--pc-transition),
+    border-color var(--pc-transition),
+    color var(--pc-transition),
+    transform 0.12s ease,
+    box-shadow var(--pc-transition);
+}
+
+/* Anular override legado que rompía geometría del delete en Check ID */
+.checkid-history-delete.btn-icon,
+.btn-icon.checkid-history-delete {
+  padding: 0;
+  font-size: inherit;
+  font-weight: 400;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+}
+
+/* ── Hover — señal azul ProClean ──────────────────────────────── */
+.btn-icon:hover,
+.icon-button:hover,
+.icon_button:hover,
+.icon-link:hover,
+.icon_link:hover,
+.action-btn:hover,
+.table-action:hover,
+.checkid-btn-icon:hover,
+.cmp-icon-btn:hover,
+.imss-icon-btn:hover,
+.rpt-icon-btn:hover,
+.actions-cell > button:not(.btn):not(.btn-primary):not(.btn-secondary):not(.btn-danger):not(.btn-sm):hover,
+.actions-cell > a:not(.btn):not(.btn-primary):not(.btn-secondary):hover,
+.actions-cell > form > button:not(.btn):hover,
+.actions-cell > .inline-form > button:not(.btn):hover,
+.actions-cell > .history-download-form > button:not(.btn):hover,
+td.actions > a:not(.btn):hover,
+td.actions > button:not(.btn):hover,
+.table-actions > a:not(.btn):hover,
+.table-actions > button:not(.btn):hover,
+[class*="-actions-cell"] > .btn-icon:hover,
+.checkid-h-actions .btn-icon:hover,
+.hc-historial-actions .btn-icon:hover {
+  background: var(--pc-surface-blue);
+  border-color: var(--pc-blue);
+  color: var(--pc-blue);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+/* ── Focus visible ────────────────────────────────────────────── */
+.btn-icon:focus-visible,
+.icon-button:focus-visible,
+.icon_button:focus-visible,
+.icon-link:focus-visible,
+.icon_link:focus-visible,
+.action-btn:focus-visible,
+.table-action:focus-visible,
+.checkid-btn-icon:focus-visible,
+.cmp-icon-btn:focus-visible,
+.imss-icon-btn:focus-visible,
+.rpt-icon-btn:focus-visible,
+.actions-cell > button:not(.btn):focus-visible,
+.actions-cell > a:not(.btn):focus-visible,
+[class*="-actions-cell"] > .btn-icon:focus-visible {
+  outline: 2px solid var(--pc-blue);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--pc-blue-ring);
+}
+
+/* ── Disabled ──────────────────────────────────────────────────── */
+.btn-icon:disabled,
+.icon-button:disabled,
+.icon_button:disabled,
+.icon-link[aria-disabled="true"],
+.icon_link[aria-disabled="true"],
+.action-btn:disabled,
+.table-action:disabled,
+.checkid-btn-icon:disabled,
+.cmp-icon-btn:disabled,
+.imss-icon-btn:disabled,
+.rpt-icon-btn:disabled,
+.actions-cell > button:not(.btn):disabled {
+  opacity: 0.40;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+  transform: none;
+}
+
+/* ── SVG / Lucide — tamaño y centrado uniforme ────────────────── */
+.btn-icon svg,
+.btn-icon svg.lucide,
+.btn-icon .lucide,
+.btn-icon i[data-lucide],
+.icon-button svg,
+.icon-link svg,
+.action-btn svg,
+.table-action svg,
+.checkid-btn-icon svg,
+.cmp-icon-btn svg,
+.imss-icon-btn svg,
+.rpt-icon-btn svg,
+.actions-cell .btn-icon svg,
+.actions-cell .btn-icon .lucide,
+[class*="-actions-cell"] .btn-icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+  pointer-events: none;
+  flex-shrink: 0;
+}
+
+/* ── Variante danger ───────────────────────────────────────────── */
+.btn-icon--danger,
+.icon-button--danger,
+.icon-link--danger,
+.checkid-btn-icon--danger,
+.cmp-icon-btn.delete,
+.imss-icon-btn.delete,
+.rpt-icon-btn.delete,
+.action-btn.danger,
+.action-btn.delete,
+.table-action.danger,
+.table-action.delete {
+  color: #C53030;
+}
+
+.btn-icon--danger:hover,
+.icon-button--danger:hover,
+.icon-link--danger:hover,
+.checkid-btn-icon--danger:hover,
+.cmp-icon-btn.delete:hover,
+.imss-icon-btn.delete:hover,
+.rpt-icon-btn.delete:hover,
+.action-btn.danger:hover,
+.action-btn.delete:hover,
+.table-action.danger:hover,
+.table-action.delete:hover,
+.checkid-history-delete.btn-icon:hover {
+  background: #FEF2F2;
+  border-color: #F87171;
+  color: #B91C1C;
+  transform: translateY(-1px);
+}
+
+/* ── Variante success ──────────────────────────────────────────── */
+.btn-icon--success,
+.icon-button--success,
+.icon-link--success,
+.action-btn.success {
+  color: var(--pc-green-deep);
+}
+
+.btn-icon--success:hover,
+.icon-button--success:hover,
+.icon-link--success:hover,
+.action-btn.success:hover {
+  background: var(--pc-surface-green);
+  border-color: var(--pc-green);
+  color: var(--pc-green-deep);
+  transform: translateY(-1px);
+}
+
+/* ── Variante muted ────────────────────────────────────────────── */
+.btn-icon--muted,
+.icon-button--muted,
+.icon-link--muted {
+  color: var(--pc-text-muted);
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn-icon--muted:hover,
+.icon-button--muted:hover,
+.icon-link--muted:hover {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border);
+  color: var(--pc-text);
+  transform: none;
+}
+
+/* ── Contenedores de acciones — alineación reforzada ───────────── */
+.actions-cell,
+[class*="-actions-cell"],
+.checkid-h-actions-cell,
+.hc-historial-actions,
+.em-actions-cell,
+.fx-actions,
+.vac-actions-cell,
+.nd-act,
+td.actions,
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.hc-table td.actions-cell,
+.hc-table td:has(> .btn-icon),
+.hc-table td:has(> .hc-toggle-detail) {
+  white-space: nowrap;
+  width: 1%;
+  vertical-align: middle;
+}
