@@ -4,53 +4,64 @@
 <style>
 /* === Nómina Dashboard — estilos locales (scope: esta página únicamente) === */
 /*
-   Paleta ProClean (referencia de tokens globales):
-   azul principal  → var(--pc-blue, #1A90C6)       hover → var(--brand-blue-deep, #0D7BAA)
-   verde acento    → var(--pc-green, #77BE3C)        deep → var(--brand-green-deep, #47A92C)
-   superficie azul → var(--pc-surface-blue, #F3FAFD)
-   superficie verde→ var(--pc-surface-green, #F7FBF1)
+   Paleta ProClean usada aquí:
+   azul principal  → var(--pc-blue, #1A90C6)   hover: var(--brand-blue-deep, #0D7BAA)
+   verde acento    → var(--pc-green, #77BE3C)   deep:  var(--brand-green-deep, #47A92C)
+   sup. azul       → var(--pc-surface-blue, #F3FAFD)
+   sup. verde      → var(--pc-surface-green, #F7FBF1)
+   Sistema de franjas: azul = datos/estructura, verde = módulos con acción disponible
 */
 
 /* Layout */
 .nd-wrap { display:grid; gap:1.25rem; }
 .nd-grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; }
 
-/* Card base — franja azul ProClean vía inset shadow (no afecta border) */
+/* Card base — sin franja por defecto */
 .nd-card {
   background:#fff;
   border:1px solid var(--pc-border, #e2e8f0);
   border-radius:14px;
   padding:1.25rem 1.35rem;
-  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 3px 0 var(--pc-blue, #1A90C6);
+  box-shadow:0 1px 4px rgba(15,23,42,.06);
 }
 
-/* Card: secciones en desarrollo — sin franja, sin sombra, borde neutro punteado */
+/* Franja azul: Headcount, Asistencias, Cálculo (datos/estructura) */
+.nd-card--blue {
+  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 2px 0 var(--pc-blue, #1A90C6);
+}
+
+/* Franja verde: Vacaciones, INFONAVIT, Parámetros (módulos activos) */
+.nd-card--green {
+  box-shadow:0 1px 4px rgba(15,23,42,.06), inset 0 2px 0 var(--pc-green, #77BE3C);
+}
+
+/* Card: secciones en desarrollo — sin franja, sin sombra */
 .nd-card--soon {
   background:var(--panel-soft, #f5f7fa);
   border:1px dashed var(--muted, #cbd5e1);
   box-shadow:none;
 }
 
-/* Badge "Próximamente" — acento verde ProClean */
+/* Badge "Próximamente" — neutro, informativo, no activo */
 .nd-soon-badge {
   display:inline-block;
-  font-size:.68rem;
-  font-weight:600;
-  color:var(--brand-green-deep, #47A92C);
-  background:var(--pc-surface-green, #F7FBF1);
-  border:1px solid var(--pc-green, #77BE3C);
+  font-size:.65rem;
+  font-weight:500;
+  color:var(--muted, #6E6E73);
+  background:var(--panel-soft, #f5f7fa);
+  border:1px solid var(--muted, #cbd5e1);
   border-radius:6px;
-  padding:.14rem .48rem;
+  padding:.12rem .42rem;
   text-transform:uppercase;
   letter-spacing:.06em;
   margin-left:.45rem;
   vertical-align:middle;
 }
 
-/* KPIs — superficie azul muy suave para reforzar identidad */
+/* KPIs — fondo neutro para no saturar de azul */
 .nd-kpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.6rem; margin-top:.75rem; }
 .nd-kpi {
-  background:var(--pc-surface-blue, #F3FAFD);
+  background:var(--panel-soft, #f5f7fa);
   border:1px solid var(--pc-border, #e2e8f0);
   border-radius:10px;
   padding:.65rem .75rem;
@@ -66,14 +77,14 @@
   margin-top:.5rem;
 }
 .nd-table { width:100%; border-collapse:collapse; min-width:760px; }
-.nd-table thead tr { background:var(--pc-surface-blue, #F3FAFD); }
+.nd-table thead tr { background:var(--panel-soft, #f5f7fa); }
 .nd-table th {
   border-bottom:1px solid var(--pc-border, #e2e8f0);
   padding:10px 12px;
   text-align:left;
   font-size:.76rem;
   font-weight:600;
-  color:var(--pc-blue, #1A90C6);
+  color:var(--muted, #6E6E73);
   text-transform:uppercase;
   letter-spacing:.06em;
   white-space:nowrap;
@@ -106,7 +117,8 @@
 .nd-modal-step[hidden] { display:none !important; }
 
 /* === Sobrescritura local de botones (solo en esta página) ============= */
-/* Botón primario: azul ProClean sólido, sin degradado, con glow sutil   */
+
+/* Botón primario: azul ProClean, único, sin degradado */
 .page-head .btn-primary,
 .nd-wrap .btn-primary {
   background:var(--pc-blue, #1A90C6);
@@ -114,17 +126,35 @@
   border-color:var(--brand-blue-deep, #0D7BAA);
   color:#fff;
   border-radius:10px;
-  box-shadow:0 2px 8px rgba(26,144,198,.22);
+  box-shadow:0 2px 6px rgba(26,144,198,.16);
 }
 .page-head .btn-primary:hover,
 .nd-wrap .btn-primary:hover {
   background:var(--brand-blue-deep, #0D7BAA);
   border-color:var(--brand-blue-deep, #0D7BAA);
-  box-shadow:0 4px 14px rgba(26,144,198,.30);
+  box-shadow:0 3px 10px rgba(26,144,198,.24);
 }
-/* Botones secundarios (CTAs de cards): radio sobrio */
+
+/* Botón secundario global: radio sobrio */
 .page-head .btn-secondary,
 .nd-wrap .btn-secondary { border-radius:10px; }
+
+/* Botón de módulo verde — CTAs internos de Vacaciones, INFONAVIT, Parámetros, Cálculo */
+.nd-wrap .nd-btn-module {
+  background:var(--pc-surface-green, #F7FBF1);
+  background-image:none;
+  border:1px solid var(--pc-green, #77BE3C);
+  color:var(--brand-green-deep, #47A92C);
+  border-radius:10px;
+  box-shadow:none;
+  font-weight:500;
+}
+.nd-wrap .nd-btn-module:hover {
+  background:var(--pc-green, #77BE3C);
+  border-color:var(--brand-green-deep, #47A92C);
+  color:#fff;
+  box-shadow:none;
+}
 
 @media (max-width: 1120px) { .nd-grid { grid-template-columns:1fr; } }
 </style>
@@ -145,7 +175,7 @@
 
 <div class="nd-wrap">
   {% if headcount_notice %}
-  <section class="nd-card">
+  <section class="nd-card nd-card--blue">
     <h3>Headcount</h3>
     <p class="nd-soon">{{ headcount_notice }}</p>
     {% if snapshot_invalid %}
@@ -156,7 +186,7 @@
   </section>
   {% endif %}
   <div class="nd-grid">
-    <section class="nd-card">
+    <section class="nd-card nd-card--blue">
       <h3>Asistencias</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Total importaciones</span><strong>{{ dash.total_imports }}</strong></div>
@@ -165,7 +195,7 @@
       <p class="nd-soon" style="margin-top:.7rem;">Accede al Master para descargar/subir plantilla y validar importaciones.</p>
     </section>
 
-    <section class="nd-card">
+    <section class="nd-card nd-card--green">
       <h3>Vacaciones</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Importados</span><strong>{{ vac_stats.empleados_importados }}</strong></div>
@@ -175,10 +205,10 @@
         <div class="nd-kpi"><span>Primas pagadas</span><strong>{{ vac_stats.primas_pagadas }}</strong></div>
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ vac_stats.saldos_pendientes_revision }}</strong></div>
       </div>
-      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
+      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.vacaciones_index') }}">Abrir Vacaciones</a>
     </section>
 
-    <section class="nd-card">
+    <section class="nd-card nd-card--green">
       <h3>INFONAVIT</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Avisos totales</span><strong>{{ inf_stats.total_avisos }}</strong></div>
@@ -188,10 +218,10 @@
         <div class="nd-kpi"><span>Pendientes revisión</span><strong>{{ inf_stats.pendientes_revision }}</strong></div>
         <div class="nd-kpi"><span>VSM detectados</span><strong>{{ inf_stats.vsm_detectados }}</strong></div>
       </div>
-      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
+      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.infonavit_index') }}">Abrir INFONAVIT</a>
     </section>
 
-    <section class="nd-card">
+    <section class="nd-card nd-card--green">
       <h3>Parámetros de Nómina</h3>
       <div class="nd-kpis">
         <div class="nd-kpi"><span>Activos Headcount</span><strong>{% if param_stats.stats_mode == 'invalid' %}Requiere reconstrucción{% elif param_stats.stats_mode == 'legacy' %}N/D{% else %}{{ param_stats.activos_headcount | default(param_stats.total_empleados) }}{% endif %}</strong></div>
@@ -204,10 +234,10 @@
         <div class="nd-kpi"><span>Localidades guardadas</span><strong>{{ param_localidades_count }}</strong></div>
         <div class="nd-kpi"><span>De ellas frontera</span><strong>{{ param_localidades_frontera_count }}</strong></div>
       </div>
-      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
+      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.parametros_index') }}">Abrir parámetros</a>
     </section>
 
-    <section class="nd-card">
+    <section class="nd-card nd-card--blue">
       <h3>Cálculo de Nómina</h3>
       <p class="nd-soon">Borrador preliminar (sin exportación final, banco ni costeo).</p>
       <div class="nd-kpis">
@@ -218,7 +248,7 @@
         <div class="nd-kpi"><span>Último estado</span><strong>{{ calc_kpis.last_run.status }}</strong></div>
         {% endif %}
       </div>
-      <a class="btn btn-secondary nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
+      <a class="btn nd-btn-module nd-link" href="{{ url_for('nomina.calculo_index') }}">Nuevo cálculo</a>
     </section>
 
     <section class="nd-card nd-card--soon">
