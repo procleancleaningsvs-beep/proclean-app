@@ -4500,3 +4500,139 @@ tr.empty-row td {
   color: var(--pc-text-muted);
   border-color: var(--pc-border);
 }
+
+/* ============================================================
+   ProClean — FASE D.4: Sidebar Global Premium con Iconografía
+   ▸ Solo visual | static/style.css + _sidebar_body.html
+   ▸ Lucide icons (data-lucide) — ya cargado en base.html v0.511.0
+   ▸ Sin lógica, rutas, permisos ni backend
+   ▸ pcLucideRefresh inyecta width=18/height=18 como atributos SVG;
+     los presentation-attributes tienen menor prioridad que CSS,
+     por lo que .nav-icon { width/height } los sobreescribe sin !important.
+   ============================================================ */
+
+/* ── D4-A  Nav-link — layout flex icono + texto ──────────────── */
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Texto del item — toma el espacio restante sin romper línea */
+.nav-link > span {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+/* ── D4-B  Nav-icon — tamaño uniforme 15 × 15 px ─────────────── */
+/* Lucide reemplaza <i data-lucide="…" class="nav-icon"> con
+   <svg class="lucide lucide-{name} nav-icon">. La clase nav-icon
+   se hereda al SVG, por lo que .nav-icon aplica directamente.  */
+
+.nav-icon {
+  display: block;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  opacity: 0.48;
+  color: inherit;
+  pointer-events: none;
+  transition: opacity var(--pc-transition, 0.18s ease);
+}
+
+/* Selector SVG explícito como refuerzo (igual especificidad) */
+svg.lucide.nav-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* ── D4-C  Estados del icono ─────────────────────────────────── */
+
+/* Hover / focus — icono más visible */
+.nav-link:hover .nav-icon,
+.nav-link:focus-visible .nav-icon {
+  opacity: 0.85;
+}
+
+/* Inicio (home) — icono siempre al 100 %, color ya hereda de .nav-link-home */
+.nav-link-home .nav-icon {
+  opacity: 1;
+}
+
+.nav-link-home:hover .nav-icon {
+  opacity: 1;
+}
+
+/* Active state — forward-compatible: cuando backend asigne .active */
+.nav-link.active .nav-icon,
+.nav-link[aria-current="page"] .nav-icon {
+  opacity: 1;
+}
+
+/* Logout — danger */
+.nav-link.danger .nav-icon {
+  opacity: 0.55;
+}
+
+.nav-link.danger:hover .nav-icon {
+  opacity: 0.85;
+}
+
+/* ── D4-D  User box con icono de usuario ─────────────────────── */
+
+/* Row flex para icono + info */
+.user-box-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Contenedor de texto (toma el espacio restante) */
+.user-box-info {
+  min-width: 0;
+  flex: 1;
+}
+
+/* Icono de usuario */
+.user-box-icon {
+  display: block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: var(--pc-blue, #1A77D3);
+  opacity: 0.5;
+}
+
+svg.lucide.user-box-icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* Strong y span dentro de user-box-info — truncar si el nombre es largo */
+.user-box-info strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-box-info span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── D4-E  Mobile — sidebar usable con iconos ─────────────────── */
+
+@media (max-width: 767px) {
+  .nav-link {
+    gap: 9px;
+  }
+  .nav-icon {
+    width: 15px;
+    height: 15px;
+  }
+}

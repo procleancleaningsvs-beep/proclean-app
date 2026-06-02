@@ -9,22 +9,22 @@
 </div>
 <nav class="nav" aria-label="Principal">
   {% if user_role == 'admin' %}
-  <a href="{{ url_for('dashboard') }}" class="nav-link nav-link-home">Inicio</a>
+  <a href="{{ url_for('dashboard') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% elif user_role == 'cobranza' %}
-  <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link nav-link-home">Inicio</a>
+  <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% elif user_role in ['nomina', 'coordinador'] %}
-  <a href="{{ url_for(login_home_endpoint(user_role)) }}" class="nav-link nav-link-home">Inicio</a>
+  <a href="{{ url_for(login_home_endpoint(user_role)) }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% else %}
-  <a href="{{ url_for('home_usuario') }}" class="nav-link nav-link-home">Inicio</a>
+  <a href="{{ url_for('home_usuario') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% endif %}
 
   {% if nav_show_imss_movimientos %}
   <div class="nav-group">
     <span class="nav-group-label">Movimientos IMSS</span>
-    <a href="{{ url_for('nuevo_formato') }}" class="nav-link">Nuevo movimiento</a>
-    <a href="{{ url_for('historial') }}" class="nav-link">Historial de movimientos</a>
+    <a href="{{ url_for('nuevo_formato') }}" class="nav-link"><i data-lucide="file-plus" class="nav-icon" aria-hidden="true"></i><span>Nuevo movimiento</span></a>
+    <a href="{{ url_for('historial') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial de movimientos</span></a>
     {% if user_role in ['admin', 'coordinador', 'cobranza'] %}
-    <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link">Movimientos IMSS</a>
+    <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link"><i data-lucide="download" class="nav-icon" aria-hidden="true"></i><span>Movimientos IMSS</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -32,31 +32,31 @@
   {% if nav_show_carrier_vitroflex %}
   <div class="nav-group">
     <span class="nav-group-label">Carrier</span>
-    <a href="{{ url_for('carrier_curso.index') }}" class="nav-link">Cursos</a>
-    <a href="{{ url_for('carrier_curso.historial_exportaciones') }}" class="nav-link">Historial Cursos</a>
+    <a href="{{ url_for('carrier_curso.index') }}" class="nav-link"><i data-lucide="book-open" class="nav-icon" aria-hidden="true"></i><span>Cursos</span></a>
+    <a href="{{ url_for('carrier_curso.historial_exportaciones') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial Cursos</span></a>
   </div>
 
   <div class="nav-group">
     <span class="nav-group-label">Vitroflex</span>
-    <a href="{{ url_for('vitroflex.memo_mensual') }}" class="nav-link">MEMO mensual</a>
-    <a href="{{ url_for('vitroflex.cr_mensual') }}" class="nav-link">CR mensual</a>
-    <a href="{{ url_for('examenes_medicos.index') }}" class="nav-link">Exámenes médicos</a>
-    <a href="{{ url_for('examenes_medicos.historial_page') }}" class="nav-link">Historial exámenes</a>
+    <a href="{{ url_for('vitroflex.memo_mensual') }}" class="nav-link"><i data-lucide="file-text" class="nav-icon" aria-hidden="true"></i><span>MEMO mensual</span></a>
+    <a href="{{ url_for('vitroflex.cr_mensual') }}" class="nav-link"><i data-lucide="table" class="nav-icon" aria-hidden="true"></i><span>CR mensual</span></a>
+    <a href="{{ url_for('examenes_medicos.index') }}" class="nav-link"><i data-lucide="activity" class="nav-icon" aria-hidden="true"></i><span>Exámenes médicos</span></a>
+    <a href="{{ url_for('examenes_medicos.historial_page') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial exámenes</span></a>
   </div>
   {% endif %}
 
   {% if nav_show_finiquitos %}
   <div class="nav-group">
     <span class="nav-group-label">Finiquitos</span>
-    <a href="{{ url_for('finiquitos.pagina_finiquito') }}" class="nav-link">Finiquito</a>
-    <a href="{{ url_for('finiquitos.pagina_historial') }}" class="nav-link">Historial finiquitos</a>
+    <a href="{{ url_for('finiquitos.pagina_finiquito') }}" class="nav-link"><i data-lucide="receipt" class="nav-icon" aria-hidden="true"></i><span>Finiquito</span></a>
+    <a href="{{ url_for('finiquitos.pagina_historial') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial finiquitos</span></a>
   </div>
   {% endif %}
 
   {% if nav_show_facturacion %}
   <div class="nav-group">
     <span class="nav-group-label">Facturación</span>
-    <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link">Facturación</a>
+    <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link"><i data-lucide="landmark" class="nav-icon" aria-hidden="true"></i><span>Facturación</span></a>
   </div>
   {% endif %}
 
@@ -64,10 +64,10 @@
   <div class="nav-group">
     <span class="nav-group-label">Nóminas</span>
     {% if nav_show_nomina_dashboard %}
-    <a href="{{ url_for('nomina.index') }}" class="nav-link">Dashboard de nómina</a>
+    <a href="{{ url_for('nomina.index') }}" class="nav-link"><i data-lucide="bar-chart-2" class="nav-icon" aria-hidden="true"></i><span>Dashboard de nómina</span></a>
     {% endif %}
     {% if nav_show_nomina_hub %}
-    <a href="{{ url_for('nomina.master_hub') }}" class="nav-link">{% if user_role == 'coordinador' %}Hub de asistencia{% else %}Hub de asistencia{% endif %}</a>
+    <a href="{{ url_for('nomina.master_hub') }}" class="nav-link"><i data-lucide="clipboard-list" class="nav-icon" aria-hidden="true"></i><span>{% if user_role == 'coordinador' %}Hub de asistencia{% else %}Hub de asistencia{% endif %}</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -76,10 +76,10 @@
   <div class="nav-group">
     <span class="nav-group-label">Headcount</span>
     {% if nav_show_headcount_auditoria %}
-    <a href="{{ url_for('headcount.auditoria_sua') }}" class="nav-link">Auditoría SUA</a>
+    <a href="{{ url_for('headcount.auditoria_sua') }}" class="nav-link"><i data-lucide="shield-check" class="nav-icon" aria-hidden="true"></i><span>Auditoría SUA</span></a>
     {% endif %}
     {% if nav_show_headcount_conteo %}
-    <a href="{{ url_for('headcount.conteo_personal') }}" class="nav-link">Conteo de personal activo</a>
+    <a href="{{ url_for('headcount.conteo_personal') }}" class="nav-link"><i data-lucide="users" class="nav-icon" aria-hidden="true"></i><span>Conteo de personal activo</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -88,11 +88,11 @@
   <div class="nav-group">
     <span class="nav-group-label">Herramientas</span>
     {% if nav_show_checkid %}
-    <a href="{{ url_for('checkid_consulta') }}" class="nav-link">CheckID</a>
+    <a href="{{ url_for('checkid_consulta') }}" class="nav-link"><i data-lucide="search" class="nav-icon" aria-hidden="true"></i><span>CheckID</span></a>
     {% endif %}
     {% if nav_show_comparativo %}
-    <a href="{{ url_for('comparativo.index') }}" class="nav-link">Comparativo semanal</a>
-    <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link">Reporte mensual</a>
+    <a href="{{ url_for('comparativo.index') }}" class="nav-link"><i data-lucide="trending-up" class="nav-icon" aria-hidden="true"></i><span>Comparativo semanal</span></a>
+    <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link"><i data-lucide="bar-chart" class="nav-icon" aria-hidden="true"></i><span>Reporte mensual</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -100,13 +100,18 @@
   {% if nav_show_administration %}
   <div class="nav-group">
     <span class="nav-group-label">Administración</span>
-    <a href="{{ url_for('admin_usuarios') }}" class="nav-link">Usuarios</a>
+    <a href="{{ url_for('admin_usuarios') }}" class="nav-link"><i data-lucide="user-cog" class="nav-icon" aria-hidden="true"></i><span>Usuarios</span></a>
   </div>
   {% endif %}
 
-  <a href="{{ url_for('logout') }}" class="nav-link danger nav-link-logout">Cerrar sesión</a>
+  <a href="{{ url_for('logout') }}" class="nav-link danger nav-link-logout"><i data-lucide="log-out" class="nav-icon" aria-hidden="true"></i><span>Cerrar sesión</span></a>
 </nav>
 <div class="user-box">
-  <strong>{{ current_user.username }}</strong>
-  <span>Rol: {{ user_role or current_user.role }}</span>
+  <div class="user-box-row">
+    <i data-lucide="user" class="user-box-icon" aria-hidden="true"></i>
+    <div class="user-box-info">
+      <strong>{{ current_user.username }}</strong>
+      <span>Rol: {{ user_role or current_user.role }}</span>
+    </div>
+  </div>
 </div>
