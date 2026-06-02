@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head vf-page-head">
   <div>
     <span class="eyebrow">Vitroflex</span>
     <h2>MEMO mensual</h2>
@@ -12,7 +12,7 @@
   <a href="{{ url_for('vitroflex.cr_mensual') }}" class="btn btn-secondary">Ir a CR mensual</a>
 </section>
 
-<div id="vf-status-banner" class="flash flash-error" hidden style="margin-bottom: 0;"></div>
+<div id="vf-status-banner" class="flash flash-error vf-status-banner" hidden></div>
 
 <section class="panel vf-panel">
   <h3 class="panel-title">Datos generales</h3>
@@ -114,7 +114,7 @@
 
 <div id="vf-preview-backdrop" class="vf-preview-backdrop" hidden>
   <div class="vf-preview-inner vf-preview-pdf-wrap">
-    <div class="vf-toolbar" style="justify-content: space-between;">
+    <div class="vf-toolbar vf-preview-toolbar-head">
       <strong>Vista previa (mismo PDF que se descarga)</strong>
       <button type="button" class="btn btn-small" id="vf-preview-close">Cerrar</button>
     </div>

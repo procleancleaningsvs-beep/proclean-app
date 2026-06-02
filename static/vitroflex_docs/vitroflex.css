@@ -1,35 +1,156 @@
-/* Vitroflex — estilos acotados (prefijo vf-) */
+/* ==============================================================
+   ProClean — Módulo Vitroflex Docs — Visual Premium
+   Fase D.11 | Solo visual | Sin lógica ni generación documental
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.vf-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 8px;
+}
+
+.vf-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.vf-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.vf-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.vf-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 640px;
+}
+
+.vf-page-head .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 2. Status banner ─────────────────────────────────────────── */
+
+.vf-status-banner {
+  margin-bottom: 0 !important;
+}
+
+/* ── 3. Main panel ────────────────────────────────────────────── */
+
+.vf-panel.panel {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 24px 26px;
+  box-shadow: var(--pc-shadow-soft);
+}
 
 .vf-conditional-field[hidden] {
   display: none !important;
 }
 
-.vf-panel .vf-grid {
-  display: grid;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-
-@media (min-width: 720px) {
-  .vf-panel .vf-grid-2 {
-    grid-template-columns: 1fr 1fr;
-  }
-}
+/* ── 4. Section titles ─────────────────────────────────────────── */
 
 .vf-panel .panel-title {
-  margin: 20px 0 10px;
-  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 24px 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
 }
 
 .vf-panel .panel-title:first-child {
   margin-top: 0;
 }
 
-.vf-panel label {
+.vf-panel .panel-title::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--pc-blue, #1A77D3);
+  flex-shrink: 0;
+}
+
+/* Export section — acento verde */
+.vf-panel .panel-title:has(+ .vf-export-row)::before {
+  background: var(--pc-green, #20A866);
+}
+
+/* ── 5. Form grids ─────────────────────────────────────────────── */
+
+.vf-panel .vf-grid {
   display: grid;
+  gap: 14px;
+  margin-bottom: 4px;
+}
+
+@media (min-width: 720px) {
+  .vf-panel .vf-grid-2 {
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+}
+
+.vf-fecha-block {
+  padding: 16px 18px;
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+#vf-permisos-block {
+  padding: 16px 18px;
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-green, #20A866);
+}
+
+.vf-panel label {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
+  font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text);
+  color: var(--pc-text-muted);
 }
 
 .vf-panel input[type="text"],
@@ -38,17 +159,37 @@
 .vf-panel textarea {
   width: 100%;
   max-width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
   font: inherit;
-  background: #fff;
+  font-size: 0.95rem;
+  background: var(--pc-surface);
+  color: var(--pc-text);
+  transition: border-color var(--pc-transition), box-shadow var(--pc-transition);
+}
+
+.vf-panel input:focus,
+.vf-panel select:focus,
+.vf-panel textarea:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 198, 0.12);
 }
 
 .vf-panel textarea {
   min-height: 72px;
   resize: vertical;
 }
+
+.vf-fecha-line-preview {
+  margin: 4px 0 0;
+  font-size: 0.82rem;
+  color: var(--pc-text-muted);
+  font-style: italic;
+}
+
+/* ── 6. Toolbar ────────────────────────────────────────────────── */
 
 .vf-toolbar {
   display: flex;
@@ -58,53 +199,147 @@
   margin: 12px 0 16px;
 }
 
+.vf-toolbar .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.vf-toolbar .danger-btn {
+  color: #B91C1C;
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+
+.vf-toolbar .danger-btn:hover {
+  background: #FEE2E2;
+  border-color: #F87171;
+  color: #991B1B;
+}
+
+/* ── 7. Workers table ──────────────────────────────────────────── */
+
 .vf-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface);
+  margin-bottom: 8px;
 }
 
 .vf-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92rem;
+  font-size: 0.875rem;
+  min-width: 720px;
 }
 
 .vf-table th,
 .vf-table td {
-  border: 1px solid var(--line);
-  padding: 8px 10px;
-  vertical-align: top;
+  border-bottom: 1px solid var(--pc-border);
+  padding: 8px 12px;
+  vertical-align: middle;
 }
 
 .vf-table th {
-  background: var(--panel-soft);
+  background: var(--pc-surface-soft, #F5F9FD);
   text-align: left;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
+.vf-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.vf-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.vf-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.vf-table input.vf-inp,
 .vf-table input {
   width: 100%;
-  min-width: 120px;
+  min-width: 100px;
   border: none;
   background: transparent;
   font: inherit;
+  font-size: 0.875rem;
   padding: 4px 0;
+  color: var(--pc-text);
+}
+
+.vf-table input:focus {
+  outline: none;
+  background: rgba(26, 119, 198, 0.04);
+  border-radius: 4px;
 }
 
 .vf-row-actions {
   white-space: nowrap;
   width: 1%;
+  text-align: center;
 }
 
-.vf-btn-small {
-  padding: 6px 10px;
-  font-size: 0.85rem;
+.vf-table .vf-remove,
+.vf-table .vf-btn-small {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+  padding: 5px 12px !important;
+  font-size: 0.78rem !important;
+  font-weight: 600 !important;
 }
+
+.vf-table .vf-remove.danger-btn {
+  color: #B91C1C;
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+
+.vf-table .vf-remove.danger-btn:hover {
+  background: #FEE2E2;
+  border-color: #F87171;
+}
+
+/* ── 8. Export row ─────────────────────────────────────────────── */
+
+.vf-export-row {
+  padding: 16px 18px;
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-green, #20A866);
+  margin-top: 4px;
+}
+
+.vf-export-row label {
+  min-width: 220px;
+  flex: 1 1 220px;
+}
+
+.vf-panel > .helper {
+  margin-top: 10px;
+  font-size: 0.82rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.vf-panel > .helper code {
+  font-size: 0.78rem;
+  padding: 2px 6px;
+  background: var(--pc-surface-soft);
+  border-radius: 4px;
+  border: 1px solid var(--pc-border);
+}
+
+/* ── 9. Modal ──────────────────────────────────────────────────── */
 
 .vf-modal {
   position: fixed;
@@ -112,7 +347,8 @@
   z-index: 2000;
   display: grid;
   place-items: center;
-  background: rgba(15, 23, 42, 0.45);
+  background: rgba(15, 30, 50, 0.42);
+  backdrop-filter: blur(3px);
   padding: 20px;
 }
 
@@ -121,31 +357,49 @@
 }
 
 .vf-modal-card {
-  background: var(--panel);
-  border-radius: 16px;
-  padding: 22px;
-  max-width: 440px;
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 16px);
+  padding: 24px 26px;
+  max-width: 460px;
   width: 100%;
-  box-shadow: var(--shadow);
+  box-shadow: 0 20px 60px rgba(0, 30, 80, 0.14), 0 4px 16px rgba(0, 0, 0, 0.06);
 }
 
 .vf-modal-card h3 {
   margin: 0 0 10px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.vf-modal-card p {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--pc-text);
+  line-height: 1.5;
 }
 
 .vf-modal-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
-  margin-top: 16px;
+  margin-top: 18px;
+  flex-wrap: wrap;
 }
 
-/* Vista previa / impresión */
+.vf-modal-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 10. Preview backdrop ──────────────────────────────────────── */
+
 .vf-preview-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1500;
-  background: rgba(15, 23, 42, 0.5);
+  background: rgba(15, 30, 50, 0.48);
+  backdrop-filter: blur(3px);
   overflow: auto;
   padding: 24px;
 }
@@ -157,21 +411,60 @@
 .vf-preview-inner {
   max-width: 900px;
   margin: 0 auto;
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px;
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 16px 18px;
+  box-shadow: 0 20px 60px rgba(0, 30, 80, 0.14);
 }
 
 .vf-preview-pdf-wrap {
   max-width: min(960px, 96vw);
 }
 
+.vf-preview-toolbar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.vf-preview-toolbar-head strong {
+  font-size: 0.95rem;
+  color: var(--pc-text);
+}
+
+.vf-preview-toolbar-head .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
 .vf-preview-frame {
   width: 100%;
   min-height: 75vh;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 10px);
+  background: var(--pc-surface);
 }
 
-/* El PDF final proviene del DOCX oficial (LibreOffice), no de HTML de impresión. */
+/* ── 11. Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .vf-page-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .vf-panel.panel {
+    padding: 16px 14px;
+  }
+
+  .vf-export-row label {
+    min-width: 100%;
+  }
+
+  .vf-table {
+    min-width: 600px;
+  }
+}
