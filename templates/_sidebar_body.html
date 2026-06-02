@@ -1,3 +1,4 @@
+{% set ep = request.endpoint %}
 <div class="brand">
   <a class="brand-link" href="{% if user_role == 'admin' %}{{ url_for('dashboard') }}{% elif user_role in ['nomina', 'coordinador'] %}{{ url_for(login_home_endpoint(user_role)) }}{% elif user_role == 'cobranza' %}{{ url_for('facturacion.dashboard') }}{% else %}{{ url_for('home_usuario') }}{% endif %}">
     <img class="brand-logo-icon" src="{{ url_for('static', filename='branding/proclean-isotype.png') }}" width="48" height="48" alt="">
@@ -8,23 +9,45 @@
   </a>
 </div>
 <nav class="nav" aria-label="Principal">
+
   {% if user_role == 'admin' %}
-  <a href="{{ url_for('dashboard') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
+  <a href="{{ url_for('dashboard') }}"
+     class="nav-link nav-link-home{% if ep == 'dashboard' %} active{% endif %}"
+     {% if ep == 'dashboard' %}aria-current="page"{% endif %}>
+    <i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% elif user_role == 'cobranza' %}
-  <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
+  <a href="{{ url_for('facturacion.dashboard') }}"
+     class="nav-link nav-link-home{% if ep == 'facturacion.dashboard' %} active{% endif %}"
+     {% if ep == 'facturacion.dashboard' %}aria-current="page"{% endif %}>
+    <i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% elif user_role in ['nomina', 'coordinador'] %}
-  <a href="{{ url_for(login_home_endpoint(user_role)) }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
+  <a href="{{ url_for(login_home_endpoint(user_role)) }}"
+     class="nav-link nav-link-home{% if ep == login_home_endpoint(user_role) %} active{% endif %}"
+     {% if ep == login_home_endpoint(user_role) %}aria-current="page"{% endif %}>
+    <i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% else %}
-  <a href="{{ url_for('home_usuario') }}" class="nav-link nav-link-home"><i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
+  <a href="{{ url_for('home_usuario') }}"
+     class="nav-link nav-link-home{% if ep == 'home_usuario' %} active{% endif %}"
+     {% if ep == 'home_usuario' %}aria-current="page"{% endif %}>
+    <i data-lucide="home" class="nav-icon" aria-hidden="true"></i><span>Inicio</span></a>
   {% endif %}
 
   {% if nav_show_imss_movimientos %}
   <div class="nav-group">
     <span class="nav-group-label">Movimientos IMSS</span>
-    <a href="{{ url_for('nuevo_formato') }}" class="nav-link"><i data-lucide="file-plus" class="nav-icon" aria-hidden="true"></i><span>Nuevo movimiento</span></a>
-    <a href="{{ url_for('historial') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial de movimientos</span></a>
+    <a href="{{ url_for('nuevo_formato') }}"
+       class="nav-link{% if ep == 'nuevo_formato' %} active{% endif %}"
+       {% if ep == 'nuevo_formato' %}aria-current="page"{% endif %}>
+      <i data-lucide="file-plus" class="nav-icon" aria-hidden="true"></i><span>Nuevo movimiento</span></a>
+    <a href="{{ url_for('historial') }}"
+       class="nav-link{% if ep == 'historial' %} active{% endif %}"
+       {% if ep == 'historial' %}aria-current="page"{% endif %}>
+      <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial de movimientos</span></a>
     {% if user_role in ['admin', 'coordinador', 'cobranza'] %}
-    <a href="{{ url_for('exportacion_imss.index') }}" class="nav-link"><i data-lucide="download" class="nav-icon" aria-hidden="true"></i><span>Movimientos IMSS</span></a>
+    <a href="{{ url_for('exportacion_imss.index') }}"
+       class="nav-link{% if request.blueprint == 'exportacion_imss' %} active{% endif %}"
+       {% if request.blueprint == 'exportacion_imss' %}aria-current="page"{% endif %}>
+      <i data-lucide="download" class="nav-icon" aria-hidden="true"></i><span>Movimientos IMSS</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -32,31 +55,58 @@
   {% if nav_show_carrier_vitroflex %}
   <div class="nav-group">
     <span class="nav-group-label">Carrier</span>
-    <a href="{{ url_for('carrier_curso.index') }}" class="nav-link"><i data-lucide="book-open" class="nav-icon" aria-hidden="true"></i><span>Cursos</span></a>
-    <a href="{{ url_for('carrier_curso.historial_exportaciones') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial Cursos</span></a>
+    <a href="{{ url_for('carrier_curso.index') }}"
+       class="nav-link{% if ep == 'carrier_curso.index' %} active{% endif %}"
+       {% if ep == 'carrier_curso.index' %}aria-current="page"{% endif %}>
+      <i data-lucide="book-open" class="nav-icon" aria-hidden="true"></i><span>Cursos</span></a>
+    <a href="{{ url_for('carrier_curso.historial_exportaciones') }}"
+       class="nav-link{% if ep and 'carrier_curso.historial' in ep %} active{% endif %}"
+       {% if ep and 'carrier_curso.historial' in ep %}aria-current="page"{% endif %}>
+      <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial Cursos</span></a>
   </div>
 
   <div class="nav-group">
     <span class="nav-group-label">Vitroflex</span>
-    <a href="{{ url_for('vitroflex.memo_mensual') }}" class="nav-link"><i data-lucide="file-text" class="nav-icon" aria-hidden="true"></i><span>MEMO mensual</span></a>
-    <a href="{{ url_for('vitroflex.cr_mensual') }}" class="nav-link"><i data-lucide="table" class="nav-icon" aria-hidden="true"></i><span>CR mensual</span></a>
-    <a href="{{ url_for('examenes_medicos.index') }}" class="nav-link"><i data-lucide="activity" class="nav-icon" aria-hidden="true"></i><span>Exámenes médicos</span></a>
-    <a href="{{ url_for('examenes_medicos.historial_page') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial exámenes</span></a>
+    <a href="{{ url_for('vitroflex.memo_mensual') }}"
+       class="nav-link{% if ep == 'vitroflex.memo_mensual' %} active{% endif %}"
+       {% if ep == 'vitroflex.memo_mensual' %}aria-current="page"{% endif %}>
+      <i data-lucide="file-text" class="nav-icon" aria-hidden="true"></i><span>MEMO mensual</span></a>
+    <a href="{{ url_for('vitroflex.cr_mensual') }}"
+       class="nav-link{% if ep == 'vitroflex.cr_mensual' %} active{% endif %}"
+       {% if ep == 'vitroflex.cr_mensual' %}aria-current="page"{% endif %}>
+      <i data-lucide="table" class="nav-icon" aria-hidden="true"></i><span>CR mensual</span></a>
+    <a href="{{ url_for('examenes_medicos.index') }}"
+       class="nav-link{% if ep == 'examenes_medicos.index' %} active{% endif %}"
+       {% if ep == 'examenes_medicos.index' %}aria-current="page"{% endif %}>
+      <i data-lucide="activity" class="nav-icon" aria-hidden="true"></i><span>Exámenes médicos</span></a>
+    <a href="{{ url_for('examenes_medicos.historial_page') }}"
+       class="nav-link{% if ep and 'examenes_medicos.historial' in ep %} active{% endif %}"
+       {% if ep and 'examenes_medicos.historial' in ep %}aria-current="page"{% endif %}>
+      <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial exámenes</span></a>
   </div>
   {% endif %}
 
   {% if nav_show_finiquitos %}
   <div class="nav-group">
     <span class="nav-group-label">Finiquitos</span>
-    <a href="{{ url_for('finiquitos.pagina_finiquito') }}" class="nav-link"><i data-lucide="receipt" class="nav-icon" aria-hidden="true"></i><span>Finiquito</span></a>
-    <a href="{{ url_for('finiquitos.pagina_historial') }}" class="nav-link"><i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial finiquitos</span></a>
+    <a href="{{ url_for('finiquitos.pagina_finiquito') }}"
+       class="nav-link{% if ep == 'finiquitos.pagina_finiquito' %} active{% endif %}"
+       {% if ep == 'finiquitos.pagina_finiquito' %}aria-current="page"{% endif %}>
+      <i data-lucide="receipt" class="nav-icon" aria-hidden="true"></i><span>Finiquito</span></a>
+    <a href="{{ url_for('finiquitos.pagina_historial') }}"
+       class="nav-link{% if ep == 'finiquitos.pagina_historial' %} active{% endif %}"
+       {% if ep == 'finiquitos.pagina_historial' %}aria-current="page"{% endif %}>
+      <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial finiquitos</span></a>
   </div>
   {% endif %}
 
   {% if nav_show_facturacion %}
   <div class="nav-group">
     <span class="nav-group-label">Facturación</span>
-    <a href="{{ url_for('facturacion.dashboard') }}" class="nav-link"><i data-lucide="landmark" class="nav-icon" aria-hidden="true"></i><span>Facturación</span></a>
+    <a href="{{ url_for('facturacion.dashboard') }}"
+       class="nav-link{% if request.blueprint == 'facturacion' %} active{% endif %}"
+       {% if request.blueprint == 'facturacion' %}aria-current="page"{% endif %}>
+      <i data-lucide="landmark" class="nav-icon" aria-hidden="true"></i><span>Facturación</span></a>
   </div>
   {% endif %}
 
@@ -64,10 +114,16 @@
   <div class="nav-group">
     <span class="nav-group-label">Nóminas</span>
     {% if nav_show_nomina_dashboard %}
-    <a href="{{ url_for('nomina.index') }}" class="nav-link"><i data-lucide="bar-chart-2" class="nav-icon" aria-hidden="true"></i><span>Dashboard de nómina</span></a>
+    <a href="{{ url_for('nomina.index') }}"
+       class="nav-link{% if ep == 'nomina.index' %} active{% endif %}"
+       {% if ep == 'nomina.index' %}aria-current="page"{% endif %}>
+      <i data-lucide="bar-chart-2" class="nav-icon" aria-hidden="true"></i><span>Dashboard de nómina</span></a>
     {% endif %}
     {% if nav_show_nomina_hub %}
-    <a href="{{ url_for('nomina.master_hub') }}" class="nav-link"><i data-lucide="clipboard-list" class="nav-icon" aria-hidden="true"></i><span>{% if user_role == 'coordinador' %}Hub de asistencia{% else %}Hub de asistencia{% endif %}</span></a>
+    <a href="{{ url_for('nomina.master_hub') }}"
+       class="nav-link{% if ep == 'nomina.master_hub' %} active{% endif %}"
+       {% if ep == 'nomina.master_hub' %}aria-current="page"{% endif %}>
+      <i data-lucide="clipboard-list" class="nav-icon" aria-hidden="true"></i><span>{% if user_role == 'coordinador' %}Hub de asistencia{% else %}Hub de asistencia{% endif %}</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -76,10 +132,16 @@
   <div class="nav-group">
     <span class="nav-group-label">Headcount</span>
     {% if nav_show_headcount_auditoria %}
-    <a href="{{ url_for('headcount.auditoria_sua') }}" class="nav-link"><i data-lucide="shield-check" class="nav-icon" aria-hidden="true"></i><span>Auditoría SUA</span></a>
+    <a href="{{ url_for('headcount.auditoria_sua') }}"
+       class="nav-link{% if ep and ep.startswith('headcount.auditoria') %} active{% endif %}"
+       {% if ep and ep.startswith('headcount.auditoria') %}aria-current="page"{% endif %}>
+      <i data-lucide="shield-check" class="nav-icon" aria-hidden="true"></i><span>Auditoría SUA</span></a>
     {% endif %}
     {% if nav_show_headcount_conteo %}
-    <a href="{{ url_for('headcount.conteo_personal') }}" class="nav-link"><i data-lucide="users" class="nav-icon" aria-hidden="true"></i><span>Conteo de personal activo</span></a>
+    <a href="{{ url_for('headcount.conteo_personal') }}"
+       class="nav-link{% if ep == 'headcount.conteo_personal' %} active{% endif %}"
+       {% if ep == 'headcount.conteo_personal' %}aria-current="page"{% endif %}>
+      <i data-lucide="users" class="nav-icon" aria-hidden="true"></i><span>Conteo de personal activo</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -88,11 +150,20 @@
   <div class="nav-group">
     <span class="nav-group-label">Herramientas</span>
     {% if nav_show_checkid %}
-    <a href="{{ url_for('checkid_consulta') }}" class="nav-link"><i data-lucide="search" class="nav-icon" aria-hidden="true"></i><span>CheckID</span></a>
+    <a href="{{ url_for('checkid_consulta') }}"
+       class="nav-link{% if ep == 'checkid_consulta' %} active{% endif %}"
+       {% if ep == 'checkid_consulta' %}aria-current="page"{% endif %}>
+      <i data-lucide="search" class="nav-icon" aria-hidden="true"></i><span>CheckID</span></a>
     {% endif %}
     {% if nav_show_comparativo %}
-    <a href="{{ url_for('comparativo.index') }}" class="nav-link"><i data-lucide="trending-up" class="nav-icon" aria-hidden="true"></i><span>Comparativo semanal</span></a>
-    <a href="{{ url_for('comparativo.reporte_mensual_index') }}" class="nav-link"><i data-lucide="bar-chart" class="nav-icon" aria-hidden="true"></i><span>Reporte mensual</span></a>
+    <a href="{{ url_for('comparativo.index') }}"
+       class="nav-link{% if ep == 'comparativo.index' %} active{% endif %}"
+       {% if ep == 'comparativo.index' %}aria-current="page"{% endif %}>
+      <i data-lucide="trending-up" class="nav-icon" aria-hidden="true"></i><span>Comparativo semanal</span></a>
+    <a href="{{ url_for('comparativo.reporte_mensual_index') }}"
+       class="nav-link{% if ep == 'comparativo.reporte_mensual_index' %} active{% endif %}"
+       {% if ep == 'comparativo.reporte_mensual_index' %}aria-current="page"{% endif %}>
+      <i data-lucide="bar-chart" class="nav-icon" aria-hidden="true"></i><span>Reporte mensual</span></a>
     {% endif %}
   </div>
   {% endif %}
@@ -100,7 +171,10 @@
   {% if nav_show_administration %}
   <div class="nav-group">
     <span class="nav-group-label">Administración</span>
-    <a href="{{ url_for('admin_usuarios') }}" class="nav-link"><i data-lucide="user-cog" class="nav-icon" aria-hidden="true"></i><span>Usuarios</span></a>
+    <a href="{{ url_for('admin_usuarios') }}"
+       class="nav-link{% if ep == 'admin_usuarios' %} active{% endif %}"
+       {% if ep == 'admin_usuarios' %}aria-current="page"{% endif %}>
+      <i data-lucide="user-cog" class="nav-icon" aria-hidden="true"></i><span>Usuarios</span></a>
   </div>
   {% endif %}
 
