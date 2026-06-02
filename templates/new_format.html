@@ -1,4 +1,7 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='movimientos_imss/imss.css') }}">
+{% endblock %}
 {% block content %}
 {% set embed_movimiento_cursos = false %}
 {% include '_movimiento_constancia_form.html' %}

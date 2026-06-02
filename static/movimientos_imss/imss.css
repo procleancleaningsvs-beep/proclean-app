@@ -1,0 +1,467 @@
+/* ==============================================================
+   ProClean — Módulo Movimientos IMSS — Visual Premium
+   Fase D.7 | Solo visual | Sin lógica ni backend
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page heads ────────────────────────────────────────────── */
+
+.imss-page-head {
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 4px;
+}
+
+.imss-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.imss-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.imss-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 600px;
+}
+
+/* ── 2. Form card container ───────────────────────────────────── */
+
+.movement-form.form-card {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 28px;
+  display: grid;
+  gap: 20px;
+}
+
+/* ── 3. Lot card (fecha/hora del lote) ────────────────────────── */
+
+.lot-card {
+  background: var(--pc-surface-soft, #F5F9FD) !important;
+  border: 1px solid var(--pc-border) !important;
+  border-left: 3px solid var(--pc-blue, #1A77D3) !important;
+  border-radius: var(--pc-radius-lg, 12px) !important;
+  padding: 20px 22px !important;
+  background-image: none !important;
+}
+
+.lot-card label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lot-card input[type="date"],
+.lot-card input[type="time"] {
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface, #fff);
+  color: var(--pc-text);
+  transition: border-color 0.16s ease;
+  min-width: 0;
+}
+
+.lot-card input[type="date"]:focus,
+.lot-card input[type="time"]:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 198, 0.12);
+}
+
+/* Hint box inside lot card */
+.lot-card .hint-box.compact-hint {
+  background: rgba(26, 119, 198, 0.06);
+  border: 1px solid rgba(26, 119, 198, 0.15);
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+  line-height: 1.5;
+}
+
+/* Checkbox inside lot card */
+.lot-card .checkbox-line {
+  margin-top: 14px;
+  font-size: 0.88rem;
+  color: var(--pc-text);
+  font-weight: 500;
+}
+
+/* ── 4. Movement actions row (add button + limit note) ────────── */
+
+.movement-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.movement-actions .btn {
+  border-radius: var(--pc-radius-pill) !important;
+}
+
+.movement-actions .helper {
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+}
+
+/* ── 5. Movement row cards ────────────────────────────────────── */
+
+.movement-row {
+  background: var(--pc-surface, #fff) !important;
+  border: 1px solid var(--pc-border) !important;
+  border-top: 2px solid var(--pc-green, #20A866) !important;
+  border-radius: var(--pc-radius-lg, 12px) !important;
+  padding: 20px 22px !important;
+  background-image: none !important;
+  display: grid;
+  gap: 14px;
+}
+
+/* JS toggles is-hidden → preserve display:none from global CSS */
+.movement-row.is-hidden {
+  display: none !important;
+}
+
+/* Row header: "Movimiento N" + "Quitar" */
+.row-head {
+  margin-bottom: 0;
+}
+
+.row-head h3 {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-green-deep, #1A7A4A);
+  margin: 0;
+  padding: 3px 10px;
+  background: var(--pc-surface-green, #E3F5EC);
+  border: 1px solid rgba(26, 133, 80, 0.18);
+  border-radius: 50px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.link-btn.remove-row {
+  font-size: 0.8rem;
+  color: #EF4444;
+  font-weight: 600;
+}
+
+.link-btn.remove-row:hover {
+  color: #B91C1C;
+  text-decoration: underline;
+}
+
+/* Grid layouts inside movement rows */
+.movement-row .grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.movement-row .grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Labels inside movement rows */
+.movement-row label,
+.movement-row > label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.movement-row input[type="text"],
+.movement-row input[type="date"],
+.movement-row select {
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface, #fff);
+  color: var(--pc-text);
+  font-family: inherit;
+  transition: border-color 0.16s ease;
+  min-width: 0;
+  width: 100%;
+}
+
+.movement-row input:focus,
+.movement-row select:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 198, 0.12);
+}
+
+.movement-row input:disabled,
+.movement-row select:disabled {
+  background: var(--pc-surface-soft, #F5F9FD);
+  color: var(--pc-text-muted);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* Locked field (JS adds .locked-field) */
+.locked-field {
+  background: var(--pc-surface-soft, #F5F9FD) !important;
+  color: var(--pc-text-muted) !important;
+  border-color: var(--pc-border) !important;
+}
+
+/* Causa baja (hidden/shown by JS) */
+.causa-wrap.is-hidden {
+  display: none !important;
+}
+
+/* ── 6. Export section (salida PDF/PNG) ────────────────────────── */
+
+.export-section {
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 18px 22px;
+}
+
+.export-section .grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: center;
+}
+
+.export-section label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.export-section select {
+  font-size: 0.95rem;
+  padding: 8px 12px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface, #fff);
+  color: var(--pc-text);
+  font-family: inherit;
+  transition: border-color 0.16s ease;
+}
+
+.export-section select:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 198, 0.12);
+}
+
+.export-section .checkbox-line {
+  font-size: 0.88rem;
+  color: var(--pc-text);
+  font-weight: 500;
+}
+
+.export-section .helper {
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+  margin: 10px 0 0;
+}
+
+/* ── 7. Form footer (submit button area) ──────────────────────── */
+
+.form-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+  border-top: 1px solid var(--pc-border);
+}
+
+.form-footer .btn {
+  border-radius: var(--pc-radius-pill) !important;
+  padding: 11px 30px !important;
+  font-size: 1rem !important;
+  font-weight: 600 !important;
+}
+
+/* ── 8. History panel ─────────────────────────────────────────── */
+
+.imss-history-panel {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 24px 24px 20px;
+}
+
+/* History toolbar (search) */
+.imss-history-panel .history-toolbar {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+/* Table container with rounded border */
+.imss-history-panel .table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  overflow: hidden;
+}
+
+/* History table overrides */
+.history-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.history-table thead tr {
+  background: var(--pc-surface-soft, #F5F9FD);
+}
+
+.history-table th {
+  padding: 10px 14px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--pc-border);
+  text-align: left;
+}
+
+.history-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.history-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.history-table td {
+  padding: 9px 14px;
+  font-size: 0.875rem;
+  color: var(--pc-text);
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+}
+
+.history-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Wrap-cells for multiline content */
+.history-cell-wrap {
+  max-width: 200px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+/* ── 9. Download form inside actions-cell ─────────────────────── */
+
+.history-download-form {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 5px;
+}
+
+.history-download-select {
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface, #fff);
+  color: var(--pc-text);
+  font-family: inherit;
+  height: 30px;
+  cursor: pointer;
+}
+
+.history-download-check {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--pc-text-muted);
+  gap: 4px !important;
+  margin: 0 !important;
+  white-space: nowrap;
+}
+
+.history-download-check input[type="checkbox"] {
+  width: 14px !important;
+  height: 14px !important;
+  accent-color: var(--pc-blue);
+}
+
+/* ── 10. Empty state ──────────────────────────────────────────── */
+
+.imss-history-panel .empty-state {
+  text-align: center;
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  padding: 36px 20px;
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  margin: 0;
+}
+
+/* ── 11. Responsive ───────────────────────────────────────────── */
+
+@media (max-width: 1024px) {
+  .movement-row .grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .movement-form.form-card {
+    padding: 18px 16px;
+  }
+
+  .movement-row .grid-3,
+  .movement-row .grid-2,
+  .export-section .grid-2,
+  .lot-card .top-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-footer .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .imss-history-panel {
+    padding: 16px 14px;
+  }
+
+  .history-download-check span {
+    display: none;
+  }
+}

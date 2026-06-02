@@ -4636,3 +4636,24 @@ svg.lucide.user-box-icon {
     height: 15px;
   }
 }
+
+/* ============================================================
+   ProClean — FASE D.5: Estado Activo Real del Sidebar
+   ▸ Solo visual | static/style.css (ajuste mínimo)
+   ▸ El active state es asignado en _sidebar_body.html
+     usando request.endpoint / request.blueprint
+   ▸ Sin lógica de permisos ni backend
+   ============================================================ */
+
+/* Acento izquierdo sutil — identifica visualmente el link actual.
+   Usa inset box-shadow para no afectar el layout (sin border-left). */
+.nav-link.active,
+.nav-link[aria-current="page"] {
+  box-shadow: inset 3px 0 0 var(--pc-blue, #1A77D3);
+}
+
+/* Hover sobre un link activo — acento permanece */
+.nav-link.active:hover,
+.nav-link[aria-current="page"]:hover {
+  box-shadow: inset 3px 0 0 var(--pc-blue, #1A77D3);
+}

@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_button, icon_link %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='movimientos_imss/imss.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head imss-page-head">
   <div>
     <span class="eyebrow">Movimientos IMSS</span>
     <h2>Historial de movimientos</h2>
@@ -9,7 +12,7 @@
   </div>
 </section>
 
-<section class="panel">
+<section class="panel imss-history-panel">
   {% if records %}
   <div class="history-toolbar">
     <label class="history-search-label">Buscar en historial
