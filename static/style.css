@@ -3961,3 +3961,263 @@ tbody tr:last-child td {
   .app-mobile-header-brand { color: var(--pc-text); }
   .sidebar { box-shadow: 8px 0 24px rgba(12, 24, 40, 0.08); }
 }
+
+/* ============================================================
+   ProClean — FASE D.1: Shell Global Premium Clean UI
+   ▸ Solo visual | static/style.css únicamente
+   ▸ Sin lógica, HTML, JS, DB ni backend
+   ▸ Dirección: blanco · gris claro · fresco · limpio · premium
+   ▸ Compatible con todos los módulos existentes
+   ============================================================ */
+
+/* ── D1-A  Fondo global — detalles decorativos ProClean ────────
+   Tres gradientes radiales muy tenues evocan burbujas/agua/frescura
+   ProClean: azul en esquina superior-derecha, verde en inferior-izquierda,
+   acento suave en la parte superior central.
+   Opacidad ≤7% — no interfiere con ningún contenido.
+   ──────────────────────────────────────────────────────────── */
+body {
+  background-color: var(--pc-bg-page);
+  background-image:
+    radial-gradient(ellipse 900px 560px at 110%  -8%,  rgba(26, 144, 198, 0.07) 0%, transparent 68%),
+    radial-gradient(ellipse 680px 420px at  -6%  108%, rgba(119, 190, 60, 0.06) 0%, transparent 68%),
+    radial-gradient(ellipse 480px 240px at  50%   -2%, rgba(38, 177, 226, 0.04) 0%, transparent 60%);
+}
+
+/* Login / auth — glows más centrados en la pantalla */
+.main-auth {
+  background-color: var(--pc-bg-page);
+  background-image:
+    radial-gradient(ellipse 760px 420px at 10%   8%, rgba(38, 177, 226, 0.09) 0%, transparent 64%),
+    radial-gradient(ellipse 680px 380px at 92%  92%, rgba(119, 190, 60, 0.08) 0%, transparent 64%);
+}
+
+/* ── D1-B  Sidebar — identidad ProClean limpia ──────────────────
+   • Fondo blanco puro con tinte azul ultra-sutil en la parte superior
+   • Separador visual limpio debajo del bloque de logo
+   • Padding y gaps más calibrados
+   ──────────────────────────────────────────────────────────── */
+.sidebar {
+  padding: 24px 22px;
+  gap: 22px;
+  background-color: #FFFFFF;
+  background-image:
+    radial-gradient(ellipse 260px 150px at 50% 0%,
+      rgba(26, 144, 198, 0.055) 0%, transparent 65%);
+  border-right: 1.5px solid var(--pc-border);
+  box-shadow: 4px 0 28px rgba(12, 24, 40, 0.04);
+}
+
+/* Logo block — separador sutil bajo el logo para respirar */
+.brand {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+/* Logo icon — fondo con tinte ProClean azul/verde muy suave */
+.brand-logo-icon {
+  border-radius: var(--pc-radius-md);
+  background: linear-gradient(135deg, #EEF6FB 0%, #EEF9E9 100%);
+  border: 1.5px solid rgba(26, 144, 198, 0.18);
+}
+
+.brand-title {
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--pc-text);
+}
+
+.brand-tagline {
+  font-size: 0.77rem;
+  color: var(--pc-text-muted);
+  margin-top: 2px;
+}
+
+/* Grupos de navegación — separadores más definidos, gap ajustado */
+.nav-group {
+  gap: 3px;
+  padding-top: 12px;
+  margin-top: 4px;
+  border-top-color: var(--pc-border);
+}
+
+.nav > .nav-group:first-child {
+  padding-top: 0;
+  margin-top: 0;
+  border-top: none;
+}
+
+/* Labels de sección — uppercase ultra-compacto, color sutil */
+.nav-group-label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  color: var(--pc-text-subtle, #98A8B5);
+  padding: 0 10px 5px;
+  text-transform: uppercase;
+}
+
+/* Nav links — pill surface state limpio */
+.nav-link {
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #4A6278;
+  border: 1px solid transparent;
+  background: transparent;
+  transition:
+    background var(--pc-transition),
+    border-color var(--pc-transition),
+    color var(--pc-transition);
+}
+
+.nav-link:hover {
+  background: var(--pc-surface-blue);
+  border-color: rgba(26, 144, 198, 0.14);
+  color: var(--pc-text);
+  transform: none;
+}
+
+.nav-link:focus-visible {
+  outline: 2px solid var(--pc-blue);
+  outline-offset: 2px;
+}
+
+/* Inicio (home) — pill activo con identidad de marca azul/verde */
+.nav-link-home {
+  font-weight: 600;
+  color: var(--pc-blue-deep);
+  background: linear-gradient(
+    135deg,
+    rgba(26, 144, 198, 0.11) 0%,
+    rgba(119, 190, 60, 0.08) 100%
+  );
+  border-color: rgba(26, 144, 198, 0.22);
+}
+
+.nav-link-home:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(26, 144, 198, 0.17) 0%,
+    rgba(119, 190, 60, 0.12) 100%
+  );
+  border-color: rgba(26, 144, 198, 0.32);
+  color: var(--pc-blue-deep);
+}
+
+/* Cerrar sesión — acento rojo discreto */
+.nav-link.danger {
+  color: #BE3A3A;
+  font-size: 0.86rem;
+}
+
+.nav-link.danger:hover {
+  background: #FEF2F2;
+  border-color: #FECACA;
+  color: #991B1B;
+}
+
+/* Logout — separador + transición a pill en hover */
+.nav-link-logout {
+  margin-top: 6px;
+  border-top: 1px solid var(--pc-border);
+  padding-top: 10px;
+  border-radius: 0;
+  background: transparent;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.nav-link-logout:hover {
+  border-radius: 10px;
+}
+
+/* User box — card premium con tinte azul/verde ProClean */
+.user-box {
+  margin-top: auto;
+  background: linear-gradient(
+    145deg,
+    var(--pc-surface-blue,  #F1F8FC) 0%,
+    var(--pc-surface-green, #F4FAF0) 100%
+  );
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  padding: 14px 16px;
+  box-shadow: 0 1px 6px rgba(12, 24, 40, 0.05);
+}
+
+.user-box strong {
+  color: var(--pc-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: block;
+}
+
+.user-box span {
+  color: var(--pc-text-muted);
+  font-size: 0.80rem;
+  margin-top: 3px;
+  display: block;
+}
+
+/* ── D1-C  Layout base / contenedor principal ─────────────────
+   • app-shell transparente para que los gradientes del body sean visibles
+   • main con padding ligeramente más generoso en los costados
+   ──────────────────────────────────────────────────────────── */
+.app-shell {
+  background: transparent;
+}
+
+.main {
+  padding: 36px 40px;
+}
+
+/* ── D1-D  Mobile header — limpio y consistente ─────────────── */
+@media (max-width: 900px) {
+  .app-shell--session .app-mobile-header {
+    background: #FFFFFF;
+    border-bottom: 1.5px solid var(--pc-border);
+    box-shadow: 0 2px 14px rgba(12, 24, 40, 0.055);
+    height: 56px;
+  }
+
+  .mobile-nav-toggle {
+    background: var(--pc-surface-soft);
+    color: var(--pc-text);
+    border: 1px solid var(--pc-border);
+    border-radius: 10px;
+  }
+
+  .mobile-nav-toggle:hover {
+    background: var(--pc-surface-blue);
+    border-color: rgba(26, 144, 198, 0.22);
+  }
+
+  .mobile-nav-toggle-bars {
+    background: var(--pc-text);
+    box-shadow: 0 -6px 0 var(--pc-text), 0 6px 0 var(--pc-text);
+  }
+
+  .app-mobile-header-brand {
+    color: var(--pc-text);
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .sidebar {
+    box-shadow: 8px 0 28px rgba(12, 24, 40, 0.10);
+  }
+
+  .main {
+    padding: 72px 18px 24px;
+  }
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    padding: 18px 16px;
+    gap: 16px;
+  }
+}
