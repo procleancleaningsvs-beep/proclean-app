@@ -3490,3 +3490,474 @@ textarea,
     padding: 70px 14px 18px;
   }
 }
+
+/* ============================================================
+   ProClean — FASE B: Sistema Visual Premium Global
+   Solo static/style.css. Sin lógica, HTML ni backend.
+   Tokens, superficies, botones, inputs, tablas, badges.
+   ============================================================ */
+
+/* ── 1. Tokens visuales globales FASE B ─────────────────── */
+:root {
+  /* Superficies */
+  --pc-bg-page:        #F6F9FB;
+  --pc-surface:        #FFFFFF;
+  --pc-surface-soft:   #F4F7FA;
+  --pc-surface-blue:   #F1F8FC;
+  --pc-surface-green:  #F4FAF0;
+
+  /* Bordes */
+  --pc-border:         #E1E8EF;
+  --pc-border-strong:  #C6D4DF;
+
+  /* Marca */
+  --pc-blue:           #1A90C6;
+  --pc-blue-deep:      #0E79AD;
+  --pc-blue-accent:    #26B1E2;
+  --pc-blue-ring:      rgba(38, 177, 226, 0.16);
+  --pc-green:          #77BE3C;
+  --pc-green-deep:     #5D9E2A;
+
+  /* Texto */
+  --pc-text:           #1B2634;
+  --pc-text-muted:     #60748A;
+  --pc-text-subtle:    #98A8B5;
+
+  /* Radios */
+  --pc-radius-sm:      8px;
+  --pc-radius-md:      10px;
+  --pc-radius-lg:      14px;
+  --pc-radius-xl:      18px;
+  --pc-radius-pill:    9999px;
+
+  /* Sombras */
+  --pc-shadow-sm:      0 1px 3px rgba(12, 24, 40, 0.06);
+  --pc-shadow-md:      0 4px 14px rgba(12, 24, 40, 0.08);
+  --pc-shadow-soft:    0 2px 8px rgba(12, 24, 40, 0.05);
+  --pc-shadow-blue:    0 2px 10px rgba(26, 144, 198, 0.18);
+
+  /* Transición */
+  --pc-transition:     160ms ease;
+
+  /* Aliases — actualizan retrocompatibilidad con variables heredadas */
+  --bg-page:      var(--pc-bg-page);
+  --panel:        var(--pc-surface);
+  --panel-soft:   var(--pc-surface-soft);
+  --line:         var(--pc-border);
+  --text:         var(--pc-text);
+  --muted:        var(--pc-text-muted);
+  --primary:      var(--pc-blue);
+  --primary-dark: var(--pc-blue-deep);
+  --accent:       var(--pc-green);
+  --accent-dark:  var(--pc-green-deep);
+  --focus-ring:   var(--pc-blue-ring);
+  --radius-sm:    var(--pc-radius-sm);
+  --radius-md:    var(--pc-radius-md);
+  --radius-lg:    var(--pc-radius-lg);
+  --radius-xl:    var(--pc-radius-xl);
+  --shadow:       var(--pc-shadow-soft);
+  --shadow-md:    var(--pc-shadow-md);
+  --transition:   var(--pc-transition);
+}
+
+/* ── 2. Página base ─────────────────────────────────────── */
+body {
+  background: var(--pc-bg-page);
+  color: var(--pc-text);
+}
+
+.main-auth {
+  background: var(--pc-bg-page);
+}
+
+/* ── 3. Superficies — blanco limpio, sin gradientes ─────── */
+.hero-copy, .form-card, .panel, .stat-card,
+.movement-row, .welcome-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  box-shadow: var(--pc-shadow-soft);
+  animation: none;
+}
+
+.panel, .form-card {
+  padding: 24px;
+  border-radius: var(--pc-radius-xl);
+}
+
+.stat-card    { border-radius: var(--pc-radius-lg); }
+.welcome-card { border-radius: var(--pc-radius-lg); box-shadow: var(--pc-shadow-sm); }
+.movement-row { border-radius: var(--pc-radius-xl); }
+
+.stat-card:nth-child(odd)  { border-top: 2px solid var(--pc-blue);  }
+.stat-card:nth-child(even) { border-top: 2px solid var(--pc-green); }
+
+.panel:nth-of-type(2n),
+.form-card:nth-of-type(2n) {
+  background: var(--pc-surface);
+}
+
+/* Login hero / branding panel */
+.hero-copy {
+  background: linear-gradient(145deg, var(--pc-surface-blue) 0%, var(--pc-surface-green) 100%);
+  color: var(--pc-text);
+}
+.hero-copy h2 { color: var(--pc-text); }
+.hero-copy p  { color: var(--pc-text-muted); }
+.hero-copy-brand {
+  background: linear-gradient(145deg, var(--pc-surface-blue) 0%, var(--pc-surface-green) 100%);
+}
+
+/* Eyebrow pills */
+.eyebrow,
+.hero-copy .eyebrow,
+.page-head .eyebrow {
+  background: rgba(38, 177, 226, 0.10);
+  color: var(--pc-blue-deep);
+}
+
+/* Welcome home hero */
+.welcome-hero {
+  background: linear-gradient(145deg, var(--pc-surface-blue) 0%, var(--pc-surface-green) 100%);
+  border: 1px solid var(--pc-border);
+  animation: none;
+}
+
+/* Empty state */
+.empty-state {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  color: var(--pc-text-muted);
+}
+
+/* Hint/helper box */
+.hint-box {
+  background: var(--pc-surface-soft);
+  border: 1px dashed var(--pc-border);
+}
+
+/* Module panels — mantiene estructura, actualiza tokens */
+.checkid-recent-panel,
+.fin-hist-table-wrap,
+.carrier-paquete-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+}
+
+.checkid-inline-notice {
+  background: var(--pc-surface-blue);
+  border-color: rgba(38, 177, 226, 0.20);
+  color: var(--pc-blue-deep);
+}
+
+/* ── 4. Botones ──────────────────────────────────────────── */
+.btn {
+  border-radius: var(--pc-radius-md);
+  min-height: 38px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  transition:
+    background var(--pc-transition),
+    border-color var(--pc-transition),
+    box-shadow var(--pc-transition),
+    color var(--pc-transition);
+}
+.btn:hover, .btn:active { transform: none; }
+
+.btn-primary {
+  background: var(--pc-blue);
+  color: #FFFFFF;
+  border-color: var(--pc-blue-deep);
+  box-shadow: var(--pc-shadow-blue);
+  border-radius: var(--pc-radius-pill);
+}
+.btn-primary:hover {
+  background: var(--pc-blue-deep);
+  border-color: var(--pc-blue-deep);
+  box-shadow: 0 4px 14px rgba(26, 144, 198, 0.25);
+  filter: none;
+}
+.btn-primary:active { box-shadow: none; }
+.btn-primary:focus-visible {
+  outline: 3px solid rgba(38, 177, 226, 0.30);
+  outline-offset: 3px;
+}
+
+.btn-secondary {
+  background: var(--pc-surface);
+  color: var(--pc-text);
+  border-color: var(--pc-border);
+  box-shadow: var(--pc-shadow-sm);
+}
+.btn-secondary:hover {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border-strong);
+  color: var(--pc-text);
+  box-shadow: var(--pc-shadow-sm);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--pc-blue-deep);
+  border-color: var(--pc-border);
+  box-shadow: none;
+}
+.btn-ghost:hover {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border-strong);
+  color: var(--pc-text);
+  box-shadow: none;
+}
+
+.btn-danger,
+.danger-btn {
+  background: #FEF2F2;
+  color: #991B1B;
+  border-color: #FECACA;
+  box-shadow: none;
+}
+.btn-danger:hover,
+.danger-btn:hover {
+  background: #FEE2E2;
+  border-color: #FCA5A5;
+  color: #7F1D1D;
+}
+.btn-danger:focus-visible,
+.danger-btn:focus-visible {
+  outline: 3px solid rgba(239, 68, 68, 0.25);
+  outline-offset: 3px;
+}
+
+.btn-success {
+  background: #F0FDF4;
+  color: #15803D;
+  border-color: #BBF7D0;
+  box-shadow: none;
+}
+.btn-success:hover {
+  background: #DCFCE7;
+  border-color: #86EFAC;
+  color: #166534;
+}
+.btn-success:focus-visible {
+  outline: 3px solid rgba(34, 197, 94, 0.25);
+  outline-offset: 3px;
+}
+
+/* Compactos — tablas y formularios densos */
+.btn-small, .btn-sm {
+  min-height: 30px;
+  padding: 5px 12px;
+  font-size: 0.85rem;
+  border-radius: var(--pc-radius-sm);
+}
+
+/* Disabled global */
+.btn:disabled,
+.btn[disabled],
+.btn[aria-disabled="true"] {
+  opacity: 0.40;
+  cursor: not-allowed;
+  pointer-events: none;
+  box-shadow: none;
+  transform: none !important;
+}
+
+/* Botones icono */
+.btn-icon,
+.checkid-btn-icon,
+.cmp-icon-btn,
+.imss-icon-btn,
+.rpt-icon-btn {
+  border-radius: var(--pc-radius-sm);
+  border-color: var(--pc-border);
+  background: var(--pc-surface);
+  box-shadow: none;
+}
+.btn-icon:hover,
+.checkid-btn-icon:hover,
+.cmp-icon-btn:hover,
+.imss-icon-btn:hover,
+.rpt-icon-btn:hover {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border-strong);
+}
+
+/* ── 5. Inputs / Selects / Textareas ─────────────────────── */
+input, select, textarea {
+  background: var(--pc-surface);
+  border: 1.5px solid var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  color: var(--pc-text);
+  transition: border-color var(--pc-transition), box-shadow var(--pc-transition);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--pc-text-subtle);
+}
+
+input:focus, select:focus, textarea:focus {
+  border-color: var(--pc-blue-accent);
+  box-shadow: 0 0 0 3px var(--pc-blue-ring);
+  background: var(--pc-surface);
+  outline: none;
+}
+
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+label {
+  color: var(--pc-text);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+/* ── 6. Tablas ───────────────────────────────────────────── */
+.table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+  overflow: auto;
+}
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+thead th {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  font-weight: 600;
+  font-size: 0.74rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1.5px solid var(--pc-border);
+}
+
+tbody td {
+  border-bottom: 1px solid #EEF3F8;
+  color: var(--pc-text);
+}
+
+tbody tr:hover td {
+  background: var(--pc-surface-blue);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── 7. Badges / Pills — estados completos ───────────────── */
+.badge, .checkid-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--pc-radius-pill);
+  font-size: 0.71rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  line-height: 1.4;
+}
+
+.badge-ok, .checkid-badge--ok {
+  background: #ECFDF5;
+  color: #065F46;
+  border-color: #A7F3D0;
+}
+.badge-error, .badge-fail, .checkid-badge--err {
+  background: #FEF2F2;
+  color: #991B1B;
+  border-color: #FECACA;
+}
+.badge-warning {
+  background: #FFFBEB;
+  color: #92400E;
+  border-color: #FDE68A;
+}
+.badge-info {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border-color: #BFDBFE;
+}
+.badge-neutral {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  border-color: var(--pc-border);
+}
+
+/* ── 8. Flash messages — paleta semántica ─────────────────── */
+.flash {
+  border-radius: var(--pc-radius-md);
+  font-weight: 500;
+  padding: 12px 16px;
+}
+.flash-success { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+.flash-error   { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
+.flash-warning { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+.flash-info    { background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; }
+
+/* ── 9. Sidebar — blanco limpio, sin gradientes ──────────── */
+.sidebar {
+  background: #FFFFFF;
+  border-right: 1px solid var(--pc-border);
+  box-shadow: 2px 0 12px rgba(12, 24, 40, 0.04);
+}
+
+.brand-title   { color: var(--pc-text); }
+.brand-tagline { color: var(--pc-text-muted); }
+.nav-group     { border-top-color: var(--pc-border); }
+.nav-group-label { color: var(--pc-text-subtle); }
+
+.nav-link {
+  color: #344E64;
+  background: transparent;
+  border: 1px solid transparent;
+}
+.nav-link:hover {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border);
+  color: var(--pc-text);
+  transform: none;
+}
+.nav-link-home {
+  color: var(--pc-blue-deep);
+  background: var(--pc-surface-blue);
+  border-color: rgba(26, 144, 198, 0.20);
+}
+.nav-link.danger { color: #B91C1C; }
+
+.user-box {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  box-shadow: none;
+}
+.user-box span { color: var(--pc-text-muted); }
+
+/* ── 10. Mobile header — claro ───────────────────────────── */
+@media (max-width: 900px) {
+  .app-shell--session .app-mobile-header {
+    background: #FFFFFF;
+    border-bottom: 1px solid var(--pc-border);
+    box-shadow: 0 2px 8px rgba(12, 24, 40, 0.06);
+  }
+  .mobile-nav-toggle {
+    background: var(--pc-surface-soft);
+    color: var(--pc-text);
+    border: 1px solid var(--pc-border);
+  }
+  .mobile-nav-toggle:hover { background: var(--pc-surface-blue); }
+  .mobile-nav-toggle-bars {
+    background: var(--pc-text);
+    box-shadow: 0 -6px 0 var(--pc-text), 0 6px 0 var(--pc-text);
+  }
+  .app-mobile-header-brand { color: var(--pc-text); }
+  .sidebar { box-shadow: 8px 0 24px rgba(12, 24, 40, 0.08); }
+}
