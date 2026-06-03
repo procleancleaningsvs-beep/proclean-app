@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='carrier/carrier.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head carrier-page-head">
   <div>
     <span class="eyebrow">Carrier · Cursos</span>
     <h2>Nuevo expediente</h2>
@@ -9,7 +12,7 @@
   <a href="{{ url_for('carrier_curso.index', mes=default_ym) }}" class="btn btn-secondary">Volver</a>
 </section>
 
-<form method="post" class="form-card">
+<form method="post" class="form-card carrier-nuevo-form">
   <label>Nombre de la persona
     <input type="text" name="nombre_persona" required placeholder="APELLIDO1 APELLIDO2 NOMBRE">
   </label>

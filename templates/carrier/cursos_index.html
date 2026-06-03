@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='carrier/carrier.css') }}">
 {% if workspace %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script defer src="{{ url_for('static', filename='carrier_sheet_editor.js') }}"></script>
@@ -8,7 +9,7 @@
 <script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
 {% endblock %}
 {% block content %}
-<section class="page-head carrier-cursos-head">
+<section class="page-head carrier-page-head carrier-cursos-head">
   <div>
     <span class="eyebrow">Carrier</span>
     <h2>Cursos — expedientes</h2>

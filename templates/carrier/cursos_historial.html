@@ -1,7 +1,10 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_link, icon_button %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='carrier/carrier.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head carrier-page-head">
   <div>
     <span class="eyebrow">Carrier · Cursos</span>
     <h2>Historial de Cursos</h2>
@@ -12,7 +15,7 @@
   </div>
 </section>
 
-<section class="panel">
+<section class="panel carrier-historial-panel">
   {% if rows %}
   <div class="table-wrap">
     <table>

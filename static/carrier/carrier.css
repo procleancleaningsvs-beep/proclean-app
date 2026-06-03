@@ -1,0 +1,555 @@
+/* ==============================================================
+   ProClean — Módulo Carrier / Cursos — Visual Premium
+   Fase D.12 | Solo visual | Sin lógica, editor ni generación PDF
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   Carga después de style.css — overrides de clases carrier-*
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.carrier-page-head,
+.carrier-cursos-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 8px;
+}
+
+.carrier-page-head::after,
+.carrier-cursos-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.carrier-page-head h2,
+.carrier-cursos-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.carrier-page-head .eyebrow,
+.carrier-cursos-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.carrier-page-head p,
+.carrier-cursos-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 640px;
+}
+
+.carrier-page-head .btn,
+.carrier-cursos-head .btn,
+.page-head-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 2. Hero action cards ──────────────────────────────────────── */
+
+.carrier-cursos-hero-actions {
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.carrier-forms-hero {
+  margin-bottom: 0;
+  padding: 22px 24px;
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface);
+  color: var(--pc-text);
+  border: 1px solid var(--pc-border);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-forms-hero--expediente {
+  border-top-color: var(--pc-green, #20A866);
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-forms-hero-title {
+  margin: 0 0 6px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.carrier-forms-hero-text {
+  margin: 0;
+  max-width: 520px;
+  opacity: 1;
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.btn-forms-hero {
+  padding: 11px 24px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border-radius: var(--pc-radius-pill, 50px) !important;
+  background: var(--pc-blue, #1A77D3);
+  color: #fff !important;
+  border: 1px solid var(--pc-blue);
+  box-shadow: none;
+  text-decoration: none;
+  transition: background var(--pc-transition), border-color var(--pc-transition);
+}
+
+.btn-forms-hero:hover {
+  background: var(--pc-blue-deep, #1565A8);
+  color: #fff !important;
+}
+
+.btn-forms-hero--expediente {
+  background: var(--pc-green, #20A866);
+  border-color: var(--pc-green);
+  color: #fff !important;
+}
+
+.btn-forms-hero--expediente:hover {
+  background: var(--pc-green-deep, #1A7A4A);
+  color: #fff !important;
+}
+
+/* ── 3. Intro / paquete panels ─────────────────────────────────── */
+
+.carrier-intro-panel.panel {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-paquete-panel.panel {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-paquete-panel .panel-head h3 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.carrier-paquete-tag {
+  display: inline-flex;
+  padding: 3px 10px;
+  border-radius: 50px;
+  background: var(--pc-surface-blue);
+  border: 1px solid rgba(26, 119, 198, 0.2);
+  color: var(--pc-blue);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.carrier-paquete-card {
+  background: var(--pc-surface-soft, #F5F9FD);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 18px 20px;
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.carrier-paquete-card-empty {
+  border-left-color: var(--pc-text-muted);
+  text-align: center;
+}
+
+.carrier-paquete-card-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pc-text-muted);
+}
+
+.carrier-paquete-card-mes {
+  font-size: 1.2rem;
+  color: var(--pc-text);
+}
+
+.carrier-paquete-status .ok {
+  color: var(--pc-green-deep, #1A7A4A);
+}
+
+.carrier-paquete-status .missing {
+  color: #B91C1C;
+}
+
+.carrier-paquete-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 4. Workspace shell ────────────────────────────────────────── */
+
+.carrier-cursos-workspace-shell.panel {
+  border-top: 3px solid var(--pc-green, #20A866);
+  padding: 24px 26px;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-cursos-ws-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.carrier-cursos-inline-warn {
+  background: #FFFBEB;
+  border: 1px solid #FCD34D;
+  border-radius: var(--pc-radius-lg, 12px);
+  color: #92400E;
+}
+
+.carrier-cursos-region-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--pc-text-muted);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 14px;
+}
+
+.carrier-cursos-region-title::before {
+  content: "";
+  width: 4px;
+  height: 16px;
+  border-radius: 2px;
+  background: var(--pc-blue, #1A77D3);
+  flex-shrink: 0;
+}
+
+.carrier-cursos-region--anexos .carrier-cursos-region-title::before {
+  background: var(--pc-green, #20A866);
+}
+
+.carrier-cursos-region--export .carrier-cursos-region-title::before {
+  background: var(--pc-green-deep, #1A7A4A);
+}
+
+.carrier-cursos-rule {
+  border-top-color: var(--pc-border);
+  margin: 20px 0;
+}
+
+.carrier-cursos-subblock {
+  padding: 14px 16px;
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-top: none;
+  border-style: solid;
+}
+
+/* ── 5. Mode switch (Alta / Renovación) ────────────────────────── */
+
+.carrier-mode-switch {
+  background: var(--pc-surface-soft);
+  border-color: var(--pc-border);
+  padding: 3px;
+}
+
+.carrier-mode-pill {
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 9px 16px;
+  color: var(--pc-text-muted);
+}
+
+.carrier-mode-pill.is-on {
+  background: var(--pc-blue, #1A77D3);
+  color: #fff;
+  box-shadow: none;
+}
+
+/* ── 6. Anexo lines ────────────────────────────────────────────── */
+
+.carrier-anexo-stream {
+  gap: 0;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  overflow: hidden;
+  background: var(--pc-surface);
+}
+
+.carrier-anexo-line {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+  transition: background-color 0.14s ease;
+}
+
+.carrier-anexo-line:hover {
+  background: var(--pc-surface-soft);
+}
+
+.carrier-anexo-line strong {
+  font-size: 0.9rem;
+  color: var(--pc-text);
+}
+
+.carrier-anexo-line-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.carrier-actions-row {
+  gap: 10px;
+}
+
+.carrier-actions-row .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 7. Historial ──────────────────────────────────────────────── */
+
+.carrier-historial-panel.panel {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 22px 24px;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-historial-panel .table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  overflow: hidden;
+}
+
+.carrier-historial-panel table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+}
+
+.carrier-historial-panel table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.carrier-historial-panel .empty-state {
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  padding: 36px 20px;
+}
+
+/* ── 8. Nuevo expediente form ──────────────────────────────────── */
+
+.carrier-nuevo-form.form-card {
+  border-top: 3px solid var(--pc-green, #20A866);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.carrier-nuevo-form .form-footer .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 9. Modals (paquete, IMSS, anexo, editor shell) ────────────── */
+
+.carrier-modal::backdrop {
+  background: rgba(15, 30, 50, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.carrier-modal-form {
+  padding: 4px 2px;
+}
+
+.carrier-modal-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 0 0 10px;
+}
+
+.carrier-modal-close {
+  color: var(--pc-text-muted);
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.carrier-modal-close:hover {
+  color: var(--pc-text);
+  background: var(--pc-surface-soft);
+}
+
+.carrier-modal-footer .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* IMSS vincular */
+.carrier-imss-toolbar {
+  padding: 12px 14px;
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-blue);
+}
+
+.carrier-imss-search {
+  border: 1.5px solid var(--pc-border) !important;
+  border-radius: var(--pc-radius-md, 8px) !important;
+}
+
+.carrier-vincular-table.table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.carrier-imss-pick-inline {
+  background: var(--pc-surface-blue);
+  border-color: rgba(26, 119, 198, 0.25);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+/* Anexo upload dropzone */
+.carrier-anexo-dropzone {
+  border: 2px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  padding: 24px;
+  transition: border-color var(--pc-transition), background var(--pc-transition);
+}
+
+.carrier-anexo-dropzone:focus-within,
+.carrier-anexo-dropzone:hover {
+  border-color: var(--pc-blue);
+  background: var(--pc-surface-blue);
+}
+
+.carrier-anexo-file-label {
+  color: var(--pc-blue);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ── 10. Editor visual — solo contenedores (no canvas/fabric) ─── */
+
+.carrier-sheet-dialog,
+.carrier-anexo-dialog,
+.carrier-imss-dialog {
+  border: none;
+  border-radius: var(--pc-radius-lg, 16px);
+  padding: 0;
+  box-shadow: 0 20px 60px rgba(0, 30, 80, 0.16);
+}
+
+.carrier-sheet-modal-inner,
+.carrier-imss-modal-inner {
+  padding: 18px 20px;
+}
+
+.carrier-doc-frame {
+  background: #E2E8F0;
+  border-radius: var(--pc-radius-lg, 12px);
+  border: 1px solid var(--pc-border);
+}
+
+.carrier-doc-sheet {
+  box-shadow: 0 8px 32px rgba(15, 30, 50, 0.12);
+}
+
+.carrier-sheet-mode-banner {
+  background: var(--pc-surface-blue);
+  border-color: rgba(26, 119, 198, 0.25);
+  color: #0C4A6E;
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.carrier-sheet-mode-toggle .btn.is-active {
+  background: var(--pc-blue, #1A77D3);
+  border-color: var(--pc-blue);
+  color: #fff;
+}
+
+.carrier-sheet-tools,
+.carrier-anexo-tools {
+  padding: 10px 0;
+}
+
+.carrier-sheet-tools .btn,
+.carrier-sheet-crop-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* Legacy expediente page slots */
+.carrier-slot-block {
+  border-top-color: var(--pc-border);
+  padding: 18px 0;
+}
+
+.carrier-fieldset {
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+}
+
+.carrier-pill {
+  padding: 6px 12px;
+  border-radius: var(--pc-radius-pill, 50px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+}
+
+.carrier-table-wrap,
+.carrier-slot-block .vf-table-wrap {
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+/* Embedded IMSS form */
+.carrier-alta-form-wrap .movement-form.form-card {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+/* ── 11. Responsive ──────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .carrier-page-head h2,
+  .carrier-cursos-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .carrier-forms-hero-inner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .carrier-cursos-workspace-shell.panel {
+    padding: 16px 14px;
+  }
+
+  .carrier-anexo-line {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
