@@ -1,0 +1,877 @@
+/* ==============================================================
+   ProClean — Nóminas: Hub / Master de Asistencia — Visual Premium
+   Fase D.15 | Solo visual | Sin cálculo, importación ni lógica
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.nom-hub-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.nom-hub-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.nom-hub-page-head .nom-hub-title h2,
+.nom-hub-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.nom-hub-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.nom-hub-page-head .nom-hub-title p,
+.nom-hub-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 52rem;
+}
+
+.nom-hub-top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.nom-hub-top .nom-note {
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+/* ── 2. Layout hub ───────────────────────────────────────────── */
+
+.nom-hub {
+  display: grid;
+  gap: 1rem;
+  max-width: 1280px;
+  width: 100%;
+  min-width: 0;
+  margin: 0 auto;
+  overflow-x: clip;
+}
+
+.nom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .nom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── 3. Cards / panels ───────────────────────────────────────── */
+
+.nom-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1.15rem 1.25rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.nom-grid > .nom-card:last-child {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+.nom-card.nom-history {
+  border-top-color: var(--pc-blue, #1A77D3);
+}
+
+.nom-card > h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.65rem;
+}
+
+.nom-form {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.nom-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.nom-field label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--pc-text);
+}
+
+.nom-help {
+  color: var(--pc-text-muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.nom-note {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.55rem 0.75rem;
+  color: var(--pc-text);
+  font-size: 0.86rem;
+}
+
+.nom-note[role="alert"] {
+  border-left: 3px solid #f59e0b;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+details.nom-adv {
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.35rem 0.65rem;
+  background: var(--pc-surface-soft);
+}
+
+details.nom-adv summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+}
+
+.nom-client-list {
+  min-height: 100px;
+  max-height: 140px;
+}
+
+.nom-download-actions {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.nom-btn-full {
+  width: 100%;
+  justify-content: center;
+}
+
+.nom-base-section {
+  margin-top: 0.9rem;
+  padding-top: 0.7rem;
+  border-top: 1px dashed var(--pc-border);
+}
+
+.nom-base-section h4 {
+  margin: 0.1rem 0 0.55rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.nom-base-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+@media (max-width: 900px) {
+  .nom-base-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nom-base-card {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.65rem;
+  background: var(--pc-surface-soft);
+  display: grid;
+  gap: 0.35rem;
+  border-left: 3px solid var(--pc-green, #20A866);
+}
+
+.nom-base-card.is-disabled {
+  opacity: 0.75;
+  border-left-color: var(--pc-border);
+}
+
+.nom-base-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.nom-base-status {
+  font-size: 0.72rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.05rem 0.45rem;
+  background: var(--pc-surface-blue);
+  color: var(--pc-text);
+  font-weight: 600;
+}
+
+.nom-base-meta {
+  font-size: 0.78rem;
+  color: var(--pc-text);
+  line-height: 1.25rem;
+}
+
+.nom-base-meta strong {
+  color: var(--pc-text);
+}
+
+.nom-base-meta .muted {
+  color: var(--pc-text-muted);
+}
+
+/* Botones pill en hub */
+.nom-hub .btn,
+.nomi-wrap .btn,
+.nomi-hub-viz .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.nom-field input[type="file"] {
+  font-size: 0.88rem;
+  padding: 0.35rem 0;
+}
+
+/* ── 4. Historial de cargas ──────────────────────────────────── */
+
+.nom-history {
+  margin-top: 0.25rem;
+}
+
+.nom-history-wrap {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface);
+}
+
+.nom-history table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.nom-history thead th {
+  position: sticky;
+  top: 0;
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  z-index: 1;
+  box-shadow: 0 1px 0 var(--pc-border);
+}
+
+.nom-history th,
+.nom-history td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  vertical-align: middle;
+  color: var(--pc-text);
+}
+
+.nom-history tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.nom-history tbody tr:hover {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.nom-history .actions-cell {
+  white-space: nowrap;
+}
+
+/* ── 5. Visualizador hub ─────────────────────────────────────── */
+
+.nomi-hub-viz,
+.nom-hub-viz-panel {
+  margin-top: 1rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1.15rem 1.25rem;
+  background: var(--pc-surface);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-green-deep, #178B54);
+}
+
+.nomi-hub-viz-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.nomi-hub-viz-head h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.nomi-hub-viz-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.nomi-hub-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+  margin: 0.5rem 0 1rem;
+}
+
+@media (max-width: 900px) {
+  .nomi-hub-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nomi-hub-metrics-title {
+  font-size: 0.72rem;
+  color: var(--pc-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.25rem;
+  font-weight: 700;
+}
+
+.nomi-hub-metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.nomi-hub-metric-chips .chip {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface-soft);
+  color: var(--pc-text);
+}
+
+.nomi-hub-metric-chips .chip-warn {
+  background: #fff7ed;
+  border-color: #fed7aa;
+  color: #9a3412;
+}
+
+.nomi-hub-metric-chips .chip-neutral {
+  background: var(--pc-surface-blue);
+}
+
+.nomi-op-summary {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  padding: 0.65rem 0.75rem;
+  margin: 0 0 0.8rem;
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.nomi-op-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.nomi-op-hint {
+  font-size: 0.68rem;
+  color: var(--pc-blue);
+  background: var(--pc-surface-blue);
+  border: 1px solid rgba(26, 119, 198, 0.2);
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.08rem 0.45rem;
+  text-transform: lowercase;
+}
+
+.nomi-op-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.4rem;
+  margin: 0.25rem 0 0.55rem;
+}
+
+@media (max-width: 900px) {
+  .nomi-op-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.nomi-op-kpi {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface);
+  padding: 0.35rem 0.45rem;
+  font-size: 0.8rem;
+}
+
+.nomi-op-kpi--primary {
+  border-color: rgba(26, 119, 211, 0.25);
+  background: var(--pc-surface-blue);
+}
+
+.nomi-op-kpi span {
+  display: block;
+  color: var(--pc-text-muted);
+  font-size: 0.72rem;
+}
+
+.nomi-op-kpi strong {
+  font-size: 0.88rem;
+  color: var(--pc-text);
+}
+
+.nomi-op-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 25%) minmax(0, 75%);
+  gap: 0.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .nomi-op-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nomi-op-block--plantas {
+    order: 2;
+  }
+}
+
+.nomi-op-block {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface);
+  padding: 0.4rem 0.5rem;
+  min-width: 0;
+}
+
+.nomi-op-block h4 {
+  margin: 0.05rem 0 0.35rem;
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nomi-op-clientes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-height: 100px;
+  overflow: auto;
+}
+
+.nomi-op-client-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface-soft);
+  color: var(--pc-text);
+}
+
+.nomi-op-plantas {
+  display: grid;
+  gap: 0.35rem;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.nomi-op-planta-block {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface-soft);
+  padding: 0.3rem 0.4rem;
+}
+
+.nomi-op-puesto-chip {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.38rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+}
+
+.nomi-global-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0.55rem;
+}
+
+.nomi-global-search {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.82rem;
+  background: var(--pc-surface);
+}
+
+.nomi-global-search:focus {
+  outline: none;
+  border-color: var(--pc-blue);
+  box-shadow: 0 0 0 3px rgba(26, 119, 211, 0.12);
+}
+
+.nomi-global-search-clear {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  cursor: pointer;
+}
+
+.nomi-hub-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  .nomi-hub-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.nomi-hub-kpis .nomi-kpi,
+.nomi-wrap .nomi-kpi {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.55rem 0.65rem;
+  font-size: 0.82rem;
+}
+
+.nomi-kpi span {
+  display: block;
+  color: var(--pc-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nomi-kpi strong {
+  font-size: 0.92rem;
+  word-break: break-word;
+  color: var(--pc-text);
+}
+
+.nomi-hub-legend {
+  margin: 0.5rem 0;
+  font-size: 0.82rem;
+}
+
+.nomi-hub-legend summary {
+  font-weight: 600;
+  color: var(--pc-blue);
+  cursor: pointer;
+}
+
+.nomi-legend-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.nomi-legend-item {
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--pc-radius-md, 8px);
+  font-size: 0.75rem;
+  border: 1px solid var(--pc-border);
+}
+
+/* ── 6. Tabla visualizador ───────────────────────────────────── */
+
+.nomi-table-wrap {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 62vh;
+  max-width: 100%;
+  width: 100%;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  -webkit-overflow-scrolling: touch;
+  background: var(--pc-surface);
+}
+
+.nomi-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.nomi-table th,
+.nomi-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.4rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
+  color: var(--pc-text);
+}
+
+.nomi-table thead tr:first-child th {
+  position: sticky;
+  top: 0;
+  background: var(--pc-surface-soft);
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--pc-border);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--pc-text-muted);
+}
+
+.nomi-th-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  min-height: 1.4rem;
+}
+
+.nomi-fbtn {
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+  border-radius: var(--pc-radius-md, 6px);
+  width: 1.35rem;
+  height: 1.35rem;
+  cursor: pointer;
+  font-size: 0.72rem;
+  color: var(--pc-text-muted);
+  flex-shrink: 0;
+  transition: background var(--pc-transition), border-color var(--pc-transition);
+}
+
+.nomi-fbtn:hover {
+  background: var(--pc-surface-blue);
+}
+
+.nomi-fbtn.is-active {
+  background: var(--pc-surface-blue);
+  border-color: var(--pc-blue);
+  color: var(--pc-blue);
+}
+
+/* Panel filtros columna */
+.nomi-xfilter-panel {
+  position: fixed;
+  z-index: 50;
+  min-width: 220px;
+  max-width: 280px;
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  box-shadow: 0 12px 40px rgba(15, 30, 50, 0.14);
+  padding: 0.55rem;
+  font-size: 0.78rem;
+}
+
+.nomi-xfilter-title {
+  font-weight: 700;
+  margin-bottom: 0.35rem;
+  color: var(--pc-text);
+}
+
+.nomi-xfilter-search,
+.nomi-xfilter-text {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 0.35rem;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  font-size: 0.78rem;
+}
+
+.nomi-xfilter-list {
+  max-height: 180px;
+  overflow: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 0.25rem 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.nomi-xfilter-sort-btns button,
+.nomi-xfilter-actions button {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  background: var(--pc-surface-soft);
+  cursor: pointer;
+  transition: background var(--pc-transition);
+}
+
+.nomi-xfilter-sort-btns button.is-active {
+  background: var(--pc-surface-blue);
+  border-color: var(--pc-blue);
+  color: var(--pc-blue);
+}
+
+.nomi-filter-actions {
+  margin: 0.5rem 0 0;
+}
+
+/* ── 7. Warnings / errores filas ─────────────────────────────── */
+
+.nomi-row-error {
+  background: #fff1f2;
+}
+
+.nomi-row-has-warn {
+  border-left: 3px solid #f59e0b;
+}
+
+.nomi-msg-warn-bg {
+  background: #fffbeb;
+}
+
+.nomi-msg {
+  margin: 0.1rem 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.nomi-msg.error {
+  color: #be123c;
+}
+
+.nomi-msg.warn {
+  color: #b45309;
+}
+
+/* ── 8. Vista asistencia importada (desglose) ────────────────── */
+
+.nomi-wrap {
+  display: grid;
+  gap: 1rem;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.nomi-wrap .nomi-card {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.nomi-wrap .nomi-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0.75rem;
+}
+
+@media (max-width: 980px) {
+  .nomi-wrap .nomi-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.nomi-wrap .nomi-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.nomi-wrap .nomi-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1400px;
+}
+
+.nomi-audit {
+  margin-top: 0.65rem;
+  color: var(--pc-text-muted);
+  font-size: 0.85rem;
+}
+
+.nomi-wrap .nomi-note {
+  margin-top: 0.65rem;
+  font-size: 0.9rem;
+  border-left: 3px solid var(--pc-blue);
+}
+
+/* ── 9. Responsive page head ─────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .nom-hub-page-head h2,
+  .nom-hub-page-head .nom-hub-title h2 {
+    font-size: 1.4rem;
+  }
+}
