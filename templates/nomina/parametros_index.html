@@ -4,13 +4,13 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head param-page-head">
-  <div>
-    <span class="eyebrow">Nóminas</span>
-    <h2>Parámetros base de empleados</h2>
-    <p>Consolidado canónico desde Headcount activo, enriquecido con Nómina actual y CONTPAQ.</p>
+<section class="page-head param-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas</span>
+    <h2 class="pc-page-title">Parámetros base de empleados</h2>
+    <p class="pc-page-subtitle">Consolidado canónico desde Headcount activo, enriquecido con Nómina actual y CONTPAQ.</p>
   </div>
-  <div class="param-page-head__actions">
+  <div class="param-page-head__actions pc-hub-hero__actions">
     <a class="btn btn-primary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja de conciliación</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
       <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
@@ -20,9 +20,9 @@
   </div>
 </section>
 
-<div class="param-wrap">
+<div class="param-wrap pc-safe-zone">
   {% if headcount_notice %}
-  <section class="param-card param-hc-notice{% if snapshot_invalid %} param-hc-notice--invalid{% elif snapshot_missing %} param-hc-notice--missing{% elif headcount_refreshing or headcount_stale %} param-hc-notice--stale{% endif %}">
+  <section class="param-card param-hc-notice pc-warning-soft{% if snapshot_invalid %} param-hc-notice--invalid{% elif snapshot_missing %} param-hc-notice--missing{% elif headcount_refreshing or headcount_stale %} param-hc-notice--stale{% endif %}">
     <h3 class="param-hc-notice__title">Headcount</h3>
     <p>{{ headcount_notice }}</p>
     {% if snapshot_invalid %}
@@ -62,10 +62,16 @@
   </section>
 
   <section class="param-imports-grid">
-    <div class="param-card param-card--import">
-      <h3>Importar nómina actual</h3>
-      <p class="param-help">El cliente se detecta automáticamente desde columna, hoja o nombre de archivo (Carrier, Pepsi, GEPP, Auriga…).</p>
-      <form class="param-import-form" method="POST" action="{{ url_for('nomina.parametros_importar_nomina') }}" enctype="multipart/form-data">
+    <div class="param-card param-card--import pc-import-panel pc-form-section">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number" aria-hidden="true">02</span>
+        <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Importar nómina actual</h3>
+          <p class="param-help pc-form-step-desc">El cliente se detecta automáticamente desde columna, hoja o nombre de archivo (Carrier, Pepsi, GEPP, Auriga…).</p>
+        </div>
+      </header>
+      <form class="param-import-form pc-form-actionbar" method="POST" action="{{ url_for('nomina.parametros_importar_nomina') }}" enctype="multipart/form-data">
         <label>Archivo Excel (.xlsx/.xlsm)
           <input type="file" name="file" accept=".xlsx,.xlsm" required />
         </label>
@@ -78,10 +84,16 @@
         <button class="btn btn-primary" type="submit">Importar nómina</button>
       </form>
     </div>
-    <div class="param-card param-card--import">
-      <h3>Importar CONTPAQ (números de empleado)</h3>
-      <p class="param-help">Exportación de CONTPAQ Nómina. Aporta código, NSS, fechas y estatus.</p>
-      <form class="param-import-form" method="POST" action="{{ url_for('nomina.parametros_importar_contpaq') }}" enctype="multipart/form-data">
+    <div class="param-card param-card--import pc-import-panel pc-form-section">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">03</span>
+        <span class="pc-icon-chip pc-icon-chip--green pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Importar CONTPAQ (números de empleado)</h3>
+          <p class="param-help pc-form-step-desc">Exportación de CONTPAQ Nómina. Aporta código, NSS, fechas y estatus.</p>
+        </div>
+      </header>
+      <form class="param-import-form pc-form-actionbar" method="POST" action="{{ url_for('nomina.parametros_importar_contpaq') }}" enctype="multipart/form-data">
         <label>Archivo Excel
           <input type="file" name="file" accept=".xlsx,.xlsm" required />
         </label>

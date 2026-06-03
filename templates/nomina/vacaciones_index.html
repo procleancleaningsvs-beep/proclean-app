@@ -6,13 +6,13 @@
 {% block content %}
 
 {# ── Header ─────────────────────────────────────────────── #}
-<section class="page-head vac-page-head">
-  <div>
-    <span class="eyebrow">Nóminas / Vacaciones</span>
-    <h2>Vacaciones</h2>
-    <p>Control histórico, saldos, primas y desglose semanal</p>
+<section class="page-head vac-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas / Vacaciones</span>
+    <h2 class="pc-page-title">Vacaciones</h2>
+    <p class="pc-page-subtitle">Control histórico, saldos, primas y desglose semanal</p>
   </div>
-  <div class="nv-actions">
+  <div class="nv-actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_descargar_plantilla') }}"
        title="Descargar plantilla oficial de Vacaciones">
       <i data-lucide="download" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Descargar plantilla
@@ -34,7 +34,7 @@
   </div>
 </section>
 
-<div class="vac-wrap">
+<div class="vac-wrap pc-safe-zone">
 
 {# ── KPIs ───────────────────────────────────────────────── #}
 <section class="vac-card">
@@ -96,15 +96,20 @@
 </section>
 
 {# ── Import panel (collapsible) ─────────────────────────── #}
-<section class="vac-card" id="vac-import-panel" style="display:none">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.7rem">
-    <h3 style="margin:0">Importar histórico</h3>
-    <button type="button" class="btn-icon" id="btn-close-import" title="Cerrar panel de importación">
+<section class="vac-card pc-import-panel pc-form-section" id="vac-import-panel" style="display:none">
+  <header class="pc-form-step-head" style="margin-bottom:.5rem">
+    <span class="pc-form-step-number" aria-hidden="true">02</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Importar histórico</h3>
+      <p class="pc-form-step-desc">Archivo Excel y fecha de corte — preview en staging antes de confirmar.</p>
+    </div>
+    <button type="button" class="btn-icon" id="btn-close-import" title="Cerrar panel de importación" style="margin-left:auto">
       <i data-lucide="x" aria-hidden="true"></i>
     </button>
-  </div>
+  </header>
   <form method="post" action="{{ url_for('nomina.vacaciones_importar') }}" enctype="multipart/form-data">
-    <div class="vac-import-row">
+    <div class="vac-import-row pc-form-grid">
       <div class="vac-filter-group">
         <label for="vac-import-type">Tipo de importación</label>
         <select id="vac-import-type" name="import_type" required>
@@ -120,11 +125,11 @@
         <label for="vac-fecha-import">Fecha de corte</label>
         <input id="vac-fecha-import" type="date" name="fecha_corte" value="{{ fecha_corte }}">
       </div>
-      <div style="align-self:end">
-        <button type="submit" class="btn btn-primary">Importar</button>
-      </div>
     </div>
-    <p class="vac-import-hint">
+    <div class="pc-form-actionbar pc-form-actionbar--primary">
+      <button type="submit" class="btn btn-primary">Importar</button>
+    </div>
+    <p class="vac-import-hint pc-inline-hint">
       La importación primero se guarda en staging para preview; no reemplaza la base hasta confirmar.
       {% if imports %}
         Última importación: #{{ imports[0].id }} —
@@ -136,11 +141,16 @@
 </section>
 
 {% if preview_import %}
-<section class="vac-card" id="vac-preview-panel">
+<section class="vac-card pc-preflight-panel pc-form-card" id="vac-preview-panel">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number pc-form-step-number--amber" aria-hidden="true">03</span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Preview de importación (staging)</h3>
+    </div>
+  </header>
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;margin-bottom:.5rem">
     <div>
-      <h3 style="margin:0">Preview de importación (staging)</h3>
-      <p style="margin:.2rem 0 0;color:#64748b;font-size:.82rem">
+      <p class="pc-form-step-desc" style="margin:.2rem 0 0">
         Batch #{{ preview_import.id }} — {{ preview_import.source_filename }} — tipo:
         <strong>{{ preview_summary.tipo_archivo_importado or preview_import.raw_json.import_type_detected or 'N/D' }}</strong>
       </p>

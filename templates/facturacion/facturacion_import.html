@@ -1,13 +1,26 @@
 {% extends "facturacion_shell.html" %}
 {% set fx_nav_active = 'import' %}
 {% block fx_main %}
-<div class="fx-hero">
-  <h1>Importar Excel</h1>
-  <p class="fx-muted">Carga el histórico o la base inicial del módulo. El archivo de referencia es <strong>FACTURACION_PROCLEAN_2026_v2.xlsx</strong> (hojas mensuales <strong>ENERO</strong> a <strong>MAYO</strong>, más hojas opcionales como «NOTAS DE CREDITO»). Tras importar verás un <strong>resumen detallado</strong>. <a href="{{ url_for('facturacion.import_ultimo') }}">Ver último resumen</a>.</p>
+<div class="fx-hero pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Facturación</span>
+    <h1 class="pc-page-title">Importar Excel</h1>
+    <p class="fx-muted pc-page-subtitle">Carga el histórico o la base inicial del módulo. El archivo de referencia es <strong>FACTURACION_PROCLEAN_2026_v2.xlsx</strong> (hojas mensuales <strong>ENERO</strong> a <strong>MAYO</strong>, más hojas opcionales como «NOTAS DE CREDITO»). Tras importar verás un <strong>resumen detallado</strong>. <a href="{{ url_for('facturacion.import_ultimo') }}">Ver último resumen</a>.</p>
+  </div>
 </div>
-<form method="post" enctype="multipart/form-data" class="fx-form-grid" style="max-width:480px;background:#fff;padding:1.25rem;border-radius:16px;box-shadow:var(--shadow)">
+<section class="pc-import-panel pc-form-section" style="max-width:520px">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number" aria-hidden="true">01</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Archivo de importación</h3>
+      <p class="pc-form-step-desc">Selecciona año contable y archivo .xlsx.</p>
+    </div>
+  </header>
+<form method="post" enctype="multipart/form-data" class="fx-form-grid pc-form-grid pc-form-actionbar" style="max-width:100%;background:transparent;padding:0;box-shadow:none;border-radius:0">
   <label>Año contable<input type="number" name="anio" value="2026" min="2020" max="2040" title="Año asignado a las facturas importadas (p. ej. 2026)"></label>
   <label>Archivo .xlsx<input type="file" name="archivo" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
   <button type="submit" class="fx-btn fx-btn--primary">Importar</button>
 </form>
+</section>
 {% endblock %}

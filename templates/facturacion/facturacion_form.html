@@ -1,10 +1,23 @@
 {% extends "facturacion_shell.html" %}
 {% set fx_nav_active = 'facturas' %}
 {% block fx_main %}
-<div class="fx-hero">
-  <h1>{% if row %}Editar factura{% else %}Nueva factura{% endif %}</h1>
+<div class="fx-hero pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Facturación</span>
+    <h1 class="pc-page-title">{% if row %}Editar factura{% else %}Nueva factura{% endif %}</h1>
+    <p class="pc-page-subtitle pc-form-step-desc">Captura operativa — los campos y el guardado conservan el mismo comportamiento.</p>
+  </div>
 </div>
-<form method="post" class="fx-form-grid" style="background:#fff;padding:1.25rem;border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line)">
+<section class="pc-form-shell pc-form-section pc-safe-zone">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number" aria-hidden="true">01</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Datos principales</h3>
+      <p class="pc-form-step-desc">Periodo, cliente, montos y estatus operativo.</p>
+    </div>
+  </header>
+<form method="post" class="fx-form-grid pc-form-grid" style="background:transparent;padding:0;box-shadow:none;border:0">
   <label>Mes *<input type="number" name="mes" required min="1" max="12" value="{{ row.mes if row else '' }}"></label>
   <label>Año *<input type="number" name="anio" required value="{{ row.anio if row else 2026 }}"></label>
   <label>Asistencia (mes)<input type="number" name="asistencia_mes" min="1" max="12" value="{{ row.asistencia_mes if row else '' }}"></label>
@@ -33,11 +46,12 @@
     {% for a in alertas %}<label style="display:inline-flex;margin-right:0.75rem;font-weight:400"><input type="checkbox" name="alertas" value="{{ a }}" {% if row and a in row.alertas %}checked{% endif %}> {{ a }}</label>{% endfor %}
   </label>
   <label style="grid-column:1/-1">Comentarios<textarea name="comentarios" rows="3">{{ row.comentarios if row else '' }}</textarea></label>
-  <div style="grid-column:1/-1;display:flex;gap:0.5rem">
+  <div class="pc-form-actionbar pc-form-actionbar--primary" style="grid-column:1/-1">
     <button type="submit" class="fx-btn fx-btn--primary">Guardar</button>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.facturas_list') }}">Cancelar</a>
   </div>
 </form>
+</section>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   var cb = document.getElementById("fx_es_seg");

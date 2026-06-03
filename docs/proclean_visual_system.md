@@ -268,6 +268,7 @@ En migraciones visuales **no modificar**:
 | D.9 | Acciones tabla / erradicar botones grises en celdas |
 | **D.20** | Biblioteca `.pc-*` opt-in + ajustes legacy seguros |
 | **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
+| **E.4** | Formularios, capturas, importación y preflight (`.pc-form-*`, `.pc-import-panel`, action bars) |
 
 ---
 
@@ -332,8 +333,73 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 | Parámetros | `static/nomina/parametros.css` |
 | Cálculo | `static/nomina/calculo.css` |
 
-**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Exportación IMSS, Users, History global, Login (parcialmente cubierto por auth).
+**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Users, History global, Login (parcialmente cubierto por auth). **Historiales y tablas densas → Fase E.5.**
 
 ---
 
-*Última actualización: Fase E.2 — composición premium Finiquitos.*
+## 12. Fase E.4 — Form and capture enrichment
+
+Capa **opt-in** en `static/style.css` (bloque E.4). Objetivo: formularios, importaciones y preflight con composición narrativa (pasos 01–04 **solo visual**), sin tocar motor de cálculo, rutas, `name`/`id`/`value`, ni JS funcional.
+
+### Cuándo usar cada patrón
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Shell de formulario** | `.pc-form-shell`, `.pc-form-shell--flat` | Envolver un `<form>` o panel de captura densa (IMSS movimiento, Check ID consulta, Exámenes, Vitroflex MEMO/CR, workspace Carrier). Aporta padding, sombra suave y gap entre bloques. `--flat` en embeds o paneles que ya tienen borde propio. |
+| **Hero de pantalla** | `.pc-hub-hero`, `.pc-form-hero`, `__main`, `__actions` | Cabecera de módulo con eyebrow, título y acciones (Volver, Importar). Compatible con `.page-head` existente. |
+| **Pasos narrativos** | `.pc-form-step-head`, `.pc-form-step-number` (`--green`, `--amber`), `.pc-form-step-icon`, `.pc-form-step-title`, `.pc-form-step-desc` | Secciones 01 Datos → 02 Archivo → 03 Validación → 04 Acciones. **No reordenar campos** si el backend depende del orden. |
+| **Panel de importación** | `.pc-import-panel`, `.pc-form-section` | Zona de carga Excel/PDF: borde dashed azul, fondo suave. Usar con `.pc-form-actionbar` para el submit. |
+| **Preflight / preview** | `.pc-preflight-panel`, `.pc-warning-soft` | Pantallas previas al cálculo o preview de importación (staging). Avisos sin sustituir lógica de validación. |
+| **Resumen lateral** | `.pc-side-summary` | KPIs o resumen de importación vigente (INFONAVIT paso 01). |
+| **Action bar** | `.pc-form-actionbar`, `--primary`, `.pc-sticky-actions` | Botones finales agrupados (Guardar, Importar, Calcular). Misma `type`, `name` y `action` en los botones. |
+| **Zona segura** | `.pc-safe-zone` | Contenedor de página que agrupa cards sin alterar hijos funcionales. |
+| **Ayudas** | `.pc-form-help`, `.pc-inline-hint`, `.pc-field-note` | Texto de apoyo; no sustituir mensajes de error del backend. |
+
+### Ejemplo mínimo (importación)
+
+```html
+<section class="page-head pc-hub-hero pc-form-hero">...</section>
+<div class="ni-wrap pc-safe-zone">
+  <section class="ni-card pc-import-panel pc-form-section">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number" aria-hidden="true">02</span>
+      <div class="pc-form-step-text">
+        <h3 class="pc-form-step-title">Importar archivo</h3>
+        <p class="pc-form-step-desc">Descripción existente.</p>
+      </div>
+    </header>
+    <form class="pc-form-actionbar" method="post" action="..." enctype="multipart/form-data">
+      <input type="file" name="excel_file" required>
+      <button type="submit" class="btn btn-primary">Importar</button>
+    </form>
+  </section>
+</div>
+```
+
+### Formularios sensibles — prohibido
+
+En pantallas con cálculo, exportación DOCX/PDF, vinculación Headcount o muchos `data-*` controlados por JS:
+
+| Permitido | Prohibido |
+|-----------|-----------|
+| Hero, `.pc-safe-zone`, headers de paso | Cambiar `name`, `id`, `value`, `data-*` |
+| `.pc-form-shell` envolviendo sin mover inputs | Reordenar campos o filas de tabla |
+| `.pc-import-panel` / action bar visual | Cambiar `action`, `method`, `href` funcional, `onclick` |
+| Icon chips SVG inline | Tocar `.py`, rutas Flask, SQLite, JS funcional |
+| Spacing y jerarquía tipográfica | Consolidar CSS local de módulo (salvo mínimo necesario) |
+| Empty states ya presentes en HTML | Historiales profundos, filtros avanzados, acciones por fila (**E.5**) |
+
+### Fuera de alcance E.4 (reservado E.5)
+
+- Historiales con tablas anchas y paginación operativa.
+- Filtros GET complejos sobre listados (solo se permitió encabezado visual en import/revisión, no rediseño de tabla).
+- Acciones por fila, detalles expandibles, toolbars de historial.
+- Limpieza agresiva de CSS por módulo.
+
+### Pantallas referencia E.4
+
+Movimiento/constancia IMSS (`_movimiento_constancia_form.html`), Exportación IMSS index (captura), Check ID (consulta), Exámenes médicos, Parámetros (importaciones), Cálculo index/preflight, INFONAVIT import/revisión (cabeceras), Vacaciones import/preview, Facturación import/form, Carrier paquete/workspace, Vitroflex MEMO/CR.
+
+---
+
+*Última actualización: Fase E.4 — form and capture enrichment.*

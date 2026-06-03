@@ -4,16 +4,24 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='checkid/checkid.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head checkid-page-head">
-  <div>
-    <span class="eyebrow">Herramientas</span>
-    <h2>CheckID</h2>
-    <p>Consulta SAT por RFC o CURP. Los resultados son solo de referencia en esta pantalla.</p>
+<section class="page-head checkid-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Herramientas</span>
+    <h2 class="pc-page-title">CheckID</h2>
+    <p class="pc-page-subtitle">Consulta SAT por RFC o CURP. Los resultados son solo de referencia en esta pantalla.</p>
   </div>
 </section>
 
-<section class="form-card checkid-tool">
-  <div class="checkid-search-row">
+<section class="form-card checkid-tool pc-form-shell">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number" aria-hidden="true">01</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Consulta</h3>
+      <p class="pc-form-step-desc">Captura RFC o CURP y ejecuta la búsqueda.</p>
+    </div>
+  </header>
+  <div class="checkid-search-row pc-form-actionbar">
     <span class="checkid-search-icon" aria-hidden="true">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2"/><path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
     </span>
@@ -23,7 +31,7 @@
     <button type="button" class="btn btn-primary checkid-search-submit" id="checkid-submit">Consultar</button>
     <span class="checkid-loader" id="checkid-loader" hidden aria-hidden="true">Consultando…</span>
   </div>
-  <p class="checkid-search-hint">RFC: 12–13 caracteres · CURP: 18 caracteres · Solo letras y números</p>
+  <p class="checkid-search-hint pc-inline-hint">RFC: 12–13 caracteres · CURP: 18 caracteres · Solo letras y números</p>
 
   <div id="checkid-notice" class="checkid-inline-notice" hidden role="status"></div>
   <div id="checkid-error" class="checkid-inline-error" hidden role="alert"></div>

@@ -5,13 +5,13 @@
 {% endblock %}
 
 {% block content %}
-<section class="page-head nom-hub-top nom-hub-page-head">
-  <div class="nom-hub-title">
-    <span class="eyebrow">Nóminas</span>
-    <h2>Hub de Master de Asistencia</h2>
-    <p>Descarga de plantilla, importación con detección automática de cliente(s) desde el archivo, validación contra Headcount y visualizador en esta misma página.</p>
+<section class="page-head nom-hub-top nom-hub-page-head pc-hub-hero pc-form-hero">
+  <div class="nom-hub-title pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas</span>
+    <h2 class="pc-page-title">Hub de Master de Asistencia</h2>
+    <p class="pc-page-subtitle">Descarga de plantilla, importación con detección automática de cliente(s) desde el archivo, validación contra Headcount y visualizador en esta misma página.</p>
   </div>
-  <div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;">
+  <div class="pc-hub-hero__actions" style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;">
     {% if user_role in ['admin', 'nomina'] %}
     <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Regresar al dashboard</a>
     {% endif %}
@@ -19,18 +19,24 @@
   </div>
 </section>
 
-<div class="nom-hub">
+<div class="nom-hub pc-safe-zone">
   {% if headcount_source == 'historial_fallback' %}
-  <div class="nom-note" role="alert">Headcount no disponible: la validación contra catálogo se omitió. Las filas se conservan sin cruce automático con Headcount en vivo.</div>
+  <div class="nom-note pc-warning-soft" role="alert">Headcount no disponible: la validación contra catálogo se omitió. Las filas se conservan sin cruce automático con Headcount en vivo.</div>
   {% elif headcount_error %}
-  <div class="nom-note" role="alert">Headcount no disponible ({{ headcount_error }}). La validación contra catálogo se omitió.</div>
+  <div class="nom-note pc-warning-soft" role="alert">Headcount no disponible ({{ headcount_error }}). La validación contra catálogo se omitió.</div>
   {% endif %}
 
   <div class="nom-grid">
-    <section class="nom-card">
-      <h3 style="margin-top:0;font-size:1rem;">Descargar plantilla</h3>
-      <p class="nom-help">Fecha fin = inicio + 6 días. Puedes descargar la plantilla oficial vacía o una base desde la última asistencia por grupo.</p>
-      <form class="nom-form" method="post" action="{{ url_for('nomina.descargar_plantilla') }}">
+    <section class="nom-card pc-form-shell pc-form-shell--flat">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number" aria-hidden="true">01</span>
+        <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Descargar plantilla</h3>
+          <p class="nom-help pc-form-step-desc">Fecha fin = inicio + 6 días. Plantilla vacía o base desde última asistencia.</p>
+        </div>
+      </header>
+      <form class="nom-form pc-form-section" method="post" action="{{ url_for('nomina.descargar_plantilla') }}">
         <div class="nom-field">
           <label for="fecha_inicio">Fecha inicio</label>
           <input id="fecha_inicio" name="fecha_inicio" type="date" required>
@@ -67,7 +73,7 @@
             {% endif %}
           </div>
         </details>
-        <div class="nom-download-actions">
+        <div class="nom-download-actions pc-form-actionbar">
           <button type="submit" name="download_mode" value="empty" class="btn btn-primary nom-btn-full">Descargar plantilla vacía</button>
         </div>
         <section class="nom-base-section">
@@ -100,10 +106,16 @@
       </form>
     </section>
 
-    <section class="nom-card">
-      <h3 style="margin-top:0;font-size:1rem;">Importar y validar</h3>
-      <p class="nom-help">No necesitas seleccionar cliente: se lee la columna <strong>CLIENTE</strong> del Excel, se normaliza y se cruza con Headcount.</p>
-      <form class="nom-form" method="post" action="{{ url_for('nomina.importar_asistencia') }}" enctype="multipart/form-data">
+    <section class="nom-card pc-import-panel">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number" aria-hidden="true">02</span>
+        <span class="pc-icon-chip pc-icon-chip--green pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Importar y validar</h3>
+          <p class="nom-help pc-form-step-desc">Se lee la columna <strong>CLIENTE</strong> del Excel y se cruza con Headcount.</p>
+        </div>
+      </header>
+      <form class="nom-form pc-form-actionbar" method="post" action="{{ url_for('nomina.importar_asistencia') }}" enctype="multipart/form-data">
         <div class="nom-field">
           <label for="excel_file">Archivo .xlsx</label>
           <input id="excel_file" name="excel_file" type="file" accept=".xlsx" required>

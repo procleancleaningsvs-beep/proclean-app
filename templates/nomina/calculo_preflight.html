@@ -3,18 +3,23 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head calc-page-head">
-  <div>
-    <span class="eyebrow">Nóminas</span>
-    <h2>Preguntas previas al cálculo</h2>
-    <p>Prevalidacion de la asistencia seleccionada antes de generar el borrador de nomina.</p>
+<section class="page-head calc-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas</span>
+    <h2 class="pc-page-title">Preguntas previas al cálculo</h2>
+    <p class="pc-page-subtitle">Prevalidacion de la asistencia seleccionada antes de generar el borrador de nomina.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver al listado</a>
+  <div class="pc-hub-hero__actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver al listado</a>
+  </div>
 </section>
 
-<div class="cp-wrap">
-  <section class="cp-card">
-    <h3>Resumen de asistencia #{{ preflight.import_id }}</h3>
+<div class="cp-wrap pc-preflight-panel">
+  <section class="cp-card pc-side-summary">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number" aria-hidden="true">01</span>
+      <div class="pc-form-step-text"><h3 class="pc-form-step-title">Resumen de asistencia #{{ preflight.import_id }}</h3></div>
+    </header>
     <div class="cp-grid">
       <div class="cp-kpi">
         <span>Periodo detectado</span>
@@ -44,7 +49,7 @@
   </section>
 
   {% if preflight.alertas_criticas %}
-  <section class="cp-card cp-alert-critical">
+  <section class="cp-card cp-alert-critical pc-warning-soft pc-warning-soft--danger">
     <h3>No se puede generar calculo</h3>
     <ul class="cp-list">
       {% for item in preflight.alertas_criticas %}
@@ -57,7 +62,7 @@
   </section>
   {% else %}
     {% if preflight.alertas_no_criticas %}
-    <section class="cp-card cp-alert-warn">
+    <section class="cp-card cp-alert-warn pc-warning-soft">
       <h3>Alertas no criticas detectadas</h3>
       <ul class="cp-list">
         {% for item in preflight.alertas_no_criticas %}
@@ -67,10 +72,15 @@
     </section>
     {% endif %}
 
-    <section class="cp-card">
-      <h3>Configuracion previa</h3>
-      <p class="cp-config-hint">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
-      <form method="post" action="{{ url_for('nomina.calculo_generar') }}">
+    <section class="cp-card pc-form-card">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">02</span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Configuracion previa</h3>
+          <p class="cp-config-hint pc-form-step-desc">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
+        </div>
+      </header>
+      <form method="post" action="{{ url_for('nomina.calculo_generar') }}" class="pc-form-section">
         <input type="hidden" name="_from_preflight" value="1">
         <input type="hidden" name="asistencia_import_id" value="{{ preflight.import_id }}">
         {% for q in preflight.preguntas_necesarias %}
@@ -84,7 +94,7 @@
           {% endfor %}
         </fieldset>
         {% endfor %}
-        <div class="cp-actions">
+        <div class="cp-actions pc-form-actionbar pc-form-actionbar--primary pc-sticky-actions">
           <button type="submit" class="btn btn-primary">Confirmar y generar borrador</button>
           <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Cancelar</a>
         </div>
