@@ -2072,7 +2072,7 @@ tbody tr {
   transition: background var(--transition);
 }
 tbody tr:hover {
-  background: #EEF5FB;
+  background: #f8fafc;
 }
 
 /* Panel y form-card con border más suave */
@@ -3846,7 +3846,7 @@ tbody td {
 }
 
 tbody tr:hover td {
-  background: var(--pc-surface-blue);
+  background: #f8fafc;
 }
 
 tbody tr:last-child td {
@@ -5364,7 +5364,7 @@ td.actions,
 }
 
 .pc-table tbody tr:hover td {
-  background: var(--pc-surface-blue);
+  background: #f8fafc;
 }
 
 .pc-table tbody tr:last-child td {
@@ -6381,11 +6381,9 @@ td.actions,
   gap: 14px;
   padding: 18px 20px;
   border-radius: var(--pc-radius-xl, 20px);
-  border: 1px solid rgba(226, 232, 240, 0.95);
-  background: linear-gradient(180deg, #fafcfe 0%, #ffffff 12%, #ffffff 100%);
-  box-shadow:
-    0 1px 2px rgba(15, 23, 42, 0.04),
-    0 8px 22px rgba(15, 23, 42, 0.05);
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 /* E.6: shells sobre cards de módulo — evitar doble borde/sombra fuerte */
@@ -6448,8 +6446,8 @@ td.actions,
   gap: 10px 14px;
   padding: 12px 14px;
   border-radius: var(--pc-radius-lg, 14px);
-  background: linear-gradient(118deg, #f0f7fc 0%, #f8fbfe 55%, #f9fcf6 100%);
-  border: 1px solid rgba(26, 144, 198, 0.12);
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
 }
 
 .pc-table-toolbar .history-search-label,
@@ -6487,8 +6485,8 @@ td.actions,
 .pc-filter-bar input:focus,
 .pc-filter-bar select:focus {
   outline: none;
-  border-color: rgba(26, 144, 198, 0.45);
-  box-shadow: 0 0 0 3px rgba(26, 144, 198, 0.12);
+  border-color: #94a3b8;
+  box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.2);
 }
 
 .pc-filter-chip {
@@ -6532,9 +6530,9 @@ td.actions,
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: var(--pc-radius-lg, 12px);
-  border: 1px solid rgba(226, 232, 240, 0.9);
-  background: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .pc-table-scroll::-webkit-scrollbar,
@@ -6563,27 +6561,39 @@ td.actions,
   position: sticky;
   top: 0;
   z-index: 1;
-  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+  background: #f8fafc;
   color: var(--pc-text);
   font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: none;
-  border-bottom: 1px solid rgba(26, 144, 198, 0.14);
+  border-bottom: 1px solid #e2e8f0;
   white-space: nowrap;
 }
 
+.pc-table-shell table tbody td,
+.pc-list-panel table tbody td,
+.pc-table-scroll table tbody td {
+  background: #ffffff;
+  border-bottom: 1px solid #eef2f6;
+}
+
 .pc-table-shell table tbody tr:hover td,
-.pc-list-panel table tbody tr:hover td {
-  background: var(--pc-surface-blue, #f0f7fc);
+.pc-list-panel table tbody tr:hover td,
+.pc-table-scroll table tbody tr:hover td {
+  background: #f8fafc;
 }
 
-.pc-table-shell table tbody tr:nth-child(even) td {
-  background: rgba(248, 250, 252, 0.65);
+.pc-table-shell table tbody tr:nth-child(even) td,
+.pc-list-panel table tbody tr:nth-child(even) td,
+.pc-table-scroll table tbody tr:nth-child(even) td {
+  background: #ffffff;
 }
 
-.pc-table-shell table tbody tr:nth-child(even):hover td {
-  background: var(--pc-surface-blue, #f0f7fc);
+.pc-table-shell table tbody tr:nth-child(even):hover td,
+.pc-list-panel table tbody tr:nth-child(even):hover td,
+.pc-table-scroll table tbody tr:nth-child(even):hover td {
+  background: #f8fafc;
 }
 
 /* ── E5-5  Acciones por fila ─────────────────────────────────── */
@@ -6699,8 +6709,8 @@ td.actions,
   gap: 8px;
   padding: 28px 20px;
   border-radius: var(--pc-radius-lg, 14px);
-  border: 1px dashed rgba(148, 163, 184, 0.4);
-  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%);
+  border: 1px dashed #e2e8f0;
+  background: #f8fafc;
   color: var(--pc-text-muted);
   font-size: 0.9rem;
 }
@@ -6711,7 +6721,7 @@ td.actions,
   padding: 24px 16px !important;
   color: var(--pc-text-muted);
   font-size: 0.88rem;
-  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%) !important;
+  background: #f8fafc !important;
 }
 
 .history-filter-empty {
@@ -6726,8 +6736,8 @@ td.actions,
 .pc-audit-note {
   padding: 10px 12px;
   border-radius: var(--pc-radius-lg, 10px);
-  border: 1px solid rgba(26, 144, 198, 0.14);
-  background: linear-gradient(165deg, #f0f7fc 0%, #ffffff 100%);
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
   font-size: 0.84rem;
   color: var(--pc-text-muted);
   line-height: 1.45;
@@ -6749,7 +6759,7 @@ td.actions,
 }
 
 .fx-table.pc-density-compact thead th {
-  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+  background: #f8fafc;
 }
 
 @media (max-width: 900px) {
@@ -6973,20 +6983,8 @@ td.actions,
 
 .pc-filter-bar button:not(.btn):hover,
 .pc-table-toolbar button:not(.btn):hover {
-  border-color: rgba(26, 144, 198, 0.35);
-  background: var(--pc-surface-blue);
-}
-
-/* Gradientes E.x — suavizar apilamiento */
-.pc-import-panel,
-.pc-filter-bar,
-.pc-table-toolbar {
-  background: linear-gradient(118deg, #f4f9fc 0%, #fafcfe 70%, #f9fcf7 100%);
-}
-
-.pc-history-shell,
-.pc-list-panel {
-  background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 14%, #ffffff 100%);
+  border-color: #cbd5e1;
+  background: #f1f5f9;
 }
 
 /* ── E6-7  Responsive / overflow ───────────────────────────────── */
@@ -7016,4 +7014,115 @@ td.actions,
   .fx-hero.pc-hub-hero .fx-toolbar {
     width: 100%;
   }
+}
+
+/* ============================================================
+   FASE E.6.1: Neutral-first tables (white / gray, no row tint)
+   ▸ Color solo en badges, botones, iconos y alertas
+   ============================================================ */
+
+/* Shells y toolbars — sin gradientes pastel */
+.pc-history-shell,
+.pc-list-panel,
+.pc-table-shell,
+.pc-table-scroll,
+.vac-card.pc-filter-bar,
+.conc-card.pc-filter-bar {
+  background-color: #ffffff;
+}
+
+.pc-table-toolbar,
+.pc-filter-bar,
+.fin-hist-card.pc-history-shell .fin-hist-toolbar.pc-table-toolbar,
+.imss-history-panel.pc-history-shell .history-toolbar.pc-table-toolbar {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+}
+
+/* Tablas legacy dentro de wrappers E.5 */
+.pc-table-scroll .history-table thead tr,
+.pc-history-shell .history-table thead tr,
+.imss-history-panel .history-table thead tr {
+  background: #f8fafc;
+}
+
+.pc-table-scroll .history-table th,
+.pc-history-shell .history-table th,
+.pc-table-scroll .param-table thead th,
+.pc-table-scroll .ni-table thead th,
+.pc-table-scroll .vac-table thead th,
+.pc-table-scroll .calc-table thead th,
+.pc-table-scroll .fx-table thead th,
+.pc-table-scroll .hc-table thead th,
+.pc-table-scroll .fin-hist-table thead th,
+.pc-table-scroll .checkid-history-table thead th,
+.pc-table-scroll .conc-table thead th,
+.pc-table-scroll .nomi-table thead th,
+.pc-table-scroll .cv-table thead th,
+.pc-table-scroll .vf-table thead th,
+.pc-table-scroll .em-historial-table thead th {
+  background: #f8fafc;
+  color: var(--pc-text, #0f172a);
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pc-table-scroll .history-table td,
+.pc-history-shell .history-table td,
+.pc-table-scroll .param-table tbody td,
+.pc-table-scroll .ni-table tbody td,
+.pc-table-scroll .vac-table tbody td,
+.pc-table-scroll .calc-table tbody td,
+.pc-table-scroll .fx-table tbody td,
+.pc-table-scroll .hc-table tbody td,
+.pc-table-scroll .fin-hist-table tbody td,
+.pc-table-scroll .checkid-history-table tbody td,
+.pc-table-scroll .conc-table tbody td,
+.pc-table-scroll .nomi-table tbody td,
+.pc-table-scroll .cv-table tbody td,
+.pc-table-scroll .vf-table tbody td,
+.pc-table-scroll .em-historial-table tbody td,
+.pc-table-scroll table tbody td {
+  background: #ffffff;
+  border-bottom-color: #eef2f6;
+}
+
+.pc-table-scroll .history-table tbody tr:hover td,
+.pc-history-shell .history-table tbody tr:hover td,
+.imss-history-panel.pc-history-shell .history-table tbody tr:hover td,
+.pc-table-scroll .param-table tbody tr:hover td,
+.pc-table-scroll .ni-table tbody tr:hover td,
+.pc-table-scroll .vac-table tbody tr:hover td,
+.pc-table-scroll .calc-table tbody tr:hover td,
+.pc-table-scroll .fx-table tbody tr:hover td,
+.pc-table-scroll .hc-table tbody tr:hover td,
+.pc-table-scroll .fin-hist-table tbody tr:hover td,
+.pc-table-scroll .checkid-history-table tbody tr:hover td,
+.pc-table-scroll .conc-table tbody tr:hover td,
+.pc-table-scroll .nomi-table tbody tr:hover td,
+.pc-table-scroll .cv-table tbody tr:hover td,
+.pc-table-scroll .vf-table tbody tr:hover td,
+.pc-table-scroll .em-historial-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+/* Sin zebra en contexto premium table */
+.pc-table-scroll table tbody tr:nth-child(even) td,
+.pc-history-shell table tbody tr:nth-child(even) td,
+.pc-list-panel table tbody tr:nth-child(even) td,
+.nd-table-wrap.pc-table-scroll table tbody tr:nth-child(even) td {
+  background: #ffffff;
+}
+
+.pc-table-scroll table tbody tr:nth-child(even):hover td,
+.pc-history-shell table tbody tr:nth-child(even):hover td {
+  background: #f8fafc;
+}
+
+/* Highlight Check ID — mantener semántica, tono neutro */
+.checkid-history-table tbody tr.checkid-history-row--highlight td {
+  background: #f1f5f9;
+}
+
+.checkid-history-table tbody tr.checkid-history-row--highlight:hover td {
+  background: #eef2f6;
 }

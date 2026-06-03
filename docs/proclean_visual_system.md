@@ -271,6 +271,7 @@ En migraciones visuales **no modificar**:
 | **E.4** | Formularios, capturas, importación y preflight (`.pc-form-*`, `.pc-import-panel`, action bars) |
 | **E.5** | Historiales, tablas, toolbars, filtros, acciones por fila (`.pc-table-*`, `.pc-history-*`) |
 | **E.6** | Auditoría visual, regresiones, puentes CSS legacy (sin borrado masivo) |
+| **E.6.1** | Tablas neutral-first (blanco/gris; color solo en badges/acciones) |
 
 ---
 
@@ -502,10 +503,25 @@ Fase de **corrección fina**, no de expansión. Objetivo: consistencia entre cap
 3. Antes de borrar CSS local, comprobar uso en templates y JS.
 4. Preferir **puente** en `style.css` E.6 antes de renombrar HTML.
 
+### Tablas neutral-first (Fase E.6.1)
+
+**Tables should stay neutral-first: white surfaces, subtle headers, minimal row tint. Use color only for semantic badges/actions.**
+
+| Elemento | Tratamiento |
+|----------|-------------|
+| Shell / scroll / list panel | Fondo `#ffffff`, borde `#e2e8f0`, sombra ligera o ninguna |
+| Toolbar / filtros | `#f8fafc`, sin gradiente azul/verde |
+| `thead th` | `#f8fafc`, borde inferior gris |
+| Filas `tbody` | `#ffffff`; hover `#f8fafc` |
+| Zebra | Desactivada en `.pc-table-*` |
+| Badges, `.btn-icon`, alertas | Conservan color semántico |
+
+Implementado en `style.css` (E.5/E.6 ajustados + bloque E.6.1). CSS local de módulos (`imss.css`, `parametros.css`, etc.) puede seguir existiendo; los puentes E.6.1 en contenedores `.pc-table-scroll` prevalecen en listados migrados.
+
 ### QA mínimo pre-deploy
 
 Ver checklist al final de la entrega del agente o repetir recorrido sidebar: Dashboard admin, Home, Nómina hub/dashboard, Finiquitos + historial, IMSS + historial, Check ID, Headcount, Facturación, Carrier, Vitroflex, Exámenes, INFONAVIT, Vacaciones, Parámetros, Cálculo, Usuarios, Exportación IMSS.
 
 ---
 
-*Última actualización: Fase E.6 — visual audit and safe consolidation.*
+*Última actualización: Fase E.6.1 — neutral-first tables.*
