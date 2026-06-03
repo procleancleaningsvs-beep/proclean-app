@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/vacaciones.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head vac-page-head">
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
     <h2>Editar registro</h2>
@@ -9,7 +12,7 @@
   <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index') }}">Volver a Vacaciones</a>
 </section>
 
-<section class="form-card compact-form">
+<section class="form-card compact-form vac-edit-card">
   <form method="post">
     <label>Fecha ingreso usada
       <input type="date" name="fecha_ingreso_usada" value="{{ row.fecha_ingreso_usada or '' }}">

@@ -1,0 +1,1047 @@
+/* ==============================================================
+   ProClean — Nóminas: Vacaciones — Visual Premium
+   Fase D.16 | Solo visual | Sin saldos, importación ni lógica
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.vac-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.vac-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.vac-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.vac-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.vac-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.vac-page-head .nv-actions,
+.vac-page-head .vd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.vac-wrap .btn,
+.vac-page-head .btn,
+.vd-actions .btn,
+.vac-admin-page .btn,
+.vac-import-detail .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 2. Layout ─────────────────────────────────────────────────── */
+
+.vac-wrap {
+  display: grid;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ── 3. KPIs / resumen ─────────────────────────────────────────── */
+
+.vac-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0.6rem;
+}
+
+.vac-kpi {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.65rem 0.75rem;
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.vac-kpi__label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.vac-kpi__value {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.vac-kpi--alert {
+  border-left-color: #dc2626;
+  background: #fff5f5;
+}
+
+.vac-kpi--alert .vac-kpi__value {
+  color: #dc2626;
+}
+
+.vac-kpi--warn {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.vac-kpi--warn .vac-kpi__value {
+  color: #b45309;
+}
+
+/* ── 4. Cards ──────────────────────────────────────────────────── */
+
+.vac-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.vac-card h3 {
+  margin: 0 0 0.7rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+#vac-import-panel.vac-card {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+#vac-preview-panel.vac-card {
+  border-top-color: #f59e0b;
+}
+
+.vac-card .vac-meta-inline {
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+}
+
+.vac-card .vac-meta-inline strong {
+  color: var(--pc-text);
+}
+
+/* ── 5. Import / filtros ───────────────────────────────────────── */
+
+.vac-import-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr auto auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.vac-filters-grid {
+  display: grid;
+  grid-template-columns: 1.8fr repeat(4, 1fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.vac-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+.vac-filter-group > label {
+  font-size: 0.77rem;
+  color: var(--pc-text-muted);
+  font-weight: 600;
+}
+
+.vac-filter-group select,
+.vac-filter-group input[type="text"],
+.vac-filter-group input[type="date"],
+.vac-filter-group input[type="file"],
+.vac-filter-group textarea {
+  font-size: 0.86rem;
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.vac-filter-group input[type="file"] {
+  padding: 0.35rem 0;
+}
+
+.vac-filter-btns {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-end;
+}
+
+.vac-filter-extras {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.vac-filter-extras label {
+  font-size: 0.82rem;
+  color: var(--pc-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+}
+
+.vac-filter-extras select {
+  font-size: 0.83rem;
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.vac-import-hint {
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+  margin: 0.45rem 0 0;
+  line-height: 1.45;
+}
+
+/* ── 6. Tabla principal ────────────────────────────────────────── */
+
+.vac-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  -webkit-overflow-scrolling: touch;
+}
+
+.vac-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1380px;
+  font-size: 0.85rem;
+}
+
+.vac-table th {
+  background: var(--pc-surface-soft);
+  border-bottom: 2px solid var(--pc-border);
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+}
+
+.vac-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.45rem 0.55rem;
+  vertical-align: middle;
+  color: var(--pc-text);
+}
+
+.vac-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.vac-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.vac-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.vac-money {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── 7. Badges / saldos / alertas ──────────────────────────────── */
+
+.vac-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.12rem 0.42rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.74rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.vac-badge--ok {
+  background: var(--pc-surface-green, #E3F5EC);
+  color: var(--pc-green-deep, #178B54);
+  border: 1px solid rgba(32, 168, 102, 0.2);
+}
+
+.vac-badge--warn {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+.vac-badge--error {
+  background: #fee2e2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.vac-badge--neutral {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  border: 1px solid var(--pc-border);
+}
+
+.vac-badge--info {
+  background: var(--pc-surface-blue);
+  color: var(--pc-blue);
+  border: 1px solid rgba(26, 119, 198, 0.2);
+}
+
+.vac-badge--multi {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border: 1px solid #e9d5ff;
+}
+
+.vac-saldo-neg {
+  color: #dc2626;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.vac-saldo-pos {
+  color: var(--pc-green-deep);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.vac-saldo-zer {
+  color: var(--pc-text-muted);
+}
+
+.vac-alert-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+}
+
+.vac-worker-name {
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.vac-worker-sub {
+  font-size: 0.74rem;
+  color: var(--pc-text-muted);
+  display: block;
+  margin-top: 0.05rem;
+}
+
+.vac-actions-cell {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+/* ── 8. Expand row / inline detail ─────────────────────────────── */
+
+.vac-expand-row > td {
+  background: var(--pc-surface-soft);
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.75rem 0.9rem !important;
+}
+
+.vac-expand-shell {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface);
+  overflow: hidden;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.vac-expand-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: flex-start;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--pc-border);
+  background: var(--pc-surface-soft);
+}
+
+.vac-expand-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  flex-wrap: wrap;
+}
+
+.vac-expand-tab {
+  border: none;
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  font-size: 0.78rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background var(--pc-transition), color var(--pc-transition);
+}
+
+.vac-expand-tab.is-active {
+  background: var(--pc-blue);
+  color: #fff;
+}
+
+.vac-expand-panel {
+  display: none;
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+
+.vac-expand-panel.is-active {
+  display: block;
+}
+
+.vac-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem 0.8rem;
+  font-size: 0.83rem;
+}
+
+.vac-kv-grid b {
+  color: var(--pc-text-muted);
+  font-weight: 600;
+}
+
+.vac-inline-note {
+  margin-top: 0.45rem;
+  font-size: 0.8rem;
+  color: #92400e;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 0.35rem 0.5rem;
+}
+
+.vac-expand-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.vac-expand-table th,
+.vac-expand-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.35rem 0.42rem;
+  text-align: left;
+}
+
+.vac-expand-table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--pc-text-muted);
+}
+
+.vac-edit-mini {
+  margin-top: 0.45rem;
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 0.5rem;
+  display: none;
+}
+
+.vac-edit-mini.is-open {
+  display: block;
+}
+
+.vac-edit-mini-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem 0.6rem;
+}
+
+.vac-edit-mini .vac-filter-group label {
+  font-size: 0.76rem;
+}
+
+/* ── 9. Drawer detalle ─────────────────────────────────────────── */
+
+.vac-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 30, 50, 0.42);
+  z-index: 1000;
+  display: none;
+  backdrop-filter: blur(2px);
+}
+
+.vac-drawer-overlay.is-open {
+  display: block;
+}
+
+.vac-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(580px, 96vw);
+  height: 100vh;
+  background: var(--pc-surface);
+  box-shadow: -6px 0 36px rgba(15, 30, 50, 0.16);
+  z-index: 1001;
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.vac-drawer.is-open {
+  transform: translateX(0);
+}
+
+.vac-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1rem 1.1rem 0.7rem;
+  border-bottom: 1px solid var(--pc-border);
+  flex-shrink: 0;
+  background: var(--pc-surface-soft);
+}
+
+.vac-drawer-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--pc-text);
+}
+
+.vac-drawer-subtitle {
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+  margin: 0.1rem 0 0;
+}
+
+.vac-drawer-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0 1.1rem;
+  gap: 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.vac-drawer-tab {
+  padding: 0.5rem 0.7rem;
+  font-size: 0.81rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.vac-drawer-tab.is-active {
+  color: var(--pc-blue);
+  border-bottom-color: var(--pc-blue);
+}
+
+.vac-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.vac-drawer-panel {
+  display: none;
+  padding: 0.9rem 1.1rem 1.5rem;
+}
+
+.vac-drawer-panel.is-active {
+  display: block;
+}
+
+.vac-dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.28rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.vac-dl dt {
+  color: var(--pc-text-muted);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.vac-dl dd {
+  font-weight: 500;
+  margin: 0;
+  word-break: break-word;
+  color: var(--pc-text);
+}
+
+.vac-sec-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 0.85rem 0 0.3rem;
+  border-top: 1px solid var(--pc-border);
+  padding-top: 0.6rem;
+}
+
+.vac-drawer-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  margin-top: 0.35rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  overflow: hidden;
+}
+
+.vac-drawer-table th {
+  background: var(--pc-surface-soft);
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+  border-bottom: 1px solid var(--pc-border);
+  font-weight: 700;
+  font-size: 0.72rem;
+  color: var(--pc-text-muted);
+}
+
+.vac-drawer-table td {
+  padding: 0.35rem 0.45rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.vac-warn-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.vac-warn-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.38rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.83rem;
+}
+
+.vac-note-box {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8rem;
+  color: #92400e;
+  margin: 0.6rem 0;
+}
+
+.vac-loading {
+  text-align: center;
+  padding: 2.5rem 1rem;
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+}
+
+/* ── 10. Modales admin / edición ───────────────────────────────── */
+
+.vac-admin-dialog,
+.vac-edit-dialog {
+  border: none;
+  border-radius: var(--pc-radius-lg, 16px);
+  box-shadow: 0 24px 60px rgba(15, 30, 50, 0.18);
+  padding: 0;
+  overflow: hidden;
+}
+
+.vac-admin-dialog {
+  width: min(660px, 96vw);
+}
+
+.vac-edit-dialog {
+  width: min(720px, 96vw);
+}
+
+.vac-admin-dialog::backdrop,
+.vac-edit-dialog::backdrop {
+  background: rgba(15, 30, 50, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.vac-admin-inner,
+.vac-edit-inner {
+  padding: 1.2rem 1.35rem 1.1rem;
+  position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.vac-admin-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  border: none;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--pc-text-muted);
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.vac-admin-close:hover {
+  background: var(--pc-surface-blue);
+  color: var(--pc-text);
+}
+
+.vac-admin-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.vac-admin-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--pc-border);
+  margin: 0.9rem 0 0.8rem;
+}
+
+.vac-admin-tab {
+  padding: 0.46rem 0.8rem;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.vac-admin-tab.is-active {
+  color: var(--pc-blue);
+  border-bottom-color: var(--pc-blue);
+}
+
+.vac-admin-panel {
+  display: none;
+}
+
+.vac-admin-panel.is-active {
+  display: block;
+}
+
+.vac-admin-section {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.7rem;
+}
+
+.vac-admin-section h4 {
+  margin: 0 0 0.45rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.vac-admin-dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.22rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.vac-admin-dl dt {
+  color: var(--pc-text-muted);
+}
+
+.vac-admin-dl dd {
+  font-weight: 500;
+  margin: 0;
+  color: var(--pc-text);
+}
+
+.vac-admin-danger {
+  background: #fff5f5;
+  border-color: #fca5a5;
+}
+
+.vac-admin-danger h4 {
+  color: #991b1b;
+}
+
+.vac-admin-confirm-inp {
+  width: 100%;
+  font-size: 0.88rem;
+  margin-top: 0.3rem;
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.vac-action-form {
+  display: flex;
+  gap: 0.45rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.vac-action-form .vac-filter-group {
+  flex: 1;
+  min-width: 160px;
+}
+
+.vac-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem 0.8rem;
+}
+
+.vac-edit-grid .vac-filter-group textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+/* ── 11. Detalle / admin / import páginas secundarias ──────────── */
+
+.vd-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.vd-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.vd-card h3 {
+  margin-top: 0;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.vd-warn {
+  color: #b45309;
+  font-size: 0.9rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.vd-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.vd-table th,
+.vd-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.45rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.88rem;
+}
+
+.vd-table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--pc-text-muted);
+}
+
+.vd-tag {
+  display: inline-block;
+  padding: 0.12rem 0.42rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  background: var(--pc-surface-soft);
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--pc-border);
+}
+
+.vac-edit-card {
+  border-top: 3px solid var(--pc-green, #20A866);
+}
+
+.vac-edit-card label {
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.vac-alert-note {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+  color: var(--pc-text);
+  border-left: 3px solid #f59e0b;
+}
+
+.vac-admin-page .vac-panel,
+.vac-import-detail .vac-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.vac-admin-page .vac-panel h3,
+.vac-import-detail .vac-panel h3 {
+  margin-top: 0;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.vac-import-detail .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.vac-import-detail table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.vac-import-detail table th,
+.vac-import-detail table td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--pc-border);
+  text-align: left;
+}
+
+.vac-import-detail table thead th {
+  background: var(--pc-surface-soft);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  color: var(--pc-text-muted);
+}
+
+.vac-import-detail table tbody tr:hover {
+  background: var(--pc-surface-blue);
+}
+
+/* ── 12. Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 1400px) {
+  .vac-kpi-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 960px) {
+  .vac-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .vac-filters-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .vac-import-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .vac-kv-grid,
+  .vac-edit-mini-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .vd-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .vac-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .vac-filters-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .vac-page-head h2 {
+    font-size: 1.4rem;
+  }
+}

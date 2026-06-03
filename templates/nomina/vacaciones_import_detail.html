@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/vacaciones.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<div class="vac-import-detail">
+<section class="page-head vac-page-head">
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
     <h2>Resultado de importación histórica</h2>
@@ -9,7 +13,7 @@
   <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_index') }}">Volver a Vacaciones</a>
 </section>
 
-<section class="panel">
+<section class="vac-panel">
   <p><strong>Total filas:</strong> {{ imp.total_rows }}</p>
   <p><strong>Match:</strong> {{ imp.matched_count }}</p>
   <p><strong>Warnings:</strong> {{ imp.warning_count }}</p>
@@ -17,7 +21,7 @@
   <p><strong>File hash:</strong> {{ imp.file_hash }}</p>
 </section>
 
-<section class="panel">
+<section class="vac-panel">
   <h3>Registros importados</h3>
   <div class="table-wrap">
     <table>
@@ -50,5 +54,6 @@
     </table>
   </div>
 </section>
+</div>
 {% endblock %}
 

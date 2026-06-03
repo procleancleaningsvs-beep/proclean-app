@@ -1,20 +1,10 @@
 {% extends 'base.html' %}
 {% block extra_head %}
-<style>
-.vd-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
-.vd-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; margin-bottom:1rem; }
-.vd-card h3 { margin-top:0; }
-.vd-warn { color:#b45309; font-size:.9rem; }
-.vd-table { width:100%; border-collapse:collapse; }
-.vd-table th, .vd-table td { border-bottom:1px solid #e5e7eb; padding:.4rem; text-align:left; vertical-align:top; font-size:.88rem; }
-.vd-actions { display:flex; gap:.5rem; flex-wrap:wrap; }
-.vd-tag { display:inline-block; padding:.1rem .35rem; border-radius:6px; background:#f1f5f9; font-size:.78rem; }
-@media (max-width: 960px) { .vd-grid { grid-template-columns:1fr; } }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/vacaciones.css') }}">
 {% endblock %}
 
 {% block content %}
-<section class="page-head">
+<section class="page-head vac-page-head">
   <div>
     <span class="eyebrow">Nóminas / Vacaciones</span>
     <h2>Detalle — {{ row.headcount_nombre_original or row.excel_nombre_original }}</h2>
