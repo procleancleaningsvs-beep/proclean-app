@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/infonavit.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<div class="ni-import-detail">
+<section class="page-head ni-page-head">
   <div>
     <span class="eyebrow">Nóminas / INFONAVIT</span>
     <h2>Detalle de importación INFONAVIT</h2>
@@ -9,7 +13,7 @@
   <a class="btn btn-secondary" href="{{ url_for('nomina.infonavit_index') }}">Volver a INFONAVIT</a>
 </section>
 
-<section class="panel">
+<section class="ni-panel">
   <p><strong>Fecha corte:</strong> {{ imp.fecha_corte or '—' }}</p>
   <p><strong>Total avisos reportado:</strong> {{ imp.total_avisos_reportado }}</p>
   <p><strong>Total filas parseadas:</strong> {{ imp.total_rows }}</p>
@@ -21,11 +25,11 @@
   <p><strong>Errores:</strong> {{ imp.error_count }}</p>
   <p><strong>File hash:</strong> {{ imp.file_hash }}</p>
   {% for w in imp.raw_json.get('parse_warnings', []) %}
-  <div style="color:#b45309;">{{ w }}</div>
+  <div class="ni-warn">{{ w }}</div>
   {% endfor %}
 </section>
 
-<section class="panel">
+<section class="ni-panel">
   <h3>Registros importados</h3>
   <div class="table-wrap">
     <table>
@@ -59,9 +63,9 @@
             {% if row.tipo_valor_descuento == 'VSM' %}
               {% if row.descuento_cf_calculada is not none %}
                 <div>{{ row.descuento_factor_vsm }} VSM × {{ row.umi_usada }} = ${{ '%.2f'|format(row.descuento_cf_calculada) }}</div>
-                <div style="color:#475569;font-size:.78rem;">CF calculada = VSM × UMI</div>
+                <div class="ni-vsm-formula">CF calculada = VSM × UMI</div>
               {% else %}
-                <div style="color:#b45309;">VSM detectado, CF no calculada.</div>
+                <div class="ni-warn">VSM detectado, CF no calculada.</div>
                 {% if row.descuento_factor_vsm is not none %}<div>factor: {{ row.descuento_factor_vsm }} VSM</div>{% endif %}
               {% endif %}
             {% elif row.tipo_valor_descuento == 'PESOS' %}
@@ -82,4 +86,5 @@
     </table>
   </div>
 </section>
+</div>
 {% endblock %}

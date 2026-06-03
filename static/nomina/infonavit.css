@@ -1,0 +1,462 @@
+/* ==============================================================
+   ProClean — Nóminas: INFONAVIT — Visual Premium
+   Fase D.17 | Solo visual | Sin importación, VSM, UMI ni lógica
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.ni-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.ni-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.ni-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.ni-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.ni-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+  max-width: 52rem;
+}
+
+/* ── 2. Layout ─────────────────────────────────────────────────── */
+
+.ni-wrap {
+  display: grid;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.ni-wrap .btn,
+.ni-page-head .btn,
+.ni-edit-page .btn,
+.ni-import-detail .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 3. Cards ──────────────────────────────────────────────────── */
+
+.ni-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.ni-card h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.ni-card--import {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+.ni-card--filters {
+  border-top-color: var(--pc-blue, #1A77D3);
+}
+
+.ni-card--table {
+  border-top-color: var(--pc-green-deep, #178B54);
+}
+
+/* ── 4. KPIs ───────────────────────────────────────────────────── */
+
+.ni-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.65rem;
+}
+
+.ni-kpi {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.6rem 0.7rem;
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.ni-kpi span {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.ni-kpi strong {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ni-kpi--warn {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.ni-kpi--warn strong {
+  color: #b45309;
+}
+
+/* ── 5. Import form ────────────────────────────────────────────── */
+
+.ni-import-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.ni-import-form input[type="file"] {
+  flex: 1;
+  min-width: 12rem;
+  font-size: 0.88rem;
+}
+
+/* ── 6. Filtros ────────────────────────────────────────────────── */
+
+.ni-form-inline {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr) auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.ni-form-inline select {
+  font-size: 0.86rem;
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  width: 100%;
+}
+
+.ni-form-inline .btn {
+  align-self: end;
+}
+
+.ni-filter-note {
+  margin: 0.55rem 0 0;
+  font-size: 0.82rem;
+  color: #b45309;
+  padding: 0.4rem 0.55rem;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: var(--pc-radius-md, 8px);
+  border-left: 3px solid #f59e0b;
+}
+
+/* ── 7. Tabla ──────────────────────────────────────────────────── */
+
+.ni-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  -webkit-overflow-scrolling: touch;
+  background: var(--pc-surface);
+}
+
+.ni-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1500px;
+  font-size: 0.85rem;
+}
+
+.ni-table th {
+  background: var(--pc-surface-soft);
+  border-bottom: 2px solid var(--pc-border);
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+}
+
+.ni-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  color: var(--pc-text);
+}
+
+.ni-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.ni-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.ni-table .actions-cell,
+.ni-table td:last-child {
+  white-space: nowrap;
+}
+
+/* ── 8. Badges / VSM / alertas ─────────────────────────────────── */
+
+.ni-warn {
+  color: #b45309;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.ni-vsm-badge {
+  display: inline-flex;
+  align-items: center;
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-right: 0.25rem;
+}
+
+.ni-pesos-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--pc-surface-green, #E3F5EC);
+  color: var(--pc-green-deep, #178B54);
+  border: 1px solid rgba(32, 168, 102, 0.25);
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-right: 0.25rem;
+}
+
+.ni-sinmonto-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.ni-vsm-formula {
+  color: var(--pc-text-muted);
+  font-size: 0.78rem;
+  margin-top: 0.15rem;
+  line-height: 1.35;
+}
+
+.ni-vsm-cf {
+  color: var(--pc-green-deep);
+  font-weight: 700;
+}
+
+.ni-estatus-badge {
+  display: inline-flex;
+  padding: 0.12rem 0.42rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface-soft);
+  color: var(--pc-text);
+}
+
+.ni-estatus-badge--activo {
+  background: var(--pc-surface-green);
+  color: var(--pc-green-deep);
+  border-color: rgba(32, 168, 102, 0.2);
+}
+
+.ni-estatus-badge--modificado {
+  background: var(--pc-surface-blue);
+  color: var(--pc-blue);
+  border-color: rgba(26, 119, 198, 0.2);
+}
+
+.ni-estatus-badge--suspendido {
+  background: #f1f5f9;
+  color: var(--pc-text-muted);
+}
+
+.ni-estatus-badge--revision {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+/* ── 9. Edición / detalle import ───────────────────────────────── */
+
+.ni-summary-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-left: 3px solid #f59e0b;
+}
+
+.ni-summary-panel h3 {
+  margin: 0 0 0.5rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  font-size: 0.95rem;
+}
+
+.ni-summary-panel p {
+  margin: 0.25rem 0;
+  color: var(--pc-text);
+  font-size: 0.9rem;
+}
+
+.ni-summary-panel .ni-vsm-formula {
+  margin-top: 0.2rem;
+}
+
+.ni-edit-card {
+  border-top: 3px solid var(--pc-green, #20A866);
+}
+
+.ni-edit-card label {
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.ni-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.ni-panel h3 {
+  margin-top: 0;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.65rem;
+}
+
+.ni-panel p {
+  margin: 0.35rem 0;
+  color: var(--pc-text);
+  font-size: 0.9rem;
+}
+
+.ni-import-detail .table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.ni-import-detail table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  min-width: 1100px;
+}
+
+.ni-import-detail table th,
+.ni-import-detail table td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid var(--pc-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ni-import-detail table thead th {
+  background: var(--pc-surface-soft);
+  font-weight: 700;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+}
+
+.ni-import-detail table tbody tr:hover {
+  background: var(--pc-surface-blue);
+}
+
+/* ── 10. Responsive ────────────────────────────────────────────── */
+
+@media (max-width: 1200px) {
+  .ni-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ni-form-inline {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .ni-page-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .ni-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ni-form-inline {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,29 +1,11 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_link %}
 {% block extra_head %}
-<style>
-.ni-wrap { display:grid; gap:1rem; }
-.ni-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; }
-.ni-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.ni-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
-.ni-kpi span { display:block; font-size:.82rem; color:#64748b; }
-.ni-kpi strong { font-size:1.05rem; }
-.ni-form-inline { display:grid; grid-template-columns:repeat(5,1fr); gap:.6rem; }
-.ni-table-wrap { overflow:auto; }
-.ni-table { width:100%; border-collapse:collapse; min-width:1500px; }
-.ni-table th, .ni-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; }
-.ni-warn { color:#b45309; font-size:.82rem; }
-.ni-vsm-badge { display:inline-block; background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; margin-right:.25rem; }
-.ni-vsm-formula { color:#475569; font-size:.78rem; margin-top:.15rem; }
-.ni-vsm-cf { color:#0f766e; font-weight:600; }
-.ni-pesos-badge { display:inline-block; background:#dcfce7; color:#166534; border:1px solid #86efac; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; }
-.ni-sinmonto-badge { display:inline-block; background:#e2e8f0; color:#334155; border:1px solid #cbd5e1; border-radius:8px; padding:.15rem .35rem; font-size:.75rem; font-weight:600; }
-@media (max-width: 1200px) { .ni-grid, .ni-form-inline { grid-template-columns:1fr; } }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/infonavit.css') }}">
 {% endblock %}
 
 {% block content %}
-<section class="page-head">
+<section class="page-head ni-page-head">
   <div>
     <span class="eyebrow">Nóminas / INFONAVIT</span>
     <h2>Avisos INFONAVIT</h2>
@@ -46,15 +28,15 @@
     </div>
   </section>
 
-  <section class="ni-card">
+  <section class="ni-card ni-card--import">
     <h3>Importar PDF INFONAVIT</h3>
-    <form method="post" action="{{ url_for('nomina.infonavit_importar') }}" enctype="multipart/form-data">
+    <form class="ni-import-form" method="post" action="{{ url_for('nomina.infonavit_importar') }}" enctype="multipart/form-data">
       <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
       <button type="submit" class="btn btn-primary">Importar PDF</button>
     </form>
   </section>
 
-  <section class="ni-card">
+  <section class="ni-card ni-card--filters">
     <h3>Filtros</h3>
     <form class="ni-form-inline" method="get" action="{{ url_for('nomina.infonavit_index') }}">
       <select name="import_id">
@@ -89,10 +71,10 @@
       </select>
       <button class="btn btn-primary" type="submit">Aplicar</button>
     </form>
-    <p class="ni-warn">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
+    <p class="ni-filter-note">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
   </section>
 
-  <section class="ni-card">
+  <section class="ni-card ni-card--table">
     <h3>Avisos</h3>
     <div class="ni-table-wrap">
       <table class="ni-table">
@@ -155,7 +137,7 @@
               <div class="ni-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td>{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
+            <td class="actions-cell">{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
           </tr>
           {% endfor %}
           {% if not rows %}
