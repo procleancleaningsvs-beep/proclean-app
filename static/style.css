@@ -5050,3 +5050,477 @@ td.actions,
   width: 1%;
   vertical-align: middle;
 }
+
+/* ============================================================
+   ProClean — FASE D.20: Sistema visual reutilizable (.pc-*)
+   ▸ Solo static/style.css | Opt-in para módulos futuros
+   ▸ No sustituye clases de módulos ya migrados (*-page-head, etc.)
+   ▸ Compatible con Fase B, D.1–D.9 y CSS locales por módulo
+   ============================================================ */
+
+/* ── D20-1  Page head / hero (opt-in) ───────────────────────── */
+.pc-page-head,
+.page-head.pc-page-head {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 20px;
+  padding-bottom: 20px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.pc-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 144, 198, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(119, 190, 60, 0.05) 0%, transparent 50%);
+}
+
+.pc-page-head__main {
+  flex: 1 1 240px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.pc-page-eyebrow,
+.pc-page-head .pc-page-eyebrow,
+.pc-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--pc-blue-deep);
+  background: rgba(38, 177, 226, 0.10);
+  border: 1px solid rgba(26, 144, 198, 0.18);
+  border-radius: var(--pc-radius-pill);
+}
+
+.pc-page-title,
+.pc-page-head .pc-page-title,
+.pc-page-head h2 {
+  margin: 4px 0 6px;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--pc-text);
+  line-height: 1.2;
+}
+
+.pc-page-subtitle,
+.pc-page-head .pc-page-subtitle,
+.pc-page-head > p,
+.pc-page-head__main > p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--pc-text-muted);
+  max-width: 52rem;
+}
+
+.pc-page-actions,
+.pc-page-head .pc-page-actions,
+.page-head-actions.pc-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.pc-page-actions .btn,
+.pc-page-head .btn {
+  border-radius: var(--pc-radius-pill);
+}
+
+/* ── D20-2  Cards / panels ──────────────────────────────────── */
+.pc-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-xl);
+  box-shadow: var(--pc-shadow-soft);
+  padding: 22px 24px;
+}
+
+.pc-card--blue {
+  border-top: 3px solid var(--pc-blue);
+}
+
+.pc-card--green {
+  border-top: 3px solid var(--pc-green);
+}
+
+.pc-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  box-shadow: var(--pc-shadow-soft);
+  padding: 18px 20px;
+}
+
+.pc-panel--soft {
+  background: var(--pc-surface-soft);
+  box-shadow: none;
+}
+
+.pc-panel--dashed {
+  background: var(--pc-surface-soft);
+  border-style: dashed;
+  box-shadow: none;
+}
+
+.pc-panel-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+/* ── D20-3  KPI grid ────────────────────────────────────────── */
+.pc-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+
+.pc-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  box-shadow: var(--pc-shadow-sm);
+  border-top: 2px solid var(--pc-blue);
+}
+
+.pc-kpi span,
+.pc-kpi .pc-kpi__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pc-text-muted);
+}
+
+.pc-kpi strong,
+.pc-kpi .pc-kpi__value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.pc-kpi--warn {
+  border-top-color: #D97706;
+  background: #FFFBEB;
+}
+
+.pc-kpi--danger {
+  border-top-color: #DC2626;
+  background: #FEF2F2;
+}
+
+.pc-kpi--success {
+  border-top-color: var(--pc-green);
+  background: var(--pc-surface-green);
+}
+
+/* ── D20-4  Forms ───────────────────────────────────────────── */
+.pc-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px 16px;
+  align-items: end;
+}
+
+.pc-form-panel {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  padding: 18px 20px;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.pc-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: flex-end;
+}
+
+.pc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pc-field > label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.pc-field-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.pc-file-panel {
+  padding: 16px 18px;
+  background: var(--pc-surface-soft);
+  border: 1.5px dashed var(--pc-border-strong);
+  border-radius: var(--pc-radius-lg);
+}
+
+.pc-file-panel label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.pc-file-panel input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* ── D20-5  Tables (opt-in — no reemplaza table global) ─────── */
+.pc-table-wrap,
+.table-wrap.pc-table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pc-table-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.pc-table-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.pc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.875rem;
+}
+
+.pc-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 10px 12px;
+  border-bottom: 1.5px solid var(--pc-border);
+  white-space: nowrap;
+}
+
+.pc-table tbody td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #EEF3F8;
+  color: var(--pc-text);
+  vertical-align: middle;
+}
+
+.pc-table tbody tr:hover td {
+  background: var(--pc-surface-blue);
+}
+
+.pc-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.pc-empty-state {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  background: var(--pc-surface-soft);
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+}
+
+/* ── D20-6  Badges / chips (opt-in + alias legacy) ──────────── */
+.pc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--pc-radius-pill);
+  font-size: 0.71rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid transparent;
+  line-height: 1.4;
+  vertical-align: middle;
+}
+
+.pc-badge--success,
+.badge-ok {
+  background: #ECFDF5;
+  color: #065F46;
+  border-color: #A7F3D0;
+}
+
+.pc-badge--warning,
+.badge-warning {
+  background: #FFFBEB;
+  color: #92400E;
+  border-color: #FDE68A;
+}
+
+.pc-badge--danger,
+.badge-error,
+.badge-fail {
+  background: #FEF2F2;
+  color: #991B1B;
+  border-color: #FECACA;
+}
+
+.pc-badge--info,
+.badge-info {
+  background: #EFF6FF;
+  color: #1E40AF;
+  border-color: #BFDBFE;
+}
+
+.pc-badge--neutral,
+.badge-neutral {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+  border-color: var(--pc-border);
+}
+
+/* ── D20-7  Layout utilities ────────────────────────────────── */
+.pc-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pc-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pc-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.pc-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.pc-grid-4 {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.pc-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 900px) {
+  .pc-grid-2,
+  .pc-grid-3,
+  .pc-grid-4 {
+    grid-template-columns: 1fr;
+  }
+
+  .pc-page-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pc-page-actions {
+    width: 100%;
+  }
+}
+
+/* ── D20-8  Acciones — documentación en CSS (D.9 ya aplica) ────
+   Usar en templates nuevos:
+   .actions-cell > .btn-icon | .table-actions > .btn-icon
+   Variantes: .btn-icon--danger | --success | --muted
+   ──────────────────────────────────────────────────────────── */
+
+/* ── D20-9  Ajustes globales seguros (legacy residual) ───────── */
+
+/* Contenedores de tabla legacy sin clase premium */
+.main .cmp-table-wrap,
+.main .rpt-table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg);
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+/* Botones submit sin clase en formularios del main (residual) */
+.main form button[type="submit"]:not([class]):not(.btn-icon) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 10px 18px;
+  border-radius: var(--pc-radius-pill);
+  border: 1px solid var(--pc-blue-deep);
+  background: var(--pc-blue);
+  color: #fff;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: var(--pc-shadow-blue);
+}
+
+.main form button[type="submit"]:not([class]):hover {
+  background: var(--pc-blue-deep);
+}
