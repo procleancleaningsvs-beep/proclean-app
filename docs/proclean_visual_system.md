@@ -302,6 +302,15 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 
 **Regla:** no cambiar `name`, `id`, `value`, `action`, `method` ni rutas al aplicar E.1.
 
+### Composición narrativa (Fase E.2 — Finiquitos piloto)
+
+| Patrón | Clases (módulo) | Uso |
+|--------|-----------------|-----|
+| Pasos numerados | `.fin-step-head`, `.fin-step-num`, `.fin-narrative-step` | Jerarquía 01–04 solo visual; no altera orden funcional de campos. |
+| Barra Excel | `.fin-excel-bar` | Acción secundaria premium; mismos `#btn_excel` y `#excel_msg`. |
+| Panel resultado | `.fin-result-panel`, `.fin-result-body`, `.fin-calc-empty` | Empty state con CSS `:has(#preview:not([hidden]))`; sticky en desktop. |
+| Tarjetas internas | `.fin-inner-card` | Agrupar toggles sin `border-left`. |
+
 ---
 
 ## 11. Módulos con CSS local (referencia)
@@ -327,4 +336,4 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 
 ---
 
-*Última actualización: Fase E.1 — enriquecimiento visual global + Finiquitos piloto.*
+*Última actualización: Fase E.2 — composición premium Finiquitos.*

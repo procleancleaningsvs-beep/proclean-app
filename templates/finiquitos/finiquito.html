@@ -3,11 +3,14 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='finiquitos/finiquitos.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head pc-hero-compact fin-page-head">
+<section class="page-head pc-hero-compact fin-page-head fin-module-hero">
   <div class="pc-hero-compact__main">
-    <span class="pc-page-eyebrow">Finiquitos</span>
-    <h2 class="pc-page-title">Finiquito</h2>
-    <p class="pc-page-subtitle">Captura compacta y cálculo transparente.</p>
+    <span class="pc-page-eyebrow">ProClean · Finiquitos</span>
+    <h2 class="pc-page-title">Finiquitos</h2>
+    <p class="pc-page-subtitle">Captura compacta, cálculo transparente y exportación del finiquito laboral.</p>
+  </div>
+  <div class="pc-page-actions fin-hero-actions">
+    <a class="btn btn-secondary" href="{{ url_for('finiquitos.pagina_historial') }}">Ver historial</a>
   </div>
   <div class="pc-hero-compact__deco" aria-hidden="true">
     <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
@@ -19,26 +22,44 @@
   </div>
 </section>
 
-<div class="form-card fin-layout pc-layout-decor" id="finiquito-root">
-  <div class="fin-left">
-    <section class="fin-sec pc-panel pc-panel--soft-blue pc-surface-decor">
-      <div class="pc-section-head">
-        <span class="pc-icon-chip pc-icon-chip--blue" aria-hidden="true">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-        </span>
-        <h3 class="pc-panel-title">Datos generales</h3>
-      </div>
-      <div class="mode-toggle">
-        <span>Modo de cálculo</span>
-        <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
-        <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
+<div class="form-card fin-layout fin-composition pc-layout-decor" id="finiquito-root">
+  <div class="fin-left fin-narrative">
+    <section class="fin-sec fin-narrative-step fin-step-01 pc-panel pc-panel--soft-blue pc-surface-decor">
+      <header class="fin-step-head">
+        <span class="fin-step-num" aria-hidden="true">01</span>
+        <div class="fin-step-head__text">
+          <div class="pc-section-head fin-step-head__row">
+            <span class="pc-icon-chip pc-icon-chip--blue" aria-hidden="true">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <h3 class="pc-panel-title">Datos generales</h3>
+            <span class="pc-chip pc-chip--blue">Captura</span>
+          </div>
+          <p class="fin-step-desc">Identificación, fechas y parámetros de emisión del trabajador.</p>
+        </div>
+      </header>
+      <div class="fin-inner-card fin-inner-card--mode">
+        <div class="mode-toggle">
+          <span>Modo de cálculo</span>
+          <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
+          <label><input type="radio" name="modo_calculo" value="total_gravable" checked> Total gravable</label>
+        </div>
       </div>
       <label>Nombre completo del trabajador *
         <input type="text" id="nombre_completo" required placeholder="Nombre(s) Apellido Paterno Apellido Materno">
       </label>
-      <div class="actions-inline">
-        <button type="button" class="btn btn-secondary" id="btn_excel">Buscar fecha de ingreso en Excel</button>
-        <p class="helper" id="excel_msg"></p>
+      <div class="fin-excel-bar" role="group" aria-labelledby="fin_excel_bar_label">
+        <span class="fin-excel-bar__icon pc-icon-chip pc-icon-chip--blue" aria-hidden="true">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        </span>
+        <div class="fin-excel-bar__body">
+          <span id="fin_excel_bar_label" class="fin-excel-bar__title">Importar desde Excel</span>
+          <span class="fin-excel-bar__hint">Busca fecha de ingreso y sueldo según el nombre capturado.</span>
+          <p class="helper fin-excel-bar__msg" id="excel_msg"></p>
+        </div>
+        <div class="fin-excel-bar__action">
+          <button type="button" class="btn btn-secondary" id="btn_excel">Buscar fecha de ingreso en Excel</button>
+        </div>
       </div>
       <div class="grid-3">
         <label>Fecha de ingreso *<input type="date" id="fecha_ingreso" required></label>
@@ -61,13 +82,20 @@
       </div>
     </section>
 
-    <section class="fin-sec pc-panel pc-panel--neutral pc-surface-decor">
-      <div class="pc-section-head">
-        <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-        </span>
-        <h3 class="pc-panel-title">Percepciones</h3>
-      </div>
+    <section class="fin-sec fin-narrative-step fin-step-02 pc-panel pc-panel--neutral pc-surface-decor">
+      <header class="fin-step-head">
+        <span class="fin-step-num fin-step-num--green" aria-hidden="true">02</span>
+        <div class="fin-step-head__text">
+          <div class="pc-section-head fin-step-head__row">
+            <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </span>
+            <h3 class="pc-panel-title">Percepciones</h3>
+            <span class="pc-chip pc-chip--green">Montos</span>
+          </div>
+          <p class="fin-step-desc">Sueldo, aguinaldo, vacaciones y pagos previos aplicables al cálculo.</p>
+        </div>
+      </header>
       <div class="fin-perc-wrap">
         <div class="grid-2 fin-perc-grid">
           <label>Sueldo semanal *<input type="text" id="sueldo_semanal" inputmode="decimal" required placeholder="2,205.28"></label>
@@ -113,13 +141,29 @@
       </div>
       <div id="auto-kpis-left" class="pc-kpi-grid pc-kpi-grid--auto"></div>
       <div id="pa_status" class="helper"></div>
-      <div id="pa_toggle" hidden>
+      <div id="pa_toggle" hidden class="fin-inner-card fin-inner-card--pa">
         <span>¿Deseas incluir prima de antigüedad en el recibo?</span>
         <div class="mode-toggle compact">
           <label><input type="radio" name="incluir_pa" value="no" checked> No</label>
           <label><input type="radio" name="incluir_pa" value="si"> Sí</label>
         </div>
       </div>
+    </section>
+
+    <section class="fin-sec fin-narrative-step fin-step-03 pc-panel pc-panel--warn-subtle pc-surface-decor pc-surface-decor--green">
+      <header class="fin-step-head">
+        <span class="fin-step-num fin-step-num--amber" aria-hidden="true">03</span>
+        <div class="fin-step-head__text">
+          <div class="pc-section-head fin-step-head__row">
+            <span class="pc-icon-chip pc-icon-chip--warn" aria-hidden="true">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </span>
+            <h3 class="pc-panel-title">Ajustes / edición libre</h3>
+            <span class="pc-chip pc-chip--neutral">Opcional</span>
+          </div>
+          <p class="fin-step-desc">Desglose manual del recibo sin alterar datos generales ni el motor de cálculo base.</p>
+        </div>
+      </header>
       <div class="fin-desglose-hero" id="fin_desglose_hero">
         <div class="fin-desglose-hero-text">
           <span class="fin-desglose-hero-title">Edición libre del desglose</span>
@@ -193,29 +237,47 @@
     </section>
   </div>
 
-  <div class="fin-right">
-    <section class="fin-sec fin-result pc-panel pc-panel--gradient-result pc-surface-decor pc-surface-decor--green">
-      <div class="pc-section-head">
-        <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
-          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg>
-        </span>
-        <h3 class="pc-panel-title">Cálculo / Resultado</h3>
-        <span class="pc-chip pc-chip--green">Vista previa</span>
+  <aside class="fin-right fin-right-sticky" aria-label="Panel de cálculo y resultado">
+    <section class="fin-sec fin-result fin-narrative-step fin-step-04 fin-result-panel pc-panel pc-panel--gradient-result pc-surface-decor pc-surface-decor--green">
+      <header class="fin-step-head fin-step-head--compact">
+        <span class="fin-step-num fin-step-num--green" aria-hidden="true">04</span>
+        <div class="fin-step-head__text">
+          <div class="pc-section-head fin-step-head__row">
+            <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
+              <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg>
+            </span>
+            <h3 class="pc-panel-title">Cálculo / Resultado</h3>
+            <span class="pc-chip pc-chip--green">En vivo</span>
+          </div>
+          <p class="fin-step-desc">Calcula, revisa el desglose y exporta o guarda el finiquito.</p>
+        </div>
+      </header>
+      <div class="movement-actions pc-result-actions fin-result-actions-bar">
+        <div class="fin-result-actions-primary">
+          <button type="button" class="btn btn-primary fin-btn-calc" id="btn_calc">Calcular</button>
+        </div>
+        <div class="fin-result-actions-secondary">
+          <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
+          <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
+        </div>
       </div>
-      <div class="movement-actions pc-result-actions">
-        <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
-        <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
-        <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
+      <div class="fin-result-body">
+        <p class="helper fin-calc-status" id="calc_msg"></p>
+        <div class="fin-calc-empty pc-empty-state pc-empty-state--rich" aria-hidden="false">
+          <span class="pc-empty-state__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M9 7H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3"/><path d="M9 15h6"/><path d="M13 3h6v6"/><path d="M16 3 9 10"/></svg>
+          </span>
+          <p class="pc-empty-state__title">Sin cálculo aún</p>
+          <p class="pc-empty-state__text">Completa los datos y pulsa <strong>Calcular</strong> para ver el resumen, totales y deducciones.</p>
+        </div>
+        <div id="preview" class="preview-block fin-calc-preview" hidden></div>
+        <details class="calc-advanced fin-calc-advanced" id="advanced" hidden>
+          <summary>Mostrar cálculos</summary>
+          <div id="advanced_body" class="pv-grid"></div>
+        </details>
       </div>
-      <hr class="pc-divider pc-divider--inset" aria-hidden="true">
-      <p class="helper" id="calc_msg"></p>
-      <div id="preview" class="preview-block" hidden></div>
-      <details class="calc-advanced" id="advanced" hidden>
-        <summary>Mostrar cálculos</summary>
-        <div id="advanced_body" class="pv-grid"></div>
-      </details>
     </section>
-  </div>
+  </aside>
 </div>
 
 <script>

@@ -1,33 +1,18 @@
 /* ==============================================================
    ProClean — Módulo Finiquitos — Visual Premium
-   Fase D.14 | Solo visual | Sin cálculo, DOCX/PDF ni lógica
-   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   Fase D.14 + E.1 + E.2 | Solo visual | Sin cálculo, DOCX/PDF ni lógica
+   Tokens: var(--pc-*) + patrones E.1 en style.css
    ============================================================== */
 
-/* ── 1. Page head ─────────────────────────────────────────────── */
+/* ── 1. Page head (hero compacto E.1) ─────────────────────────── */
 
-.fin-page-head {
-  position: relative;
-  border-bottom: 1px solid var(--pc-border);
-  padding-bottom: 20px;
-  margin-bottom: 12px;
+.fin-page-head.pc-hero-compact {
+  border-bottom: none;
+  margin-bottom: 16px;
 }
 
-.fin-page-head::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 120px;
-  height: 80px;
-  background:
-    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
-    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
-  pointer-events: none;
-  border-radius: 0 0 0 40px;
-}
-
-.fin-page-head h2 {
+.fin-page-head h2,
+.fin-page-head .pc-page-title {
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--pc-text);
@@ -51,48 +36,251 @@
   margin-bottom: 8px;
 }
 
-.fin-page-head p {
+.fin-page-head p,
+.fin-page-head .pc-page-subtitle {
   color: var(--pc-text-muted);
   font-size: 0.9rem;
   margin: 0;
 }
 
-/* ── 2. Main layout card ───────────────────────────────────────── */
+/* E.2 — Hero con acciones secundarias */
+.fin-module-hero.pc-hero-compact {
+  align-items: center;
+}
 
-.form-card.fin-layout {
-  border-top: 3px solid var(--pc-blue, #1A77D3);
-  padding: 24px 26px;
-  box-shadow: var(--pc-shadow-soft);
-  gap: 20px;
+.fin-hero-actions {
+  position: relative;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.fin-hero-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .fin-module-hero .fin-hero-actions {
+    width: 100%;
+  }
+
+  .fin-module-hero .fin-hero-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ── 2. Main layout / composición narrativa (E.2) ─────────────── */
+
+.form-card.fin-layout.fin-composition {
+  border-top: none;
+  padding: 22px 24px 26px;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 28px rgba(15, 23, 42, 0.07);
+  gap: 22px;
+  background: linear-gradient(180deg, #fafcfe 0%, #ffffff 12%, #ffffff 100%);
+  border-radius: var(--pc-radius-xl, 20px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
 }
 
 .fin-layout {
-  gap: 20px;
+  gap: 22px;
+  align-items: start;
+}
+
+.fin-narrative {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.fin-narrative-step {
+  margin: 0;
+}
+
+/* Pasos numerados */
+.fin-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.fin-step-head--compact {
+  margin-bottom: 12px;
+}
+
+.fin-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--pc-blue-deep, #1472a8);
+  background: linear-gradient(145deg, #eaf3fa 0%, #f6fbfe 100%);
+  border: 1px solid rgba(26, 144, 198, 0.2);
+  border-radius: 12px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(26, 144, 198, 0.08);
+}
+
+.fin-step-num--green {
+  color: var(--pc-green-deep, #47a92c);
+  background: linear-gradient(145deg, #ecf6e6 0%, #f7fbf3 100%);
+  border-color: rgba(119, 190, 60, 0.24);
+}
+
+.fin-step-num--amber {
+  color: #b45309;
+  background: linear-gradient(145deg, #fffbeb 0%, #fffef8 100%);
+  border-color: rgba(217, 119, 6, 0.2);
+}
+
+.fin-step-head__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.fin-step-head__row.pc-section-head {
+  margin-bottom: 6px;
+  padding-bottom: 0;
+  border-bottom: none;
+  flex-wrap: wrap;
+}
+
+.fin-step-head__row .pc-chip {
+  margin-left: auto;
+}
+
+.fin-step-desc {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+  max-width: 42rem;
+}
+
+/* Tarjetas internas (sin border-left) */
+.fin-inner-card {
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--pc-radius-lg, 12px);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.fin-inner-card--mode {
+  background: linear-gradient(180deg, #f8fbfe 0%, #ffffff 100%);
+}
+
+.fin-inner-card--pa {
+  margin-top: 10px;
+  background: linear-gradient(180deg, #f9fcf6 0%, #ffffff 100%);
+  border-color: rgba(119, 190, 60, 0.16);
+}
+
+/* Barra premium Excel */
+.fin-excel-bar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px 16px;
+  align-items: center;
+  margin: 12px 0 16px;
+  padding: 14px 16px;
+  border-radius: var(--pc-radius-lg, 14px);
+  background: linear-gradient(118deg, #eef6fc 0%, #f8fbfe 55%, #f4faf0 100%);
+  border: 1px solid rgba(26, 144, 198, 0.16);
+  box-shadow: 0 2px 8px rgba(26, 144, 198, 0.06);
+}
+
+.fin-excel-bar__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+}
+
+.fin-excel-bar__body {
+  min-width: 0;
+}
+
+.fin-excel-bar__title {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+.fin-excel-bar__hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+  line-height: 1.4;
+}
+
+.fin-excel-bar__msg {
+  margin: 6px 0 0;
+  min-height: 1.2em;
+}
+
+.fin-excel-bar__msg:not(:empty) {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.fin-excel-bar__action .btn {
+  border-radius: var(--pc-radius-pill, 50px);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .fin-excel-bar {
+    grid-template-columns: auto 1fr;
+  }
+
+  .fin-excel-bar__action {
+    grid-column: 1 / -1;
+  }
+
+  .fin-excel-bar__action .btn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 /* ── 3. Sections ───────────────────────────────────────────────── */
 
 .fin-sec {
-  border: 1px solid var(--pc-border);
-  border-radius: var(--pc-radius-lg, 12px);
+  border-radius: var(--pc-radius-lg, 14px);
   padding: 18px 20px;
   margin: 0 0 16px;
-  background: var(--pc-surface);
-  border-left: 3px solid var(--pc-blue, #1A77D3);
 }
 
-.fin-sec h3 {
-  margin: 0 0 14px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--pc-border);
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--pc-text);
+.fin-sec .pc-section-head {
+  border-bottom-color: rgba(226, 232, 240, 0.85);
 }
 
-.fin-sec.fin-result {
-  border-left-color: var(--pc-green, #20A866);
-  background: var(--pc-surface-soft, #F5F9FD);
+.fin-sec.fin-result .pc-section-head {
+  flex-wrap: wrap;
+}
+
+.fin-step-head__row .pc-chip {
+  margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .fin-step-head__row .pc-chip {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 
 /* ── 4. Mode toggle (Fiscal / Total gravable) ──────────────────── */
@@ -181,10 +369,9 @@
   margin-top: 14px;
   padding: 16px 18px;
   border-radius: var(--pc-radius-lg, 12px);
-  border: 1px solid var(--pc-border);
-  background: var(--pc-surface-soft);
-  border-left: 3px solid var(--pc-green, #20A866);
-  box-shadow: var(--pc-shadow-soft);
+  border: 1px solid rgba(119, 190, 60, 0.2);
+  background: linear-gradient(135deg, #f9fcf6 0%, #f4faf0 100%);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -443,17 +630,87 @@ dialog.fin-dg2-dlg {
   border-radius: var(--pc-radius-pill, 50px) !important;
 }
 
-/* ── 8. Result panel / totals ──────────────────────────────────── */
+/* ── 8. Result panel / totals (E.2 — panel vivo) ───────────────── */
 
-.fin-result {
-  top: 20px;
+.fin-right-sticky {
+  align-self: start;
 }
 
-.fin-result .movement-actions {
+.fin-result-panel {
+  position: sticky;
+  top: 16px;
+  padding: 20px 20px 18px;
+  min-height: 320px;
+}
+
+.fin-result-actions-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(32, 168, 102, 0.14);
+  border-radius: var(--pc-radius-lg, 14px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.fin-result-actions-primary .btn.fin-btn-calc {
+  width: 100%;
+  justify-content: center;
+  font-size: 0.95rem;
+  padding: 11px 20px;
+  box-shadow: 0 2px 8px rgba(26, 144, 198, 0.22);
+}
+
+.fin-result-actions-secondary {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+}
+
+.fin-result-actions-secondary .btn {
+  flex: 1 1 auto;
+  min-width: 7.5rem;
+  justify-content: center;
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.fin-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 140px;
+}
+
+.fin-calc-status {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  min-height: 1.25em;
+}
+
+.fin-calc-status:not(:empty) {
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+}
+
+.fin-result-body:has(#preview:not([hidden])) .fin-calc-empty {
+  display: none;
+}
+
+.fin-calc-empty {
+  flex: 1;
+  margin: 0;
+  min-height: 160px;
+}
+
+.fin-calc-preview:not([hidden]) {
+  flex: 1;
+}
+
+.fin-calc-advanced {
+  margin-top: 4px;
 }
 
 .fin-result .movement-actions .btn {
@@ -461,11 +718,11 @@ dialog.fin-dg2-dlg {
 }
 
 .total-highlight {
-  border: 1px solid var(--pc-border);
+  border: 1px solid rgba(119, 190, 60, 0.22);
   border-radius: var(--pc-radius-lg, 12px);
   padding: 14px 16px;
-  background: var(--pc-surface-green, #E3F5EC);
-  border-left: 3px solid var(--pc-green, #20A866);
+  background: linear-gradient(145deg, #ecf8f0 0%, #f7fcf9 100%);
+  box-shadow: 0 1px 3px rgba(32, 168, 102, 0.08);
 }
 
 .total-highlight strong {
@@ -506,11 +763,11 @@ dialog.fin-dg2-dlg {
 
 .fin-hist-toolbar {
   padding: 14px 16px;
-  background: var(--pc-surface-soft);
+  background: linear-gradient(180deg, #f8fbfe 0%, #ffffff 100%);
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-lg, 12px);
-  border-left: 3px solid var(--pc-blue);
   margin-bottom: 4px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 .fin-hist-table-wrap {
@@ -632,8 +889,10 @@ dialog.fin-dg2-dlg {
     grid-template-columns: 1fr;
   }
 
+  .fin-result-panel,
   .fin-result {
     position: static;
+    min-height: 0;
   }
 
   .fin-perc-optional-row--solo-prima .fin-perc-optional-prima {
@@ -691,8 +950,18 @@ dialog.fin-dg2-dlg {
 
 #preview.preview-block:not([hidden]) {
   margin-top: 12px;
-  padding: 14px 16px;
-  background: var(--pc-surface-soft);
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(26, 144, 198, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+#auto-kpis-left.pc-kpi-grid--auto .helper {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: var(--pc-radius-md, 8px);
+  border: 1px dashed var(--pc-border);
 }
 
 #preview .total-highlight {
@@ -723,4 +992,31 @@ dialog.fin-dg2-dlg {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* ── 12. E.2 — Percepciones opcionales en mini-cards ───────────── */
+
+.fin-perc-optional-row {
+  gap: 12px;
+}
+
+.fin-perc-optional-col {
+  padding: 12px 14px;
+  border-radius: var(--pc-radius-lg, 12px);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(226, 232, 240, 0.85);
+}
+
+.fin-step-03 .fin-desglose-hero {
+  margin-top: 0;
+}
+
+#pa_status:not(:empty) {
+  display: inline-flex;
+  padding: 6px 10px;
+  margin: 8px 0 4px;
+  border-radius: var(--pc-radius-pill, 50px);
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--pc-border);
+  font-size: 0.84rem;
 }
