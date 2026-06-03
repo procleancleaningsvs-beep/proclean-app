@@ -1,25 +1,9 @@
 {% extends 'base.html' %}
 {% block extra_head %}
-<style>
-.cp-wrap { display:grid; gap:1rem; max-width:980px; }
-.cp-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.cp-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:.7rem; }
-@media (max-width:860px){ .cp-grid { grid-template-columns:1fr; } }
-.cp-kpi { border:1px solid #e5e7eb; border-radius:10px; padding:.55rem .65rem; background:#f8fafc; }
-.cp-kpi span { display:block; color:#64748b; font-size:.76rem; text-transform:uppercase; letter-spacing:.02em; }
-.cp-kpi strong { font-size:.92rem; color:#0f172a; }
-.cp-list { margin:.4rem 0 0; padding-left:1.1rem; }
-.cp-list li { margin:.15rem 0; }
-.cp-alert-critical { border-color:#fecaca; background:#fff1f2; color:#9f1239; }
-.cp-alert-warn { border-color:#fcd34d; background:#fffbeb; color:#78350f; }
-.cp-question { border:1px solid #e5e7eb; border-radius:10px; padding:.7rem; margin-top:.7rem; }
-.cp-question legend { font-weight:600; color:#1e293b; margin-bottom:.35rem; }
-.cp-question label { display:block; margin:.3rem 0; color:#334155; font-size:.9rem; }
-.cp-actions { display:flex; gap:.55rem; align-items:center; margin-top:1rem; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head calc-page-head">
   <div>
     <span class="eyebrow">Nóminas</span>
     <h2>Preguntas previas al cálculo</h2>
@@ -30,7 +14,7 @@
 
 <div class="cp-wrap">
   <section class="cp-card">
-    <h3 style="margin:.1rem 0 .6rem;">Resumen de asistencia #{{ preflight.import_id }}</h3>
+    <h3>Resumen de asistencia #{{ preflight.import_id }}</h3>
     <div class="cp-grid">
       <div class="cp-kpi">
         <span>Periodo detectado</span>
@@ -61,7 +45,7 @@
 
   {% if preflight.alertas_criticas %}
   <section class="cp-card cp-alert-critical">
-    <h3 style="margin:.1rem 0 .35rem;">No se puede generar calculo</h3>
+    <h3>No se puede generar calculo</h3>
     <ul class="cp-list">
       {% for item in preflight.alertas_criticas %}
       <li>{{ item }}</li>
@@ -74,7 +58,7 @@
   {% else %}
     {% if preflight.alertas_no_criticas %}
     <section class="cp-card cp-alert-warn">
-      <h3 style="margin:.1rem 0 .35rem;">Alertas no criticas detectadas</h3>
+      <h3>Alertas no criticas detectadas</h3>
       <ul class="cp-list">
         {% for item in preflight.alertas_no_criticas %}
         <li>{{ item }}</li>
@@ -84,8 +68,8 @@
     {% endif %}
 
     <section class="cp-card">
-      <h3 style="margin:.1rem 0 .35rem;">Configuracion previa</h3>
-      <p style="margin:.2rem 0;color:#475569;font-size:.88rem;">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
+      <h3>Configuracion previa</h3>
+      <p class="cp-config-hint">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
       <form method="post" action="{{ url_for('nomina.calculo_generar') }}">
         <input type="hidden" name="_from_preflight" value="1">
         <input type="hidden" name="asistencia_import_id" value="{{ preflight.import_id }}">

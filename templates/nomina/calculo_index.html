@@ -1,22 +1,9 @@
 {% extends 'base.html' %}
 {% block extra_head %}
-<style>
-.calc-wrap { display:grid; gap:1rem; }
-.calc-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.calc-note { font-size:.88rem; color:#475569; margin:.25rem 0 0; }
-.calc-table-wrap { overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
-.calc-table { width:100%; border-collapse:collapse; min-width:1180px; font-size:.84rem; }
-.calc-table th, .calc-table td { border-bottom:1px solid #e5e7eb; padding:.45rem .4rem; vertical-align:top; text-align:left; }
-.calc-table th { background:#f8fafc; position:sticky; top:0; z-index:1; }
-.calc-sub { display:block; color:#64748b; font-size:.76rem; margin-top:.1rem; }
-.calc-chips { display:flex; flex-wrap:wrap; gap:.25rem; }
-.calc-chip { display:inline-flex; align-items:center; border:1px solid #d1d5db; background:#f8fafc; border-radius:999px; padding:.08rem .45rem; font-size:.72rem; color:#334155; }
-.calc-empty { padding:.9rem; color:#64748b; font-size:.9rem; }
-.calc-status { font-weight:600; text-transform:uppercase; font-size:.74rem; color:#334155; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head calc-page-head">
   <div>
     <span class="eyebrow">Nóminas</span>
     <h2>Cálculo preliminar de nómina</h2>
@@ -27,7 +14,7 @@
 
 <div class="calc-wrap">
   <section class="calc-card">
-    <h3 style="margin:0 0 .35rem;">Historial de asistencias importadas</h3>
+    <h3>Historial de asistencias importadas</h3>
     <p class="calc-note">Ordenado por fecha de importacion descendente. El calculo usa parametros internos por default y solo pide preguntas previas cuando aplican.</p>
     <div class="calc-table-wrap">
       <table class="calc-table">

@@ -1,19 +1,9 @@
 {% extends 'base.html' %}
 {% block extra_head %}
-<style>
-.cv-toolbar { display:flex; flex-wrap:wrap; gap:.6rem; align-items:center; margin-bottom:1rem; }
-.cv-table-wrap { overflow:auto; border:1px solid #e5e7eb; border-radius:10px; }
-.cv-table { width:100%; border-collapse:collapse; min-width:2600px; font-size:.78rem; }
-.cv-table th, .cv-table td { border-bottom:1px solid #e5e7eb; padding:.25rem .2rem; vertical-align:middle; }
-.cv-table th { position:sticky; top:0; background:#f8fafc; z-index:1; }
-.cv-table input { width:72px; max-width:100%; font-size:.76rem; padding:.15rem; }
-.cv-table input.wide { width:100px; }
-.cv-run-meta { font-size:.88rem; color:#475569; }
-.badge-warn { color:#92400e; font-size:.72rem; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head calc-page-head">
   <div>
     <span class="eyebrow">Nóminas · Cálculo #{{ run.id }}</span>
     <h2>Visualizador preliminar</h2>
@@ -118,8 +108,8 @@
         <td class="badge-warn">{% if row.warnings_json %}{{ (row.warnings_json or [])|join('; ') }}{% endif %}</td>
         <td>{{ row.row_status }}</td>
       </tr>
-      <tr>
-        <td colspan="99" style="background:#fafafa;">
+      <tr class="cv-row-adjust">
+        <td colspan="99">
           <label style="font-size:.75rem;color:#64748b;">Importe festivo laborado (FL)</label>
           <input type="text" name="r{{ row.id }}_importe_festivo_laborado" value="{{ row.importe_festivo_laborado if row.importe_festivo_laborado is not none else '' }}" style="width:120px;">
           <label style="font-size:.75rem;color:#64748b;margin-left:1rem;">Importe domingo laborado (DL)</label>
@@ -141,6 +131,6 @@
     </tbody>
   </table>
 </div>
-<p style="margin-top:.75rem;"><button type="submit" class="btn btn-primary">Guardar ajustes</button></p>
+<p class="cv-save-foot"><button type="submit" class="btn btn-primary">Guardar ajustes</button></p>
 </form>
 {% endblock %}
