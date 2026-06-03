@@ -9,18 +9,24 @@
 <script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
 {% endblock %}
 {% block content %}
-<section class="page-head carrier-page-head carrier-cursos-head">
-  <div>
-    <span class="eyebrow">Carrier</span>
-    <h2>Cursos — expedientes</h2>
-    <p>Paquete mensual base (SIPARE / cédula + Pago IMSS), constancia IMSS (Alta), anexos y un solo PDF de salida.</p>
+<section class="page-head carrier-page-head carrier-cursos-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Carrier</span>
+    <h2 class="pc-page-title">Cursos — expedientes</h2>
+    <p class="pc-page-subtitle">Paquete mensual base (SIPARE / cédula + Pago IMSS), constancia IMSS (Alta), anexos y un solo PDF de salida.</p>
   </div>
-  <div class="page-head-actions">
+  <div class="page-head-actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial de Cursos</a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="58" cy="20" r="16" fill="rgba(119,190,60,0.1)"/>
+      <path d="M20 24h24v32H20z" fill="none" stroke="rgba(26,144,198,0.25)" stroke-width="1.5" rx="6"/>
+    </svg>
   </div>
 </section>
 
-<section class="carrier-cursos-hero-actions" aria-label="Acciones principales de Cursos">
+<section class="carrier-cursos-hero-actions pc-action-grid" aria-label="Acciones principales de Cursos">
   <div class="carrier-forms-hero carrier-forms-hero--expediente">
     <div class="carrier-forms-hero-inner">
       <div>

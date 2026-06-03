@@ -5982,3 +5982,570 @@ td.actions,
     display: none;
   }
 }
+
+/* ============================================================
+   FASE E.3: Hubs & dashboard enrichment (global, opt-in)
+   ▸ Dashboards, hubs, landings de módulo — no formularios profundos
+   ============================================================ */
+
+/* ── E3-1  Hero premium de módulo ────────────────────────────── */
+.pc-hub-hero,
+.page-head.pc-hub-hero {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin-bottom: 22px;
+  padding: 1.5rem 1.75rem;
+  border: 1px solid rgba(26, 144, 198, 0.14);
+  border-radius: var(--pc-radius-xl, 22px);
+  background: linear-gradient(128deg, #ffffff 0%, #edf6fb 52%, #f0f8ea 100%);
+  overflow: hidden;
+  border-bottom: none;
+}
+
+.pc-hub-hero::before {
+  content: "";
+  position: absolute;
+  top: -52px;
+  left: -52px;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(26, 144, 198, 0.08) 0%, transparent 62%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pc-hub-hero::after {
+  content: "";
+  position: absolute;
+  bottom: -44px;
+  right: 100px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(119, 190, 60, 0.08) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.pc-hub-hero__main,
+.pc-hub-hero > div:first-child:not(.pc-hub-hero__deco):not(.pc-hub-hero__actions) {
+  flex: 1 1 260px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.pc-hub-hero__actions,
+.pc-hub-hero .pc-page-actions,
+.pc-hub-hero .page-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+}
+
+.pc-hub-hero__actions .btn,
+.pc-hub-hero .page-head-actions .btn {
+  border-radius: var(--pc-radius-pill);
+}
+
+.pc-hub-hero__deco {
+  width: 96px;
+  flex-shrink: 0;
+  pointer-events: none;
+  user-select: none;
+  position: relative;
+  z-index: 1;
+  opacity: 0.9;
+}
+
+.pc-hub-hero__deco svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pc-hub-hero .pc-page-title,
+.pc-hub-hero h1,
+.pc-hub-hero h2 {
+  margin: 4px 0 6px;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+  color: var(--pc-text);
+}
+
+.pc-hub-hero .pc-page-subtitle,
+.pc-hub-hero > p,
+.pc-hub-hero__main > p {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--pc-text-muted);
+  line-height: 1.5;
+  max-width: 46rem;
+}
+
+.pc-hub-hero--admin {
+  background: linear-gradient(128deg, #ffffff 0%, #f3f8fc 48%, #eef5fa 100%);
+}
+
+/* Compat: hero compacto + hub */
+.pc-hero-compact.pc-hub-hero {
+  margin-bottom: 20px;
+}
+
+/* ── E3-2  Contenedor hub / dashboard ────────────────────────── */
+.pc-hub-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  position: relative;
+}
+
+.pc-hub-panel {
+  padding: 18px 20px;
+  border-radius: var(--pc-radius-xl, 18px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+.pc-hub-panel--soft {
+  background: linear-gradient(180deg, #f8fbfe 0%, #ffffff 100%);
+  border-color: rgba(26, 144, 198, 0.12);
+}
+
+/* ── E3-3  Grid de módulos / acciones ────────────────────────── */
+.pc-module-grid,
+.pc-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.pc-action-grid--wide {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+}
+
+/* ── E3-4  Module card (enlace o panel) ──────────────────────── */
+.pc-module-card,
+a.pc-module-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 148px;
+  padding: 18px 18px 16px;
+  border-radius: var(--pc-radius-xl, 18px);
+  border: 1px solid rgba(220, 228, 238, 0.95);
+  background: #fff;
+  text-decoration: none;
+  color: inherit;
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 5px 16px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.pc-module-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.5) 0%, transparent 80%);
+  pointer-events: none;
+}
+
+.pc-module-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(26, 144, 198, 0.28);
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.08),
+    0 10px 28px rgba(26, 144, 198, 0.08);
+}
+
+.pc-module-card--green::before {
+  background: linear-gradient(90deg, rgba(119, 190, 60, 0.55) 0%, transparent 80%);
+}
+
+.pc-module-card--green:hover {
+  border-color: rgba(119, 190, 60, 0.3);
+}
+
+.pc-module-card--neutral::before {
+  background: linear-gradient(90deg, rgba(100, 116, 139, 0.35) 0%, transparent 80%);
+}
+
+.pc-module-card__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pc-module-card__title,
+.pc-module-card > strong {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--pc-text);
+  line-height: 1.25;
+}
+
+.pc-module-card__desc,
+.pc-module-card > p {
+  margin: 0;
+  flex: 1;
+  font-size: 0.86rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.pc-module-card__cta {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--pc-blue-deep);
+  letter-spacing: 0.02em;
+}
+
+.pc-module-card--green .pc-module-card__cta {
+  color: var(--pc-green-deep);
+}
+
+/* Action tile (inicio / accesos rápidos) */
+.pc-action-tile,
+a.pc-action-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border-radius: var(--pc-radius-xl, 18px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: linear-gradient(155deg, #ffffff 0%, #f5fafd 100%);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+  transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+  overflow: hidden;
+  position: relative;
+}
+
+.pc-action-tile::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.45) 0%, transparent 75%);
+}
+
+.pc-action-tile:hover {
+  transform: translateY(-2px);
+  border-color: rgba(26, 144, 198, 0.22);
+  box-shadow: 0 6px 20px rgba(26, 144, 198, 0.1);
+}
+
+.pc-action-tile__icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(26, 144, 198, 0.1);
+  color: var(--pc-blue);
+  border: 1px solid rgba(26, 144, 198, 0.16);
+}
+
+.pc-action-tile__icon svg {
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.pc-action-tile__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--pc-text-muted);
+}
+
+.pc-action-tile__action {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+/* ── E3-5  KPI strip (dashboard admin, etc.) ─────────────────── */
+.pc-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.pc-stat-strip .stat-card,
+.pc-stat-strip > article {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px solid rgba(26, 144, 198, 0.1);
+  border-left: none;
+  background: linear-gradient(145deg, #eaf3fa 0%, #f8fbfe 100%);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.pc-stat-strip .stat-card::before,
+.pc-stat-strip > article::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.5) 0%, transparent 72%);
+}
+
+.pc-stat-strip .stat-card span,
+.pc-stat-strip .stat-card > span:first-child {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5e7a96;
+}
+
+.pc-stat-strip .stat-card strong {
+  font-size: 1.4rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--pc-text);
+}
+
+.pc-stat-strip .stat-card-warn,
+.pc-stat-strip .stat-card.stat-card-warn {
+  background: linear-gradient(145deg, #fffbeb 0%, #fffef8 100%);
+  border-color: rgba(217, 119, 6, 0.15);
+}
+
+.pc-stat-strip .stat-card-warn::before {
+  background: linear-gradient(90deg, rgba(217, 119, 6, 0.5) 0%, transparent 72%);
+}
+
+.pc-stat-strip .stat-sub {
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+}
+
+.pc-stat-strip .cmp-stat,
+.pc-stat-strip .param-kpi,
+.pc-stat-strip .fx-card {
+  position: relative;
+  border-left: none;
+}
+
+.pc-stat-strip .cmp-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px solid rgba(26, 144, 198, 0.1);
+  background: linear-gradient(145deg, #eaf3fa 0%, #f8fbfe 100%);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  overflow: hidden;
+}
+
+.pc-stat-strip .cmp-stat::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.5) 0%, transparent 72%);
+}
+
+.pc-stat-strip .cmp-stat strong {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+/* Unificar con pc-kpi en strip */
+.pc-stat-strip .pc-kpi {
+  border-left: none;
+  border-top: none;
+}
+
+/* ── E3-6  Banner informativo ─────────────────────────────────── */
+.pc-info-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px solid rgba(26, 144, 198, 0.14);
+  background: linear-gradient(118deg, #eef6fc 0%, #f8fbfe 100%);
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.pc-info-banner--warn {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: linear-gradient(118deg, #fffbeb 0%, #fffef8 100%);
+  color: #92400e;
+}
+
+.pc-info-banner strong {
+  color: var(--pc-text);
+}
+
+/* ── E3-7  Section kicker (subtítulo de bloque) ──────────────── */
+.pc-section-kicker {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--pc-blue-deep);
+}
+
+/* ── E3-8  Integración welcome / legacy cards ────────────────── */
+.welcome-hero.pc-hub-hero {
+  border: 1px solid rgba(26, 144, 198, 0.12);
+  padding: 1.75rem 2rem;
+}
+
+.welcome-grid.pc-action-grid .welcome-card {
+  /* cuando coexisten clases, action-tile gana en template */
+}
+
+a.welcome-card.pc-action-tile .welcome-card-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--pc-text-muted);
+}
+
+a.welcome-card.pc-action-tile .welcome-card-action {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+/* Headcount link cards con module card */
+.hc-link-grid.pc-module-grid .hc-link-card.pc-module-card {
+  border-left: none;
+  min-height: 150px;
+}
+
+/* Nomina hub hero bridge */
+.nom-hub-page-head.pc-hub-hero {
+  border-bottom: none;
+  margin-bottom: 18px;
+}
+
+.nom-hub-page-head.pc-hub-hero::after {
+  /* evitar doble blob del módulo */
+  display: none;
+}
+
+/* Facturación hero bridge */
+.fx-hero.pc-hub-hero {
+  border-bottom: none;
+  padding: 1.35rem 1.5rem;
+  margin-bottom: 18px;
+  border-radius: var(--pc-radius-xl, 20px);
+}
+
+.fx-hero.pc-hub-hero::after {
+  display: none;
+}
+
+/* KPI cards facturación / módulos locales */
+.pc-hub-kpi-grid .fx-card,
+.pc-hub-kpi-grid .param-kpi {
+  position: relative;
+  border-left: none;
+  border-radius: var(--pc-radius-lg, 14px);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
+}
+
+.pc-hub-kpi-grid .fx-card::before,
+.pc-hub-kpi-grid .ni-kpi::before,
+.pc-hub-kpi-grid .vac-kpi::before,
+.pc-hub-kpi-grid .param-kpi::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(26, 144, 198, 0.45) 0%, transparent 72%);
+  pointer-events: none;
+}
+
+.pc-hub-kpi-grid .ni-kpi,
+.pc-hub-kpi-grid .vac-kpi,
+.pc-hub-kpi-grid .param-kpi {
+  position: relative;
+  overflow: hidden;
+  border-left: none;
+}
+
+.pc-action-grid .carrier-forms-hero {
+  min-height: 140px;
+  border-radius: var(--pc-radius-xl, 18px);
+}
+
+@media (max-width: 900px) {
+  .pc-hub-hero h1,
+  .pc-hub-hero h2,
+  .pc-hub-hero .pc-page-title {
+    font-size: 1.55rem;
+  }
+
+  .pc-hub-hero__deco {
+    display: none;
+  }
+
+  .pc-hub-hero__actions {
+    width: 100%;
+  }
+
+  .pc-module-grid,
+  .pc-action-grid {
+    grid-template-columns: 1fr;
+  }
+}

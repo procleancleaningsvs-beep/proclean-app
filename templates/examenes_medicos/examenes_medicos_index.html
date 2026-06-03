@@ -4,15 +4,21 @@
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Vitroflex</span>
-    <h2>Exámenes médicos</h2>
-    <p>Formulario único: identificadores administrativos se generan al descargar. Los resultados de laboratorio son sintéticos dentro de rangos típicos.</p>
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Vitroflex</span>
+    <h2 class="pc-page-title">Exámenes médicos</h2>
+    <p class="pc-page-subtitle">Formulario único: identificadores administrativos se generan al descargar. Los resultados de laboratorio son sintéticos dentro de rangos típicos.</p>
   </div>
-  <div class="page-head-actions">
+  <div class="page-head-actions pc-hub-hero__actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
     <a href="{{ url_for('vitroflex.memo_mensual') }}" class="btn btn-secondary">MEMO mensual</a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="56" cy="24" r="14" fill="rgba(119,190,60,0.1)"/>
+      <path d="M22 12h20v48H22z" fill="rgba(26,144,198,0.06)" stroke="rgba(26,144,198,0.2)" stroke-width="1.5" rx="8"/>
+    </svg>
   </div>
 </section>
 

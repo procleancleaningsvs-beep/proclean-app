@@ -4,11 +4,18 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='checkid/checkid.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head checkid-page-head">
-  <div>
-    <span class="eyebrow">Herramientas</span>
-    <h2>CheckID</h2>
-    <p>Consulta SAT por RFC o CURP. Los resultados son solo de referencia en esta pantalla.</p>
+<section class="page-head checkid-page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Herramientas</span>
+    <h2 class="pc-page-title">CheckID</h2>
+    <p class="pc-page-subtitle">Consulta SAT por RFC o CURP. Los resultados son solo de referencia en esta pantalla.</p>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="56" cy="24" r="15" fill="rgba(26,144,198,0.1)"/>
+      <circle cx="30" cy="48" r="10" stroke="rgba(26,144,198,0.3)" fill="none" stroke-width="2"/>
+      <line x1="38" y1="56" x2="48" y2="66" stroke="rgba(26,144,198,0.4)" stroke-width="2" stroke-linecap="round"/>
+    </svg>
   </div>
 </section>
 

@@ -1,10 +1,16 @@
 {# Formulario compartido: Movimientos IMSS (Nuevo movimiento) y embebido en Carrier > Cursos. #}
 {% if not embed_movimiento_cursos %}
-<section class="page-head imss-page-head">
-  <div>
-    <span class="eyebrow">Movimientos IMSS</span>
-    <h2>Nuevo movimiento</h2>
-    <p>Constancia AFIL: captura hasta 4 movimientos por documento. El sistema elige la plantilla según la cantidad de personas.</p>
+<section class="page-head imss-page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Movimientos IMSS</span>
+    <h2 class="pc-page-title">Nuevo movimiento</h2>
+    <p class="pc-page-subtitle">Constancia AFIL: captura hasta 4 movimientos por documento. El sistema elige la plantilla según la cantidad de personas.</p>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="58" cy="20" r="16" fill="rgba(26,144,198,0.1)"/>
+      <path d="M22 28h20M22 36h14M22 44h16" stroke="rgba(26,144,198,0.35)" stroke-width="2" stroke-linecap="round"/>
+    </svg>
   </div>
 </section>
 {% endif %}

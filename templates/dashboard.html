@@ -1,15 +1,25 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Panel administrativo</span>
-    <h2>Dashboard</h2>
-    <p>Resumen multimódulo, actividad reciente y métricas de uso. Solo visible para administradores.</p>
+<section class="page-head pc-hub-hero pc-hub-hero--admin">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Panel administrativo</span>
+    <h2 class="pc-page-title">Dashboard</h2>
+    <p class="pc-page-subtitle">Resumen multimódulo, actividad reciente y métricas de uso. Solo visible para administradores.</p>
   </div>
-  <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Nuevo movimiento IMSS</a>
+  <div class="pc-hub-hero__actions">
+    <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Nuevo movimiento IMSS</a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="58" cy="20" r="17" fill="rgba(26,144,198,0.11)"/>
+      <circle cx="22" cy="50" r="13" fill="rgba(119,190,60,0.09)"/>
+      <rect x="14" y="16" width="34" height="40" rx="9" fill="rgba(26,144,198,0.07)" stroke="rgba(26,144,198,0.2)" stroke-width="1.5"/>
+      <path d="M22 28h18M22 36h12M22 44h14" stroke="rgba(26,144,198,0.4)" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+  </div>
 </section>
 
-<section class="stats-grid dashboard-kpi">
+<section class="stats-grid dashboard-kpi pc-stat-strip">
   <article class="stat-card">
     <span>Documentos / acciones hoy</span>
     <strong>{{ dash.kpi.documents_today }}</strong>

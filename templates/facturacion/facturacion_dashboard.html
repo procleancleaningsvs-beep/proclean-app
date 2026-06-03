@@ -5,18 +5,25 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js" defer></script>
 {% endblock %}
 {% block fx_main %}
-<div class="fx-hero">
-  <div>
-    <h1>Facturación</h1>
-    <p>Avance operativo mensual y tendencia anual. El avance se calcula con estatus LISTO.</p>
+<div class="fx-hero pc-hub-hero pc-surface-decor">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Operaciones</span>
+    <h1 class="pc-page-title">Facturación</h1>
+    <p class="pc-page-subtitle">Avance operativo mensual y tendencia anual. El avance se calcula con estatus LISTO.</p>
   </div>
   {% if is_admin %}
-  <div class="fx-toolbar" style="margin:0">
+  <div class="pc-hub-hero__actions fx-toolbar" style="margin:0">
     <a class="fx-btn fx-btn--primary" href="{{ url_for('facturacion.import_excel') }}">Importar Excel</a>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.export_excel', mes=mes, anio=anio) }}">Exportar Excel</a>
     <a class="fx-btn fx-btn--ghost" href="{{ url_for('facturacion.factura_nuevo') }}">Nueva factura</a>
   </div>
   {% endif %}
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="56" cy="22" r="16" fill="rgba(26,144,198,0.1)"/>
+      <circle cx="24" cy="50" r="12" fill="rgba(119,190,60,0.09)"/>
+    </svg>
+  </div>
 </div>
 
 <form class="fx-toolbar fx-filters-panel" method="get" action="{{ url_for('facturacion.dashboard') }}">
@@ -45,7 +52,7 @@
 </form>
 {% endif %}
 
-<div class="fx-grid">
+<div class="fx-grid pc-hub-kpi-grid">
   <div class="fx-card fx-card--ok">
     <p class="k">Avance mensual</p>
     <p class="v">{{ mstats.avance_pct }}%</p>

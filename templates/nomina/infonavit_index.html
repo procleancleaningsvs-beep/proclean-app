@@ -5,19 +5,24 @@
 {% endblock %}
 
 {% block content %}
-<section class="page-head ni-page-head">
-  <div>
-    <span class="eyebrow">Nóminas / INFONAVIT</span>
-    <h2>Avisos INFONAVIT</h2>
-    <p>Carga de PDF de retención, modificación y suspensión con revisión operativa.</p>
+<section class="page-head pc-hub-hero ni-page-head">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas / INFONAVIT</span>
+    <h2 class="pc-page-title">Avisos INFONAVIT</h2>
+    <p class="pc-page-subtitle">Carga de PDF de retención, modificación y suspensión con revisión operativa.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  <div class="pc-hub-hero__actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation"><circle cx="56" cy="22" r="15" fill="rgba(26,144,198,0.1)"/></svg>
+  </div>
 </section>
 
 <div class="ni-wrap">
   <section class="ni-card">
     <h3>KPIs (importación vigente)</h3>
-    <div class="ni-grid">
+    <div class="ni-grid pc-stat-strip pc-hub-kpi-grid">
       <div class="ni-kpi"><span>Total avisos</span><strong>{{ stats.total_avisos }}</strong></div>
       <div class="ni-kpi"><span>Activos</span><strong>{{ stats.activos }}</strong></div>
       <div class="ni-kpi"><span>Modificados</span><strong>{{ stats.modificados }}</strong></div>

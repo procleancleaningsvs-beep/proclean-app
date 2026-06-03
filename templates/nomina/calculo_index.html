@@ -3,13 +3,15 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head calc-page-head">
-  <div>
-    <span class="eyebrow">Nóminas</span>
-    <h2>Cálculo preliminar de nómina</h2>
-    <p>Selecciona una asistencia importada para iniciar prevalidacion y generar borrador.</p>
+<section class="page-head calc-page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas</span>
+    <h2 class="pc-page-title">Cálculo preliminar de nómina</h2>
+    <p class="pc-page-subtitle">Selecciona una asistencia importada para iniciar prevalidacion y generar borrador.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  <div class="pc-hub-hero__actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  </div>
 </section>
 
 <div class="calc-wrap">

@@ -268,6 +268,7 @@ En migraciones visuales **no modificar**:
 | D.9 | Acciones tabla / erradicar botones grises en celdas |
 | **D.20** | Biblioteca `.pc-*` opt-in + ajustes legacy seguros |
 | **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
+| **E.3** | Hubs y dashboards (hero premium, module cards, action grid, stat strip) |
 
 ---
 
@@ -313,7 +314,47 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 
 ---
 
-## 11. Módulos con CSS local (referencia)
+## 11. Fase E.3 — Hubs and dashboard enrichment
+
+Capa global en `static/style.css` (bloque E.3). Aplicar en **dashboards, hubs y landings** — no en formularios profundos ni tablas densas (fase E.4+).
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Hero premium** | `.pc-hub-hero`, `__main`, `__actions`, `__deco`, `.pc-page-eyebrow` | Cabecera de módulo o dashboard: título, subtítulo, badge y CTAs existentes. Compatible con `.pc-hero-compact` y estilos locales (`nd-hero`, `fx-hero`). |
+| **Module cards** | `.pc-module-grid` + `.pc-module-card` (`--blue`, `--green`, `--neutral`) | Enlaces a submódulos (p. ej. Headcount index). Incluir `.pc-icon-chip` en `__head` y texto en `__title` / `__desc` / `__cta`. |
+| **KPI tiles** | `.pc-stat-strip` + `.pc-kpi` / `.pc-kpi--vivid` | Resúmenes numéricos en dashboard admin o bloque superior de hub. También estiliza `.stat-card`, `.cmp-stat` hijos. |
+| **Action grid** | `.pc-action-grid` + `.pc-action-tile` | Accesos rápidos (inicio / home). Mantener `href` y clases legacy (`welcome-card`) si el template ya las usa. |
+| **Empty state** | `.pc-empty-state`, `--rich` | Hubs sin datos; ver reglas E.1 si el mensaje lo rellena JS. |
+| **Banner / panel** | `.pc-info-banner`, `.pc-hub-panel`, `.pc-hub-wrap` | Avisos Headcount, contenedor de secciones, agrupación vertical. |
+
+**Qué NO tocar en módulos sensibles (E.3):**
+
+- `name`, `id`, `value`, `action`, `method`, `data-*`, `onclick`, endpoints y `href` existentes.
+- Cuerpo de formularios, tablas de historial, editores de cálculo, importaciones Excel, exportaciones DOCX/PDF.
+- JS funcional (filtros, cálculo, validación, Chart.js data).
+- Permisos `{% if can_* %}` — solo envolver visualmente, no eliminar bloques.
+
+**Ejemplo — hub con module cards:**
+
+```html
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Módulo</span>
+    <h2 class="pc-page-title">Título</h2>
+    <p class="pc-page-subtitle">Descripción existente.</p>
+  </div>
+  <div class="pc-hub-hero__actions">
+    <a class="btn btn-secondary" href="...">Acción existente</a>
+  </div>
+</section>
+<div class="pc-module-grid">
+  <a class="pc-module-card pc-module-card--blue" href="...">...</a>
+</div>
+```
+
+---
+
+## 12. Módulos con CSS local (referencia)
 
 | Módulo | CSS |
 |--------|-----|
@@ -336,4 +377,4 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 
 ---
 
-*Última actualización: Fase E.2 — composición premium Finiquitos.*
+*Última actualización: Fase E.3 — hubs y dashboards enrichment.*

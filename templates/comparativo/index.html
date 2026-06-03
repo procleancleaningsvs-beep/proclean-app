@@ -44,22 +44,31 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 </style>
 {% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Nómina</span>
-    <h2>Comparativo de nómina</h2>
-    <p>Detección de altas y bajas con verificación de similitudes y aliases.</p>
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nómina</span>
+    <h2 class="pc-page-title">Comparativo de nómina</h2>
+    <p class="pc-page-subtitle">Detección de altas y bajas con verificación de similitudes y aliases.</p>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="58" cy="22" r="16" fill="rgba(26,144,198,0.1)"/>
+      <path d="M18 48V28M30 48V18M42 48V34M54 48V22" stroke="rgba(26,144,198,0.35)" stroke-width="2" stroke-linecap="round"/>
+    </svg>
   </div>
 </section>
 
-<div class="cmp-layout">
+<div class="cmp-layout pc-hub-wrap">
   {% if headcount_warning %}
-  <div class="cmp-inline-err" role="alert" style="margin-bottom:1rem;">Headcount no disponible: la validación contra catálogo se omitió. {{ headcount_warning }}</div>
+  <div class="pc-info-banner pc-info-banner--warn cmp-inline-err" role="alert">Headcount no disponible: la validación contra catálogo se omitió. {{ headcount_warning }}</div>
   {% endif %}
 
-  <section class="cmp-top">
-    <h3>Base de datos de personal</h3>
-    <div class="cmp-stats">
+  <section class="cmp-top pc-hub-panel pc-hub-panel--soft">
+    <div class="pc-section-head">
+      <span class="pc-icon-chip pc-icon-chip--blue" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span>
+      <h3 class="pc-panel-title">Base de datos de personal</h3>
+    </div>
+    <div class="cmp-stats pc-stat-strip">
       <div class="cmp-stat"><span>Total activos</span><strong id="stat-total">{{ headcount.total_activos or 0 }}</strong></div>
       <div class="cmp-stat"><span>Última actualización</span><strong id="stat-fecha">{{ headcount.fecha_actualizacion or 'Pendiente' }}</strong></div>
       <div class="cmp-stat"><span>N clientes</span><strong id="stat-clientes">{{ headcount.clientes_detectados|length }}</strong></div>

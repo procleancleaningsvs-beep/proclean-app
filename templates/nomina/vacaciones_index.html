@@ -6,13 +6,13 @@
 {% block content %}
 
 {# ── Header ─────────────────────────────────────────────── #}
-<section class="page-head vac-page-head">
-  <div>
-    <span class="eyebrow">Nóminas / Vacaciones</span>
-    <h2>Vacaciones</h2>
-    <p>Control histórico, saldos, primas y desglose semanal</p>
+<section class="page-head vac-page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas / Vacaciones</span>
+    <h2 class="pc-page-title">Vacaciones</h2>
+    <p class="pc-page-subtitle">Control histórico, saldos, primas y desglose semanal</p>
   </div>
-  <div class="nv-actions">
+  <div class="nv-actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.vacaciones_descargar_plantilla') }}"
        title="Descargar plantilla oficial de Vacaciones">
       <i data-lucide="download" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Descargar plantilla
@@ -31,6 +31,9 @@
        title="Volver al dashboard de Nóminas">
       <i data-lucide="arrow-left" aria-hidden="true" style="width:14px;height:14px;vertical-align:middle;margin-right:.25rem"></i>Dashboard
     </a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation"><circle cx="56" cy="22" r="15" fill="rgba(119,190,60,0.1)"/></svg>
   </div>
 </section>
 
@@ -57,7 +60,7 @@
     {% endif %}
   {% endfor %}
 
-  <div class="vac-kpi-grid">
+  <div class="vac-kpi-grid pc-stat-strip pc-hub-kpi-grid">
     <div class="vac-kpi">
       <span class="vac-kpi__label">Importados</span>
       <span class="vac-kpi__value">{{ stats.empleados_importados }}</span>

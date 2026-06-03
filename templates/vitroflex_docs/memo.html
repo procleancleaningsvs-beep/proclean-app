@@ -3,13 +3,18 @@
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head vf-page-head">
-  <div>
-    <span class="eyebrow">Vitroflex</span>
-    <h2>MEMO mensual</h2>
-    <p>La salida PDF replica la plantilla Word oficial (MEMO MENSUAL FORMATO.docx): solo se sustituyen placeholders y la tabla de trabajadores.</p>
+<section class="page-head vf-page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Vitroflex</span>
+    <h2 class="pc-page-title">MEMO mensual</h2>
+    <p class="pc-page-subtitle">La salida PDF replica la plantilla Word oficial (MEMO MENSUAL FORMATO.docx): solo se sustituyen placeholders y la tabla de trabajadores.</p>
   </div>
-  <a href="{{ url_for('vitroflex.cr_mensual') }}" class="btn btn-secondary">Ir a CR mensual</a>
+  <div class="pc-hub-hero__actions">
+    <a href="{{ url_for('vitroflex.cr_mensual') }}" class="btn btn-secondary">Ir a CR mensual</a>
+  </div>
+  <div class="pc-hub-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation"><circle cx="58" cy="22" r="15" fill="rgba(26,144,198,0.09)"/></svg>
+  </div>
 </section>
 
 <div id="vf-status-banner" class="flash flash-error vf-status-banner" hidden></div>
