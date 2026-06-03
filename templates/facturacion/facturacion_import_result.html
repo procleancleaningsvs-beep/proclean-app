@@ -2,9 +2,11 @@
 {% set fx_nav_active = 'import' %}
 {% block fx_main %}
 {% set s = log.summary %}
-<div class="fx-hero">
-  <h1>Resumen de importación</h1>
-  <p class="fx-muted">ID log #{{ log.id }} · {{ log.created_at }}{% if log.original_filename %} · {{ log.original_filename }}{% endif %}</p>
+<div class="fx-hero pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <h1 class="pc-page-title">Resumen de importación</h1>
+    <p class="fx-muted pc-page-subtitle">ID log #{{ log.id }} · {{ log.created_at }}{% if log.original_filename %} · {{ log.original_filename }}{% endif %}</p>
+  </div>
 </div>
 
 <div class="fx-grid" style="margin-bottom:1.25rem">
@@ -19,7 +21,7 @@
   <div class="fx-card"><p class="k">Notas crédito (filas)</p><p class="v">{{ s.notas_credito_filas }}</p></div>
 </div>
 
-<div class="fx-table-wrap" style="margin-bottom:1rem">
+<div class="fx-table-wrap pc-table-scroll" style="margin-bottom:1rem">
   <h3 style="margin:0.75rem 1rem;font-size:1rem">Estatus normalizados (conteo)</h3>
   <table class="fx-table">
     <thead><tr><th>Clave</th><th>Cantidad</th></tr></thead>
@@ -33,7 +35,7 @@
   </table>
 </div>
 
-<div class="fx-table-wrap" style="margin-bottom:1rem">
+<div class="fx-table-wrap pc-table-scroll" style="margin-bottom:1rem">
   <h3 style="margin:0.75rem 1rem;font-size:1rem">Clientes detectados en esta importación</h3>
   <p class="fx-muted" style="padding:0 1rem 0.75rem;font-size:0.9rem">{{ (s.clientes_detectados or [])|join(', ') or '—' }}</p>
 </div>
@@ -46,7 +48,7 @@
 {% endif %}
 
 {% if s.detalle_errores %}
-<div class="fx-table-wrap" style="margin-bottom:1rem">
+<div class="fx-table-wrap pc-table-scroll" style="margin-bottom:1rem">
   <h3 style="margin:0.75rem 1rem;font-size:1rem">Detalle de errores</h3>
   <table class="fx-table">
     <tbody>{% for e in s.detalle_errores %}<tr><td class="fx-muted" style="font-size:0.85rem">{{ e }}</td></tr>{% endfor %}</tbody>

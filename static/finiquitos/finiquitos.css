@@ -756,6 +756,27 @@ dialog.fin-dg2-dlg {
   gap: 14px;
 }
 
+/* E.6 — coexistencia con .pc-history-shell / .pc-list-panel global */
+.fin-hist-card.pc-history-shell.pc-list-panel {
+  border: 1px solid var(--pc-border);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.fin-hist-card.pc-history-shell .fin-hist-toolbar.pc-table-toolbar.pc-filter-bar {
+  background: linear-gradient(180deg, #f8fbfe 0%, #ffffff 100%);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.fin-hist-card.pc-history-shell .fin-hist-table-wrap.pc-table-scroll {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  box-shadow: var(--pc-shadow-soft);
+  background: var(--pc-surface);
+}
+
 .fin-hist-back a {
   font-weight: 600;
   color: var(--pc-blue);

@@ -88,19 +88,25 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
 {% endblock %}
 
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">IMSS</span>
-    <h2>Movimientos IMSS</h2>
-    <p>Captura, validación y exportación de movimientos para IDSE y SUA.</p>
+<section class="page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">IMSS</span>
+    <h2 class="pc-page-title">Movimientos IMSS</h2>
+    <p class="pc-page-subtitle">Captura, validación y exportación de movimientos para IDSE y SUA.</p>
   </div>
 </section>
 
-<div class="imss-layout">
+<div class="imss-layout pc-safe-zone">
   <div class="imss-main">
-    <section class="imss-left">
+    <section class="imss-left pc-form-shell pc-form-shell--flat">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number" aria-hidden="true">01</span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Nuevo movimiento</h3>
+          <p class="pc-form-step-desc">Captura operativa — el resto del panel conserva su comportamiento.</p>
+        </div>
+      </header>
       <div class="imss-sec">
-        <h3>Nuevo movimiento</h3>
         <div class="imss-form-grid">
           <div class="imss-field">
             <label for="tipo-mov">Tipo de movimiento</label>
@@ -191,7 +197,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
         <div class="imss-import-actions">
           <a class="btn btn-secondary" href="{{ url_for('exportacion_imss.plantilla_excel') }}">Descargar plantilla</a>
           <div class="imss-import-dropdown">
-            <button type="button" class="btn btn-secondary" id="btn-importar-menu">📥 Importar movimientos ▾</button>
+            <button type="button" class="btn btn-secondary" id="btn-importar-menu">Importar movimientos ▾</button>
             <div id="import-menu" class="imss-import-menu">
               <button type="button" id="opt-import-excel">Importar desde Excel</button>
               <button type="button" id="opt-import-reporte">Importar desde reporte mensual</button>
@@ -205,7 +211,7 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
       </div>
     </section>
 
-    <section class="imss-right">
+    <section class="imss-right pc-list-panel-soft">
       <div class="imss-inline" style="justify-content:space-between; align-items:flex-start;">
         <div>
           <h3 style="margin-bottom:.2rem;">Movimientos a exportar</h3>
@@ -290,13 +296,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     </section>
   </div>
 
-  <section class="imss-bottom">
-    <h3>Historial de exportaciones</h3>
-    <div class="imss-inline" style="margin-bottom:.6rem;">
-      <input id="hist-search" type="search" placeholder="Buscar por patrón o fecha">
+  <section class="imss-bottom pc-history-shell pc-list-panel">
+    <h3 class="pc-table-caption">Historial de exportaciones</h3>
+    <div class="imss-inline pc-table-toolbar pc-filter-bar" style="margin-bottom:.6rem;">
+      <input id="hist-search" class="pc-search-box" type="search" placeholder="Buscar por patrón o fecha">
       <button type="button" class="btn btn-secondary" id="btn-hist-refresh">Actualizar</button>
     </div>
-    <div class="imss-table-wrap">
+    <div class="imss-table-wrap pc-table-scroll pc-table-shell pc-density-compact">
       <table class="imss-table">
         <thead>
           <tr>

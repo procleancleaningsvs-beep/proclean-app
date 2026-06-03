@@ -5,17 +5,19 @@
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Vitroflex</span>
-    <h2>Historial — Exámenes médicos</h2>
-    <p class="em-historial-sub">Un expediente por paciente. {% if is_admin %}Todos los usuarios.{% else %}Solo tus registros.{% endif %}</p>
+<section class="page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Vitroflex</span>
+    <h2 class="pc-page-title">Historial — Exámenes médicos</h2>
+    <p class="em-historial-sub pc-page-subtitle">Un expediente por paciente. {% if is_admin %}Todos los usuarios.{% else %}Solo tus registros.{% endif %}</p>
   </div>
-  <a href="{{ url_for('examenes_medicos.index') }}" class="btn btn-secondary">Volver a Exámenes médicos</a>
+  <div class="pc-hub-hero__actions">
+    <a href="{{ url_for('examenes_medicos.index') }}" class="btn btn-secondary">Volver a Exámenes médicos</a>
+  </div>
 </section>
 
-<section class="panel vf-panel em-historial-panel">
-  <div class="em-historial-wrap">
+<section class="panel vf-panel em-historial-panel pc-history-shell pc-list-panel">
+  <div class="em-historial-wrap pc-table-scroll pc-table-shell pc-density-compact">
     <table class="vf-table em-historial-table">
       <thead>
         <tr>
@@ -53,7 +55,7 @@
           </td>
           <td class="em-date-cell">{{ r.last_export_at }}</td>
           <td>{{ r.username or '—' }}</td>
-          <td class="em-actions-cell actions-cell actions-cell--nowrap">
+          <td class="em-actions-cell actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('eye', 'Ver detalle del expediente', url_for('examenes_medicos.historial_detalle', rid=r.id)) }}
             {% if is_admin %}
             {{ icon_button('trash-2', 'Eliminar expediente del historial', 'danger', class='em-del-exp-btn', extra_attrs='data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=r.id) ~ '"') }}

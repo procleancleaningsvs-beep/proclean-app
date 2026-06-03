@@ -5,13 +5,13 @@
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Vitroflex</span>
-    <h2>Expediente del paciente</h2>
-    <p class="em-detalle-meta">Registro #{{ row.id }} · Actualizado {{ row.last_export_at }} · {{ row.username or '—' }}</p>
+<section class="page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Vitroflex</span>
+    <h2 class="pc-page-title">Expediente del paciente</h2>
+    <p class="em-detalle-meta pc-page-subtitle">Registro #{{ row.id }} · Actualizado {{ row.last_export_at }} · {{ row.username or '—' }}</p>
   </div>
-  <div class="page-head-actions">
+  <div class="page-head-actions pc-hub-hero__actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
     {% if is_admin %}
     {{ icon_button('trash-2', 'Eliminar expediente', 'danger', class='em-del-btn', extra_attrs='id="em-del-btn" data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=row.id) ~ '"') }}

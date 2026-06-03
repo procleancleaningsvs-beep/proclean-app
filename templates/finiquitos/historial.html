@@ -19,17 +19,17 @@
   </div>
 </section>
 
-<div class="form-card fin-hist-card">
+<div class="form-card fin-hist-card pc-history-shell pc-list-panel">
   <p class="fin-hist-back"><a href="{{ url_for('finiquitos.pagina_finiquito') }}">← Volver a Finiquito</a></p>
 
-  <div class="fin-hist-toolbar history-toolbar">
+  <div class="fin-hist-toolbar history-toolbar pc-table-toolbar pc-filter-bar">
     <label class="history-search-label" for="fin_hist_search">Buscar en historial
       <input type="search" id="fin_hist_search" class="history-search-input fin-hist-search" placeholder="Empleado, usuario, fecha, modo, archivo, sueldo, ingreso, total…" autocomplete="off" aria-label="Filtrar filas del historial de finiquitos">
     </label>
   </div>
   <p id="fin_hist_filter_empty" class="history-filter-empty" hidden>No hay coincidencias con la búsqueda.</p>
 
-  <div class="fin-hist-table-wrap" role="region" aria-label="Tabla de historial de finiquitos">
+  <div class="fin-hist-table-wrap pc-table-scroll pc-table-shell pc-density-compact" role="region" aria-label="Tabla de historial de finiquitos">
     <table class="fin-hist-table" id="fin_hist_table" hidden>
       <thead>
         <tr>

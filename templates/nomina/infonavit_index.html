@@ -5,18 +5,23 @@
 {% endblock %}
 
 {% block content %}
-<section class="page-head ni-page-head">
-  <div>
-    <span class="eyebrow">Nóminas / INFONAVIT</span>
-    <h2>Avisos INFONAVIT</h2>
-    <p>Carga de PDF de retención, modificación y suspensión con revisión operativa.</p>
+<section class="page-head ni-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas / INFONAVIT</span>
+    <h2 class="pc-page-title">Avisos INFONAVIT</h2>
+    <p class="pc-page-subtitle">Carga de PDF de retención, modificación y suspensión con revisión operativa.</p>
   </div>
-  <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  <div class="pc-hub-hero__actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.index') }}">Volver al dashboard</a>
+  </div>
 </section>
 
-<div class="ni-wrap">
-  <section class="ni-card">
-    <h3>KPIs (importación vigente)</h3>
+<div class="ni-wrap pc-safe-zone">
+  <section class="ni-card pc-side-summary">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number" aria-hidden="true">01</span>
+      <div class="pc-form-step-text"><h3 class="pc-form-step-title">Resumen (importación vigente)</h3></div>
+    </header>
     <div class="ni-grid">
       <div class="ni-kpi"><span>Total avisos</span><strong>{{ stats.total_avisos }}</strong></div>
       <div class="ni-kpi"><span>Activos</span><strong>{{ stats.activos }}</strong></div>
@@ -28,17 +33,27 @@
     </div>
   </section>
 
-  <section class="ni-card ni-card--import">
-    <h3>Importar PDF INFONAVIT</h3>
-    <form class="ni-import-form" method="post" action="{{ url_for('nomina.infonavit_importar') }}" enctype="multipart/form-data">
+  <section class="ni-card ni-card--import pc-import-panel pc-form-section">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number" aria-hidden="true">02</span>
+      <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
+      <div class="pc-form-step-text">
+        <h3 class="pc-form-step-title">Importar PDF INFONAVIT</h3>
+        <p class="pc-form-step-desc">Archivo fuente de avisos de retención.</p>
+      </div>
+    </header>
+    <form class="ni-import-form pc-form-actionbar" method="post" action="{{ url_for('nomina.infonavit_importar') }}" enctype="multipart/form-data">
       <input type="file" name="pdf_file" accept=".pdf,application/pdf" required>
       <button type="submit" class="btn btn-primary">Importar PDF</button>
     </form>
   </section>
 
-  <section class="ni-card ni-card--filters">
-    <h3>Filtros</h3>
-    <form class="ni-form-inline" method="get" action="{{ url_for('nomina.infonavit_index') }}">
+  <section class="ni-card ni-card--filters pc-form-card">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number pc-form-step-number--amber" aria-hidden="true">03</span>
+      <div class="pc-form-step-text"><h3 class="pc-form-step-title">Filtros de revisión</h3></div>
+    </header>
+    <form class="ni-form-inline pc-filter-bar pc-table-toolbar" method="get" action="{{ url_for('nomina.infonavit_index') }}">
       <select name="import_id">
         {% for imp in imports %}
         <option value="{{ imp.id }}" {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
@@ -74,9 +89,9 @@
     <p class="ni-filter-note">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
   </section>
 
-  <section class="ni-card ni-card--table">
-    <h3>Avisos</h3>
-    <div class="ni-table-wrap">
+  <section class="ni-card ni-card--table pc-table-shell pc-list-panel pc-density-compact">
+    <h3 class="pc-table-caption">Avisos</h3>
+    <div class="ni-table-wrap pc-table-scroll">
       <table class="ni-table">
         <thead>
           <tr>
@@ -107,9 +122,9 @@
             <td>{{ row.fecha_aviso or '—' }}</td>
             <td>
               {% if row.tipo_valor_descuento == 'VSM' %}
-                <span class="ni-vsm-badge">VSM</span>{{ row.descuento_raw or '—' }}
+                <span class="ni-vsm-badge pc-status-badge pc-status-warning">VSM</span>{{ row.descuento_raw or '—' }}
               {% elif row.tipo_valor_descuento == 'PESOS' %}
-                <span class="ni-pesos-badge">PESOS</span> {{ row.descuento_raw or '—' }}
+                <span class="ni-pesos-badge pc-status-badge pc-status-neutral">PESOS</span> {{ row.descuento_raw or '—' }}
               {% else %}
                 <span class="ni-sinmonto-badge">SIN MONTO</span>
               {% endif %}
@@ -137,7 +152,7 @@
               <div class="ni-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td class="actions-cell">{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
+            <td class="actions-cell pc-row-actions">{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
           </tr>
           {% endfor %}
           {% if not rows %}

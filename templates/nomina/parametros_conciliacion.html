@@ -4,13 +4,13 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head param-page-head">
-  <div>
-    <span class="eyebrow">Nóminas · Parámetros</span>
-    <h2>Bandeja de conciliación</h2>
-    <p>Registros que requieren acción de Nómina/Admin.</p>
+<section class="page-head param-page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas · Parámetros</span>
+    <h2 class="pc-page-title">Bandeja de conciliación</h2>
+    <p class="pc-page-subtitle">Registros que requieren acción de Nómina/Admin.</p>
   </div>
-  <div class="param-page-head__actions">
+  <div class="param-page-head__actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index') }}">Parámetros base</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
       <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
@@ -36,8 +36,8 @@
 {% endif %}
 
 <div class="conc-wrap">
-  <section class="conc-card">
-    <form method="GET" class="conc-filters">
+  <section class="conc-card pc-filter-bar">
+    <form method="GET" class="conc-filters pc-filter-bar">
       <label>Filtro
         <select name="filtro">
           <option value="todos_pendientes" {% if filtro == 'todos_pendientes' %}selected{% endif %}>Todos los pendientes</option>
@@ -59,8 +59,8 @@
     </form>
   </section>
 
-  <section class="conc-card">
-    <div class="conc-table-wrap">
+  <section class="conc-card pc-table-shell pc-list-panel pc-density-compact">
+    <div class="conc-table-wrap pc-table-scroll">
       <table class="conc-table">
         <thead>
           <tr>
@@ -88,7 +88,7 @@
             <td>{{ row.warning_principal }}</td>
             <td>{{ row.active_warning_count }}</td>
             <td><span class="estado-badge">{{ row.estado_conciliacion }}</span></td>
-            <td class="actions-cell actions-cell--nowrap">
+            <td class="actions-cell actions-cell--nowrap pc-row-actions">
               {% if row.id %}
               {{ icon_link('eye', 'Ver detalle del registro', url_for('nomina.parametros_detalle', row_id=row.id)) }}
               {% if row.is_external or row.estado_conciliacion in ['Externo', 'Match dudoso', 'Pendiente vínculo'] %}

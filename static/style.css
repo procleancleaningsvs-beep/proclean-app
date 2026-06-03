@@ -5982,3 +5982,1038 @@ td.actions,
     display: none;
   }
 }
+
+/* ============================================================
+   FASE E.4: Form and capture enrichment (global, opt-in)
+   ▸ Formularios, importaciones, preflight — NO historiales E.5
+   ============================================================ */
+
+/* Alias hero hub (compatible E.1/E.3) */
+.pc-hub-hero,
+.page-head.pc-hub-hero {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  margin-bottom: 20px;
+  padding: 1.35rem 1.65rem;
+  border: 1px solid rgba(26, 144, 198, 0.14);
+  border-radius: var(--pc-radius-xl, 20px);
+  background: linear-gradient(128deg, #ffffff 0%, #edf6fb 55%, #eff8ea 100%);
+  overflow: hidden;
+  border-bottom: none;
+}
+
+.pc-hub-hero__main {
+  flex: 1 1 240px;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.pc-hub-hero__deco {
+  width: 88px;
+  flex-shrink: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.pc-hub-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+}
+
+/* ── E4-1  Shell y hero de formulario ────────────────────────── */
+.pc-form-shell,
+.form-card.pc-form-shell,
+.panel.pc-form-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px 24px;
+  border-radius: var(--pc-radius-xl, 20px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: linear-gradient(180deg, #fafcfe 0%, #ffffff 8%, #ffffff 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.pc-form-shell.pc-form-shell--flat {
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.pc-form-hero {
+  margin-bottom: 18px;
+}
+
+.pc-form-hero.pc-hub-hero,
+.page-head.pc-form-hero {
+  margin-bottom: 20px;
+}
+
+/* ── E4-2  Pasos narrativos (solo visual) ────────────────────── */
+.pc-form-step {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.pc-form-step-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.pc-form-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.35rem;
+  height: 2.35rem;
+  padding: 0 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--pc-blue-deep);
+  background: linear-gradient(145deg, #eaf3fa 0%, #f6fbfe 100%);
+  border: 1px solid rgba(26, 144, 198, 0.2);
+  border-radius: 11px;
+  flex-shrink: 0;
+}
+
+.pc-form-step-number--green {
+  color: var(--pc-green-deep);
+  background: linear-gradient(145deg, #ecf6e6 0%, #f7fbf3 100%);
+  border-color: rgba(119, 190, 60, 0.22);
+}
+
+.pc-form-step-number--amber {
+  color: #b45309;
+  background: linear-gradient(145deg, #fffbeb 0%, #fffef8 100%);
+  border-color: rgba(217, 119, 6, 0.2);
+}
+
+.pc-form-step-icon {
+  flex-shrink: 0;
+}
+
+.pc-form-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.pc-form-step-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+.pc-form-step-desc {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+/* ── E4-3  Secciones y cards internas ────────────────────────── */
+.pc-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pc-form-card {
+  padding: 16px 18px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.pc-form-card--soft-blue {
+  background: linear-gradient(165deg, #f8fbfe 0%, #ffffff 100%);
+  border-color: rgba(26, 144, 198, 0.12);
+}
+
+.pc-form-card--soft-green {
+  background: linear-gradient(165deg, #f9fcf6 0%, #ffffff 100%);
+  border-color: rgba(119, 190, 60, 0.16);
+}
+
+.pc-form-shell .pc-form-grid,
+.pc-form-shell .grid-2,
+.pc-form-shell .grid-3,
+.pc-form-section .pc-form-grid {
+  gap: 12px 14px;
+}
+
+.pc-form-help,
+.pc-form-shell .helper:not(.pc-inline-hint) {
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--pc-text-muted);
+}
+
+.pc-inline-hint {
+  display: block;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--pc-text-muted);
+  background: var(--pc-surface-soft);
+  border-radius: var(--pc-radius-md, 8px);
+  border: 1px dashed var(--pc-border);
+}
+
+.pc-field-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.78rem;
+  color: var(--pc-text-muted);
+  line-height: 1.35;
+}
+
+/* ── E4-4  Import / preflight / summary ──────────────────────── */
+.pc-import-panel {
+  padding: 18px 20px;
+  border-radius: var(--pc-radius-lg, 16px);
+  border: 1.5px dashed rgba(26, 144, 198, 0.28);
+  background: linear-gradient(145deg, #f0f7fc 0%, #fafcfe 55%, #f8fcf6 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.pc-import-panel .pc-form-actionbar {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+.pc-import-panel input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+}
+
+.pc-preflight-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pc-preflight-panel .cp-card,
+.pc-preflight-panel .pc-form-card {
+  border-left: none;
+}
+
+.pc-side-summary {
+  padding: 16px 18px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px solid rgba(32, 168, 102, 0.14);
+  background: linear-gradient(145deg, #f4faf6 0%, #f8fbfe 100%);
+}
+
+.pc-side-summary .pc-kpi-grid,
+.pc-side-summary .cp-grid {
+  margin-top: 8px;
+}
+
+.pc-warning-soft {
+  padding: 12px 14px;
+  border-radius: var(--pc-radius-lg, 12px);
+  border: 1px solid rgba(217, 119, 6, 0.2);
+  background: linear-gradient(165deg, #fffbeb 0%, #fffef8 100%);
+  color: #92400e;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.pc-warning-soft--danger {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: linear-gradient(165deg, #fef2f2 0%, #fff 100%);
+  color: #991b1b;
+}
+
+/* ── E4-5  Action bars y zona segura ─────────────────────────── */
+.pc-form-actionbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 14px 16px;
+  margin-top: 8px;
+  border-radius: var(--pc-radius-lg, 14px);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+.pc-form-actionbar--primary {
+  background: linear-gradient(145deg, #f4faf6 0%, #f8fbfe 100%);
+  border-color: rgba(32, 168, 102, 0.14);
+}
+
+.pc-form-actionbar .btn {
+  border-radius: var(--pc-radius-pill);
+}
+
+.pc-form-actionbar .btn-primary {
+  box-shadow: 0 2px 8px rgba(26, 144, 198, 0.18);
+}
+
+.pc-sticky-actions {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+}
+
+.pc-safe-zone {
+  position: relative;
+  padding: 4px 0;
+}
+
+.pc-safe-zone > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── E4-6  Integración módulos (sin border-left) ─────────────── */
+.pc-form-shell .lot-card,
+.pc-form-shell .movement-row,
+.pc-form-shell .export-section {
+  border-left: none !important;
+}
+
+.pc-form-shell .lot-card {
+  background: linear-gradient(165deg, #f8fbfe 0%, #ffffff 100%);
+  border: 1px solid rgba(26, 144, 198, 0.12);
+  border-radius: var(--pc-radius-lg, 14px);
+  padding: 16px 18px;
+}
+
+.pc-form-shell .export-section {
+  background: linear-gradient(165deg, #f9fcf6 0%, #ffffff 100%);
+  border: 1px solid rgba(119, 190, 60, 0.16);
+  border-radius: var(--pc-radius-lg, 14px);
+  padding: 16px 18px;
+}
+
+.pc-form-shell .movement-row {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 14px);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.pc-form-shell .form-footer {
+  margin-top: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.pc-form-shell .movement-actions {
+  padding: 12px 14px;
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+}
+
+/* CheckID search as capture bar */
+.pc-form-shell.checkid-tool .checkid-search-row {
+  padding: 14px 16px;
+  border-radius: var(--pc-radius-lg, 14px);
+  background: linear-gradient(118deg, #eef6fc 0%, #f8fbfe 100%);
+  border: 1px solid rgba(26, 144, 198, 0.14);
+}
+
+/* Fieldsets exámenes / vitroflex */
+.pc-form-shell .em-fieldset,
+.pc-form-shell fieldset.em-fieldset {
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 14px);
+  background: rgba(255, 255, 255, 0.9);
+  border-left: none;
+}
+
+.pc-form-shell .em-fieldset legend {
+  font-weight: 700;
+  color: var(--pc-text);
+  padding: 0 6px;
+}
+
+@media (max-width: 900px) {
+  .pc-form-shell {
+    padding: 16px 14px;
+  }
+
+  .pc-sticky-actions {
+    position: static;
+  }
+
+  .pc-form-step-head {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   FASE E.5: History, table and listing enrichment (opt-in)
+   ▸ Historiales, tablas, toolbars — NO tocar JS/columnas E.6
+   ============================================================ */
+
+/* ── E5-1  Shells de historial y listado ─────────────────────── */
+.pc-history-shell,
+.pc-list-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--pc-radius-xl, 20px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: linear-gradient(180deg, #fafcfe 0%, #ffffff 12%, #ffffff 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+/* E.6: shells sobre cards de módulo — evitar doble borde/sombra fuerte */
+.panel.pc-history-shell:not(.imss-bottom),
+.form-card.pc-history-shell,
+.form-card.pc-list-panel.checkid-recent-panel {
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.imss-bottom.pc-history-shell.pc-list-panel {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.pc-history-hero {
+  margin-bottom: 4px;
+}
+
+.pc-history-hero.pc-hub-hero,
+.page-head.pc-history-hero {
+  margin-bottom: 18px;
+}
+
+/* ── E5-2  Table shell, caption, meta ────────────────────────── */
+.pc-table-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pc-table-caption {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+.pc-table-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--pc-text-muted);
+  line-height: 1.4;
+}
+
+.pc-table-shell > h3:not([class]) {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+/* ── E5-3  Toolbar, filtros, búsqueda ────────────────────────── */
+.pc-table-toolbar,
+.pc-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: var(--pc-radius-lg, 14px);
+  background: linear-gradient(118deg, #f0f7fc 0%, #f8fbfe 55%, #f9fcf6 100%);
+  border: 1px solid rgba(26, 144, 198, 0.12);
+}
+
+.pc-table-toolbar .history-search-label,
+.pc-filter-bar label,
+.pc-table-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  min-width: 0;
+}
+
+.pc-search-box,
+.pc-table-toolbar .history-search-input,
+.pc-filter-bar input[type="search"],
+.pc-filter-bar input[type="text"]:not([type="checkbox"]),
+.pc-filter-bar select,
+.pc-table-toolbar input[type="search"],
+.pc-table-toolbar input[type="text"] {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: var(--pc-radius-pill, 999px);
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  font-size: 0.88rem;
+  color: var(--pc-text);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color var(--pc-transition, 0.15s ease), box-shadow 0.15s ease;
+}
+
+.pc-search-box:focus,
+.pc-table-toolbar .history-search-input:focus,
+.pc-filter-bar input:focus,
+.pc-filter-bar select:focus {
+  outline: none;
+  border-color: rgba(26, 144, 198, 0.45);
+  box-shadow: 0 0 0 3px rgba(26, 144, 198, 0.12);
+}
+
+.pc-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: var(--pc-radius-pill);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--pc-border);
+  color: var(--pc-text-muted);
+}
+
+/* Integración toolbars legacy */
+.history-toolbar.pc-table-toolbar,
+.history-toolbar.pc-filter-bar,
+.checkid-recent-toolbar,
+.fin-hist-toolbar,
+.imss-panel-search .history-toolbar,
+.param-filters.pc-filter-bar,
+.vac-filters-grid.pc-filter-bar,
+.ni-form-inline.pc-filter-bar,
+.fx-toolbar.fx-filters-panel.pc-filter-bar,
+.hc-filters.pc-filter-bar {
+  margin-bottom: 0;
+}
+
+/* ── E5-4  Scroll y densidad ─────────────────────────────────── */
+.pc-table-scroll,
+.pc-table-shell .table-wrap,
+.pc-table-shell .param-table-wrap,
+.pc-table-shell .ni-table-wrap,
+.pc-table-shell .vac-table-wrap,
+.pc-table-shell .calc-table-wrap,
+.pc-table-shell .fin-hist-table-wrap,
+.pc-table-scroll.fx-table-wrap,
+.pc-table-scroll.hc-table-wrap,
+.pc-table-shell .imss-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--pc-radius-lg, 12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.pc-table-scroll::-webkit-scrollbar,
+.pc-table-shell .table-wrap::-webkit-scrollbar {
+  height: 8px;
+}
+
+.pc-table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+.pc-density-compact .pc-table-scroll table th,
+.pc-density-compact .pc-table-scroll table td,
+.pc-density-compact table th,
+.pc-density-compact table td {
+  padding-top: 0.42rem;
+  padding-bottom: 0.42rem;
+  font-size: 0.84rem;
+}
+
+/* Encabezados de tabla dentro de shell */
+.pc-table-shell table thead th,
+.pc-list-panel table thead th,
+.pc-table-scroll table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+  color: var(--pc-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border-bottom: 1px solid rgba(26, 144, 198, 0.14);
+  white-space: nowrap;
+}
+
+.pc-table-shell table tbody tr:hover td,
+.pc-list-panel table tbody tr:hover td {
+  background: var(--pc-surface-blue, #f0f7fc);
+}
+
+.pc-table-shell table tbody tr:nth-child(even) td {
+  background: rgba(248, 250, 252, 0.65);
+}
+
+.pc-table-shell table tbody tr:nth-child(even):hover td {
+  background: var(--pc-surface-blue, #f0f7fc);
+}
+
+/* ── E5-5  Acciones por fila ─────────────────────────────────── */
+.pc-row-actions,
+.pc-table-shell .actions-cell,
+.pc-list-panel .actions-cell,
+.actions-cell.pc-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pc-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pc-row-actions .btn-icon,
+.pc-table-shell .btn-icon,
+.actions-cell .btn-icon {
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.pc-row-actions form.inline-form,
+.actions-cell form.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── E5-6  Status badges ─────────────────────────────────────── */
+.pc-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: var(--pc-radius-pill);
+  border: 1px solid transparent;
+  line-height: 1.3;
+  vertical-align: middle;
+}
+
+.pc-status-success,
+.imss-badge.alta,
+.ni-table .pc-status-success {
+  background: #ecf6e6;
+  border-color: rgba(119, 190, 60, 0.25);
+  color: var(--pc-green-deep, #2d6a1f);
+}
+
+.pc-status-warning,
+.imss-badge.reingreso,
+.ni-vsm-badge.pc-status-badge,
+.ni-pesos-badge.pc-status-badge {
+  background: #fffbeb;
+  border-color: rgba(217, 119, 6, 0.22);
+  color: #b45309;
+}
+
+.pc-status-danger,
+.imss-badge.baja {
+  background: #fef2f2;
+  border-color: rgba(220, 38, 38, 0.2);
+  color: #991b1b;
+}
+
+.pc-status-neutral {
+  background: #f1f5f9;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #475569;
+}
+
+.pc-table-shell .ni-vsm-badge,
+.ni-vsm-badge {
+  margin-right: 4px;
+}
+
+.pc-table-shell .imss-badge {
+  border-radius: var(--pc-radius-pill);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pc-table-shell .calc-status,
+.pc-table-shell .vac-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pc-table-shell .calc-status {
+  display: inline-flex;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--pc-radius-pill);
+  background: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #475569;
+}
+
+/* ── E5-7  Empty states en tablas ────────────────────────────── */
+.pc-table-empty,
+.empty-state.pc-table-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 28px 20px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%);
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+}
+
+.pc-table-shell tbody td[colspan],
+.pc-list-panel tbody td[colspan] {
+  text-align: center;
+  padding: 24px 16px !important;
+  color: var(--pc-text-muted);
+  font-size: 0.88rem;
+  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%) !important;
+}
+
+.history-filter-empty {
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--pc-surface-soft);
+}
+
+/* ── E5-8  Notas de auditoría ────────────────────────────────── */
+.pc-audit-note {
+  padding: 10px 12px;
+  border-radius: var(--pc-radius-lg, 10px);
+  border: 1px solid rgba(26, 144, 198, 0.14);
+  background: linear-gradient(165deg, #f0f7fc 0%, #ffffff 100%);
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.pc-audit-note strong {
+  color: var(--pc-text);
+}
+
+/* Facturación: filtros y tabla */
+.fx-filters-panel.pc-filter-bar label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.fx-table-wrap.pc-table-scroll {
+  border-radius: var(--pc-radius-lg, 14px);
+}
+
+.fx-table.pc-density-compact thead th {
+  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+}
+
+@media (max-width: 900px) {
+  .pc-table-toolbar,
+  .pc-filter-bar {
+    padding: 10px 12px;
+  }
+
+  .pc-history-shell,
+  .pc-list-panel {
+    padding: 14px 12px;
+  }
+
+  .pc-table-shell table thead th {
+    position: static;
+  }
+}
+
+/* ============================================================
+   FASE E.6: Visual audit, regressions, safe consolidation
+   ▸ Ajustes finos — NO rollout masivo
+   ============================================================ */
+
+/* ── E6-1  Toolbars anidadas (evitar doble caja) ─────────────── */
+.pc-filter-bar > form.pc-filter-bar,
+.pc-filter-bar > form.pc-table-toolbar,
+.pc-filter-bar.pc-table-toolbar > .vac-filters-grid,
+.vac-card.pc-filter-bar > form,
+.conc-card.pc-filter-bar > form {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vac-card.pc-filter-bar {
+  gap: 12px;
+}
+
+.param-card .param-filters.pc-filter-bar {
+  margin-bottom: 4px;
+}
+
+/* Toolbar dentro de card de filtros INFONAVIT (ya tiene step head) */
+.ni-card--filters.pc-form-card .ni-form-inline.pc-filter-bar {
+  margin-top: 4px;
+}
+
+/* ── E6-2  Scroll + shell en el mismo nodo ───────────────────── */
+.pc-table-scroll.pc-table-shell {
+  display: block;
+  flex-direction: unset;
+  gap: 0;
+  padding: 0;
+}
+
+.pc-table-scroll.pc-table-shell:not(.fx-table-wrap) {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #fff;
+}
+
+.fin-hist-card .fin-hist-table-wrap.pc-table-scroll.pc-table-shell {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fx-table-wrap.pc-table-scroll.pc-table-shell.pc-list-panel {
+  display: block;
+  padding: 0;
+  gap: 0;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #fff;
+}
+
+/* ── E6-3  Jerarquía hero / secciones ────────────────────────── */
+.page-head.pc-hub-hero.pc-form-hero,
+.page-head.pc-hub-hero.pc-history-hero {
+  margin-bottom: 18px;
+}
+
+.page-head.pc-hub-hero + .pc-safe-zone,
+.page-head.pc-hub-hero + .form-card,
+.page-head.pc-hub-hero + .panel,
+.page-head.pc-hub-hero + .calc-wrap,
+.page-head.pc-hub-hero + .vac-wrap,
+.page-head.pc-hub-hero + .ni-wrap,
+.page-head.pc-hub-hero + .param-wrap,
+.page-head.pc-hub-hero + .imss-layout {
+  margin-top: 0;
+}
+
+.checkid-recent-header:not(.pc-hub-hero) {
+  margin-bottom: 2px;
+}
+
+.checkid-recent-header .pc-table-caption {
+  margin-bottom: 4px;
+}
+
+/* Sub-hero interno no debe competir con page-head */
+.pc-history-hero:not(.pc-hub-hero):not(.page-head) {
+  margin-bottom: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+/* ── E6-4  Puentes badges legacy → sistema .pc-status ────────── */
+.vac-badge,
+.calc-chip,
+.em-chip,
+.nd-chip,
+.cmp-client-card strong + small {
+  -webkit-font-smoothing: antialiased;
+}
+
+.pc-table-shell .vac-badge--ok,
+.vac-badge--ok {
+  color: var(--pc-green-deep, #178b54);
+}
+
+.pc-table-shell .vac-badge--warn,
+.vac-badge--warn {
+  color: #92400e;
+}
+
+.pc-table-shell .vac-badge--error,
+.vac-badge--error {
+  color: #991b1b;
+}
+
+.pc-table-shell .calc-chip {
+  border-color: rgba(148, 163, 184, 0.35);
+  color: var(--pc-text);
+  font-weight: 600;
+}
+
+.pc-table-shell .calc-status {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.em-chip.em-chip-pdf {
+  border-color: rgba(26, 144, 198, 0.22);
+  color: var(--pc-blue-deep);
+}
+
+/* ── E6-5  Módulos con prefijos legacy (solo visual) ─────────── */
+.fx-filters-panel.pc-filter-bar select,
+.fx-filters-panel.pc-filter-bar input[type="number"],
+.fx-filters-panel.pc-filter-bar input[type="text"] {
+  min-height: 36px;
+  border-radius: var(--pc-radius-pill);
+}
+
+.nd-table-wrap.pc-table-scroll {
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.cmp-table-wrap.pc-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: #fff;
+}
+
+.cmp-history-tools.pc-table-toolbar {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.nomi-table-wrap.pc-table-scroll {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.imss-right.pc-list-panel-soft {
+  /* alias visual panel derecho exportación IMSS */
+  border-radius: 12px;
+}
+
+/* ── E6-6  Legibilidad y contraste ───────────────────────────── */
+.pc-hub-hero,
+.pc-history-shell,
+.pc-form-shell,
+.pc-table-scroll,
+.auth-card .form-card {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.pc-table-shell table thead th {
+  backdrop-filter: none;
+  color: var(--pc-text);
+}
+
+.pc-filter-bar input,
+.pc-filter-bar select,
+.pc-table-toolbar input,
+.vac-filters-grid input,
+.vac-filters-grid select,
+.param-filters input,
+.param-filters select {
+  color: var(--pc-text);
+}
+
+/* Botones nativos residuales en toolbars */
+.pc-filter-bar button:not(.btn):not(.btn-icon):not(.fx-btn),
+.pc-table-toolbar button:not(.btn):not(.btn-icon):not(.fx-btn) {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: var(--pc-radius-pill);
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pc-filter-bar button:not(.btn):hover,
+.pc-table-toolbar button:not(.btn):hover {
+  border-color: rgba(26, 144, 198, 0.35);
+  background: var(--pc-surface-blue);
+}
+
+/* Gradientes E.x — suavizar apilamiento */
+.pc-import-panel,
+.pc-filter-bar,
+.pc-table-toolbar {
+  background: linear-gradient(118deg, #f4f9fc 0%, #fafcfe 70%, #f9fcf7 100%);
+}
+
+.pc-history-shell,
+.pc-list-panel {
+  background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 14%, #ffffff 100%);
+}
+
+/* ── E6-7  Responsive / overflow ───────────────────────────────── */
+.pc-filter-bar,
+.vac-filters-grid,
+.param-filters,
+.ni-form-inline.pc-filter-bar,
+.fx-filters-panel.pc-filter-bar {
+  max-width: 100%;
+}
+
+.vac-filters-grid {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .pc-form-shell + .pc-form-shell,
+  .pc-list-panel + .pc-list-panel {
+    margin-top: 0;
+  }
+
+  .vac-filter-extras {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .fx-hero.pc-hub-hero .fx-toolbar {
+    width: 100%;
+  }
+}

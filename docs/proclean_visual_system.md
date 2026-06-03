@@ -268,6 +268,9 @@ En migraciones visuales **no modificar**:
 | D.9 | Acciones tabla / erradicar botones grises en celdas |
 | **D.20** | Biblioteca `.pc-*` opt-in + ajustes legacy seguros |
 | **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
+| **E.4** | Formularios, capturas, importación y preflight (`.pc-form-*`, `.pc-import-panel`, action bars) |
+| **E.5** | Historiales, tablas, toolbars, filtros, acciones por fila (`.pc-table-*`, `.pc-history-*`) |
+| **E.6** | Auditoría visual, regresiones, puentes CSS legacy (sin borrado masivo) |
 
 ---
 
@@ -332,8 +335,177 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 | Parámetros | `static/nomina/parametros.css` |
 | Cálculo | `static/nomina/calculo.css` |
 
-**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Exportación IMSS, Users, History global, Login (parcialmente cubierto por auth).
+**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Login (parcial). **Consolidación CSS local → Fase E.6.**
 
 ---
 
-*Última actualización: Fase E.2 — composición premium Finiquitos.*
+## 12. Fase E.4 — Form and capture enrichment
+
+Capa **opt-in** en `static/style.css` (bloque E.4). Objetivo: formularios, importaciones y preflight con composición narrativa (pasos 01–04 **solo visual**), sin tocar motor de cálculo, rutas, `name`/`id`/`value`, ni JS funcional.
+
+### Cuándo usar cada patrón
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Shell de formulario** | `.pc-form-shell`, `.pc-form-shell--flat` | Envolver un `<form>` o panel de captura densa (IMSS movimiento, Check ID consulta, Exámenes, Vitroflex MEMO/CR, workspace Carrier). Aporta padding, sombra suave y gap entre bloques. `--flat` en embeds o paneles que ya tienen borde propio. |
+| **Hero de pantalla** | `.pc-hub-hero`, `.pc-form-hero`, `__main`, `__actions` | Cabecera de módulo con eyebrow, título y acciones (Volver, Importar). Compatible con `.page-head` existente. |
+| **Pasos narrativos** | `.pc-form-step-head`, `.pc-form-step-number` (`--green`, `--amber`), `.pc-form-step-icon`, `.pc-form-step-title`, `.pc-form-step-desc` | Secciones 01 Datos → 02 Archivo → 03 Validación → 04 Acciones. **No reordenar campos** si el backend depende del orden. |
+| **Panel de importación** | `.pc-import-panel`, `.pc-form-section` | Zona de carga Excel/PDF: borde dashed azul, fondo suave. Usar con `.pc-form-actionbar` para el submit. |
+| **Preflight / preview** | `.pc-preflight-panel`, `.pc-warning-soft` | Pantallas previas al cálculo o preview de importación (staging). Avisos sin sustituir lógica de validación. |
+| **Resumen lateral** | `.pc-side-summary` | KPIs o resumen de importación vigente (INFONAVIT paso 01). |
+| **Action bar** | `.pc-form-actionbar`, `--primary`, `.pc-sticky-actions` | Botones finales agrupados (Guardar, Importar, Calcular). Misma `type`, `name` y `action` en los botones. |
+| **Zona segura** | `.pc-safe-zone` | Contenedor de página que agrupa cards sin alterar hijos funcionales. |
+| **Ayudas** | `.pc-form-help`, `.pc-inline-hint`, `.pc-field-note` | Texto de apoyo; no sustituir mensajes de error del backend. |
+
+### Ejemplo mínimo (importación)
+
+```html
+<section class="page-head pc-hub-hero pc-form-hero">...</section>
+<div class="ni-wrap pc-safe-zone">
+  <section class="ni-card pc-import-panel pc-form-section">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number" aria-hidden="true">02</span>
+      <div class="pc-form-step-text">
+        <h3 class="pc-form-step-title">Importar archivo</h3>
+        <p class="pc-form-step-desc">Descripción existente.</p>
+      </div>
+    </header>
+    <form class="pc-form-actionbar" method="post" action="..." enctype="multipart/form-data">
+      <input type="file" name="excel_file" required>
+      <button type="submit" class="btn btn-primary">Importar</button>
+    </form>
+  </section>
+</div>
+```
+
+### Formularios sensibles — prohibido
+
+En pantallas con cálculo, exportación DOCX/PDF, vinculación Headcount o muchos `data-*` controlados por JS:
+
+| Permitido | Prohibido |
+|-----------|-----------|
+| Hero, `.pc-safe-zone`, headers de paso | Cambiar `name`, `id`, `value`, `data-*` |
+| `.pc-form-shell` envolviendo sin mover inputs | Reordenar campos o filas de tabla |
+| `.pc-import-panel` / action bar visual | Cambiar `action`, `method`, `href` funcional, `onclick` |
+| Icon chips SVG inline | Tocar `.py`, rutas Flask, SQLite, JS funcional |
+| Spacing y jerarquía tipográfica | Consolidar CSS local de módulo (salvo mínimo necesario) |
+| Empty states ya presentes en HTML | Historiales profundos, filtros avanzados, acciones por fila (**E.5**) |
+
+### Fuera de alcance E.4 (reservado E.5)
+
+- Historiales con tablas anchas y paginación operativa.
+- Filtros GET complejos sobre listados (solo se permitió encabezado visual en import/revisión, no rediseño de tabla).
+- Acciones por fila, detalles expandibles, toolbars de historial.
+- Limpieza agresiva de CSS por módulo.
+
+### Pantallas referencia E.4
+
+Movimiento/constancia IMSS (`_movimiento_constancia_form.html`), Exportación IMSS index (captura), Check ID (consulta), Exámenes médicos, Parámetros (importaciones), Cálculo index/preflight, INFONAVIT import/revisión (cabeceras), Vacaciones import/preview, Facturación import/form, Carrier paquete/workspace, Vitroflex MEMO/CR.
+
+---
+
+## 13. Fase E.5 — History, table and listing enrichment
+
+Capa **opt-in** en `static/style.css` (bloque E.5). Aplica a historiales, listados operativos y tablas densas **sin** alterar columnas, query params, POST/GET ni JS funcional.
+
+### Cuándo usar cada patrón
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Shell de historial** | `.pc-history-shell`, `.pc-list-panel` | Página o sección dedicada a historial (Movimientos IMSS, Finiquitos, Check ID recientes, Carrier Cursos, Exámenes). Envuelve toolbar + tabla + empty state. |
+| **Hero de historial** | `.pc-history-hero`, `.pc-hub-hero` | Cabecera con eyebrow, título y acciones «Volver». |
+| **Shell de tabla** | `.pc-table-shell` | Card/sección que contiene una tabla operativa (Parámetros, INFONAVIT avisos, Vacaciones, Cálculo, Facturación). |
+| **Toolbar / filtros** | `.pc-table-toolbar`, `.pc-filter-bar` | Barra de búsqueda client-side (`.history-toolbar`) o formulario GET de filtros (`.param-filters`, `.vac-filters-grid`, `.fx-filters-panel`, `.hc-filters`). **No** añadir campos ni cambiar `name`. |
+| **Búsqueda** | `.pc-search-box` (clase extra en `input`, sin cambiar `id`) | Inputs `#hist-search`, `.history-search-input` cuando el `id` lo exige el JS. |
+| **Scroll** | `.pc-table-scroll` | Contenedor con overflow horizontal (`.table-wrap`, `.param-table-wrap`, `.fx-table-wrap`, `.ni-table-wrap`, etc.). |
+| **Densidad** | `.pc-density-compact` | Tablas con muchas columnas (Check ID, Parámetros, Vacaciones). |
+| **Caption / meta** | `.pc-table-caption`, `.pc-table-meta` | Título de bloque tabla y nota secundaria. |
+| **Acciones por fila** | `.pc-row-actions` en `.actions-cell` | Agrupa `.btn-icon` y formularios inline sin cambiar `action` ni botones. |
+| **Badges de estado** | `.pc-status-badge`, `--success`, `--warning`, `--danger`, `--neutral` | Texto de estado ya presente (p. ej. badges INFONAVIT, `.imss-badge`). Complementa, no sustituye clases módulo si el JS las usa. |
+| **Empty state** | `.pc-table-empty` | Mensaje sin filas en HTML o `#fin_hist_empty`. Filas `colspan` vacías se estilan vía `.pc-table-shell tbody td[colspan]`. |
+| **Nota auditoría** | `.pc-audit-note` | Avisos bajo tabla o en bandejas de revisión. |
+
+### Ejemplo — historial con búsqueda
+
+```html
+<section class="page-head pc-hub-hero pc-history-hero">...</section>
+<section class="panel pc-history-shell pc-list-panel">
+  <div class="history-toolbar pc-table-toolbar pc-filter-bar">
+    <label>Buscar <input type="search" class="history-search-input" id="history-search"></label>
+  </div>
+  <div class="table-wrap pc-table-scroll pc-table-shell pc-density-compact">
+    <table>...</table>
+  </div>
+  <p class="empty-state pc-table-empty" hidden>Sin registros.</p>
+</section>
+```
+
+### Tablas sensibles — prohibido
+
+| Permitido | Prohibido |
+|-----------|-----------|
+| Wrappers, toolbar visual, scroll, badges decorativos | Cambiar columnas u orden |
+| `.pc-row-actions` en celdas existentes | Cambiar `href`, `action`, `method`, query params |
+| Clases en contenedor scroll | Reordenar filas o celdas |
+| Empty state en nodos ya usados por Jinja/JS | Tocar JS funcional, paginación, filtros nuevos |
+| `pc-search-box` además de `id` requerido | Cambiar permisos `{% if %}` por rol |
+
+### Fuera de alcance E.5 (reservado E.6)
+
+- Consolidación agresiva de CSS por módulo.
+- Refactor de nombres de clases legacy.
+- Comparativo / visualizadores con JS muy acoplado (solo si no hay riesgo).
+- `_asistencia_hub_visualizer.html` (solo wrapper mínimo en contenedor si aplica).
+
+### Pantallas referencia E.5
+
+`history.html`, `finiquitos/historial.html`, `checkid.html` (recientes), `carrier/cursos_historial.html`, `examenes_medicos_historial.html`, `headcount/historial_sua.html`, `_headcount_cliente_table.html`, `_sua_historial.html`, `nomina/parametros_index.html`, `parametros_conciliacion.html`, `infonavit_index.html`, `vacaciones_index.html`, `calculo_index.html`, `calculo_view.html`, `dashboard.html` (historial imports), `exportacion_imss/index.html` (historial exportaciones), `facturacion_*` listados, `users.html`, Vitroflex tablas trabajadores (wrapper).
+
+---
+
+## 14. Fase E.6 — Visual audit and safe consolidation
+
+Fase de **corrección fina**, no de expansión. Objetivo: consistencia entre capas E.1–E.5 y CSS local de módulos, sin refactor global ni borrado de clases legacy.
+
+### Qué se corrigió (patrones)
+
+| Área | Acción |
+|------|--------|
+| Toolbars anidadas | CSS E.6 anula padding/borde del `<form>` hijo cuando el padre ya es `.pc-filter-bar` (Vacaciones, Conciliación). |
+| Shell + card módulo | Reglas para `.panel.pc-history-shell`, `.fin-hist-card.pc-history-shell` — una sola sombra/borde dominante. |
+| Scroll + shell | `.pc-table-scroll.pc-table-shell` en el mismo nodo: un solo borde visible. |
+| Sub-hero interno | No usar `.pc-history-hero` en cabeceras dentro de cards (p. ej. Check ID recientes). |
+| Badges legacy | Puentes en `style.css` para `.vac-badge`, `.calc-chip`, `.calc-status`, `.em-chip` dentro de `.pc-table-shell`. |
+| Legibilidad | `-webkit-font-smoothing: antialiased` en bloques `.pc-*`; thead sin `backdrop-filter` borroso. |
+
+### Consolidación conservadora
+
+- **Se mantiene** CSS local: `finiquitos.css`, `nomina/*.css`, `carrier.css`, `facturacion.css`, inline Comparativo/Exportación IMSS.
+- **Se añadió** puente en `finiquitos.css` para historial + clases `.pc-*`.
+- **No se eliminaron** clases `.vac-badge`, `.nd-*`, `.fx-*`, `.nom-hub-*`, `.calc-*`, `.hc-*`.
+
+### Excepciones permanentes (solo wrapper o sin tocar)
+
+| Pantalla | Motivo |
+|----------|--------|
+| `nomina/_asistencia_hub_visualizer.html` | Tabla y filtros 100 % JS (`nomi-fbtn`, columnas dinámicas). Solo `.pc-table-scroll` en contenedor. |
+| `exportacion_imss/index.html` (panel izquierdo + listas movimientos) | Estado y render JS; panel derecho: clase suave `.pc-list-panel-soft`. |
+| `comparativo/index.html` | Layout propio inline + JS; hero + scroll en tablas/historial. |
+| `comparativo/reporte_mensual.html` | No auditado en E.6 (mismo riesgo que comparativo). |
+| Cálculo view / preflight motor | Formularios con inputs ocultos y POST sensibles — sin reestructura. |
+| Login | `auth-card` legacy; botones ya usan `.btn-primary`. |
+
+### Reglas para cambios futuros
+
+1. Un **hero** por pantalla (`.pc-hub-hero` en `page-head`); subtítulos de sección con `.pc-table-caption`.
+2. **Toolbar**: o el contenedor `.pc-filter-bar` o el `<form>`, no ambos con caja completa.
+3. Antes de borrar CSS local, comprobar uso en templates y JS.
+4. Preferir **puente** en `style.css` E.6 antes de renombrar HTML.
+
+### QA mínimo pre-deploy
+
+Ver checklist al final de la entrega del agente o repetir recorrido sidebar: Dashboard admin, Home, Nómina hub/dashboard, Finiquitos + historial, IMSS + historial, Check ID, Headcount, Facturación, Carrier, Vitroflex, Exámenes, INFONAVIT, Vacaciones, Parámetros, Cálculo, Usuarios, Exportación IMSS.
+
+---
+
+*Última actualización: Fase E.6 — visual audit and safe consolidation.*

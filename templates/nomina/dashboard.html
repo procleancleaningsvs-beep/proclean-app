@@ -682,7 +682,7 @@
     </div>
     <div class="nd-body">
       <p class="nd-hint" style="margin-bottom:.65rem;">Importaciones de asistencia. Los registros archivados por administrador dejan de mostrarse aquí (soft delete).</p>
-      <div class="nd-table-wrap">
+      <div class="nd-table-wrap pc-table-scroll pc-table-shell pc-density-compact">
         <table class="nd-table" id="nd-historial-imports">
           <thead>
             <tr>
@@ -707,7 +707,7 @@
               <td>{{ item.warning_count }}</td>
               <td>{{ item.created_at }}</td>
               <td>
-                <div class="nd-act actions-cell actions-cell--nowrap">
+                <div class="nd-act actions-cell actions-cell--nowrap pc-row-actions">
                   {{ icon_link('folder-open', 'Abrir importación', url_for('nomina.master_hub', import_id=item.id)) }}
                   {% if current_user and current_user.role == 'admin' %}
                   {{ icon_button('trash-2', 'Eliminar importación del historial', 'danger', class='js-nd-archivar', extra_attrs='data-id="' ~ item.id ~ '" data-semana="' ~ (item.semana | e) ~ '" data-cliente="' ~ (item.cliente | e) ~ '" data-coordinador="' ~ (item.coordinador | e) ~ '" data-total="' ~ item.total_rows ~ '" data-creado="' ~ (item.created_at | e) ~ '" data-url="' ~ url_for('nomina.dashboard_archivar_asistencia_import', import_id=item.id) ~ '"') }}

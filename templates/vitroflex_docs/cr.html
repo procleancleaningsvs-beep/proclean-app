@@ -3,19 +3,28 @@
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head vf-page-head">
-  <div>
-    <span class="eyebrow">Vitroflex</span>
-    <h2>CR mensual</h2>
-    <p>El PDF replica la plantilla Word oficial (CR MENSUAL FORMATO.docx). El marcador {% raw %}{{PLANTA}}{% endraw %} se sustituye en mayúsculas en todo el documento.</p>
+<section class="page-head vf-page-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Vitroflex</span>
+    <h2 class="pc-page-title">CR mensual</h2>
+    <p class="pc-page-subtitle">El PDF replica la plantilla Word oficial (CR MENSUAL FORMATO.docx). El marcador {% raw %}{{PLANTA}}{% endraw %} se sustituye en mayúsculas en todo el documento.</p>
   </div>
-  <a href="{{ url_for('vitroflex.memo_mensual') }}" class="btn btn-secondary">Ir a MEMO mensual</a>
+  <div class="pc-hub-hero__actions">
+    <a href="{{ url_for('vitroflex.memo_mensual') }}" class="btn btn-secondary">Ir a MEMO mensual</a>
+  </div>
 </section>
 
 <div id="vf-status-banner" class="flash flash-error vf-status-banner" hidden></div>
 
-<section class="panel vf-panel">
-  <h3 class="panel-title">Datos generales</h3>
+<section class="panel vf-panel pc-form-shell">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number" aria-hidden="true">01</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Datos generales</h3>
+      <p class="pc-form-step-desc">Municipio, planta y fechas del CR mensual.</p>
+    </div>
+  </header>
   <div class="vf-grid vf-grid-2">
     <div class="vf-grid vf-fecha-block">
       <label>Municipio
@@ -70,7 +79,7 @@
     <button type="button" class="btn btn-primary" id="vf-preview">Vista previa (PDF)</button>
   </div>
 
-  <div class="vf-table-wrap">
+  <div class="vf-table-wrap pc-table-scroll pc-table-shell pc-density-compact">
     <table class="vf-table" id="vf-workers">
       <thead>
         <tr>

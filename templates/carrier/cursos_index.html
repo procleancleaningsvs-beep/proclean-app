@@ -9,13 +9,13 @@
 <script defer src="{{ url_for('static', filename='carrier_cursos.js') }}"></script>
 {% endblock %}
 {% block content %}
-<section class="page-head carrier-page-head carrier-cursos-head">
-  <div>
-    <span class="eyebrow">Carrier</span>
-    <h2>Cursos — expedientes</h2>
-    <p>Paquete mensual base (SIPARE / cédula + Pago IMSS), constancia IMSS (Alta), anexos y un solo PDF de salida.</p>
+<section class="page-head carrier-page-head carrier-cursos-head pc-hub-hero pc-form-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Carrier</span>
+    <h2 class="pc-page-title">Cursos — expedientes</h2>
+    <p class="pc-page-subtitle">Paquete mensual base (SIPARE / cédula + Pago IMSS), constancia IMSS (Alta), anexos y un solo PDF de salida.</p>
   </div>
-  <div class="page-head-actions">
+  <div class="page-head-actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.historial_exportaciones') }}">Historial de Cursos</a>
   </div>
 </section>
@@ -42,8 +42,8 @@
 </section>
 
 {% if workspace is none %}
-<section class="panel carrier-intro-panel">
-  <p class="helper">Abre o crea un expediente para cargar la constancia IMSS, anexos y exportar el PDF. El <strong>mes base</strong> del expediente nuevo es siempre el <strong>paquete vigente</strong> (regla operativa día 17 hábil).</p>
+<section class="panel carrier-intro-panel pc-form-card pc-form-card--soft-blue">
+  <p class="helper pc-inline-hint">Abre o crea un expediente para cargar la constancia IMSS, anexos y exportar el PDF. El <strong>mes base</strong> del expediente nuevo es siempre el <strong>paquete vigente</strong> (regla operativa día 17 hábil).</p>
 </section>
 {% endif %}
 
@@ -53,10 +53,17 @@
 </div>
 {% endif %}
 
-<section class="panel carrier-paquete-panel">
+<section class="panel carrier-paquete-panel pc-form-shell">
+  <header class="pc-form-step-head">
+    <span class="pc-form-step-number" aria-hidden="true">01</span>
+    <span class="pc-icon-chip pc-icon-chip--blue pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/></svg></span>
+    <div class="pc-form-step-text">
+      <h3 class="pc-form-step-title">Paquete mensual base</h3>
+      <p class="pc-form-step-desc">Consulta, reemplazo y expediente del paquete vigente.</p>
+    </div>
+  </header>
+  {% if is_admin and all_bases is not none %}
   <div class="panel-head">
-    <h3>Paquete mensual base</h3>
-    {% if is_admin and all_bases is not none %}
     <form method="get" class="carrier-admin-mes-form">
       <label class="carrier-inline-label">Consultar / administrar mes
         <select name="mes" onchange="this.form.submit()">
@@ -69,8 +76,8 @@
         </select>
       </label>
     </form>
-    {% endif %}
   </div>
+  {% endif %}
 
   <p class="helper">
     <strong>Paquete vigente</strong> (mes de pago utilizable por defecto): <code>{{ operational_ym }}</code> ({{ operational_label }}).

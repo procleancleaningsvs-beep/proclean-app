@@ -1,6 +1,6 @@
 {% from '_icon_button.html' import icon_link, icon_button %}
-<section id="historial" class="hc-historial-section">
-  <h3>Historial de auditorías SUA</h3>
+<section id="historial" class="hc-historial-section pc-history-shell pc-list-panel">
+  <h3 class="pc-table-caption">Historial de auditorías SUA</h3>
   <p class="hc-historial-lead">Consulta, exporta o elimina auditorías guardadas.</p>
 
   <form class="hc-filters" method="get" action="{{ url_for('headcount.auditoria_sua') }}#historial">
@@ -16,7 +16,7 @@
     <div><button type="submit" class="btn btn-primary btn-sm">Filtrar</button></div>
   </form>
 
-  <div class="hc-table-wrap hc-table-panel">
+  <div class="hc-table-wrap hc-table-panel pc-table-scroll pc-table-shell pc-density-compact">
     <table class="hc-table history-table">
       <thead>
         <tr>
@@ -44,7 +44,7 @@
           <td>{{ row.activos_corte if row.activos_corte is not none else '—' }}</td>
           <td>{{ row.bajas_periodo if row.bajas_periodo is not none else '—' }}</td>
           <td>{{ row.total_warnings }}</td>
-          <td class="hc-historial-actions actions-cell actions-cell--nowrap">
+          <td class="hc-historial-actions actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('eye', 'Ver auditoría', url_for('headcount.auditoria_sua_resultado', audit_id=row.audit_id)) }}
             {{ icon_link('download', 'Exportar Excel', url_for('headcount.auditoria_sua_exportar_excel', audit_id=row.audit_id), variant='success') }}
             {% if can_delete %}
