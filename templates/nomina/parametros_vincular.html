@@ -1,95 +1,102 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<div class="param-vincular">
+<section class="page-head param-page-head">
   <div>
     <span class="eyebrow">Nóminas · Parámetros</span>
     <h2>{% if mode == 'corregir' %}Corregir vínculo{% else %}Vincular con Headcount{% endif %}</h2>
     <p>Registro: <strong>{{ row.nombre or '—' }}</strong> · NSS: {{ row.nss or '—' }}</p>
     {% if vinculo_actual %}
-    <p style="color:#64748b;font-size:.9rem;">Vínculo actual: NSS <strong>{{ vinculo_actual }}</strong></p>
+    <p class="param-meta-muted">Vínculo actual: NSS <strong>{{ vinculo_actual }}</strong></p>
     {% endif %}
   </div>
   <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja</a>
 </section>
 
 {% if headcount_match_error %}
-<section style="background:#fffbeb;border:1px solid #fbbf24;border-radius:12px;padding:1rem;margin-bottom:1rem;">
-  <p style="margin:0;color:#92400e;">Headcount no disponible: {{ headcount_match_error }}</p>
+<section class="param-alert">
+  <p>Headcount no disponible: {{ headcount_match_error }}</p>
 </section>
 {% else %}
 
 {% if suggestions %}
-<section style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;margin-bottom:1rem;">
-  <h3 style="margin-top:0;">Sugerencias automáticas</h3>
-  <table style="width:100%;border-collapse:collapse;">
-    <thead><tr><th>Nombre</th><th>NSS</th><th>Cliente</th><th>Planta</th><th>Confianza</th><th>Razón</th><th></th></tr></thead>
-    <tbody>
-      {% for s in suggestions %}
-      <tr>
-        <td>{{ s.nombre_completo }}</td>
-        <td>{{ s.nss or '—' }}</td>
-        <td>{{ s.cliente or '—' }}</td>
-        <td>{{ s.planta or '—' }}</td>
-        <td>{{ s.etiqueta }}</td>
-        <td>{{ s.razones|join(', ') }}</td>
-        <td>
-          <form method="POST" style="display:inline;">
-            <input type="hidden" name="mode" value="{{ mode }}" />
-            <input type="hidden" name="headcount_nss" value="{{ s.nss }}" />
-            <button class="btn btn-secondary" type="submit" {% if s.etiqueta == 'Baja' %}disabled title="Revisar manualmente"{% endif %}>Vincular</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
+<section class="param-vincular-card">
+  <h3>Sugerencias automáticas</h3>
+  <div class="param-vincular-table-wrap">
+    <table class="param-vincular-table">
+      <thead><tr><th>Nombre</th><th>NSS</th><th>Cliente</th><th>Planta</th><th>Confianza</th><th>Razón</th><th></th></tr></thead>
+      <tbody>
+        {% for s in suggestions %}
+        <tr>
+          <td>{{ s.nombre_completo }}</td>
+          <td>{{ s.nss or '—' }}</td>
+          <td>{{ s.cliente or '—' }}</td>
+          <td>{{ s.planta or '—' }}</td>
+          <td>{{ s.etiqueta }}</td>
+          <td>{{ s.razones|join(', ') }}</td>
+          <td>
+            <form method="POST" class="inline-form">
+              <input type="hidden" name="mode" value="{{ mode }}" />
+              <input type="hidden" name="headcount_nss" value="{{ s.nss }}" />
+              <button class="btn btn-secondary" type="submit" {% if s.etiqueta == 'Baja' %}disabled title="Revisar manualmente"{% endif %}>Vincular</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% endif %}
 
-<form method="GET" style="display:flex;gap:.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+<form method="GET" class="param-search-form">
   <input type="hidden" name="mode" value="{{ mode }}" />
-  <input type="text" name="q" value="{{ query }}" placeholder="Buscar por nombre, NSS, cliente, planta…" style="padding:.45rem;border:1px solid #cbd5e1;border-radius:8px;min-width:260px;" />
+  <input type="text" name="q" value="{{ query }}" placeholder="Buscar por nombre, NSS, cliente, planta…" />
   <button class="btn btn-secondary" type="submit">Buscar</button>
 </form>
 
 <form method="POST">
   <input type="hidden" name="q" value="{{ query }}" />
   <input type="hidden" name="mode" value="{{ mode }}" />
-  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:auto;">
-    <table style="width:100%;border-collapse:collapse;">
+  <div class="param-vincular-table-wrap">
+    <table class="param-vincular-table">
       <thead>
-        <tr style="background:#f8fafc;">
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;"></th>
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Nombre</th>
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">NSS</th>
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Cliente</th>
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Planta/Patrón</th>
-          <th style="padding:.5rem;text-align:left;border-bottom:1px solid #e5e7eb;">Puesto</th>
+        <tr>
+          <th></th>
+          <th>Nombre</th>
+          <th>NSS</th>
+          <th>Cliente</th>
+          <th>Planta/Patrón</th>
+          <th>Puesto</th>
         </tr>
       </thead>
       <tbody>
         {% for hc in candidates %}
         <tr>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">
+          <td>
             <input type="radio" name="headcount_nss" value="{{ hc.nss }}" required />
           </td>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.nombre_completo }}</td>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.nss or '—' }}</td>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.cliente or '—' }}</td>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.patron or '—' }}</td>
-          <td style="padding:.45rem;border-bottom:1px solid #e5e7eb;">{{ hc.puesto or '—' }}</td>
+          <td>{{ hc.nombre_completo }}</td>
+          <td>{{ hc.nss or '—' }}</td>
+          <td>{{ hc.cliente or '—' }}</td>
+          <td>{{ hc.patron or '—' }}</td>
+          <td>{{ hc.puesto or '—' }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" style="padding:.75rem;">Sin candidatos. Ajusta la búsqueda.</td></tr>
+        <tr><td colspan="6">Sin candidatos. Ajusta la búsqueda.</td></tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
   {% if candidates %}
-  <div style="margin-top:.75rem;">
+  <div class="param-vincular-foot">
     <button class="btn btn-primary" type="submit">{% if mode == 'corregir' %}Guardar corrección de vínculo{% else %}Guardar vínculo permanente{% endif %}</button>
   </div>
   {% endif %}
 </form>
 {% endif %}
+</div>
 {% endblock %}

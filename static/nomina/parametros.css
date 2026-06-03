@@ -1,0 +1,723 @@
+/* ==============================================================
+   ProClean — Nóminas: Parámetros — Visual Premium
+   Fase D.18 | Solo visual | Sin importaciones, salarios ni lógica
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.param-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.param-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.param-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.param-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.param-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.param-page-head__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.param-wrap .btn,
+.param-page-head .btn,
+.conc-wrap .btn,
+.pe-wrap .btn,
+.det-grid + .param-page-head .btn,
+.param-depurar .btn,
+.param-vincular .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 2. Layout / cards ─────────────────────────────────────────── */
+
+.param-wrap,
+.conc-wrap {
+  display: grid;
+  gap: 1rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.param-card,
+.conc-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.param-card h3,
+.conc-card h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.param-card--import {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+.param-card--table {
+  border-top-color: var(--pc-green-deep, #178B54);
+}
+
+.param-card--danger {
+  border-top-color: #dc2626;
+  background: #fff5f5;
+  border-color: #fca5a5;
+}
+
+.param-card--danger h3 {
+  color: #991b1b;
+}
+
+.param-help {
+  color: var(--pc-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0 0 0.5rem;
+}
+
+.param-help--warn {
+  color: #991b1b;
+  margin-top: 0;
+}
+
+.param-help--legacy {
+  color: #991b1b;
+  margin-top: 0;
+}
+
+.param-import-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.param-import-form details {
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+}
+
+.param-import-form details summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.param-import-form input[type="file"] {
+  font-size: 0.88rem;
+}
+
+.param-imports-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+/* Headcount notice variants */
+.param-hc-notice {
+  border-top-width: 3px;
+}
+
+.param-hc-notice--invalid {
+  border-color: #f87171;
+  background: #fef2f2;
+  border-top-color: #dc2626;
+}
+
+.param-hc-notice--invalid .param-hc-notice__title {
+  color: #991b1b;
+}
+
+.param-hc-notice--missing,
+.param-hc-notice--stale {
+  border-color: #fde68a;
+  background: #fffbeb;
+  border-top-color: #f59e0b;
+}
+
+.param-hc-notice--missing .param-hc-notice__title,
+.param-hc-notice--stale .param-hc-notice__title {
+  color: #92400e;
+}
+
+.param-hc-notice__title {
+  margin-top: 0;
+  color: var(--pc-text-muted);
+  font-weight: 700;
+}
+
+.param-hc-notice__sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.88rem;
+  color: #57534e;
+}
+
+.param-hc-notice p {
+  margin: 0.25rem 0;
+  font-size: 0.92rem;
+  color: var(--pc-text);
+}
+
+/* ── 3. KPIs ───────────────────────────────────────────────────── */
+
+.param-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+}
+
+.param-kpi {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0.55rem 0.65rem;
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.param-kpi span {
+  display: block;
+  color: var(--pc-text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 0.1rem;
+}
+
+.param-kpi strong {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.param-kpi-secondary {
+  background: var(--pc-surface);
+  border-style: dashed;
+  border-left-color: var(--pc-border);
+}
+
+/* ── 4. Filtros ────────────────────────────────────────────────── */
+
+.param-filters,
+.conc-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-end;
+  margin-bottom: 0.6rem;
+}
+
+.param-filters label,
+.conc-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.param-filters input,
+.param-filters select,
+.conc-filters input,
+.conc-filters select {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  font-size: 0.86rem;
+}
+
+.param-filters label:has(input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+/* ── 5. Tablas ───────────────────────────────────────────────────── */
+
+.param-table-wrap,
+.conc-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  -webkit-overflow-scrolling: touch;
+  background: var(--pc-surface);
+}
+
+.conc-card > .conc-table-wrap,
+.conc-card > div:has(.conc-table) {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.param-table,
+.conc-table,
+.param-vincular-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 900px;
+  font-size: 0.85rem;
+}
+
+.param-table {
+  min-width: 1500px;
+}
+
+.conc-table {
+  min-width: 1200px;
+}
+
+.param-table th,
+.param-table td,
+.conc-table th,
+.conc-table td,
+.param-vincular-table th,
+.param-vincular-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  color: var(--pc-text);
+}
+
+.param-table thead th,
+.conc-table thead th,
+.param-vincular-table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  white-space: nowrap;
+}
+
+.param-table tbody tr,
+.conc-table tbody tr,
+.param-vincular-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.param-table tbody tr:hover td,
+.conc-table tbody tr:hover td,
+.param-vincular-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.row-external {
+  background: #fff7ed;
+}
+
+.row-external:hover td {
+  background: #ffedd5 !important;
+}
+
+/* ── 6. Match badges / tags ────────────────────────────────────── */
+
+.match-badge {
+  display: inline-flex;
+  padding: 0.12rem 0.42rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.match-exact_nss,
+.match-headcount_canonical,
+.match-manual_link {
+  background: var(--pc-surface-green);
+  color: var(--pc-green-deep);
+  border-color: rgba(32, 168, 102, 0.2);
+}
+
+.match-exact_name {
+  background: var(--pc-surface-blue);
+  color: var(--pc-blue);
+  border-color: rgba(26, 119, 198, 0.2);
+}
+
+.match-probable_match,
+.match-multiple_candidates {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.match-no_match_headcount,
+.match-no_match_contpaq {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.match-pending_headcount_unavailable {
+  background: #fef9c3;
+  color: #854d0e;
+}
+
+.match-imported {
+  background: var(--pc-surface-blue);
+  color: #075985;
+}
+
+.warn-list {
+  margin: 0.2rem 0 0;
+  padding-left: 1rem;
+  color: #92400e;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.frontera-yes {
+  color: var(--pc-blue);
+  font-weight: 700;
+}
+
+.frontera-no {
+  color: var(--pc-text-muted);
+  font-weight: 600;
+}
+
+.param-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-left: 0.25rem;
+}
+
+.param-tag--external {
+  color: #c2410c;
+}
+
+.param-tag--legacy {
+  color: #991b1b;
+}
+
+/* Conciliación estado */
+.estado-badge {
+  display: inline-flex;
+  padding: 0.12rem 0.45rem;
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--pc-surface-soft);
+  color: var(--pc-text);
+  border: 1px solid var(--pc-border);
+}
+
+/* ── 7. Edición (pe-*) ─────────────────────────────────────────── */
+
+.pe-wrap {
+  display: grid;
+  gap: 1rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.pe-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.pe-card h3 {
+  margin: 0 0 0.65rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.pe-card--form {
+  border-top-color: var(--pc-green, #20A866);
+  display: grid;
+  gap: 0.6rem;
+}
+
+.pe-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.pe-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--pc-text);
+}
+
+.pe-grid input,
+.pe-grid select,
+.pe-grid textarea {
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+}
+
+.pe-readonly {
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  padding: 0.6rem 0.8rem;
+  color: var(--pc-text);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.pe-warns {
+  color: #92400e;
+  margin-top: 0.6rem;
+  padding-left: 1.1rem;
+}
+
+.pe-warns li {
+  margin: 0.2rem 0;
+}
+
+/* ── 8. Detalle conciliación (det-*) ───────────────────────────── */
+
+.det-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.det-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  box-shadow: var(--pc-shadow-soft);
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.det-card h3,
+.det-card h4 {
+  margin-top: 0;
+  font-weight: 700;
+  color: var(--pc-text);
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid var(--pc-border);
+  margin-bottom: 0.5rem;
+}
+
+.det-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 0.9rem;
+}
+
+.det-row span:first-child {
+  color: var(--pc-text-muted);
+  font-weight: 600;
+  font-size: 0.82rem;
+}
+
+.det-warn {
+  color: #92400e;
+  font-size: 0.85rem;
+}
+
+.det-ignored {
+  color: var(--pc-text-muted);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* ── 9. Vincular ───────────────────────────────────────────────── */
+
+.param-vincular {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.param-alert {
+  background: #fffbeb;
+  border: 1px solid #fbbf24;
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  border-left: 3px solid #f59e0b;
+}
+
+.param-alert p {
+  margin: 0;
+  color: #92400e;
+}
+
+.param-vincular-card {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 1rem 1.15rem;
+  margin-bottom: 1rem;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.param-vincular-card h3 {
+  margin-top: 0;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.param-search-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.param-search-form input[type="text"] {
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  min-width: 260px;
+  flex: 1;
+  font-size: 0.88rem;
+}
+
+.param-vincular-table-wrap {
+  background: var(--pc-surface);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  overflow: auto;
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.param-vincular-foot {
+  margin-top: 0.75rem;
+}
+
+.param-meta-muted {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+}
+
+/* ── 10. Depurar ───────────────────────────────────────────────── */
+
+.param-depurar {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.param-depurar-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.param-depurar-preview ul {
+  margin: 0.5rem 0;
+  line-height: 1.6;
+  color: var(--pc-text);
+}
+
+.param-pagination {
+  margin: 0.75rem 0 0;
+  font-size: 0.88rem;
+  color: var(--pc-text-muted);
+}
+
+.param-pagination a {
+  color: var(--pc-blue);
+  font-weight: 600;
+}
+
+/* ── 11. Responsive ──────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .param-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .param-imports-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .det-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .pe-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .param-page-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .param-kpis {
+    grid-template-columns: 1fr;
+  }
+}

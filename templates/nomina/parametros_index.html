@@ -1,46 +1,16 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
-<style>
-.param-wrap { display:grid; gap:1rem; }
-.param-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.param-kpis { display:grid; grid-template-columns:repeat(4,1fr); gap:.6rem; }
-.param-kpi { background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:.55rem; }
-.param-kpi span { display:block; color:#64748b; font-size:.83rem; }
-.param-kpi strong { font-size:1.05rem; }
-.param-kpi-secondary { background:#fff; border-style:dashed; }
-.param-imports-grid { display:grid; grid-template-columns:1fr 1fr; gap:1rem; }
-.param-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:end; }
-.param-filters input, .param-filters select { padding:.4rem; border:1px solid #cbd5e1; border-radius:8px; }
-.param-table { width:100%; border-collapse:collapse; min-width:1500px; }
-.param-table th, .param-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.85rem; }
-.param-table tbody tr:hover { background:#f8fafc; }
-.param-table-wrap { overflow:auto; }
-.match-badge { display:inline-block; padding:.1rem .4rem; border-radius:6px; font-size:.75rem; font-weight:600; }
-.match-exact_nss { background:#dcfce7; color:#166534; }
-.match-exact_name { background:#dbeafe; color:#1e40af; }
-.match-probable_match { background:#fef3c7; color:#92400e; }
-.match-multiple_candidates { background:#fde68a; color:#7c2d12; }
-.match-no_match_headcount, .match-no_match_contpaq { background:#fee2e2; color:#991b1b; }
-.match-pending_headcount_unavailable { background:#fef9c3; color:#854d0e; }
-.match-imported { background:#e0f2fe; color:#075985; }
-.match-manual_link, .match-headcount_canonical { background:#dcfce7; color:#166534; }
-.row-external { background:#fff7ed; }
-.row-canonical { }
-.warn-list { margin:.2rem 0 0; padding-left:1rem; color:#92400e; font-size:.78rem; }
-.frontera-yes { color:#1e40af; font-weight:600; }
-.frontera-no { color:#475569; }
-@media (max-width: 1100px) { .param-kpis { grid-template-columns:1fr 1fr; } .param-imports-grid { grid-template-columns:1fr; } }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head param-page-head">
   <div>
     <span class="eyebrow">Nóminas</span>
     <h2>Parámetros base de empleados</h2>
     <p>Consolidado canónico desde Headcount activo, enriquecido con Nómina actual y CONTPAQ.</p>
   </div>
-  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+  <div class="param-page-head__actions">
     <a class="btn btn-primary" href="{{ url_for('nomina.parametros_conciliacion') }}">Bandeja de conciliación</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
       <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
@@ -52,21 +22,21 @@
 
 <div class="param-wrap">
   {% if headcount_notice %}
-  <section class="param-card" style="border-color:{% if snapshot_invalid %}#f87171{% elif snapshot_missing %}#f59e0b{% elif headcount_refreshing or headcount_stale %}#fde68a{% else %}#e5e7eb{% endif %};background:{% if snapshot_invalid %}#fef2f2{% elif snapshot_missing %}#fffbeb{% elif headcount_refreshing or headcount_stale %}#fffbeb{% else %}#f8fafc{% endif %};">
-    <h3 style="margin-top:0;{% if snapshot_invalid %}color:#991b1b;{% elif snapshot_missing %}color:#92400e;{% elif headcount_refreshing or headcount_stale %}color:#92400e;{% else %}color:#475569;{% endif %}">Headcount</h3>
-    <p style="margin:.25rem 0;font-size:.92rem;">{{ headcount_notice }}</p>
+  <section class="param-card param-hc-notice{% if snapshot_invalid %} param-hc-notice--invalid{% elif snapshot_missing %} param-hc-notice--missing{% elif headcount_refreshing or headcount_stale %} param-hc-notice--stale{% endif %}">
+    <h3 class="param-hc-notice__title">Headcount</h3>
+    <p>{{ headcount_notice }}</p>
     {% if snapshot_invalid %}
-    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
+    <p class="param-hc-notice__sub">
       La copia local no es confiable. Presione Reconstruir Headcount para descargar y validar de nuevo.
     </p>
     {% elif snapshot_missing %}
-    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">
+    <p class="param-hc-notice__sub">
       Puede revisar parámetros importados en la tabla mientras se genera la primera copia local.
     </p>
     {% elif headcount_refreshing %}
-    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
+    <p class="param-hc-notice__sub">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
     {% elif headcount_stale %}
-    <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Hay una actualización pendiente.</p>
+    <p class="param-hc-notice__sub">Hay una actualización pendiente.</p>
     {% endif %}
   </section>
   {% endif %}
@@ -92,26 +62,26 @@
   </section>
 
   <section class="param-imports-grid">
-    <div class="param-card">
+    <div class="param-card param-card--import">
       <h3>Importar nómina actual</h3>
-      <p style="color:#64748b;font-size:.88rem;">El cliente se detecta automáticamente desde columna, hoja o nombre de archivo (Carrier, Pepsi, GEPP, Auriga…).</p>
-      <form method="POST" action="{{ url_for('nomina.parametros_importar_nomina') }}" enctype="multipart/form-data" style="display:grid;gap:.5rem;">
+      <p class="param-help">El cliente se detecta automáticamente desde columna, hoja o nombre de archivo (Carrier, Pepsi, GEPP, Auriga…).</p>
+      <form class="param-import-form" method="POST" action="{{ url_for('nomina.parametros_importar_nomina') }}" enctype="multipart/form-data">
         <label>Archivo Excel (.xlsx/.xlsm)
           <input type="file" name="file" accept=".xlsx,.xlsm" required />
         </label>
-        <details style="font-size:.88rem;color:#64748b;">
+        <details>
           <summary>Si no se detecta cliente automáticamente</summary>
-          <label style="display:block;margin-top:.4rem;">Selecciona cliente para esta importación
+          <label>Selecciona cliente para esta importación
             <input type="text" name="cliente_fallback" placeholder="Carrier, Pepsi, GM…" />
           </label>
         </details>
         <button class="btn btn-primary" type="submit">Importar nómina</button>
       </form>
     </div>
-    <div class="param-card">
+    <div class="param-card param-card--import">
       <h3>Importar CONTPAQ (números de empleado)</h3>
-      <p style="color:#64748b;font-size:.88rem;">Exportación de CONTPAQ Nómina. Aporta código, NSS, fechas y estatus.</p>
-      <form method="POST" action="{{ url_for('nomina.parametros_importar_contpaq') }}" enctype="multipart/form-data" style="display:grid;gap:.5rem;">
+      <p class="param-help">Exportación de CONTPAQ Nómina. Aporta código, NSS, fechas y estatus.</p>
+      <form class="param-import-form" method="POST" action="{{ url_for('nomina.parametros_importar_contpaq') }}" enctype="multipart/form-data">
         <label>Archivo Excel
           <input type="file" name="file" accept=".xlsx,.xlsm" required />
         </label>
@@ -158,14 +128,14 @@
     </div>
   </section>
 
-  <section class="param-card">
+  <section class="param-card param-card--table">
     <h3>Consolidado de empleados</h3>
     {% if stats.stats_mode == 'legacy' %}
-    <p style="color:#991b1b;font-size:.88rem;margin-top:0;">Vista legacy: muestra registros importados en base. No representa empleados activos Headcount.</p>
+    <p class="param-help param-help--legacy">Vista legacy: muestra registros importados en base. No representa empleados activos Headcount.</p>
     {% else %}
-    <p style="color:#64748b;font-size:.88rem;margin-top:0;">Una línea por empleado activo Headcount (canónico). Los registros externos sin match aparecen al final.</p>
+    <p class="param-help">Una línea por empleado activo Headcount (canónico). Los registros externos sin match aparecen al final.</p>
     {% endif %}
-    <form method="GET" class="param-filters" style="margin-bottom:.6rem;">
+    <form method="GET" class="param-filters">
       <label>Cliente
         <input type="text" name="cliente" value="{{ filtros.cliente }}" placeholder="Carrier, Pepsi…" />
       </label>
@@ -208,7 +178,7 @@
         <tbody>
           {% for row in rows %}
           <tr class="{% if row.is_external %}row-external{% elif row.is_canonical %}row-canonical{% elif row.is_legacy_view %}row-external{% endif %}">
-            <td>{{ row.nombre }}{% if row.is_external %} <span style="color:#c2410c;font-size:.75rem;">(externo)</span>{% elif row.is_legacy_view %} <span style="color:#991b1b;font-size:.75rem;">(legacy)</span>{% endif %}</td>
+            <td>{{ row.nombre }}{% if row.is_external %} <span class="param-tag param-tag--external">(externo)</span>{% elif row.is_legacy_view %} <span class="param-tag param-tag--legacy">(legacy)</span>{% endif %}</td>
             <td>{{ row.nss or '—' }}</td>
             <td>{{ row.numero_empleado or '—' }}</td>
             <td>{{ row.codigo_contpaq or '—' }}</td>
@@ -300,7 +270,7 @@
       </table>
     </div>
     {% if pagination %}
-    <p style="margin:.75rem 0 0;font-size:.88rem;color:#64748b;">
+    <p class="param-pagination">
       Mostrando {{ rows|length }} de {{ pagination.total }} registros
       · Página {{ pagination.page }} de {{ pagination.pages }}
       {% if pagination.page > 1 %}

@@ -1,29 +1,16 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
-<style>
-.conc-wrap { display:grid; gap:1rem; }
-.conc-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.conc-filters { display:flex; flex-wrap:wrap; gap:.6rem; align-items:end; }
-.conc-filters input, .conc-filters select { padding:.4rem; border:1px solid #cbd5e1; border-radius:8px; }
-.conc-table { width:100%; border-collapse:collapse; min-width:1200px; }
-.conc-table th, .conc-table td { border-bottom:1px solid #e5e7eb; padding:.45rem; text-align:left; vertical-align:top; font-size:.85rem; }
-.conc-table tbody tr:hover { background:#f8fafc; }
-.estado-badge { display:inline-block; padding:.1rem .45rem; border-radius:6px; font-size:.75rem; font-weight:600; background:#f1f5f9; }
-.estado-Externo, .estado-Pendiente\ vínculo { background:#ffedd5; color:#9a3412; }
-.estado-Match\ dudoso, .estado-Conflicto\ NSS\/nombre { background:#fef3c7; color:#92400e; }
-.estado-Completo, .estado-Resuelto { background:#dcfce7; color:#166534; }
-.estado-Legacy { background:#fee2e2; color:#991b1b; }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head param-page-head">
   <div>
     <span class="eyebrow">Nóminas · Parámetros</span>
     <h2>Bandeja de conciliación</h2>
     <p>Registros que requieren acción de Nómina/Admin.</p>
   </div>
-  <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+  <div class="param-page-head__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index') }}">Parámetros base</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
       <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
@@ -33,17 +20,17 @@
 </section>
 
 {% if headcount_notice %}
-<section class="conc-card" style="border-color:{% if snapshot_invalid %}#f87171{% elif snapshot_missing %}#f59e0b{% elif headcount_refreshing or headcount_stale %}#fde68a{% else %}#e5e7eb{% endif %};background:{% if snapshot_invalid or snapshot_missing or headcount_refreshing or headcount_stale %}#fffbeb{% else %}#f8fafc{% endif %};">
-  <h3 style="margin-top:0;color:{% if snapshot_invalid %}#991b1b{% else %}#475569{% endif %};">Headcount</h3>
-  <p style="margin:.25rem 0;font-size:.92rem;">{{ headcount_notice }}</p>
+<section class="conc-card param-hc-notice{% if snapshot_invalid %} param-hc-notice--invalid{% elif snapshot_missing %} param-hc-notice--missing{% elif headcount_refreshing or headcount_stale %} param-hc-notice--stale{% endif %}">
+  <h3 class="param-hc-notice__title">Headcount</h3>
+  <p>{{ headcount_notice }}</p>
   {% if snapshot_invalid %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Reconstruya Headcount para habilitar conciliación completa.</p>
+  <p class="param-hc-notice__sub">Reconstruya Headcount para habilitar conciliación completa.</p>
   {% elif snapshot_missing %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">La bandeja opera en modo limitado hasta tener copia local.</p>
+  <p class="param-hc-notice__sub">La bandeja opera en modo limitado hasta tener copia local.</p>
   {% elif headcount_refreshing %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
+  <p class="param-hc-notice__sub">Headcount se está actualizando. Se muestran los últimos datos disponibles.</p>
   {% elif headcount_stale %}
-  <p style="margin:.25rem 0 0;font-size:.88rem;color:#57534e;">Hay una actualización pendiente.</p>
+  <p class="param-hc-notice__sub">Hay una actualización pendiente.</p>
   {% endif %}
 </section>
 {% endif %}
@@ -73,7 +60,7 @@
   </section>
 
   <section class="conc-card">
-    <div style="overflow:auto;">
+    <div class="conc-table-wrap">
       <table class="conc-table">
         <thead>
           <tr>
@@ -120,7 +107,7 @@
       </table>
     </div>
     {% if pagination %}
-    <p style="margin:.75rem 0 0;font-size:.88rem;color:#64748b;">
+    <p class="param-pagination">
       Mostrando {{ rows|length }} de {{ pagination.total }} registros
       · Página {{ pagination.page }} de {{ pagination.pages }}
       {% if pagination.page > 1 %}

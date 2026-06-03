@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<div class="param-depurar">
+<section class="page-head param-page-head">
   <div>
     <span class="eyebrow">Nóminas · Parámetros</span>
     <h2>Depurar / reconstruir parámetros</h2>
@@ -9,9 +13,9 @@
   <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index') }}">Volver</a>
 </section>
 
-<section class="param-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;margin-bottom:1rem;">
+<section class="param-card param-depurar-preview">
   <h3>Vista previa (conteos aproximados)</h3>
-  <ul style="margin:.5rem 0;line-height:1.6;">
+  <ul>
     <li><strong>Registros nómina afectables:</strong> {{ preview.registros_nomina_afectados }}</li>
     <li><strong>Registros CONTPAQ afectables:</strong> {{ preview.registros_contpaq_afectados }}</li>
     <li><strong>Registros canónicos Headcount:</strong> {{ preview.registros_canonicos }}</li>
@@ -22,42 +26,43 @@
   </ul>
 </section>
 
-<div style="display:grid;gap:1rem;max-width:900px;">
-  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;"
+<div class="param-depurar-grid">
+  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card"
         onsubmit="return confirm('¿Limpiar campos importados desde nómina actual? Headcount y vínculos manuales se conservan.');">
     <input type="hidden" name="action" value="limpiar_nomina" />
     <h3>1. Limpiar importaciones de Nómina actual</h3>
-    <p style="color:#64748b;font-size:.9rem;">Elimina salario, HE, banco, cuenta y localidad importados. Desactiva registros externos solo-nómina.</p>
+    <p class="param-help">Elimina salario, HE, banco, cuenta y localidad importados. Desactiva registros externos solo-nómina.</p>
     <button class="btn btn-secondary" type="submit">Ejecutar limpieza nómina</button>
   </form>
 
-  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;"
+  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card"
         onsubmit="return confirm('¿Limpiar campos importados desde CONTPAQ? Headcount y vínculos manuales se conservan.');">
     <input type="hidden" name="action" value="limpiar_contpaq" />
     <h3>2. Limpiar importaciones de CONTPAQ</h3>
-    <p style="color:#64748b;font-size:.9rem;">Elimina código CONTPAQ y datos administrativos importados. Desactiva registros externos solo-CONTPAQ.</p>
+    <p class="param-help">Elimina código CONTPAQ y datos administrativos importados. Desactiva registros externos solo-CONTPAQ.</p>
     <button class="btn btn-secondary" type="submit">Ejecutar limpieza CONTPAQ</button>
   </form>
 
-  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card" style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:1rem;"
+  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card"
         onsubmit="return confirm('¿Reconstruir consolidado desde Headcount activo + importaciones válidas + vínculos manuales?');">
     <input type="hidden" name="action" value="rebuild_consolidado" />
     <h3>3. Reconstruir consolidado</h3>
-    <p style="color:#64748b;font-size:.9rem;">Regenera filas canónicas desde Headcount activo. No borra historial de importaciones.</p>
+    <p class="param-help">Regenera filas canónicas desde Headcount activo. No borra historial de importaciones.</p>
     <button class="btn btn-primary" type="submit">Reconstruir consolidado</button>
   </form>
 
-  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card" style="background:#fee2e2;border:1px solid #fca5a5;border-radius:12px;padding:1rem;">
+  <form method="POST" action="{{ url_for('nomina.parametros_depurar_ejecutar') }}" class="param-card param-card--danger">
     <input type="hidden" name="action" value="borrar_vinculos" />
     <h3>4. Borrar vínculos manuales (peligroso)</h3>
-    <p style="color:#991b1b;font-size:.9rem;">Elimina vínculos manuales guardados. Escribe <strong>DEPURAR</strong> o <strong>BORRAR VINCULOS</strong> para confirmar.</p>
-    <label style="display:block;margin:.5rem 0;">Confirmación
-      <input type="text" name="confirm_text" placeholder="DEPURAR" style="padding:.4rem;border:1px solid #cbd5e1;border-radius:8px;width:100%;max-width:280px;" />
+    <p class="param-help param-help--warn">Elimina vínculos manuales guardados. Escribe <strong>DEPURAR</strong> o <strong>BORRAR VINCULOS</strong> para confirmar.</p>
+    <label>Confirmación
+      <input type="text" name="confirm_text" placeholder="DEPURAR" />
     </label>
-    <button class="btn btn-secondary" type="submit" style="border-color:#991b1b;color:#991b1b;"
+    <button class="btn btn-secondary" type="submit"
             onclick="return confirm('Esta acción elimina vínculos manuales. ¿Continuar?');">
       Borrar vínculos manuales
     </button>
   </form>
+</div>
 </div>
 {% endblock %}

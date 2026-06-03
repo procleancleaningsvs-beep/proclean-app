@@ -1,19 +1,9 @@
 {% extends 'base.html' %}
 {% block extra_head %}
-<style>
-.pe-wrap { display:grid; gap:1rem; max-width:900px; }
-.pe-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:1rem; }
-.pe-grid { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
-.pe-grid label { display:flex; flex-direction:column; gap:.2rem; font-size:.85rem; color:#374151; }
-.pe-grid input, .pe-grid select, .pe-grid textarea { padding:.4rem; border:1px solid #cbd5e1; border-radius:8px; }
-.pe-readonly { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.6rem .8rem; color:#475569; }
-.pe-warns { color:#92400e; }
-.pe-warns li { margin:0; }
-@media (max-width: 720px) { .pe-grid { grid-template-columns:1fr; } }
-</style>
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/parametros.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head param-page-head">
   <div>
     <span class="eyebrow">Nóminas · Parámetros</span>
     <h2>Editar parámetros de empleado</h2>
@@ -36,13 +26,13 @@
       <div><strong>Match Headcount:</strong> {{ row.headcount_match_status or '—' }} · <strong>CONTPAQ:</strong> {{ row.contpaq_match_status or '—' }} · <strong>Nómina:</strong> {{ row.nomina_match_status or '—' }}</div>
     </div>
     {% if row.warnings %}
-    <ul class="pe-warns" style="margin-top:.6rem;">
+    <ul class="pe-warns">
       {% for w in row.warnings %}<li>{{ w }}</li>{% endfor %}
     </ul>
     {% endif %}
   </section>
 
-  <form method="POST" class="pe-card" style="display:grid;gap:.6rem;">
+  <form method="POST" class="pe-card pe-card--form">
     <h3>Parámetros editables</h3>
     <div class="pe-grid">
       <label>Número de empleado
