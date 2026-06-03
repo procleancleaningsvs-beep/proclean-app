@@ -44,11 +44,11 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 </style>
 {% endblock %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Nómina</span>
-    <h2>Comparativo de nómina</h2>
-    <p>Detección de altas y bajas con verificación de similitudes y aliases.</p>
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nómina</span>
+    <h2 class="pc-page-title">Comparativo de nómina</h2>
+    <p class="pc-page-subtitle">Detección de altas y bajas con verificación de similitudes y aliases.</p>
   </div>
 </section>
 
@@ -122,14 +122,14 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
           <div class="cmp-card">Bajas<br><strong id="res-bajas">0</strong></div>
           <div class="cmp-card">Sin cambio<br><strong id="res-perm">0</strong></div>
         </div>
-        <div class="cmp-table-wrap">
+        <div class="cmp-table-wrap pc-table-scroll">
           <h4>ALTAS</h4>
           <table class="cmp-table">
             <thead><tr><th>Nombre</th><th>Fecha alta</th><th>Acciones</th></tr></thead>
             <tbody id="tabla-altas"></tbody>
           </table>
         </div>
-        <div class="cmp-table-wrap">
+        <div class="cmp-table-wrap pc-table-scroll">
           <h4>BAJAS</h4>
           <table class="cmp-table">
             <thead><tr><th>Nombre</th><th>Fecha baja</th><th>Acciones</th></tr></thead>
@@ -143,11 +143,11 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
 
   <section class="cmp-bottom">
     <h3>Historial</h3>
-    <div class="cmp-history-tools">
+    <div class="cmp-history-tools pc-table-toolbar">
       <input type="search" id="hist-search" placeholder="Buscar por cliente o periodo">
       <button type="button" class="btn btn-secondary" id="hist-refresh">Actualizar</button>
     </div>
-    <div class="cmp-table-wrap">
+    <div class="cmp-table-wrap pc-table-scroll">
       <table class="cmp-table">
         <thead>
           <tr>
@@ -222,7 +222,7 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
   <div class="cmp-modal-body">
     <div class="cmp-edit-section">
       <h4>Altas</h4>
-      <div class="cmp-table-wrap">
+      <div class="cmp-table-wrap pc-table-scroll">
         <table class="cmp-table cmp-modal-edit-table">
           <thead><tr><th>Nombre</th><th>Fecha alta</th><th>Eliminar</th></tr></thead>
           <tbody id="edit-altas-tbody"></tbody>
@@ -232,7 +232,7 @@ dialog.cmp-modal { border:0; border-radius:12px; padding:0; width:min(780px,95vw
     </div>
     <div class="cmp-edit-section">
       <h4>Bajas</h4>
-      <div class="cmp-table-wrap">
+      <div class="cmp-table-wrap pc-table-scroll">
         <table class="cmp-table cmp-modal-edit-table">
           <thead><tr><th>Nombre</th><th>Fecha baja</th><th>Eliminar</th></tr></thead>
           <tbody id="edit-bajas-tbody"></tbody>

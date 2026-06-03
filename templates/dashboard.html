@@ -1,12 +1,14 @@
 {% extends 'base.html' %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Panel administrativo</span>
-    <h2>Dashboard</h2>
-    <p>Resumen multimódulo, actividad reciente y métricas de uso. Solo visible para administradores.</p>
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Panel administrativo</span>
+    <h2 class="pc-page-title">Dashboard</h2>
+    <p class="pc-page-subtitle">Resumen multimódulo, actividad reciente y métricas de uso. Solo visible para administradores.</p>
   </div>
-  <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Nuevo movimiento IMSS</a>
+  <div class="pc-hub-hero__actions">
+    <a href="{{ url_for('nuevo_formato') }}" class="btn btn-primary">Nuevo movimiento IMSS</a>
+  </div>
 </section>
 
 <section class="stats-grid dashboard-kpi">
@@ -53,7 +55,7 @@
     <h3>Resumen por módulo</h3>
     <p class="panel-head-note">Totales históricos y ventana de 30 días (donde aplica).</p>
   </div>
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll">
     <table>
       <thead>
         <tr>
@@ -123,7 +125,7 @@
     <h3>Inicios de sesión recientes</h3>
   </div>
   {% if dash.recent_logins %}
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll">
     <table>
       <thead>
         <tr>
@@ -159,7 +161,7 @@
     <a class="btn btn-ghost" href="{{ url_for('dashboard') }}">Limpiar</a>
   </form>
   {% if activity_feed %}
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll">
     <table>
       <thead>
         <tr>
@@ -195,7 +197,7 @@
   <div class="panel-head">
     <h3>Errores o acciones fallidas (recientes)</h3>
   </div>
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll">
     <table>
       <thead>
         <tr>
@@ -242,7 +244,7 @@
     <a href="{{ url_for('historial') }}">Ver historial completo</a>
   </div>
   {% if recent_history %}
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll">
     <table>
       <thead>
         <tr>

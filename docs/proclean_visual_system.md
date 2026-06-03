@@ -270,6 +270,7 @@ En migraciones visuales **no modificar**:
 | **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
 | **E.4** | Formularios, capturas, importación y preflight (`.pc-form-*`, `.pc-import-panel`, action bars) |
 | **E.5** | Historiales, tablas, toolbars, filtros, acciones por fila (`.pc-table-*`, `.pc-history-*`) |
+| **E.6** | Auditoría visual, regresiones, puentes CSS legacy (sin borrado masivo) |
 
 ---
 
@@ -462,4 +463,49 @@ Capa **opt-in** en `static/style.css` (bloque E.5). Aplica a historiales, listad
 
 ---
 
-*Última actualización: Fase E.5 — history, table and listing enrichment.*
+## 14. Fase E.6 — Visual audit and safe consolidation
+
+Fase de **corrección fina**, no de expansión. Objetivo: consistencia entre capas E.1–E.5 y CSS local de módulos, sin refactor global ni borrado de clases legacy.
+
+### Qué se corrigió (patrones)
+
+| Área | Acción |
+|------|--------|
+| Toolbars anidadas | CSS E.6 anula padding/borde del `<form>` hijo cuando el padre ya es `.pc-filter-bar` (Vacaciones, Conciliación). |
+| Shell + card módulo | Reglas para `.panel.pc-history-shell`, `.fin-hist-card.pc-history-shell` — una sola sombra/borde dominante. |
+| Scroll + shell | `.pc-table-scroll.pc-table-shell` en el mismo nodo: un solo borde visible. |
+| Sub-hero interno | No usar `.pc-history-hero` en cabeceras dentro de cards (p. ej. Check ID recientes). |
+| Badges legacy | Puentes en `style.css` para `.vac-badge`, `.calc-chip`, `.calc-status`, `.em-chip` dentro de `.pc-table-shell`. |
+| Legibilidad | `-webkit-font-smoothing: antialiased` en bloques `.pc-*`; thead sin `backdrop-filter` borroso. |
+
+### Consolidación conservadora
+
+- **Se mantiene** CSS local: `finiquitos.css`, `nomina/*.css`, `carrier.css`, `facturacion.css`, inline Comparativo/Exportación IMSS.
+- **Se añadió** puente en `finiquitos.css` para historial + clases `.pc-*`.
+- **No se eliminaron** clases `.vac-badge`, `.nd-*`, `.fx-*`, `.nom-hub-*`, `.calc-*`, `.hc-*`.
+
+### Excepciones permanentes (solo wrapper o sin tocar)
+
+| Pantalla | Motivo |
+|----------|--------|
+| `nomina/_asistencia_hub_visualizer.html` | Tabla y filtros 100 % JS (`nomi-fbtn`, columnas dinámicas). Solo `.pc-table-scroll` en contenedor. |
+| `exportacion_imss/index.html` (panel izquierdo + listas movimientos) | Estado y render JS; panel derecho: clase suave `.pc-list-panel-soft`. |
+| `comparativo/index.html` | Layout propio inline + JS; hero + scroll en tablas/historial. |
+| `comparativo/reporte_mensual.html` | No auditado en E.6 (mismo riesgo que comparativo). |
+| Cálculo view / preflight motor | Formularios con inputs ocultos y POST sensibles — sin reestructura. |
+| Login | `auth-card` legacy; botones ya usan `.btn-primary`. |
+
+### Reglas para cambios futuros
+
+1. Un **hero** por pantalla (`.pc-hub-hero` en `page-head`); subtítulos de sección con `.pc-table-caption`.
+2. **Toolbar**: o el contenedor `.pc-filter-bar` o el `<form>`, no ambos con caja completa.
+3. Antes de borrar CSS local, comprobar uso en templates y JS.
+4. Preferir **puente** en `style.css` E.6 antes de renombrar HTML.
+
+### QA mínimo pre-deploy
+
+Ver checklist al final de la entrega del agente o repetir recorrido sidebar: Dashboard admin, Home, Nómina hub/dashboard, Finiquitos + historial, IMSS + historial, Check ID, Headcount, Facturación, Carrier, Vitroflex, Exámenes, INFONAVIT, Vacaciones, Parámetros, Cálculo, Usuarios, Exportación IMSS.
+
+---
+
+*Última actualización: Fase E.6 — visual audit and safe consolidation.*

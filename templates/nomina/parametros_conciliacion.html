@@ -8,9 +8,9 @@
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Nóminas · Parámetros</span>
     <h2 class="pc-page-title">Bandeja de conciliación</h2>
-    <p>Registros que requieren acción de Nómina/Admin.</p>
+    <p class="pc-page-subtitle">Registros que requieren acción de Nómina/Admin.</p>
   </div>
-  <div class="param-page-head__actions">
+  <div class="param-page-head__actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.parametros_index') }}">Parámetros base</a>
     <form method="POST" action="{{ url_for('nomina.actualizar_headcount_hub') }}" style="display:inline;">
       <button class="btn btn-secondary" type="submit">{% if snapshot_invalid %}Reconstruir Headcount{% else %}Actualizar Headcount ahora{% endif %}</button>
@@ -36,7 +36,7 @@
 {% endif %}
 
 <div class="conc-wrap">
-  <section class="conc-card pc-filter-bar pc-table-toolbar">
+  <section class="conc-card pc-filter-bar">
     <form method="GET" class="conc-filters pc-filter-bar">
       <label>Filtro
         <select name="filtro">

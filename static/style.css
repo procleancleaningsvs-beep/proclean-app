@@ -6388,16 +6388,17 @@ td.actions,
     0 8px 22px rgba(15, 23, 42, 0.05);
 }
 
-.pc-history-shell.panel,
-.pc-history-shell.form-card,
-.pc-list-panel.panel,
-.pc-list-panel.form-card,
-.pc-list-panel.vac-card,
-.pc-list-panel.ni-card,
-.pc-list-panel.param-card,
-.pc-list-panel.calc-card,
-.pc-list-panel.imss-bottom {
-  /* módulos con padding propio: el shell refuerza sin duplicar borde fuerte */
+/* E.6: shells sobre cards de módulo — evitar doble borde/sombra fuerte */
+.panel.pc-history-shell:not(.imss-bottom),
+.form-card.pc-history-shell,
+.form-card.pc-list-panel.checkid-recent-panel {
+  background: var(--pc-surface);
+  box-shadow: var(--pc-shadow-soft);
+}
+
+.imss-bottom.pc-history-shell.pc-list-panel {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .pc-history-hero {
@@ -6764,5 +6765,255 @@ td.actions,
 
   .pc-table-shell table thead th {
     position: static;
+  }
+}
+
+/* ============================================================
+   FASE E.6: Visual audit, regressions, safe consolidation
+   ▸ Ajustes finos — NO rollout masivo
+   ============================================================ */
+
+/* ── E6-1  Toolbars anidadas (evitar doble caja) ─────────────── */
+.pc-filter-bar > form.pc-filter-bar,
+.pc-filter-bar > form.pc-table-toolbar,
+.pc-filter-bar.pc-table-toolbar > .vac-filters-grid,
+.vac-card.pc-filter-bar > form,
+.conc-card.pc-filter-bar > form {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vac-card.pc-filter-bar {
+  gap: 12px;
+}
+
+.param-card .param-filters.pc-filter-bar {
+  margin-bottom: 4px;
+}
+
+/* Toolbar dentro de card de filtros INFONAVIT (ya tiene step head) */
+.ni-card--filters.pc-form-card .ni-form-inline.pc-filter-bar {
+  margin-top: 4px;
+}
+
+/* ── E6-2  Scroll + shell en el mismo nodo ───────────────────── */
+.pc-table-scroll.pc-table-shell {
+  display: block;
+  flex-direction: unset;
+  gap: 0;
+  padding: 0;
+}
+
+.pc-table-scroll.pc-table-shell:not(.fx-table-wrap) {
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #fff;
+}
+
+.fin-hist-card .fin-hist-table-wrap.pc-table-scroll.pc-table-shell {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.fx-table-wrap.pc-table-scroll.pc-table-shell.pc-list-panel {
+  display: block;
+  padding: 0;
+  gap: 0;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: #fff;
+}
+
+/* ── E6-3  Jerarquía hero / secciones ────────────────────────── */
+.page-head.pc-hub-hero.pc-form-hero,
+.page-head.pc-hub-hero.pc-history-hero {
+  margin-bottom: 18px;
+}
+
+.page-head.pc-hub-hero + .pc-safe-zone,
+.page-head.pc-hub-hero + .form-card,
+.page-head.pc-hub-hero + .panel,
+.page-head.pc-hub-hero + .calc-wrap,
+.page-head.pc-hub-hero + .vac-wrap,
+.page-head.pc-hub-hero + .ni-wrap,
+.page-head.pc-hub-hero + .param-wrap,
+.page-head.pc-hub-hero + .imss-layout {
+  margin-top: 0;
+}
+
+.checkid-recent-header:not(.pc-hub-hero) {
+  margin-bottom: 2px;
+}
+
+.checkid-recent-header .pc-table-caption {
+  margin-bottom: 4px;
+}
+
+/* Sub-hero interno no debe competir con page-head */
+.pc-history-hero:not(.pc-hub-hero):not(.page-head) {
+  margin-bottom: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+
+/* ── E6-4  Puentes badges legacy → sistema .pc-status ────────── */
+.vac-badge,
+.calc-chip,
+.em-chip,
+.nd-chip,
+.cmp-client-card strong + small {
+  -webkit-font-smoothing: antialiased;
+}
+
+.pc-table-shell .vac-badge--ok,
+.vac-badge--ok {
+  color: var(--pc-green-deep, #178b54);
+}
+
+.pc-table-shell .vac-badge--warn,
+.vac-badge--warn {
+  color: #92400e;
+}
+
+.pc-table-shell .vac-badge--error,
+.vac-badge--error {
+  color: #991b1b;
+}
+
+.pc-table-shell .calc-chip {
+  border-color: rgba(148, 163, 184, 0.35);
+  color: var(--pc-text);
+  font-weight: 600;
+}
+
+.pc-table-shell .calc-status {
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.em-chip.em-chip-pdf {
+  border-color: rgba(26, 144, 198, 0.22);
+  color: var(--pc-blue-deep);
+}
+
+/* ── E6-5  Módulos con prefijos legacy (solo visual) ─────────── */
+.fx-filters-panel.pc-filter-bar select,
+.fx-filters-panel.pc-filter-bar input[type="number"],
+.fx-filters-panel.pc-filter-bar input[type="text"] {
+  min-height: 36px;
+  border-radius: var(--pc-radius-pill);
+}
+
+.nd-table-wrap.pc-table-scroll {
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.cmp-table-wrap.pc-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: #fff;
+}
+
+.cmp-history-tools.pc-table-toolbar {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.nomi-table-wrap.pc-table-scroll {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.imss-right.pc-list-panel-soft {
+  /* alias visual panel derecho exportación IMSS */
+  border-radius: 12px;
+}
+
+/* ── E6-6  Legibilidad y contraste ───────────────────────────── */
+.pc-hub-hero,
+.pc-history-shell,
+.pc-form-shell,
+.pc-table-scroll,
+.auth-card .form-card {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.pc-table-shell table thead th {
+  backdrop-filter: none;
+  color: var(--pc-text);
+}
+
+.pc-filter-bar input,
+.pc-filter-bar select,
+.pc-table-toolbar input,
+.vac-filters-grid input,
+.vac-filters-grid select,
+.param-filters input,
+.param-filters select {
+  color: var(--pc-text);
+}
+
+/* Botones nativos residuales en toolbars */
+.pc-filter-bar button:not(.btn):not(.btn-icon):not(.fx-btn),
+.pc-table-toolbar button:not(.btn):not(.btn-icon):not(.fx-btn) {
+  min-height: 38px;
+  padding: 8px 16px;
+  border-radius: var(--pc-radius-pill);
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  color: var(--pc-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pc-filter-bar button:not(.btn):hover,
+.pc-table-toolbar button:not(.btn):hover {
+  border-color: rgba(26, 144, 198, 0.35);
+  background: var(--pc-surface-blue);
+}
+
+/* Gradientes E.x — suavizar apilamiento */
+.pc-import-panel,
+.pc-filter-bar,
+.pc-table-toolbar {
+  background: linear-gradient(118deg, #f4f9fc 0%, #fafcfe 70%, #f9fcf7 100%);
+}
+
+.pc-history-shell,
+.pc-list-panel {
+  background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 14%, #ffffff 100%);
+}
+
+/* ── E6-7  Responsive / overflow ───────────────────────────────── */
+.pc-filter-bar,
+.vac-filters-grid,
+.param-filters,
+.ni-form-inline.pc-filter-bar,
+.fx-filters-panel.pc-filter-bar {
+  max-width: 100%;
+}
+
+.vac-filters-grid {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .pc-form-shell + .pc-form-shell,
+  .pc-list-panel + .pc-list-panel {
+    margin-top: 0;
+  }
+
+  .vac-filter-extras {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .fx-hero.pc-hub-hero .fx-toolbar {
+    width: 100%;
   }
 }
