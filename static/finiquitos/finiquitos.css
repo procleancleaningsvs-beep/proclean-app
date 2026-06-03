@@ -1,0 +1,726 @@
+/* ==============================================================
+   ProClean — Módulo Finiquitos — Visual Premium
+   Fase D.14 | Solo visual | Sin cálculo, DOCX/PDF ni lógica
+   Tokens: var(--pc-*) definidos en style.css (Fase B)
+   ============================================================== */
+
+/* ── 1. Page head ─────────────────────────────────────────────── */
+
+.fin-page-head {
+  position: relative;
+  border-bottom: 1px solid var(--pc-border);
+  padding-bottom: 20px;
+  margin-bottom: 12px;
+}
+
+.fin-page-head::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 120px;
+  height: 80px;
+  background:
+    radial-gradient(circle at 70% 30%, rgba(26, 119, 211, 0.07) 0%, transparent 55%),
+    radial-gradient(circle at 30% 70%, rgba(32, 168, 102, 0.05) 0%, transparent 50%);
+  pointer-events: none;
+  border-radius: 0 0 0 40px;
+}
+
+.fin-page-head h2 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  margin: 4px 0 6px;
+  letter-spacing: -0.02em;
+}
+
+.fin-page-head .eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 198, 0.18);
+  border-radius: 50px;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+}
+
+.fin-page-head p {
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* ── 2. Main layout card ───────────────────────────────────────── */
+
+.form-card.fin-layout {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 24px 26px;
+  box-shadow: var(--pc-shadow-soft);
+  gap: 20px;
+}
+
+.fin-layout {
+  gap: 20px;
+}
+
+/* ── 3. Sections ───────────────────────────────────────────────── */
+
+.fin-sec {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 18px 20px;
+  margin: 0 0 16px;
+  background: var(--pc-surface);
+  border-left: 3px solid var(--pc-blue, #1A77D3);
+}
+
+.fin-sec h3 {
+  margin: 0 0 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pc-border);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.fin-sec.fin-result {
+  border-left-color: var(--pc-green, #20A866);
+  background: var(--pc-surface-soft, #F5F9FD);
+}
+
+/* ── 4. Mode toggle (Fiscal / Total gravable) ──────────────────── */
+
+.mode-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 4px;
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+}
+
+.mode-toggle > span:first-child {
+  width: 100%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+  padding: 4px 10px 0;
+}
+
+.mode-toggle.compact {
+  margin: 8px 0;
+  padding: 3px;
+}
+
+.mode-toggle label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: var(--pc-radius-pill, 50px);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  cursor: pointer;
+  transition: background var(--pc-transition), color var(--pc-transition);
+}
+
+.mode-toggle label:has(input:checked) {
+  background: var(--pc-blue, #1A77D3);
+  color: #fff;
+}
+
+.mode-toggle input[type="radio"] {
+  accent-color: var(--pc-blue);
+}
+
+/* ── 5. Percepciones / fields ─────────────────────────────────── */
+
+.fin-perc-wrap {
+  gap: 14px;
+}
+
+.fin-perc-head-text {
+  color: var(--pc-text);
+  font-weight: 600;
+}
+
+.fin-perc-field > input[readonly] {
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+}
+
+.fin-perc-optional-col > span:first-of-type {
+  color: var(--pc-text);
+}
+
+/* ── 6. Desglose hero + switches ───────────────────────────────── */
+
+.fin-desglose-switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.fin-desglose-hero {
+  margin-top: 14px;
+  padding: 16px 18px;
+  border-radius: var(--pc-radius-lg, 12px);
+  border: 1px solid var(--pc-border);
+  background: var(--pc-surface-soft);
+  border-left: 3px solid var(--pc-green, #20A866);
+  box-shadow: var(--pc-shadow-soft);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.fin-desglose-hero-text {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.fin-desglose-hero-title {
+  display: block;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+.fin-desglose-hero-sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: var(--pc-text-muted);
+  line-height: 1.4;
+  max-width: 36rem;
+}
+
+.fin-desglose-hero-switch {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.fin-desglose-hero-switch .fin-switch-hint {
+  font-size: 0.8rem;
+  color: var(--pc-text-muted);
+  font-weight: 600;
+}
+
+.fin-switch {
+  position: relative;
+  display: inline-block;
+  width: 2.75rem;
+  height: 1.45rem;
+  flex-shrink: 0;
+}
+
+.fin-switch.fin-switch--hero {
+  width: 3.5rem;
+  height: 1.85rem;
+}
+
+.fin-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.fin-switch-track {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: var(--pc-border);
+  border-radius: 999px;
+  transition: background var(--pc-transition), box-shadow var(--pc-transition);
+}
+
+.fin-switch-track::after {
+  content: "";
+  position: absolute;
+  height: 1.1rem;
+  width: 1.1rem;
+  left: 0.18rem;
+  bottom: 0.17rem;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.fin-switch.fin-switch--hero .fin-switch-track::after {
+  height: 1.4rem;
+  width: 1.4rem;
+  left: 0.22rem;
+  bottom: 0.22rem;
+}
+
+.fin-switch input:checked + .fin-switch-track {
+  background: var(--pc-green, #20A866);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.fin-switch input:focus-visible + .fin-switch-track {
+  outline: 2px solid var(--pc-blue);
+  outline-offset: 2px;
+}
+
+.fin-switch.fin-switch--hero input:checked + .fin-switch-track::after {
+  transform: translateX(1.55rem);
+}
+
+.fin-switch:not(.fin-switch--hero) input:checked + .fin-switch-track::after {
+  transform: translateX(1.25rem);
+}
+
+/* ── 7. Desglose editor tables ─────────────────────────────────── */
+
+.fin-dg2-wrap {
+  margin-top: 12px;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 14px 16px;
+  background: var(--pc-surface);
+}
+
+.fin-dg2-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .fin-dg2-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fin-dg2-block h4 {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--pc-green-deep);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fin-dg2-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  overflow: hidden;
+}
+
+.fin-dg2-table th,
+.fin-dg2-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--pc-border);
+  vertical-align: middle;
+}
+
+.fin-dg2-table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--pc-text-muted);
+}
+
+.fin-dg2-table th:nth-child(3),
+.fin-dg2-table td:nth-child(3) {
+  text-align: right;
+}
+
+.fin-dg2-table .fin-dg2-num {
+  width: 2.5rem;
+}
+
+.fin-dg2-table .fin-dg2-conc {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fin-dg2-isr {
+  margin-top: 10px;
+  padding: 12px 14px;
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 8px);
+  font-size: 0.86rem;
+}
+
+.fin-dg2-isr-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fin-dg2-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.fin-dg2-foot {
+  margin-top: 10px;
+  font-size: 0.86rem;
+  color: var(--pc-text-muted);
+}
+
+dialog.fin-dg2-dlg {
+  border: none;
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 0;
+  max-width: 26rem;
+  box-shadow: 0 20px 60px rgba(0, 30, 80, 0.16);
+}
+
+.fin-dg2-dlg::backdrop {
+  background: rgba(15, 30, 50, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.fin-dg2-dlg-inner {
+  padding: 18px 20px;
+}
+
+.fin-dg2-dlg h4 {
+  margin: 0 0 12px;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.fin-dg2-dlg label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.fin-dg2-dlg input[type="text"],
+.fin-dg2-dlg select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fin-dg2-dlg-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.fin-dg2-dlg-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+/* ── 8. Result panel / totals ──────────────────────────────────── */
+
+.fin-result {
+  top: 20px;
+}
+
+.fin-result .movement-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.fin-result .movement-actions .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.total-highlight {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  padding: 14px 16px;
+  background: var(--pc-surface-green, #E3F5EC);
+  border-left: 3px solid var(--pc-green, #20A866);
+}
+
+.total-highlight strong {
+  font-size: 1.15rem;
+  color: var(--pc-green-deep);
+}
+
+.calc-advanced {
+  margin-top: 14px;
+  border-top: 1px dashed var(--pc-border);
+  padding-top: 12px;
+}
+
+.calc-advanced summary {
+  font-weight: 600;
+  color: var(--pc-blue);
+  cursor: pointer;
+}
+
+.preview-block {
+  border-radius: var(--pc-radius-md, 8px);
+  border: 1px solid var(--pc-border);
+}
+
+/* ── 9. Historial ──────────────────────────────────────────────── */
+
+.fin-hist-card {
+  border-top: 3px solid var(--pc-blue, #1A77D3);
+  padding: 22px 24px;
+  box-shadow: var(--pc-shadow-soft);
+  gap: 14px;
+}
+
+.fin-hist-back a {
+  font-weight: 600;
+  color: var(--pc-blue);
+}
+
+.fin-hist-toolbar {
+  padding: 14px 16px;
+  background: var(--pc-surface-soft);
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  border-left: 3px solid var(--pc-blue);
+  margin-bottom: 4px;
+}
+
+.fin-hist-table-wrap {
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  box-shadow: var(--pc-shadow-soft);
+  background: var(--pc-surface);
+}
+
+.fin-hist-table thead th {
+  background: var(--pc-surface-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pc-text-muted);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.fin-hist-table td {
+  border-bottom: 1px solid var(--pc-border);
+  color: var(--pc-text);
+}
+
+.fin-hist-table tbody tr {
+  transition: background-color 0.14s ease;
+}
+
+.fin-hist-table tbody tr:hover {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.fin-hist-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.fin-hist-actions-col,
+.fin-hist-actions-col-inner.actions-cell {
+  white-space: nowrap;
+}
+
+.fin-hist-card .empty-state {
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  padding: 32px 20px;
+}
+
+/* Historial dialogs */
+.fin-hist-dialog {
+  border: none;
+  border-radius: var(--pc-radius-lg, 16px);
+  box-shadow: 0 20px 60px rgba(0, 30, 80, 0.16);
+  padding: 0;
+}
+
+.fin-hist-dialog::backdrop {
+  background: rgba(15, 30, 50, 0.42);
+  backdrop-filter: blur(3px);
+}
+
+.fin-hist-dialog-head {
+  background: var(--pc-surface-soft);
+  border-bottom: 1px solid var(--pc-border);
+}
+
+.fin-hist-dialog-head h3 {
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.fin-hist-dialog-close {
+  border-radius: var(--pc-radius-md, 8px);
+  color: var(--pc-text-muted);
+}
+
+.fin-hist-dialog-close:hover {
+  background: var(--pc-surface-blue);
+  color: var(--pc-text);
+}
+
+.fin-hist-dialog-foot .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.fin-hist-dl-fieldset,
+.fin-hist-fiscal-block {
+  border-color: var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+}
+
+.fin-hist-detail-totals {
+  background: var(--pc-surface-green);
+  border: 1px solid rgba(32, 168, 102, 0.2);
+  border-radius: var(--pc-radius-lg, 12px);
+}
+
+.fin-hist-adv-hdr {
+  color: var(--pc-text);
+}
+
+.fin-hist-detail-sub {
+  color: var(--pc-text-muted);
+}
+
+/* Mode pills in historial if any */
+.fin-hist-table .fx-pill,
+.fin-hist-table span[class*="pill"] {
+  border-radius: var(--pc-radius-pill, 50px);
+}
+
+/* ── 10. Responsive layout ─────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .fin-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .fin-result {
+    position: static;
+  }
+
+  .fin-perc-optional-row--solo-prima .fin-perc-optional-prima {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .fin-page-head h2 {
+    font-size: 1.4rem;
+  }
+
+  .form-card.fin-layout {
+    padding: 16px 14px;
+  }
+}
+
+/* ── 11. Botones pill, links y helpers (módulo) ──────────────── */
+
+.form-card.fin-layout .btn,
+.fin-hist-card .btn {
+  border-radius: var(--pc-radius-pill, 50px) !important;
+}
+
+.fin-perc-unlock.link-btn {
+  color: var(--pc-blue);
+  font-weight: 600;
+}
+
+.fin-perc-unlock.link-btn:hover {
+  color: var(--pc-green-deep);
+}
+
+.fin-perc-optional-col > span:first-child {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--pc-text);
+  margin-bottom: 6px;
+}
+
+#pa_toggle > span {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--pc-text);
+  margin-bottom: 6px;
+}
+
+.form-card.fin-layout .helper,
+.fin-hist-card .helper {
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+#preview.preview-block:not([hidden]) {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--pc-surface-soft);
+}
+
+#preview .total-highlight {
+  margin-top: 10px;
+}
+
+.fin-dg2-actions .btn,
+.fin-dg2-block + .fin-dg2-actions .btn {
+  font-size: 0.86rem;
+}
+
+.fin-hist-toolbar .history-search-input,
+.fin-hist-search {
+  border-radius: var(--pc-radius-pill, 50px);
+  border-color: var(--pc-border);
+}
+
+.fin-hist-toolbar .history-search-input:focus,
+.fin-hist-search:focus {
+  border-color: var(--pc-blue);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(26, 119, 211, 0.12);
+}
+
+.fin-hist-detail-grid strong {
+  color: var(--pc-text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}

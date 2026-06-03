@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='finiquitos/finiquitos.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head fin-page-head">
   <div>
     <span class="eyebrow">Finiquitos</span>
     <h2>Historial de finiquitos</h2>

@@ -1,63 +1,15 @@
 {% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='finiquitos/finiquitos.css') }}">
+{% endblock %}
 {% block content %}
-<section class="page-head">
+<section class="page-head fin-page-head">
   <div>
     <span class="eyebrow">Finiquitos</span>
     <h2>Finiquito</h2>
     <p>Captura compacta y cálculo transparente.</p>
   </div>
 </section>
-
-<style>
-.fin-desglose-switch-row { display:flex; align-items:center; gap:0.65rem; flex-wrap:wrap; margin-top:0.75rem; }
-.fin-desglose-hero {
-  margin-top:1rem;
-  padding:0.85rem 1rem;
-  border-radius:10px;
-  border:1px solid #d7dee3;
-  background:linear-gradient(180deg, #f6f9fb 0%, #eef3f7 100%);
-  box-shadow:0 2px 8px rgba(15, 23, 42, 0.06);
-  display:flex;
-  align-items:flex-start;
-  justify-content:space-between;
-  gap:1rem;
-  flex-wrap:wrap;
-}
-.fin-desglose-hero-text { flex:1; min-width:12rem; }
-.fin-desglose-hero-title { display:block; font-weight:600; font-size:1.05rem; color:#1a237e; letter-spacing:-0.01em; }
-.fin-desglose-hero-sub { display:block; margin-top:0.35rem; font-size:0.88rem; color:#455a64; line-height:1.35; max-width:36rem; }
-.fin-desglose-hero-switch { flex-shrink:0; display:flex; align-items:center; gap:0.5rem; padding-top:0.15rem; }
-.fin-desglose-hero-switch .fin-switch-hint { font-size:0.8rem; color:#546e7a; font-weight:500; }
-.fin-switch { position:relative; display:inline-block; width:2.75rem; height:1.45rem; flex-shrink:0; }
-.fin-switch.fin-switch--hero { width:3.5rem; height:1.85rem; }
-.fin-switch input { opacity:0; width:0; height:0; position:absolute; }
-.fin-switch-track { position:absolute; cursor:pointer; inset:0; background:#cfd8dc; border-radius:999px; transition:background .2s, box-shadow .2s; }
-.fin-switch-track::after { content:""; position:absolute; height:1.1rem; width:1.1rem; left:0.18rem; bottom:0.17rem; background:#fff; border-radius:50%; transition:transform .2s; box-shadow:0 1px 2px rgba(0,0,0,.15); }
-.fin-switch.fin-switch--hero .fin-switch-track::after { height:1.4rem; width:1.4rem; left:0.22rem; bottom:0.22rem; }
-.fin-switch input:checked + .fin-switch-track { background:#2e7d32; box-shadow:inset 0 1px 2px rgba(0,0,0,.08); }
-.fin-switch input:focus-visible + .fin-switch-track { outline:2px solid #1976d2; outline-offset:2px; }
-.fin-switch.fin-switch--hero input:checked + .fin-switch-track::after { transform:translateX(1.55rem); }
-.fin-switch:not(.fin-switch--hero) input:checked + .fin-switch-track::after { transform:translateX(1.25rem); }
-.fin-dg2-wrap { margin-top:0.5rem; border:1px solid #e0e0e0; border-radius:6px; padding:0.6rem 0.75rem; background:#fafafa; }
-.fin-dg2-cols { display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; }
-@media (max-width: 900px) { .fin-dg2-cols { grid-template-columns: 1fr; } }
-.fin-dg2-block h4 { margin:0 0 0.35rem 0; font-size:0.95rem; }
-.fin-dg2-table { width:100%; border-collapse:collapse; font-size:0.88rem; }
-.fin-dg2-table th, .fin-dg2-table td { text-align:left; padding:0.3rem 0.35rem; border-bottom:1px solid #eee; vertical-align:middle; }
-.fin-dg2-table th:nth-child(3), .fin-dg2-table td:nth-child(3) { text-align:right; }
-.fin-dg2-table .fin-dg2-num { width:2.5rem; }
-.fin-dg2-table .fin-dg2-conc { max-width:10rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.fin-dg2-isr { margin-top:0.5rem; padding:0.45rem 0.5rem; background:#fff; border:1px solid #eee; border-radius:4px; font-size:0.86rem; }
-.fin-dg2-isr-row { display:flex; justify-content:space-between; gap:0.5rem; }
-.fin-dg2-actions { display:flex; gap:0.45rem; flex-wrap:wrap; margin-top:0.45rem; }
-.fin-dg2-foot { margin-top:0.35rem; font-size:0.86rem; color:#444; }
-dialog.fin-dg2-dlg { border:none; border-radius:8px; padding:0; max-width:26rem; }
-.fin-dg2-dlg-inner { padding:1rem 1.1rem; }
-.fin-dg2-dlg h4 { margin:0 0 0.5rem 0; }
-.fin-dg2-dlg label { display:block; margin-bottom:0.45rem; font-size:0.9rem; }
-.fin-dg2-dlg input[type="text"], .fin-dg2-dlg select { width:100%; box-sizing:border-box; }
-.fin-dg2-dlg-actions { display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem; }
-</style>
 
 <div class="form-card fin-layout" id="finiquito-root">
   <div class="fin-left">
