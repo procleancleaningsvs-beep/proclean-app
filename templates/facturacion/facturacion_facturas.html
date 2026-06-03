@@ -27,12 +27,12 @@
 </div>
 
 {% if filtros.por_clasificar %}
-<div class="fx-card fx-card--hot" style="margin-bottom:1rem;padding:0.85rem 1rem">
+<div class="fx-card fx-card--hot fx-review-banner">
   <strong>Bandeja de revisión:</strong> facturas importadas sin cliente inferido automáticamente. Corrige el campo cliente desde cada detalle o edición. Usa el <a href="{{ url_for('facturacion.facturacion_catalogo') }}">catálogo de clientes</a> para mapear razones sociales.
 </div>
 {% endif %}
 
-<form class="fx-toolbar" method="get">
+<form class="fx-toolbar fx-filters-panel" method="get">
   {% if filtros.por_clasificar %}<input type="hidden" name="por_clasificar" value="1">{% endif %}
   <label>Mes
     <select name="mes">
@@ -59,7 +59,7 @@
 </form>
 
 {% if is_admin %}
-<form class="fx-toolbar" method="post" action="{{ url_for('facturacion.upload_adjuntos') }}" enctype="multipart/form-data" style="background:#f8fafc;padding:0.75rem;border-radius:12px;border:1px dashed var(--line)">
+<form class="fx-toolbar fx-upload-panel" method="post" action="{{ url_for('facturacion.upload_adjuntos') }}" enctype="multipart/form-data">
   <label>Subir PDF/XML (auto-relación por nombre o por ID)
     <input type="file" name="archivos" multiple accept=".pdf,.xml,application/pdf,text/xml,application/xml">
   </label>
