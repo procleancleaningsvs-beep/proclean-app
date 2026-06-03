@@ -269,6 +269,7 @@ En migraciones visuales **no modificar**:
 | **D.20** | Biblioteca `.pc-*` opt-in + ajustes legacy seguros |
 | **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
 | **E.4** | Formularios, capturas, importación y preflight (`.pc-form-*`, `.pc-import-panel`, action bars) |
+| **E.5** | Historiales, tablas, toolbars, filtros, acciones por fila (`.pc-table-*`, `.pc-history-*`) |
 
 ---
 
@@ -333,7 +334,7 @@ Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustitu
 | Parámetros | `static/nomina/parametros.css` |
 | Cálculo | `static/nomina/calculo.css` |
 
-**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Users, History global, Login (parcialmente cubierto por auth). **Historiales y tablas densas → Fase E.5.**
+**Pendientes de migración visual** (siguen con estilos inline o legacy): Comparativo, Login (parcial). **Consolidación CSS local → Fase E.6.**
 
 ---
 
@@ -402,4 +403,63 @@ Movimiento/constancia IMSS (`_movimiento_constancia_form.html`), Exportación IM
 
 ---
 
-*Última actualización: Fase E.4 — form and capture enrichment.*
+## 13. Fase E.5 — History, table and listing enrichment
+
+Capa **opt-in** en `static/style.css` (bloque E.5). Aplica a historiales, listados operativos y tablas densas **sin** alterar columnas, query params, POST/GET ni JS funcional.
+
+### Cuándo usar cada patrón
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Shell de historial** | `.pc-history-shell`, `.pc-list-panel` | Página o sección dedicada a historial (Movimientos IMSS, Finiquitos, Check ID recientes, Carrier Cursos, Exámenes). Envuelve toolbar + tabla + empty state. |
+| **Hero de historial** | `.pc-history-hero`, `.pc-hub-hero` | Cabecera con eyebrow, título y acciones «Volver». |
+| **Shell de tabla** | `.pc-table-shell` | Card/sección que contiene una tabla operativa (Parámetros, INFONAVIT avisos, Vacaciones, Cálculo, Facturación). |
+| **Toolbar / filtros** | `.pc-table-toolbar`, `.pc-filter-bar` | Barra de búsqueda client-side (`.history-toolbar`) o formulario GET de filtros (`.param-filters`, `.vac-filters-grid`, `.fx-filters-panel`, `.hc-filters`). **No** añadir campos ni cambiar `name`. |
+| **Búsqueda** | `.pc-search-box` (clase extra en `input`, sin cambiar `id`) | Inputs `#hist-search`, `.history-search-input` cuando el `id` lo exige el JS. |
+| **Scroll** | `.pc-table-scroll` | Contenedor con overflow horizontal (`.table-wrap`, `.param-table-wrap`, `.fx-table-wrap`, `.ni-table-wrap`, etc.). |
+| **Densidad** | `.pc-density-compact` | Tablas con muchas columnas (Check ID, Parámetros, Vacaciones). |
+| **Caption / meta** | `.pc-table-caption`, `.pc-table-meta` | Título de bloque tabla y nota secundaria. |
+| **Acciones por fila** | `.pc-row-actions` en `.actions-cell` | Agrupa `.btn-icon` y formularios inline sin cambiar `action` ni botones. |
+| **Badges de estado** | `.pc-status-badge`, `--success`, `--warning`, `--danger`, `--neutral` | Texto de estado ya presente (p. ej. badges INFONAVIT, `.imss-badge`). Complementa, no sustituye clases módulo si el JS las usa. |
+| **Empty state** | `.pc-table-empty` | Mensaje sin filas en HTML o `#fin_hist_empty`. Filas `colspan` vacías se estilan vía `.pc-table-shell tbody td[colspan]`. |
+| **Nota auditoría** | `.pc-audit-note` | Avisos bajo tabla o en bandejas de revisión. |
+
+### Ejemplo — historial con búsqueda
+
+```html
+<section class="page-head pc-hub-hero pc-history-hero">...</section>
+<section class="panel pc-history-shell pc-list-panel">
+  <div class="history-toolbar pc-table-toolbar pc-filter-bar">
+    <label>Buscar <input type="search" class="history-search-input" id="history-search"></label>
+  </div>
+  <div class="table-wrap pc-table-scroll pc-table-shell pc-density-compact">
+    <table>...</table>
+  </div>
+  <p class="empty-state pc-table-empty" hidden>Sin registros.</p>
+</section>
+```
+
+### Tablas sensibles — prohibido
+
+| Permitido | Prohibido |
+|-----------|-----------|
+| Wrappers, toolbar visual, scroll, badges decorativos | Cambiar columnas u orden |
+| `.pc-row-actions` en celdas existentes | Cambiar `href`, `action`, `method`, query params |
+| Clases en contenedor scroll | Reordenar filas o celdas |
+| Empty state en nodos ya usados por Jinja/JS | Tocar JS funcional, paginación, filtros nuevos |
+| `pc-search-box` además de `id` requerido | Cambiar permisos `{% if %}` por rol |
+
+### Fuera de alcance E.5 (reservado E.6)
+
+- Consolidación agresiva de CSS por módulo.
+- Refactor de nombres de clases legacy.
+- Comparativo / visualizadores con JS muy acoplado (solo si no hay riesgo).
+- `_asistencia_hub_visualizer.html` (solo wrapper mínimo en contenedor si aplica).
+
+### Pantallas referencia E.5
+
+`history.html`, `finiquitos/historial.html`, `checkid.html` (recientes), `carrier/cursos_historial.html`, `examenes_medicos_historial.html`, `headcount/historial_sua.html`, `_headcount_cliente_table.html`, `_sua_historial.html`, `nomina/parametros_index.html`, `parametros_conciliacion.html`, `infonavit_index.html`, `vacaciones_index.html`, `calculo_index.html`, `calculo_view.html`, `dashboard.html` (historial imports), `exportacion_imss/index.html` (historial exportaciones), `facturacion_*` listados, `users.html`, Vitroflex tablas trabajadores (wrapper).
+
+---
+
+*Última actualización: Fase E.5 — history, table and listing enrichment.*

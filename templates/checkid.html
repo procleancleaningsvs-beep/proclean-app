@@ -43,19 +43,19 @@
   </div>
 </section>
 
-<section class="form-card checkid-recent-panel">
-  <div class="checkid-recent-header">
-    <h3 class="checkid-recent-title">Consultas recientes</h3>
+<section class="form-card checkid-recent-panel pc-list-panel pc-history-shell">
+  <div class="checkid-recent-header pc-history-hero">
+    <h3 class="checkid-recent-title pc-table-caption">Consultas recientes</h3>
     <p class="helper">Historial compartido de consultas exitosas CheckID (últimas 200). Tras una consulta nueva, actualiza la página para ver la nueva fila.</p>
   </div>
   {% if checkid_history %}
-  <div class="history-toolbar checkid-recent-toolbar">
+  <div class="history-toolbar checkid-recent-toolbar pc-table-toolbar pc-filter-bar">
     <label class="history-search-label">Buscar en consultas
       <input type="search" id="checkid-history-search" class="history-search-input" placeholder="Usuario, RFC, CURP, apellidos…" autocomplete="off" aria-label="Filtrar consultas recientes">
     </label>
   </div>
   <p id="checkid-history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
-  <div class="table-wrap checkid-history-table-wrap">
+  <div class="table-wrap checkid-history-table-wrap pc-table-scroll pc-table-shell pc-density-compact">
     <table class="checkid-history-table">
       <thead>
         <tr>
@@ -87,7 +87,7 @@
           <td>{{ row.apellido_materno or '—' }}</td>
           <td class="checkid-h-cell-name">{{ row.nombres or '—' }}</td>
           <td class="checkid-h-cell-nowrap">{{ row.fecha_nacimiento or '—' }}</td>
-          <td class="checkid-h-actions checkid-h-actions-cell actions-cell actions-cell--nowrap">
+          <td class="checkid-h-actions checkid-h-actions-cell actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_button('eye', 'Ver todo', class='checkid-history-view', extra_attrs='data-id="' ~ row.id ~ '"') }}
             {{ icon_button('refresh-cw', 'Actualizar registro desde Check ID', class='checkid-history-refresh', disabled=not row.curp, extra_attrs='data-id="' ~ row.id ~ '"') }}
             {% if checkid_admin %}
@@ -100,7 +100,7 @@
     </table>
   </div>
   {% else %}
-  <p class="empty-state">Aún no hay consultas guardadas. Al usar «Consultar» aparecerán aquí.</p>
+  <p class="empty-state pc-table-empty">Aún no hay consultas guardadas. Al usar «Consultar» aparecerán aquí.</p>
   {% endif %}
 </section>
 

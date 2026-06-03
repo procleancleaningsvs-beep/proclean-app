@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
 {% from '_icon_button.html' import icon_button %}
 {% block content %}
-<section class="page-head">
-  <div>
-    <span class="eyebrow">Gobernanza</span>
-    <h2>Usuarios y roles</h2>
+<section class="page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Gobernanza</span>
+    <h2 class="pc-page-title">Usuarios y roles</h2>
     <p>Administra accesos para perfiles <strong>admin</strong>, <strong>nomina</strong>, <strong>coordinador</strong>, <strong>cobranza</strong> y <strong>usuario</strong>.</p>
   </div>
 </section>
@@ -30,11 +30,11 @@
     <button type="submit" class="btn btn-primary">Crear usuario</button>
   </form>
 
-  <section class="panel">
+  <section class="panel pc-list-panel pc-table-shell">
     <div class="panel-head">
-      <h3>Usuarios registrados</h3>
+      <h3 class="pc-table-caption">Usuarios registrados</h3>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap pc-table-scroll pc-density-compact">
       <table>
         <thead>
           <tr>

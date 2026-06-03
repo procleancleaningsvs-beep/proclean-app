@@ -296,13 +296,13 @@ dialog.imss-modal { border:0; border-radius:12px; padding:0; width:min(820px,95v
     </section>
   </div>
 
-  <section class="imss-bottom">
-    <h3>Historial de exportaciones</h3>
-    <div class="imss-inline" style="margin-bottom:.6rem;">
-      <input id="hist-search" type="search" placeholder="Buscar por patrón o fecha">
+  <section class="imss-bottom pc-history-shell pc-list-panel">
+    <h3 class="pc-table-caption">Historial de exportaciones</h3>
+    <div class="imss-inline pc-table-toolbar pc-filter-bar" style="margin-bottom:.6rem;">
+      <input id="hist-search" class="pc-search-box" type="search" placeholder="Buscar por patrón o fecha">
       <button type="button" class="btn btn-secondary" id="btn-hist-refresh">Actualizar</button>
     </div>
-    <div class="imss-table-wrap">
+    <div class="imss-table-wrap pc-table-scroll pc-table-shell pc-density-compact">
       <table class="imss-table">
         <thead>
           <tr>

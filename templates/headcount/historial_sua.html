@@ -2,16 +2,16 @@
 {% from '_icon_button.html' import icon_link %}
 {% block extra_head %}{% include 'headcount/_styles.html' %}{% endblock %}
 {% block content %}
-<section class="page-head hc-page-head">
-  <div>
-    <span class="eyebrow">Headcount</span>
-    <h2>Historial auditorías SUA</h2>
-    <p>Consulta por fecha de corte del SUA.</p>
+<section class="page-head hc-page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Headcount</span>
+    <h2 class="pc-page-title">Historial auditorías SUA</h2>
+    <p class="pc-page-subtitle">Consulta por fecha de corte del SUA.</p>
   </div>
 </section>
 
-<div class="hc-panel">
-  <form class="hc-filters" method="get">
+<div class="hc-panel pc-history-shell pc-list-panel">
+  <form class="hc-filters pc-filter-bar pc-table-toolbar" method="get">
     <div>
       <label>Fecha de corte SUA</label>
       <select name="fecha_corte">
@@ -43,7 +43,7 @@
           <td>{{ row.total_cotizantes }}</td>
           <td>{{ row.total_matches }}</td>
           <td>{{ row.total_sin_match }}</td>
-          <td class="actions-cell actions-cell--nowrap">
+          <td class="actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('eye', 'Ver auditoría', url_for('headcount.auditoria_sua_resultado', audit_id=row.audit_id)) }}
             {{ icon_link('download', 'Exportar Excel', url_for('headcount.auditoria_sua_exportar_excel', audit_id=row.audit_id), variant='success') }}
           </td>

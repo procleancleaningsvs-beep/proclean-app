@@ -4,20 +4,20 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='carrier/carrier.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head carrier-page-head">
-  <div>
-    <span class="eyebrow">Carrier · Cursos</span>
-    <h2>Historial de Cursos</h2>
-    <p>Exportaciones PDF generadas desde expedientes. Las constancias originales siguen en el historial de Movimientos IMSS.</p>
+<section class="page-head carrier-page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Carrier · Cursos</span>
+    <h2 class="pc-page-title">Historial de Cursos</h2>
+    <p class="pc-page-subtitle">Exportaciones PDF generadas desde expedientes. Las constancias originales siguen en el historial de Movimientos IMSS.</p>
   </div>
-  <div class="page-head-actions">
+  <div class="page-head-actions pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('carrier_curso.index') }}">Volver a Cursos</a>
   </div>
 </section>
 
-<section class="panel carrier-historial-panel">
+<section class="panel carrier-historial-panel pc-history-shell pc-list-panel">
   {% if rows %}
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll pc-table-shell pc-density-compact">
     <table>
       <thead>
         <tr>
@@ -37,7 +37,7 @@
           <td class="history-cell-wrap">{{ r.pdf_display_name }}</td>
           <td class="history-cell-wrap">{{ r.nombre_persona }}</td>
           <td>{{ r.expediente_updated_at or '—' }}</td>
-          <td class="actions-cell actions-cell--nowrap">
+          <td class="actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('download', 'Descargar PDF', url_for('carrier_curso.descargar_export_log', log_id=r.id), variant='success') }}
             {{ icon_link('folder-open', 'Abrir expediente', url_for('carrier_curso.index', e=r.expediente_id)) }}
             {% if is_admin %}
@@ -52,7 +52,7 @@
     </table>
   </div>
   {% else %}
-  <p class="empty-state">Aún no hay exportaciones registradas.</p>
+  <p class="empty-state pc-table-empty">Aún no hay exportaciones registradas.</p>
   {% endif %}
 </section>
 {% endblock %}

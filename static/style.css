@@ -6366,3 +6366,403 @@ td.actions,
     flex-wrap: wrap;
   }
 }
+
+/* ============================================================
+   FASE E.5: History, table and listing enrichment (opt-in)
+   ▸ Historiales, tablas, toolbars — NO tocar JS/columnas E.6
+   ============================================================ */
+
+/* ── E5-1  Shells de historial y listado ─────────────────────── */
+.pc-history-shell,
+.pc-list-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: var(--pc-radius-xl, 20px);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  background: linear-gradient(180deg, #fafcfe 0%, #ffffff 12%, #ffffff 100%);
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.04),
+    0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.pc-history-shell.panel,
+.pc-history-shell.form-card,
+.pc-list-panel.panel,
+.pc-list-panel.form-card,
+.pc-list-panel.vac-card,
+.pc-list-panel.ni-card,
+.pc-list-panel.param-card,
+.pc-list-panel.calc-card,
+.pc-list-panel.imss-bottom {
+  /* módulos con padding propio: el shell refuerza sin duplicar borde fuerte */
+}
+
+.pc-history-hero {
+  margin-bottom: 4px;
+}
+
+.pc-history-hero.pc-hub-hero,
+.page-head.pc-history-hero {
+  margin-bottom: 18px;
+}
+
+/* ── E5-2  Table shell, caption, meta ────────────────────────── */
+.pc-table-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pc-table-caption {
+  margin: 0 0 2px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  letter-spacing: -0.01em;
+}
+
+.pc-table-meta {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--pc-text-muted);
+  line-height: 1.4;
+}
+
+.pc-table-shell > h3:not([class]) {
+  margin: 0 0 4px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+/* ── E5-3  Toolbar, filtros, búsqueda ────────────────────────── */
+.pc-table-toolbar,
+.pc-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: var(--pc-radius-lg, 14px);
+  background: linear-gradient(118deg, #f0f7fc 0%, #f8fbfe 55%, #f9fcf6 100%);
+  border: 1px solid rgba(26, 144, 198, 0.12);
+}
+
+.pc-table-toolbar .history-search-label,
+.pc-filter-bar label,
+.pc-table-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+  min-width: 0;
+}
+
+.pc-search-box,
+.pc-table-toolbar .history-search-input,
+.pc-filter-bar input[type="search"],
+.pc-filter-bar input[type="text"]:not([type="checkbox"]),
+.pc-filter-bar select,
+.pc-table-toolbar input[type="search"],
+.pc-table-toolbar input[type="text"] {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: var(--pc-radius-pill, 999px);
+  border: 1px solid var(--pc-border);
+  background: #fff;
+  font-size: 0.88rem;
+  color: var(--pc-text);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color var(--pc-transition, 0.15s ease), box-shadow 0.15s ease;
+}
+
+.pc-search-box:focus,
+.pc-table-toolbar .history-search-input:focus,
+.pc-filter-bar input:focus,
+.pc-filter-bar select:focus {
+  outline: none;
+  border-color: rgba(26, 144, 198, 0.45);
+  box-shadow: 0 0 0 3px rgba(26, 144, 198, 0.12);
+}
+
+.pc-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border-radius: var(--pc-radius-pill);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--pc-border);
+  color: var(--pc-text-muted);
+}
+
+/* Integración toolbars legacy */
+.history-toolbar.pc-table-toolbar,
+.history-toolbar.pc-filter-bar,
+.checkid-recent-toolbar,
+.fin-hist-toolbar,
+.imss-panel-search .history-toolbar,
+.param-filters.pc-filter-bar,
+.vac-filters-grid.pc-filter-bar,
+.ni-form-inline.pc-filter-bar,
+.fx-toolbar.fx-filters-panel.pc-filter-bar,
+.hc-filters.pc-filter-bar {
+  margin-bottom: 0;
+}
+
+/* ── E5-4  Scroll y densidad ─────────────────────────────────── */
+.pc-table-scroll,
+.pc-table-shell .table-wrap,
+.pc-table-shell .param-table-wrap,
+.pc-table-shell .ni-table-wrap,
+.pc-table-shell .vac-table-wrap,
+.pc-table-shell .calc-table-wrap,
+.pc-table-shell .fin-hist-table-wrap,
+.pc-table-scroll.fx-table-wrap,
+.pc-table-scroll.hc-table-wrap,
+.pc-table-shell .imss-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: var(--pc-radius-lg, 12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.pc-table-scroll::-webkit-scrollbar,
+.pc-table-shell .table-wrap::-webkit-scrollbar {
+  height: 8px;
+}
+
+.pc-table-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 999px;
+}
+
+.pc-density-compact .pc-table-scroll table th,
+.pc-density-compact .pc-table-scroll table td,
+.pc-density-compact table th,
+.pc-density-compact table td {
+  padding-top: 0.42rem;
+  padding-bottom: 0.42rem;
+  font-size: 0.84rem;
+}
+
+/* Encabezados de tabla dentro de shell */
+.pc-table-shell table thead th,
+.pc-list-panel table thead th,
+.pc-table-scroll table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+  color: var(--pc-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  border-bottom: 1px solid rgba(26, 144, 198, 0.14);
+  white-space: nowrap;
+}
+
+.pc-table-shell table tbody tr:hover td,
+.pc-list-panel table tbody tr:hover td {
+  background: var(--pc-surface-blue, #f0f7fc);
+}
+
+.pc-table-shell table tbody tr:nth-child(even) td {
+  background: rgba(248, 250, 252, 0.65);
+}
+
+.pc-table-shell table tbody tr:nth-child(even):hover td {
+  background: var(--pc-surface-blue, #f0f7fc);
+}
+
+/* ── E5-5  Acciones por fila ─────────────────────────────────── */
+.pc-row-actions,
+.pc-table-shell .actions-cell,
+.pc-list-panel .actions-cell,
+.actions-cell.pc-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pc-table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pc-row-actions .btn-icon,
+.pc-table-shell .btn-icon,
+.actions-cell .btn-icon {
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.pc-row-actions form.inline-form,
+.actions-cell form.inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── E5-6  Status badges ─────────────────────────────────────── */
+.pc-status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border-radius: var(--pc-radius-pill);
+  border: 1px solid transparent;
+  line-height: 1.3;
+  vertical-align: middle;
+}
+
+.pc-status-success,
+.imss-badge.alta,
+.ni-table .pc-status-success {
+  background: #ecf6e6;
+  border-color: rgba(119, 190, 60, 0.25);
+  color: var(--pc-green-deep, #2d6a1f);
+}
+
+.pc-status-warning,
+.imss-badge.reingreso,
+.ni-vsm-badge.pc-status-badge,
+.ni-pesos-badge.pc-status-badge {
+  background: #fffbeb;
+  border-color: rgba(217, 119, 6, 0.22);
+  color: #b45309;
+}
+
+.pc-status-danger,
+.imss-badge.baja {
+  background: #fef2f2;
+  border-color: rgba(220, 38, 38, 0.2);
+  color: #991b1b;
+}
+
+.pc-status-neutral {
+  background: #f1f5f9;
+  border-color: rgba(148, 163, 184, 0.35);
+  color: #475569;
+}
+
+.pc-table-shell .ni-vsm-badge,
+.ni-vsm-badge {
+  margin-right: 4px;
+}
+
+.pc-table-shell .imss-badge {
+  border-radius: var(--pc-radius-pill);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pc-table-shell .calc-status,
+.pc-table-shell .vac-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pc-table-shell .calc-status {
+  display: inline-flex;
+  padding: 0.12rem 0.5rem;
+  border-radius: var(--pc-radius-pill);
+  background: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #475569;
+}
+
+/* ── E5-7  Empty states en tablas ────────────────────────────── */
+.pc-table-empty,
+.empty-state.pc-table-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  padding: 28px 20px;
+  border-radius: var(--pc-radius-lg, 14px);
+  border: 1px dashed rgba(148, 163, 184, 0.4);
+  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%);
+  color: var(--pc-text-muted);
+  font-size: 0.9rem;
+}
+
+.pc-table-shell tbody td[colspan],
+.pc-list-panel tbody td[colspan] {
+  text-align: center;
+  padding: 24px 16px !important;
+  color: var(--pc-text-muted);
+  font-size: 0.88rem;
+  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 100%) !important;
+}
+
+.history-filter-empty {
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--pc-surface-soft);
+}
+
+/* ── E5-8  Notas de auditoría ────────────────────────────────── */
+.pc-audit-note {
+  padding: 10px 12px;
+  border-radius: var(--pc-radius-lg, 10px);
+  border: 1px solid rgba(26, 144, 198, 0.14);
+  background: linear-gradient(165deg, #f0f7fc 0%, #ffffff 100%);
+  font-size: 0.84rem;
+  color: var(--pc-text-muted);
+  line-height: 1.45;
+}
+
+.pc-audit-note strong {
+  color: var(--pc-text);
+}
+
+/* Facturación: filtros y tabla */
+.fx-filters-panel.pc-filter-bar label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.fx-table-wrap.pc-table-scroll {
+  border-radius: var(--pc-radius-lg, 14px);
+}
+
+.fx-table.pc-density-compact thead th {
+  background: linear-gradient(180deg, #f4f8fb 0%, #eef4f8 100%);
+}
+
+@media (max-width: 900px) {
+  .pc-table-toolbar,
+  .pc-filter-bar {
+    padding: 10px 12px;
+  }
+
+  .pc-history-shell,
+  .pc-list-panel {
+    padding: 14px 12px;
+  }
+
+  .pc-table-shell table thead th {
+    position: static;
+  }
+}

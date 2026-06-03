@@ -102,9 +102,9 @@
     </div>
   </section>
 
-  <section class="param-card">
-    <h3>Historial reciente de importaciones</h3>
-    <div class="param-table-wrap">
+  <section class="param-card pc-table-shell pc-list-panel">
+    <h3 class="pc-table-caption">Historial reciente de importaciones</h3>
+    <div class="param-table-wrap pc-table-scroll">
       <table class="param-table" style="min-width:900px;">
         <thead>
           <tr>
@@ -140,14 +140,14 @@
     </div>
   </section>
 
-  <section class="param-card param-card--table">
-    <h3>Consolidado de empleados</h3>
+  <section class="param-card param-card--table pc-table-shell pc-list-panel pc-density-compact">
+    <h3 class="pc-table-caption">Consolidado de empleados</h3>
     {% if stats.stats_mode == 'legacy' %}
     <p class="param-help param-help--legacy">Vista legacy: muestra registros importados en base. No representa empleados activos Headcount.</p>
     {% else %}
     <p class="param-help">Una línea por empleado activo Headcount (canónico). Los registros externos sin match aparecen al final.</p>
     {% endif %}
-    <form method="GET" class="param-filters">
+    <form method="GET" class="param-filters pc-filter-bar pc-table-toolbar">
       <label>Cliente
         <input type="text" name="cliente" value="{{ filtros.cliente }}" placeholder="Carrier, Pepsi…" />
       </label>
@@ -161,7 +161,7 @@
       <label><input type="checkbox" name="missing_he" value="1" {% if filtros.missing_he %}checked{% endif %}> Sin valor x HE</label>
       <button class="btn btn-secondary" type="submit">Aplicar</button>
     </form>
-    <div class="param-table-wrap">
+    <div class="param-table-wrap pc-table-scroll">
       <table class="param-table">
         <thead>
           <tr>
@@ -235,7 +235,7 @@
               </ul>
               {% else %}—{% endif %}
             </td>
-            <td class="actions-cell actions-cell--nowrap">
+            <td class="actions-cell actions-cell--nowrap pc-row-actions">
               {% if row.id %}
               {{ icon_link('eye', 'Ver detalle del empleado', url_for('nomina.parametros_detalle', row_id=row.id)) }}
               {{ icon_link('pencil', 'Editar parámetros', url_for('nomina.parametros_editar', row_id=row.id)) }}
@@ -255,7 +255,7 @@
 
   <section class="param-card">
     <h3>Localidades detectadas (frontera/general)</h3>
-    <div class="param-table-wrap">
+    <div class="param-table-wrap pc-table-scroll">
       <table class="param-table" style="min-width:700px;">
         <thead>
           <tr>

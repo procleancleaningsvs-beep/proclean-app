@@ -53,7 +53,7 @@
       <span class="pc-form-step-number pc-form-step-number--amber" aria-hidden="true">03</span>
       <div class="pc-form-step-text"><h3 class="pc-form-step-title">Filtros de revisión</h3></div>
     </header>
-    <form class="ni-form-inline" method="get" action="{{ url_for('nomina.infonavit_index') }}">
+    <form class="ni-form-inline pc-filter-bar pc-table-toolbar" method="get" action="{{ url_for('nomina.infonavit_index') }}">
       <select name="import_id">
         {% for imp in imports %}
         <option value="{{ imp.id }}" {% if filtros.import_id == (imp.id|string) %}selected{% endif %}>
@@ -89,9 +89,9 @@
     <p class="ni-filter-note">Importación vigente por default: {% if latest_import_id %}#{{ latest_import_id }}{% else %}sin importaciones{% endif %}</p>
   </section>
 
-  <section class="ni-card ni-card--table">
-    <h3>Avisos</h3>
-    <div class="ni-table-wrap">
+  <section class="ni-card ni-card--table pc-table-shell pc-list-panel pc-density-compact">
+    <h3 class="pc-table-caption">Avisos</h3>
+    <div class="ni-table-wrap pc-table-scroll">
       <table class="ni-table">
         <thead>
           <tr>
@@ -122,9 +122,9 @@
             <td>{{ row.fecha_aviso or '—' }}</td>
             <td>
               {% if row.tipo_valor_descuento == 'VSM' %}
-                <span class="ni-vsm-badge">VSM</span>{{ row.descuento_raw or '—' }}
+                <span class="ni-vsm-badge pc-status-badge pc-status-warning">VSM</span>{{ row.descuento_raw or '—' }}
               {% elif row.tipo_valor_descuento == 'PESOS' %}
-                <span class="ni-pesos-badge">PESOS</span> {{ row.descuento_raw or '—' }}
+                <span class="ni-pesos-badge pc-status-badge pc-status-neutral">PESOS</span> {{ row.descuento_raw or '—' }}
               {% else %}
                 <span class="ni-sinmonto-badge">SIN MONTO</span>
               {% endif %}
@@ -152,7 +152,7 @@
               <div class="ni-warn">{{ w }}</div>
               {% endfor %}
             </td>
-            <td class="actions-cell">{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
+            <td class="actions-cell pc-row-actions">{{ icon_link('pencil', 'Editar registro INFONAVIT', url_for('nomina.infonavit_editar', row_id=row.id)) }}</td>
           </tr>
           {% endfor %}
           {% if not rows %}

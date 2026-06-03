@@ -3,9 +3,9 @@
 {% set fx_nav_active = 'facturas' %}
 {% set _meses = ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'] %}
 {% block fx_main %}
-<div class="fx-hero">
-  <div>
-    <h1>Facturas{% if filtros.por_clasificar %} <span class="fx-muted" style="font-size:1rem">— revisión importación (POR CLASIFICAR)</span>{% endif %}</h1>
+<div class="fx-hero pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <h1 class="pc-page-title">Facturas{% if filtros.por_clasificar %} <span class="fx-muted" style="font-size:1rem">— revisión importación (POR CLASIFICAR)</span>{% endif %}</h1>
     <p>Consulta, filtra y da seguimiento. Los administradores pueden editar y cargar archivos.</p>
   </div>
   {% if is_admin %}
@@ -32,7 +32,7 @@
 </div>
 {% endif %}
 
-<form class="fx-toolbar fx-filters-panel" method="get">
+<form class="fx-toolbar fx-filters-panel pc-filter-bar pc-table-toolbar" method="get">
   {% if filtros.por_clasificar %}<input type="hidden" name="por_clasificar" value="1">{% endif %}
   <label>Mes
     <select name="mes">
@@ -70,7 +70,7 @@
 </form>
 {% endif %}
 
-<div class="fx-table-wrap">
+<div class="fx-table-wrap pc-table-scroll pc-table-shell pc-list-panel pc-density-compact">
   <table class="fx-table">
     <thead>
       <tr>
@@ -131,7 +131,7 @@
         <td>{% if r._adjuntos.pdf %}<a href="{{ url_for('facturacion.descargar_adjunto', fid=r.id, tipo='pdf') }}">Sí</a>{% else %}<span class="fx-muted">No</span>{% endif %}</td>
         <td>{% if r._adjuntos.xml %}<a href="{{ url_for('facturacion.descargar_adjunto', fid=r.id, tipo='xml') }}">Sí</a>{% else %}<span class="fx-muted">No</span>{% endif %}</td>
         <td class="fx-muted" style="white-space:nowrap;font-size:0.8rem">{{ r.fecha_actualizacion or '' }}</td>
-        <td class="fx-actions actions-cell actions-cell--nowrap">
+        <td class="fx-actions actions-cell actions-cell--nowrap pc-row-actions">
           {{ icon_link('eye', 'Ver factura', url_for('facturacion.factura_detail', fid=r.id)) }}
           {% if is_admin %}
           {{ icon_link('pencil', 'Editar factura', url_for('facturacion.factura_editar', fid=r.id)) }}

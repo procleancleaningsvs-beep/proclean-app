@@ -4,25 +4,25 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='movimientos_imss/imss.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head imss-page-head">
-  <div>
-    <span class="eyebrow">Movimientos IMSS</span>
-    <h2>Historial de movimientos</h2>
-    <p>Constancias generadas y archivos asociados. Descarga o elimina registros según tu flujo.</p>
+<section class="page-head imss-page-head pc-hub-hero pc-history-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Movimientos IMSS</span>
+    <h2 class="pc-page-title">Historial de movimientos</h2>
+    <p class="pc-page-subtitle">Constancias generadas y archivos asociados. Descarga o elimina registros según tu flujo.</p>
   </div>
 </section>
 
-<section class="panel imss-history-panel">
+<section class="panel imss-history-panel pc-history-shell pc-list-panel">
   {% if records %}
   <div class="imss-panel-search">
-    <div class="history-toolbar">
+    <div class="history-toolbar pc-table-toolbar pc-filter-bar">
       <label class="history-search-label">Buscar en historial
         <input type="search" id="history-search" class="history-search-input" placeholder="Fecha movimiento, formato realizado, sueldo, NSS, nombre, archivo, folio, lote…" autocomplete="off" aria-label="Filtrar filas del historial">
       </label>
     </div>
     <p id="history-filter-empty" class="helper history-filter-empty" hidden>Sin coincidencias con tu búsqueda.</p>
   </div>
-  <div class="table-wrap">
+  <div class="table-wrap pc-table-scroll pc-table-shell pc-density-compact">
     <table class="history-table">
       <thead>
         <tr>
@@ -44,7 +44,7 @@
           <td class="imss-filename-cell">{{ item.filename }}</td>
           <td>{{ item.username }}</td>
           <td class="imss-count-cell">{{ item.movement_count }}</td>
-          <td class="actions-cell">
+          <td class="actions-cell pc-row-actions">
             <form method="post" action="{{ url_for('descargar_desde_historial', record_id=item.id) }}" class="inline-form history-download-form">
               <select name="output_format" class="history-download-select">
                 <option value="pdf" selected>PDF</option>
@@ -70,7 +70,7 @@
     </table>
   </div>
   {% else %}
-    <p class="empty-state">Todavía no hay movimientos en el historial.</p>
+    <p class="empty-state pc-table-empty">Todavía no hay movimientos en el historial.</p>
   {% endif %}
 </section>
 {% if records %}
