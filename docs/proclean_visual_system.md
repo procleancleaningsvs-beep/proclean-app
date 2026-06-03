@@ -267,10 +267,44 @@ En migraciones visuales **no modificar**:
 | D.4–D.5 | Sidebar iconografía + active state |
 | D.9 | Acciones tabla / erradicar botones grises en celdas |
 | **D.20** | Biblioteca `.pc-*` opt-in + ajustes legacy seguros |
+| **E.1** | Enriquecimiento visual global (hero compacto, icon chip, variantes suaves, KPIs vivos, empty states) |
 
 ---
 
-## 10. Módulos con CSS local (referencia)
+## 10. Visual enrichment patterns (Fase E.1)
+
+Capa **opt-in** en `static/style.css` (bloque E.1). Complementa D.20 sin sustituir estilos de módulos ya pulidos (p. ej. `nd-*` en Dashboard Nómina).
+
+| Patrón | Clases | Cuándo usar |
+|--------|--------|-------------|
+| **Hero compacto** | `.pc-hero-compact`, `__main`, `__deco` | Cabecera de módulo con badge, título y subtítulo; sustituye o envuelve `.page-head` plano. Incluye gradiente suave y blobs. No inventar texto funcional. |
+| **Icon chip** | `.pc-section-head` + `.pc-icon-chip` (`--blue`, `--green`, `--neutral`, `--warn`) | Título de sección o card con icono SVG inline (24×24 stroke). Un chip por bloque; el `h3` va en `.pc-panel-title` dentro de `.pc-section-head`. |
+| **Decorative background** | `.pc-surface-decor`, `--green`, `.pc-layout-decor` | Panel o layout con círculos radiales muy tenues. No en tablas densas ni sobre inputs. |
+| **Soft card variants** | `.pc-panel--soft-blue`, `--soft-green`, `--neutral`, `--warn-subtle`, `--gradient-result` | Variar bloques sin repetir `border-left` en todo. Azul = captura/datos; verde = resultado/éxito; neutral = formulario denso; warn = avisos; gradient-result = panel de salida/cálculo. |
+| **KPI tiles** | `.pc-kpi--vivid`, `.pc-kpi-grid--auto` | Métricas derivadas del cálculo o resumen. `--auto` estiliza hijos `div` sin cambiar JS (usa `:empty` para ocultar). Para KPIs estáticos en HTML, preferir `.pc-kpi-grid` + `.pc-kpi`. |
+| **Empty states** | `.pc-empty-state`, `--rich`, `__icon`, `__title`, `__text` | Listas o paneles sin datos. `--rich` solo si el mensaje es fijo en HTML; si JS asigna `textContent` al nodo, usar `.pc-empty-state` simple en ese `id`. |
+
+**También E.1:** `.pc-chip` (etiquetas inline), `.pc-divider` (separador interno), `.pc-result-actions` (barra de botones en panel resultado).
+
+**Ejemplo — sección con chip y variante suave:**
+
+```html
+<section class="fin-sec pc-panel pc-panel--soft-blue pc-surface-decor">
+  <div class="pc-section-head">
+    <span class="pc-icon-chip pc-icon-chip--blue" aria-hidden="true">
+      <svg viewBox="0 0 24 24">...</svg>
+    </span>
+    <h3 class="pc-panel-title">Datos generales</h3>
+  </div>
+  <!-- campos sin cambiar name/id -->
+</section>
+```
+
+**Regla:** no cambiar `name`, `id`, `value`, `action`, `method` ni rutas al aplicar E.1.
+
+---
+
+## 11. Módulos con CSS local (referencia)
 
 | Módulo | CSS |
 |--------|-----|
@@ -282,7 +316,7 @@ En migraciones visuales **no modificar**:
 | Vitroflex | `static/vitroflex_docs/vitroflex.css` |
 | Carrier/Cursos | `static/carrier/carrier.css` |
 | Facturación | `static/facturacion/facturacion.css` |
-| Finiquitos | `static/finiquitos/finiquitos.css` |
+| Finiquitos | `static/finiquitos/finiquitos.css` + patrones E.1 (`style.css`) |
 | Hub asistencia | `static/nomina/asistencia_hub.css` |
 | Vacaciones | `static/nomina/vacaciones.css` |
 | INFONAVIT | `static/nomina/infonavit.css` |
@@ -293,4 +327,4 @@ En migraciones visuales **no modificar**:
 
 ---
 
-*Última actualización: Fase D.20 — consolidación sistema visual.*
+*Última actualización: Fase E.1 — enriquecimiento visual global + Finiquitos piloto.*

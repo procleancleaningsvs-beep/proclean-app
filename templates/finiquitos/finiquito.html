@@ -3,18 +3,31 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='finiquitos/finiquitos.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head fin-page-head">
-  <div>
-    <span class="eyebrow">Finiquitos</span>
-    <h2>Finiquito</h2>
-    <p>Captura compacta y cálculo transparente.</p>
+<section class="page-head pc-hero-compact fin-page-head">
+  <div class="pc-hero-compact__main">
+    <span class="pc-page-eyebrow">Finiquitos</span>
+    <h2 class="pc-page-title">Finiquito</h2>
+    <p class="pc-page-subtitle">Captura compacta y cálculo transparente.</p>
+  </div>
+  <div class="pc-hero-compact__deco" aria-hidden="true">
+    <svg viewBox="0 0 88 72" xmlns="http://www.w3.org/2000/svg" role="presentation">
+      <circle cx="58" cy="22" r="18" fill="rgba(26,144,198,0.12)"/>
+      <circle cx="24" cy="48" r="14" fill="rgba(119,190,60,0.1)"/>
+      <rect x="12" y="14" width="36" height="44" rx="10" fill="rgba(26,144,198,0.08)" stroke="rgba(26,144,198,0.22)" stroke-width="1.5"/>
+      <path d="M22 28h16M22 36h12M22 44h14" stroke="rgba(26,144,198,0.45)" stroke-width="2" stroke-linecap="round"/>
+    </svg>
   </div>
 </section>
 
-<div class="form-card fin-layout" id="finiquito-root">
+<div class="form-card fin-layout pc-layout-decor" id="finiquito-root">
   <div class="fin-left">
-    <section class="fin-sec">
-      <h3>Datos generales</h3>
+    <section class="fin-sec pc-panel pc-panel--soft-blue pc-surface-decor">
+      <div class="pc-section-head">
+        <span class="pc-icon-chip pc-icon-chip--blue" aria-hidden="true">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        </span>
+        <h3 class="pc-panel-title">Datos generales</h3>
+      </div>
       <div class="mode-toggle">
         <span>Modo de cálculo</span>
         <label><input type="radio" name="modo_calculo" value="correcto_fiscal"> Fiscal</label>
@@ -48,8 +61,13 @@
       </div>
     </section>
 
-    <section class="fin-sec">
-      <h3>Percepciones</h3>
+    <section class="fin-sec pc-panel pc-panel--neutral pc-surface-decor">
+      <div class="pc-section-head">
+        <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        </span>
+        <h3 class="pc-panel-title">Percepciones</h3>
+      </div>
       <div class="fin-perc-wrap">
         <div class="grid-2 fin-perc-grid">
           <label>Sueldo semanal *<input type="text" id="sueldo_semanal" inputmode="decimal" required placeholder="2,205.28"></label>
@@ -93,7 +111,7 @@
         </div>
         <p id="fin_perc_optional_hint" class="helper" hidden></p>
       </div>
-      <div id="auto-kpis-left" class="helper"></div>
+      <div id="auto-kpis-left" class="pc-kpi-grid pc-kpi-grid--auto"></div>
       <div id="pa_status" class="helper"></div>
       <div id="pa_toggle" hidden>
         <span>¿Deseas incluir prima de antigüedad en el recibo?</span>
@@ -176,13 +194,20 @@
   </div>
 
   <div class="fin-right">
-    <section class="fin-sec fin-result">
-      <h3>Cálculo / Resultado</h3>
-      <div class="movement-actions">
+    <section class="fin-sec fin-result pc-panel pc-panel--gradient-result pc-surface-decor pc-surface-decor--green">
+      <div class="pc-section-head">
+        <span class="pc-icon-chip pc-icon-chip--green" aria-hidden="true">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="12" y2="14"/></svg>
+        </span>
+        <h3 class="pc-panel-title">Cálculo / Resultado</h3>
+        <span class="pc-chip pc-chip--green">Vista previa</span>
+      </div>
+      <div class="movement-actions pc-result-actions">
         <button type="button" class="btn btn-primary" id="btn_calc">Calcular</button>
         <button type="button" class="btn btn-secondary" id="btn_pdf">Exportar PDF</button>
         <button type="button" class="btn btn-secondary" id="btn_hist">Guardar en historial</button>
       </div>
+      <hr class="pc-divider pc-divider--inset" aria-hidden="true">
       <p class="helper" id="calc_msg"></p>
       <div id="preview" class="preview-block" hidden></div>
       <details class="calc-advanced" id="advanced" hidden>
