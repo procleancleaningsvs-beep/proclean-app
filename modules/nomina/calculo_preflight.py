@@ -1,11 +1,13 @@
 """Prevalidacion para flujo de entrada de calculo preliminar de nomina."""
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
 import unicodedata
 from typing import Any
 
-from modules.nomina.calc_service import build_calculo_payload
+from modules.nomina.calc_service import _match_parametro, _param_index, build_calculo_payload
 from modules.nomina.config import (
     MSG_HEADCOUNT_UNAVAILABLE_CALCULO,
     WARN_BLOCK_CALC_MISSING_SALARY,
@@ -190,11 +192,13 @@ def _make_observacion(
     fila: int | None = None,
     codigo: str | None = None,
     accion_parametros: dict[str, Any] | None = None,
+    trabajador_datos: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "nivel": nivel,
         "origen": origen,
         "trabajador": trabajador,
+        "trabajador_datos": trabajador_datos or {},
         "fila": fila,
         "detalle": detalle,
         "impacto": impacto,
@@ -284,12 +288,33 @@ def _asistencia_prima_solicita(raw_row: dict[str, Any] | None) -> bool:
     return _norm_header(str(raw_row.get("prima_vacacional") or "")) == "SOLICITA"
 
 
+def _clean_display(value: Any) -> str:
+    s = str(value or "").strip()
+    if not s or s.lower() in {"none", "null", "nan", "n/a", "—"}:
+        return ""
+    return s
+
+
+def _build_trabajador_datos(
+    raw_row: dict[str, Any],
+    payload_row: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    src = payload_row if payload_row else raw_row
+    nombre = _clean_display(src.get("nombre_empleado") or raw_row.get("nombre_empleado")) or "Trabajador sin nombre"
+    return {
+        "nombre": nombre,
+        "cliente": _clean_display(raw_row.get("cliente") or src.get("cliente")),
+        "planta": _clean_display(raw_row.get("planta") or src.get("planta")),
+        "puesto": _clean_display(raw_row.get("puesto") or src.get("puesto")),
+        "fila": int(raw_row.get("row_number") or src.get("asistencia_row_id") or raw_row.get("id") or 0) or None,
+        "nombre_normalizado": _norm_name(nombre),
+        "nss": _norm_nss(raw_row.get("nss") or src.get("nss")),
+        "numero_empleado": _clean_display(src.get("numero_empleado")),
+    }
+
+
 def _trabajador_label(row: dict[str, Any], payload_row: dict[str, Any] | None = None) -> str:
-    nombre = str((payload_row or row).get("nombre_empleado") or row.get("nombre_empleado") or "").strip()
-    nss = str((payload_row or row).get("nss") or row.get("nss") or "").strip()
-    if nombre and nss:
-        return f"{nombre} (NSS {nss})"
-    return nombre or (f"NSS {nss}" if nss else "Trabajador sin identificar")
+    return _build_trabajador_datos(row, payload_row)["nombre"]
 
 
 def _cliente_planta_label(row: dict[str, Any], vac_row: dict[str, Any] | None = None) -> str:
@@ -361,15 +386,18 @@ def _param_action_payload(
     needs_salario: bool = False,
     needs_valor_he: bool = False,
 ) -> dict[str, Any]:
+    datos = _build_trabajador_datos(raw_row, payload_row)
     return {
         "asistencia_row_id": int(payload_row.get("asistencia_row_id") or raw_row.get("id") or 0),
         "parametro_empleado_id": payload_row.get("parametro_empleado_id"),
-        "nss": str(payload_row.get("nss") or raw_row.get("nss") or "").strip(),
-        "nombre_empleado": str(payload_row.get("nombre_empleado") or raw_row.get("nombre_empleado") or "").strip(),
-        "numero_empleado": str(payload_row.get("numero_empleado") or "").strip(),
-        "cliente": str(raw_row.get("cliente") or payload_row.get("cliente") or "").strip(),
-        "planta": str(raw_row.get("planta") or payload_row.get("planta") or "").strip(),
-        "fila": int(raw_row.get("row_number") or 0) or None,
+        "nss": datos["nss"],
+        "nombre_empleado": datos["nombre"],
+        "nombre_normalizado": datos["nombre_normalizado"],
+        "numero_empleado": datos["numero_empleado"] or str(payload_row.get("numero_empleado") or "").strip(),
+        "cliente": datos["cliente"],
+        "planta": datos["planta"],
+        "puesto": datos["puesto"],
+        "fila": datos["fila"],
         "needs_salario": bool(needs_salario),
         "needs_valor_he": bool(needs_valor_he),
     }
@@ -384,6 +412,7 @@ def _catalog_observacion(
     nivel: str | None = None,
     origen: str | None = None,
     accion_parametros: dict[str, Any] | None = None,
+    trabajador_datos: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = _WARNING_CATALOG.get(code, {})
     return _make_observacion(
@@ -396,6 +425,7 @@ def _catalog_observacion(
         accion_sugerida=meta.get("accion") or "Revisar detalle en asistencia o modulos relacionados",
         codigo=code,
         accion_parametros=accion_parametros,
+        trabajador_datos=trabajador_datos,
     )
 
 
@@ -411,11 +441,17 @@ def _observacion_from_run_warning(warning: str) -> dict[str, Any]:
             codigo="headcount_unavailable",
         )
     if warning.startswith(f"{WARN_SAME_NSS_MULTIPLE_CLIENTS}:"):
-        nss = warning.split(":", 1)[-1].strip()
         return _make_observacion(
             nivel=NIVEL_REVIEW,
             origen="asistencia",
-            trabajador=f"NSS {nss}",
+            trabajador="Registro duplicado",
+            trabajador_datos={
+                "nombre": "Registro con NSS duplicado",
+                "cliente": "",
+                "planta": "",
+                "puesto": "",
+                "fila": None,
+            },
             detalle="Mismo NSS asociado a multiples clientes en la asistencia importada",
             impacto="Puede generar cruces incorrectos en parametros o vacaciones",
             accion_sugerida="Revisar clientes duplicados para el NSS en asistencia",
@@ -586,8 +622,9 @@ def _build_observaciones_from_payload(
     for payload_row in preview_rows:
         aid = int(payload_row.get("asistencia_row_id") or 0)
         raw_row = rows_by_id.get(aid) or {}
-        trabajador = _trabajador_label(raw_row, payload_row)
-        fila = int(raw_row.get("row_number") or aid or 0) or None
+        datos = _build_trabajador_datos(raw_row, payload_row)
+        trabajador = datos["nombre"]
+        fila = datos["fila"]
 
         blocks = {str(block or "").strip() for block in (payload_row.get("blocks_json") or []) if str(block or "").strip()}
         for code in blocks:
@@ -610,6 +647,7 @@ def _build_observaciones_from_payload(
                     fila=fila,
                     nivel=NIVEL_CRITICAL,
                     accion_parametros=param_action,
+                    trabajador_datos=datos,
                 ),
             )
 
@@ -632,6 +670,7 @@ def _build_observaciones_from_payload(
                         impacto="Puede afectar deduccion INFONAVIT y neto",
                         accion_sugerida=accion,
                         codigo=code.split(":", 1)[0],
+                        trabajador_datos=datos,
                     ),
                 )
                 continue
@@ -644,6 +683,7 @@ def _build_observaciones_from_payload(
                     code,
                     trabajador=trabajador,
                     fila=fila,
+                    trabajador_datos=datos,
                 ),
             )
 
@@ -665,6 +705,7 @@ def _build_observaciones_from_payload(
                     impacto="Advertencia en fila importada",
                     accion_sugerida="Revisar asistencia importada",
                     codigo="asistencia_warning",
+                    trabajador_datos=datos,
                 ),
             )
 
@@ -682,36 +723,81 @@ def _build_observaciones_from_payload(
 def _split_observaciones(observaciones: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     accionables = [o for o in observaciones if str(o.get("nivel") or "") in {NIVEL_CRITICAL, NIVEL_REVIEW}]
     informativas = [o for o in observaciones if str(o.get("nivel") or "") == NIVEL_INFO]
-    accionables.sort(key=lambda o: (_NIVEL_ORDER.get(str(o.get("nivel") or ""), 9), str(o.get("trabajador") or "")))
-    informativas.sort(key=lambda o: (str(o.get("trabajador") or ""), str(o.get("detalle") or "")))
+    accionables.sort(
+        key=lambda o: (
+            _NIVEL_ORDER.get(str(o.get("nivel") or ""), 9),
+            str((o.get("trabajador_datos") or {}).get("nombre") or o.get("trabajador") or ""),
+        )
+    )
+    informativas.sort(
+        key=lambda o: (
+            str((o.get("trabajador_datos") or {}).get("nombre") or o.get("trabajador") or ""),
+            str(o.get("detalle") or ""),
+        )
+    )
     return accionables, informativas
 
 
-def _find_parametro_row(
+def _resolve_parametro_for_asistencia(
     db_path: str,
+    raw_row: dict[str, Any],
     *,
-    parametro_empleado_id: int | None,
-    nss: str,
-    nombre_norm: str,
-    cliente: str,
+    parametro_empleado_id: int | None = None,
 ) -> dict[str, Any] | None:
     if parametro_empleado_id:
         row = get_empleado_parametro(db_path, int(parametro_empleado_id))
         if row:
             return row
-    nss_k = _norm_nss(nss)
-    if nss_k:
-        for p in list_empleado_parametros(db_path, limit=8000):
-            if _norm_nss(p.get("nss")) == nss_k:
-                return p
-    if nombre_norm:
-        cliente_k = " ".join(str(cliente or "").strip().lower().split())
-        for p in list_empleado_parametros(db_path, limit=8000):
-            p_nm = _norm_name(p.get("nombre_normalizado") or p.get("nombre"))
-            p_cl = " ".join(str(p.get("cliente") or "").strip().lower().split())
-            if p_nm == nombre_norm and (not cliente_k or not p_cl or p_cl == cliente_k):
-                return p
-    return None
+    param_rows = list_empleado_parametros(db_path, limit=8000)
+    by_nss, by_name_cliente = _param_index(param_rows)
+    return _match_parametro(raw_row, by_nss, by_name_cliente)
+
+
+def _apply_parametro_preflight_patch(
+    db_path: str,
+    param_id: int,
+    *,
+    salario: float | None,
+    valor_he: float | None,
+    nss: str,
+    editable_json: dict[str, Any],
+    now_iso: str,
+    updated_by: int | None,
+) -> bool:
+    conn = sqlite3.connect(db_path)
+    try:
+        existing = conn.execute(
+            "SELECT nss, salario_operativo, valor_x_he FROM nomina_empleado_parametros WHERE id = ?",
+            (int(param_id),),
+        ).fetchone()
+        if existing is None:
+            return False
+        sets: list[str] = []
+        params: list[Any] = []
+        if salario is not None:
+            sets.extend(["salario_operativo = ?", "fuente_salario_operativo = ?"])
+            params.extend([salario, "preflight_calculo_nomina"])
+        if valor_he is not None:
+            sets.extend(["valor_x_he = ?", "fuente_valor_x_he = ?"])
+            params.extend([valor_he, "preflight_calculo_nomina"])
+        if nss and not _norm_nss(existing[0]):
+            sets.append("nss = ?")
+            params.append(nss)
+        sets.append("editable_json = ?")
+        params.append(json.dumps(editable_json, ensure_ascii=False))
+        sets.append("updated_at = ?")
+        params.append(now_iso)
+        sets.append("updated_by = ?")
+        params.append(updated_by)
+        params.append(int(param_id))
+        conn.execute(
+            f"UPDATE nomina_empleado_parametros SET {', '.join(sets)} WHERE id = ?",
+            tuple(params),
+        )
+        conn.commit()
+        return conn.total_changes > 0
+    finally:
+        conn.close()
 
 
 def save_parametro_from_preflight(
@@ -722,15 +808,16 @@ def save_parametro_from_preflight(
     salario_operativo: Any = None,
     valor_x_he: Any = None,
     comentario: str = "",
+    parametro_empleado_id: int | None = None,
     updated_by: int | None = None,
     now_iso: str,
 ) -> tuple[bool, str]:
     imp = get_asistencia_import(db_path, int(asistencia_import_id))
     if imp is None:
-        return False, "No se encontro la importacion de asistencia."
+        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
     raw_row = next((r for r in (imp.get("rows") or []) if int(r.get("id") or 0) == int(asistencia_row_id)), None)
     if raw_row is None:
-        return False, "No se encontro la fila de asistencia seleccionada."
+        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
 
     salario: float | None = None
     valor_he: float | None = None
@@ -738,29 +825,25 @@ def save_parametro_from_preflight(
         try:
             salario = float(salario_operativo)
         except (TypeError, ValueError):
-            return False, "Salario operativo invalido."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
         if salario <= 0:
-            return False, "Salario operativo debe ser mayor a 0."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
     if str(valor_x_he or "").strip() != "":
         try:
             valor_he = float(valor_x_he)
         except (TypeError, ValueError):
-            return False, "Valor x HE invalido."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
         if valor_he < 0:
-            return False, "Valor x HE debe ser mayor o igual a 0."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
     if salario is None and valor_he is None:
-        return False, "Captura al menos salario operativo o Valor x HE."
+        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
 
-    nombre = str(raw_row.get("nombre_empleado") or "").strip()
-    nombre_norm = _norm_name(nombre)
-    nss = str(raw_row.get("nss") or "").strip()
-    cliente = str(raw_row.get("cliente") or "").strip()
-    existing = _find_parametro_row(
+    datos = _build_trabajador_datos(raw_row)
+    nss = datos["nss"]
+    existing = _resolve_parametro_for_asistencia(
         db_path,
-        parametro_empleado_id=None,
-        nss=nss,
-        nombre_norm=nombre_norm,
-        cliente=cliente,
+        raw_row,
+        parametro_empleado_id=parametro_empleado_id,
     )
 
     if existing:
@@ -768,9 +851,9 @@ def save_parametro_from_preflight(
         cur_he = existing.get("valor_x_he")
         cur_he_f = _float_or_zero(cur_he) if cur_he not in (None, "") else None
         if salario is not None and cur_sal > 0 and abs(cur_sal - salario) > 0.009:
-            return False, "Ya existe salario operativo en Parametros; editalo en el modulo si necesitas cambiarlo."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
         if valor_he is not None and cur_he_f is not None and cur_he_f > 0 and abs(cur_he_f - valor_he) > 0.009:
-            return False, "Ya existe Valor x HE en Parametros; editalo en el modulo si necesitas cambiarlo."
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
 
     trace_entry = {
         "at": now_iso,
@@ -791,34 +874,51 @@ def save_parametro_from_preflight(
     editable = dict((existing or {}).get("editable_json") or {})
     editable.setdefault("preflight_capturas", []).append(trace_entry)
 
+    if existing:
+        ok = _apply_parametro_preflight_patch(
+            db_path,
+            int(existing["id"]),
+            salario=salario,
+            valor_he=valor_he,
+            nss=nss,
+            editable_json=editable,
+            now_iso=now_iso,
+            updated_by=updated_by,
+        )
+        if not ok:
+            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+        return True, "Parametros guardados correctamente. Preflight actualizado."
+
     payload_row: dict[str, Any] = {
-        "nombre": nombre,
-        "nombre_normalizado": nombre_norm,
+        "nombre": datos["nombre"],
+        "nombre_normalizado": datos["nombre_normalizado"],
         "nss": nss or None,
-        "cliente": cliente or None,
-        "planta": str(raw_row.get("planta") or "").strip() or None,
-        "puesto": str(raw_row.get("puesto") or "").strip() or None,
+        "numero_empleado": datos["numero_empleado"] or None,
+        "cliente": datos["cliente"] or None,
+        "planta": datos["planta"] or None,
+        "puesto": datos["puesto"] or None,
         "banco": str(raw_row.get("banco") or "").strip() or None,
         "cuenta": str(raw_row.get("cuenta") or "").strip() or None,
         "record_kind": "preflight_manual",
         "editable_json": editable,
     }
-    if salario is not None and (not existing or _float_or_zero(existing.get("salario_operativo")) <= 0):
+    if salario is not None:
         payload_row["salario_operativo"] = salario
         payload_row["fuente_salario_operativo"] = "preflight_calculo_nomina"
-    if valor_he is not None and (
-        not existing or existing.get("valor_x_he") in (None, "") or _float_or_zero(existing.get("valor_x_he")) <= 0
-    ):
+    if valor_he is not None:
         payload_row["valor_x_he"] = valor_he
         payload_row["fuente_valor_x_he"] = "preflight_calculo_nomina"
 
-    upsert_empleado_parametros(
+    inserted, updated = upsert_empleado_parametros(
         db_path,
         [payload_row],
         import_id=0,
         now_iso=now_iso,
+        overwrite_keys={"salario_operativo", "valor_x_he", "nss", "fuente_salario_operativo", "fuente_valor_x_he"},
     )
-    return True, "Parametros guardados. Preflight recalculado."
+    if inserted <= 0 and updated <= 0:
+        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+    return True, "Parametros guardados correctamente. Preflight actualizado."
 
 
 def _resumen_observaciones(observaciones: list[dict[str, Any]]) -> dict[str, int]:

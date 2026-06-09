@@ -3390,6 +3390,10 @@ def calculo_preflight_parametros():
         asistencia_row_id = int(request.form.get("asistencia_row_id") or 0)
     except ValueError:
         asistencia_row_id = 0
+    try:
+        parametro_empleado_id = int(request.form.get("parametro_empleado_id") or 0) or None
+    except ValueError:
+        parametro_empleado_id = None
     if asistencia_row_id <= 0:
         flash("Fila de asistencia invalida para guardar parametros.", "error")
         return _render_preflight_or_generate(import_id)
@@ -3402,6 +3406,7 @@ def calculo_preflight_parametros():
         salario_operativo=request.form.get("salario_operativo"),
         valor_x_he=request.form.get("valor_x_he"),
         comentario=str(request.form.get("comentario") or "").strip(),
+        parametro_empleado_id=parametro_empleado_id,
         updated_by=uid,
         now_iso=now_iso,
     )

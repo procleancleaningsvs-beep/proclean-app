@@ -501,6 +501,45 @@
   font-weight: 600;
 }
 
+.cp-trabajador-datos {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 160px;
+}
+
+.cp-trabajador-nombre {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--pc-text);
+  line-height: 1.3;
+}
+
+.cp-trabajador-meta {
+  display: block;
+  font-size: 0.76rem;
+  color: var(--pc-text-muted);
+  line-height: 1.35;
+}
+
+.cp-trabajador-meta--muted {
+  font-style: italic;
+}
+
+.cp-trabajador-fila {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--pc-text-muted);
+  margin-top: 0.08rem;
+}
+
+.cp-param-context {
+  display: grid;
+  gap: 0.1rem;
+  font-size: 0.74rem;
+  color: var(--pc-text-muted);
+  margin-bottom: 0.15rem;
+}
+
 .cp-obs-action-cell {
   min-width: 220px;
 }

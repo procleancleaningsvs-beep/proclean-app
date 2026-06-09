@@ -11,12 +11,15 @@ from modules.nomina.calculo_preflight import (
     WARN_BLOCK_CALC_MISSING_VALOR_HE,
     _build_observaciones_from_payload,
     _build_prima_vacacional_context,
+    _build_trabajador_datos,
     _catalog_observacion,
     _match_vacaciones_for_asistencia,
     _resumen_observaciones,
     _should_skip_preflight_warning,
     _split_observaciones,
+    build_calculo_preflight,
     preflight_requires_screen,
+    save_parametro_from_preflight,
 )
 
 
@@ -213,6 +216,167 @@ class TestCalculoPreflightObservaciones(unittest.TestCase):
         rows_by_id = {4: {"id": 4, "row_number": 9, "nombre_empleado": "DIANA", "nss": "444"}}
         observaciones, _ = _build_observaciones_from_payload(payload, rows_by_id, by_nss={}, by_name={})
         self.assertTrue(observaciones[0]["accion_parametros"]["needs_valor_he"])
+
+    def test_observacion_incluye_datos_trabajador(self):
+        raw = {
+            "id": 5,
+            "row_number": 91,
+            "nombre_empleado": "PEDRO GARCIA",
+            "cliente": "CARRIER",
+            "planta": "F",
+            "puesto": "OPERADOR",
+            "nss": "99988877766",
+        }
+        payload = {
+            "asistencia_row_id": 5,
+            "nombre_empleado": "PEDRO GARCIA",
+            "blocks_json": [WARN_BLOCK_CALC_MISSING_SALARY],
+        }
+        observaciones, _ = _build_observaciones_from_payload(
+            {"raw_json": {"run_warnings": []}, "rows": [payload]},
+            {5: raw},
+            by_nss={},
+            by_name={},
+        )
+        datos = observaciones[0]["trabajador_datos"]
+        self.assertEqual(datos["nombre"], "PEDRO GARCIA")
+        self.assertEqual(datos["cliente"], "CARRIER")
+        self.assertEqual(datos["planta"], "F")
+        self.assertEqual(datos["puesto"], "OPERADOR")
+        self.assertEqual(datos["fila"], 91)
+        self.assertNotIn("NSS", observaciones[0]["trabajador"])
+
+
+class TestCalculoPreflightGuardadoParametros(unittest.TestCase):
+    def test_guardar_salario_elimina_critica_en_preflight(self):
+        import sqlite3
+
+        from modules.nomina.db import ensure_nomina_tables, get_asistencia_import, save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        import_id = save_asistencia_import(
+            db,
+            {
+                "semana": "S24",
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 91,
+                    "nombre_empleado": "MARIA LOPEZ",
+                    "cliente": "CARRIER",
+                    "planta": "F",
+                    "puesto": "AUXILIAR LIMPIEZA",
+                    "nss": "12345678901",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        imp = get_asistencia_import(db, import_id)
+        row_id = int(imp["rows"][0]["id"])
+
+        pre1 = build_calculo_preflight(db, import_id=import_id)
+        criticas_antes = [
+            o for o in (pre1.get("observaciones_accionables") or [])
+            if o.get("codigo") == WARN_BLOCK_CALC_MISSING_SALARY
+        ]
+        self.assertGreaterEqual(len(criticas_antes), 1)
+
+        ok, msg = save_parametro_from_preflight(
+            db,
+            asistencia_import_id=import_id,
+            asistencia_row_id=row_id,
+            salario_operativo=1500.0,
+            updated_by=1,
+            now_iso=iso,
+        )
+        self.assertTrue(ok, msg)
+        self.assertIn("Preflight actualizado", msg)
+
+        pre2 = build_calculo_preflight(db, import_id=import_id)
+        criticas_despues = [
+            o for o in (pre2.get("observaciones_accionables") or [])
+            if o.get("codigo") == WARN_BLOCK_CALC_MISSING_SALARY
+            and (o.get("trabajador_datos") or {}).get("nombre") == "MARIA LOPEZ"
+        ]
+        self.assertEqual(criticas_despues, [])
+
+    def test_guardar_por_nss_es_legible_por_calc_service(self):
+        import sqlite3
+
+        from modules.nomina.calc_service import _match_parametro, _param_index
+        from modules.nomina.db import ensure_nomina_tables, get_asistencia_import, list_empleado_parametros, save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        import_id = save_asistencia_import(
+            db,
+            {
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 10,
+                    "nombre_empleado": "JUAN PEREZ",
+                    "cliente": "CARRIER",
+                    "nss": "55544433322",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        row = get_asistencia_import(db, import_id)["rows"][0]
+        row_id = int(row["id"])
+        ok, _ = save_parametro_from_preflight(
+            db,
+            asistencia_import_id=import_id,
+            asistencia_row_id=row_id,
+            salario_operativo=980.0,
+            updated_by=1,
+            now_iso=iso,
+        )
+        self.assertTrue(ok)
+        by_nss, by_name = _param_index(list_empleado_parametros(db, limit=100))
+        matched = _match_parametro(row, by_nss, by_name)
+        self.assertIsNotNone(matched)
+        self.assertGreater(float(matched.get("salario_operativo") or 0), 0)
+
+    @staticmethod
+    def _mk_db() -> str:
+        import sqlite3
+        import tempfile
+
+        from modules.nomina.db import ensure_nomina_tables
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        import os
+
+        os.close(fd)
+        conn = sqlite3.connect(path)
+        ensure_nomina_tables(conn)
+        conn.commit()
+        conn.close()
+        return path
 
 
 class TestCalculoPreflightScreenLogic(unittest.TestCase):

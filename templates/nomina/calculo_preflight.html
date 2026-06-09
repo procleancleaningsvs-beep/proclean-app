@@ -1,4 +1,25 @@
 {% extends 'base.html' %}
+{% macro trabajador_datos_cell(datos) %}
+<div class="cp-trabajador-datos">
+  <strong class="cp-trabajador-nombre">{{ (datos or {}).get('nombre') or '—' }}</strong>
+  {% if (datos or {}).get('cliente') %}
+  <span class="cp-trabajador-meta">Cliente: {{ datos.cliente }}</span>
+  {% endif %}
+  {% if (datos or {}).get('planta') %}
+  <span class="cp-trabajador-meta">Planta: {{ datos.planta }}</span>
+  {% elif (datos or {}).get('cliente') %}
+  <span class="cp-trabajador-meta cp-trabajador-meta--muted">Sin planta detectada</span>
+  {% endif %}
+  {% if (datos or {}).get('puesto') %}
+  <span class="cp-trabajador-meta">Puesto: {{ datos.puesto }}</span>
+  {% elif (datos or {}).get('nombre') and (datos or {}).get('nombre') != '—' %}
+  <span class="cp-trabajador-meta cp-trabajador-meta--muted">Sin puesto detectado</span>
+  {% endif %}
+  {% if (datos or {}).get('fila') %}
+  <span class="cp-trabajador-fila">Fila: {{ datos.fila }}</span>
+  {% endif %}
+</div>
+{% endmacro %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/calculo.css') }}">
 {% endblock %}
@@ -122,7 +143,7 @@
             <tr>
               <th>Nivel</th>
               <th>Origen</th>
-              <th>Trabajador / fila</th>
+              <th>Datos del trabajador</th>
               <th>Detalle</th>
               <th>Impacto</th>
               <th>Accion sugerida</th>
@@ -134,10 +155,7 @@
             <tr class="cp-obs-row cp-obs-row--{{ obs.nivel }}">
               <td><span class="cp-obs-level cp-obs-level--{{ obs.nivel }}">{{ obs.nivel }}</span></td>
               <td>{{ obs.origen }}</td>
-              <td>
-                {{ obs.trabajador }}
-                {% if obs.fila %}<span class="cp-obs-fila">Fila {{ obs.fila }}</span>{% endif %}
-              </td>
+              <td>{{ trabajador_datos_cell(obs.trabajador_datos or {'nombre': obs.trabajador, 'fila': obs.fila}) }}</td>
               <td>{{ obs.detalle }}</td>
               <td>{{ obs.impacto }}</td>
               <td>{{ obs.accion_sugerida }}</td>
@@ -146,8 +164,29 @@
                 <form method="post" action="{{ url_for('nomina.calculo_preflight_parametros') }}" class="cp-param-inline-form">
                   <input type="hidden" name="asistencia_import_id" value="{{ preflight.import_id }}">
                   <input type="hidden" name="asistencia_row_id" value="{{ obs.accion_parametros.asistencia_row_id }}">
-                  {% if obs.accion_parametros.cliente or obs.accion_parametros.planta %}
-                  <p class="cp-param-meta">{{ obs.accion_parametros.cliente }}{% if obs.accion_parametros.planta %} / {{ obs.accion_parametros.planta }}{% endif %}</p>
+                  {% if obs.accion_parametros.parametro_empleado_id %}
+                  <input type="hidden" name="parametro_empleado_id" value="{{ obs.accion_parametros.parametro_empleado_id }}">
+                  {% endif %}
+                  {% if obs.accion_parametros.nss %}
+                  <input type="hidden" name="nss" value="{{ obs.accion_parametros.nss }}">
+                  {% endif %}
+                  <input type="hidden" name="nombre_empleado" value="{{ obs.accion_parametros.nombre_empleado }}">
+                  <input type="hidden" name="nombre_normalizado" value="{{ obs.accion_parametros.nombre_normalizado }}">
+                  {% if obs.accion_parametros.numero_empleado %}
+                  <input type="hidden" name="numero_empleado" value="{{ obs.accion_parametros.numero_empleado }}">
+                  {% endif %}
+                  <input type="hidden" name="cliente" value="{{ obs.accion_parametros.cliente }}">
+                  <input type="hidden" name="planta" value="{{ obs.accion_parametros.planta }}">
+                  <input type="hidden" name="puesto" value="{{ obs.accion_parametros.puesto }}">
+                  {% if obs.accion_parametros.fila %}
+                  <input type="hidden" name="fila_asistencia" value="{{ obs.accion_parametros.fila }}">
+                  {% endif %}
+                  {% if obs.accion_parametros.cliente or obs.accion_parametros.planta or obs.accion_parametros.puesto %}
+                  <div class="cp-param-context">
+                    {% if obs.accion_parametros.cliente %}<span>Cliente: {{ obs.accion_parametros.cliente }}</span>{% endif %}
+                    {% if obs.accion_parametros.planta %}<span>Planta: {{ obs.accion_parametros.planta }}</span>{% endif %}
+                    {% if obs.accion_parametros.puesto %}<span>Puesto: {{ obs.accion_parametros.puesto }}</span>{% endif %}
+                  </div>
                   {% endif %}
                   {% if obs.accion_parametros.needs_salario %}
                   <label class="cp-param-field">
@@ -187,7 +226,7 @@
               <tr>
                 <th>Nivel</th>
                 <th>Origen</th>
-                <th>Trabajador / fila</th>
+                <th>Datos del trabajador</th>
                 <th>Detalle</th>
                 <th>Impacto</th>
                 <th>Accion sugerida</th>
@@ -198,10 +237,7 @@
               <tr class="cp-obs-row cp-obs-row--info">
                 <td><span class="cp-obs-level cp-obs-level--info">{{ obs.nivel }}</span></td>
                 <td>{{ obs.origen }}</td>
-                <td>
-                  {{ obs.trabajador }}
-                  {% if obs.fila %}<span class="cp-obs-fila">Fila {{ obs.fila }}</span>{% endif %}
-                </td>
+                <td>{{ trabajador_datos_cell(obs.trabajador_datos or {'nombre': obs.trabajador, 'fila': obs.fila}) }}</td>
                 <td>{{ obs.detalle }}</td>
                 <td>{{ obs.impacto }}</td>
                 <td>{{ obs.accion_sugerida }}</td>
