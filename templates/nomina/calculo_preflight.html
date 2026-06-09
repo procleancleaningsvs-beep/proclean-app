@@ -6,8 +6,8 @@
 <section class="page-head calc-page-head pc-hub-hero pc-form-hero">
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Nóminas</span>
-    <h2 class="pc-page-title">Preguntas previas al cálculo</h2>
-    <p class="pc-page-subtitle">Prevalidacion de la asistencia seleccionada antes de generar el borrador de nomina.</p>
+    <h2 class="pc-page-title">Prevalidación antes del cálculo</h2>
+    <p class="pc-page-subtitle">Revisa la asistencia seleccionada, cruces con Vacaciones y observaciones antes de generar el borrador de nómina.</p>
   </div>
   <div class="pc-hub-hero__actions">
     <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver al listado</a>
@@ -61,23 +61,105 @@
     </div>
   </section>
   {% else %}
-    {% if preflight.alertas_no_criticas %}
-    <section class="cp-card cp-alert-warn pc-warning-soft">
-      <h3>Alertas no criticas detectadas</h3>
-      <ul class="cp-list">
-        {% for item in preflight.alertas_no_criticas %}
-        <li>{{ item }}</li>
-        {% endfor %}
-      </ul>
+
+    {% if preflight.prima_vacacional_informativa %}
+    <section class="cp-card cp-prima-info">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">02</span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Prima vacacional detectada desde Vacaciones</h3>
+          <p class="cp-config-hint pc-form-step-desc">Datos resueltos desde el modulo Vacaciones. No requiere decision manual en esta pantalla.</p>
+        </div>
+      </header>
+      <div class="cp-table-wrap">
+        <table class="cp-obs-table">
+          <thead>
+            <tr>
+              <th>Trabajador</th>
+              <th>Cliente / planta</th>
+              <th>Origen</th>
+              <th>Estatus detectado</th>
+              <th>Impacto esperado</th>
+              <th>Accion</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in preflight.prima_vacacional_informativa %}
+            <tr>
+              <td>{{ item.trabajador }}</td>
+              <td>{{ item.cliente_planta }}</td>
+              <td>{{ item.origen }}</td>
+              <td>{{ item.estatus }}</td>
+              <td>{{ item.impacto }}</td>
+              <td>{{ item.accion }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if preflight.observaciones %}
+    <section class="cp-card cp-obs-panel{% if preflight.tiene_observaciones_criticas %} cp-obs-panel--critical{% endif %}">
+      <header class="pc-form-step-head">
+        <span class="pc-form-step-number{% if not preflight.prima_vacacional_informativa %} pc-form-step-number--green{% endif %}" aria-hidden="true">{% if preflight.prima_vacacional_informativa %}03{% else %}02{% endif %}</span>
+        <div class="pc-form-step-text">
+          <h3 class="pc-form-step-title">Observaciones detectadas antes del calculo</h3>
+          <p class="cp-config-hint pc-form-step-desc">Estas observaciones provienen de la asistencia importada, cruces con Vacaciones/Headcount/Parametros o validaciones internas del preflight. Revisa el detalle antes de generar el borrador.</p>
+        </div>
+      </header>
+      <div class="cp-obs-summary">
+        <span class="cp-obs-chip cp-obs-chip--critical">Criticas: {{ (preflight.observaciones_resumen or {}).get('critical', 0) }}</span>
+        <span class="cp-obs-chip cp-obs-chip--review">Revision: {{ (preflight.observaciones_resumen or {}).get('review', 0) }}</span>
+        <span class="cp-obs-chip cp-obs-chip--info">Informativas: {{ (preflight.observaciones_resumen or {}).get('info', 0) }}</span>
+      </div>
+      <div class="cp-table-wrap">
+        <table class="cp-obs-table">
+          <thead>
+            <tr>
+              <th>Nivel</th>
+              <th>Origen</th>
+              <th>Trabajador / fila</th>
+              <th>Detalle</th>
+              <th>Impacto</th>
+              <th>Accion sugerida</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for obs in preflight.observaciones %}
+            <tr class="cp-obs-row cp-obs-row--{{ obs.nivel }}">
+              <td><span class="cp-obs-level cp-obs-level--{{ obs.nivel }}">{{ obs.nivel }}</span></td>
+              <td>{{ obs.origen }}</td>
+              <td>
+                {{ obs.trabajador }}
+                {% if obs.fila %}<span class="cp-obs-fila">Fila {{ obs.fila }}</span>{% endif %}
+              </td>
+              <td>{{ obs.detalle }}</td>
+              <td>{{ obs.impacto }}</td>
+              <td>{{ obs.accion_sugerida }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if preflight.tiene_observaciones_criticas %}
+      <p class="cp-obs-block-msg">Hay observaciones criticas que impiden generar un borrador seguro. Corrige la asistencia, Parametros o Vacaciones antes de continuar.</p>
+      {% endif %}
     </section>
     {% endif %}
 
     <section class="cp-card pc-form-card">
       <header class="pc-form-step-head">
-        <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">02</span>
+        {% set step_num = '04' if preflight.prima_vacacional_informativa and preflight.observaciones else ('03' if preflight.prima_vacacional_informativa or preflight.observaciones else '02') %}
+        <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">{{ step_num }}</span>
         <div class="pc-form-step-text">
           <h3 class="pc-form-step-title">Configuracion previa</h3>
-          <p class="cp-config-hint pc-form-step-desc">Solo se muestran preguntas aplicables. Los parametros tecnicos se aplican internamente por default.</p>
+          {% if preflight.preguntas_necesarias %}
+          <p class="cp-config-hint pc-form-step-desc">Decisiones pendientes detectadas en esta importacion.</p>
+          {% else %}
+          <p class="cp-config-hint pc-form-step-desc">No se requieren decisiones adicionales. Los parametros tecnicos se aplicaran internamente conforme a la configuracion vigente.</p>
+          {% endif %}
         </div>
       </header>
       <form method="post" action="{{ url_for('nomina.calculo_generar') }}" class="pc-form-section">
@@ -94,9 +176,27 @@
           {% endfor %}
         </fieldset>
         {% endfor %}
+
+        {% if preflight.requiere_aceptacion_observaciones %}
+        <fieldset class="cp-question cp-question--accept">
+          <label>
+            <input type="checkbox" name="acepta_observaciones" value="1">
+            Acepto continuar y generar borrador con las observaciones de revision visibles arriba.
+          </label>
+        </fieldset>
+        {% endif %}
+
         <div class="cp-actions pc-form-actionbar pc-form-actionbar--primary pc-sticky-actions">
+          {% if preflight.tiene_observaciones_criticas %}
+          <button type="button" class="btn btn-primary" disabled>Generar borrador bloqueado</button>
+          <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver a revisar asistencia</a>
+          {% elif preflight.observaciones %}
+          <button type="submit" class="btn btn-primary">Generar borrador con observaciones</button>
+          <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver a revisar asistencia</a>
+          {% else %}
           <button type="submit" class="btn btn-primary">Confirmar y generar borrador</button>
           <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Cancelar</a>
+          {% endif %}
         </div>
       </form>
     </section>

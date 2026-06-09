@@ -116,7 +116,9 @@ from modules.nomina.calc_service import (
 )
 from modules.nomina.calculo_preflight import (
     CALCULO_DEFAULT_POLICY,
+    PREFLIGHT_VERSION,
     build_calculo_preflight,
+    preflight_requires_screen,
     resolve_config_from_preflight_answers,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
@@ -3275,8 +3277,17 @@ def _create_calculo_run(
             "total_filas": int(preflight.get("total_filas") or 0),
             "total_trabajadores_validos": int(preflight.get("total_trabajadores_validos") or 0),
             "alertas_no_criticas": preflight.get("alertas_no_criticas") or [],
+            "observaciones": preflight.get("observaciones") or [],
+            "observaciones_resumen": preflight.get("observaciones_resumen") or {},
+            "prima_vacacional_informativa": preflight.get("prima_vacacional_informativa") or [],
             "preguntas_mostradas": [str(q.get("id") or "") for q in (preflight.get("preguntas_necesarias") or [])],
+            "preflight_version": preflight.get("preflight_version") or PREFLIGHT_VERSION,
+            "preflight_timestamp": now_iso,
+            "preflight_user_id": uid,
+            "vacaciones_import_id": preflight.get("vacaciones_import_id"),
         }
+        if preflight_answers.get("acepta_observaciones") == "1":
+            raw_json["preflight"]["observaciones_aceptadas"] = True
     if preflight_answers:
         raw_json["preflight_answers"] = dict(preflight_answers)
     run_payload = {
@@ -3328,7 +3339,7 @@ def _render_preflight_or_generate(import_id: int):
     preflight = build_calculo_preflight(db_path, import_id=int(import_id))
     if preflight.get("alertas_criticas"):
         return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=True)
-    if preflight.get("preguntas_necesarias"):
+    if preflight_requires_screen(preflight):
         return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
     payload, err, clientes, _ = _build_payload_from_preflight(db_path, preflight=preflight, preflight_answers={})
     if payload is None:
@@ -3389,9 +3400,14 @@ def calculo_generar():
         for msg in answer_errors:
             flash(msg, "error")
         return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
-    if str(answers.get("alertas_no_criticas") or "") == "cancelar":
-        flash("Operacion cancelada. Revisa la importacion antes de calcular.", "warning")
-        return redirect(url_for("nomina.calculo_index"))
+    if preflight.get("tiene_observaciones_criticas"):
+        flash("No se puede generar borrador: corrige las observaciones criticas antes de continuar.", "error")
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
+    if preflight.get("requiere_aceptacion_observaciones") and request.form.get("acepta_observaciones") != "1":
+        flash("Debes aceptar continuar con las observaciones de revision visibles.", "error")
+        return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
+    if preflight.get("requiere_aceptacion_observaciones"):
+        answers["acepta_observaciones"] = "1"
     payload, err, clientes, cfg = _build_payload_from_preflight(
         db_path,
         preflight=preflight,

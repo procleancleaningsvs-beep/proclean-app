@@ -360,6 +360,147 @@
   margin-top: 1rem;
 }
 
+/* ── 3b. Preflight — observaciones y prima informativa ─────────── */
+
+.cp-prima-info {
+  border-top-color: var(--pc-green, #20A866);
+}
+
+.cp-obs-panel {
+  border-top-color: var(--pc-blue, #1A77D3);
+}
+
+.cp-obs-panel--critical {
+  border-top-color: #dc2626;
+  background: #fffbfb;
+}
+
+.cp-obs-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+}
+
+.cp-obs-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.12rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  background: var(--pc-surface-soft);
+  color: var(--pc-text-muted);
+}
+
+.cp-obs-chip--critical {
+  border-color: #fecaca;
+  color: #9f1239;
+  background: #fff1f2;
+}
+
+.cp-obs-chip--review {
+  border-color: #fcd34d;
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.cp-obs-chip--info {
+  border-color: rgba(26, 119, 211, 0.22);
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+}
+
+.cp-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  -webkit-overflow-scrolling: touch;
+  background: var(--pc-surface);
+}
+
+.cp-obs-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 920px;
+  font-size: 0.82rem;
+}
+
+.cp-obs-table th {
+  background: var(--pc-surface-soft);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pc-text-muted);
+  box-shadow: 0 1px 0 var(--pc-border);
+}
+
+.cp-obs-table th,
+.cp-obs-table td {
+  border-bottom: 1px solid var(--pc-border);
+  padding: 0.5rem 0.55rem;
+  vertical-align: top;
+  text-align: left;
+  color: var(--pc-text);
+  line-height: 1.4;
+}
+
+.cp-obs-table tbody tr:hover td {
+  background: var(--pc-surface-blue, #EBF4FD);
+}
+
+.cp-obs-level {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--pc-radius-pill, 50px);
+  padding: 0.1rem 0.45rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cp-obs-level--critical {
+  color: #9f1239;
+  background: #ffe4e6;
+  border: 1px solid #fecaca;
+}
+
+.cp-obs-level--review {
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+}
+
+.cp-obs-level--info {
+  color: var(--pc-blue, #1A77D3);
+  background: var(--pc-surface-blue, #E3EFFA);
+  border: 1px solid rgba(26, 119, 211, 0.2);
+}
+
+.cp-obs-fila {
+  display: block;
+  color: var(--pc-text-muted);
+  font-size: 0.72rem;
+  margin-top: 0.1rem;
+}
+
+.cp-obs-block-msg {
+  margin: 0.85rem 0 0;
+  color: #9f1239;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.cp-question--accept label {
+  font-weight: 600;
+}
+
 /* ── 4. View — visualizador borrador ───────────────────────────── */
 
 .cv-table-wrap {

@@ -1,11 +1,26 @@
 """Prevalidacion para flujo de entrada de calculo preliminar de nomina."""
 from __future__ import annotations
 
+import re
+import unicodedata
 from typing import Any
 
 from modules.nomina.calc_service import build_calculo_payload
-from modules.nomina.db import get_asistencia_import
+from modules.nomina.config import (
+    MSG_HEADCOUNT_UNAVAILABLE_CALCULO,
+    WARN_BLOCK_CALC_MISSING_SALARY,
+    WARN_BLOCK_CALC_MISSING_VALOR_HE,
+    WARN_SAME_NSS_MULTIPLE_CLIENTS,
+)
+from modules.nomina.db import (
+    get_asistencia_import,
+    get_latest_vacaciones_import_id,
+    list_vacaciones_empleados,
+)
 from modules.nomina.validators import _norm_header
+from modules.nomina.vacaciones_util import MATCH_OK, normalize_match_status_legacy
+
+PREFLIGHT_VERSION = "2"
 
 CALCULO_DEFAULT_POLICY = {
     "domingo_opcion": "proporcional",
@@ -13,6 +28,73 @@ CALCULO_DEFAULT_POLICY = {
     "dias_tarifa_subs": 7,
     "es_fin_de_mes": False,
     "permitir_negativo_isr": False,
+}
+
+NIVEL_CRITICAL = "critical"
+NIVEL_REVIEW = "review"
+NIVEL_INFO = "info"
+
+_WARNING_CATALOG: dict[str, dict[str, str]] = {
+    "prima_vacacional_sin_datos_vacaciones": {
+        "origen": "vacaciones",
+        "impacto": "Puede afectar el pago de prima vacacional",
+        "accion": "Revisar modulo Vacaciones o asistencia antes de generar nomina",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "prima_vacacional_ya_cubierta": {
+        "origen": "vacaciones",
+        "impacto": "Asistencia solicita prima pero Vacaciones indica cobertura previa",
+        "accion": "Validar saldo y pagos en Vacaciones",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "vacaciones_laboradas_saldo_insuficiente": {
+        "origen": "vacaciones",
+        "impacto": "Puede afectar dias de vacaciones laboradas",
+        "accion": "Revisar saldo en modulo Vacaciones",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "bono_manual_no_numerico_revisar": {
+        "origen": "asistencia",
+        "impacto": "El bono manual no se interpretara automaticamente",
+        "accion": "Corregir bono en asistencia o revisar manualmente en borrador",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "deduccion_manual_no_numerica_revisar": {
+        "origen": "asistencia",
+        "impacto": "La deduccion manual no se interpretara automaticamente",
+        "accion": "Corregir deduccion en asistencia o revisar manualmente en borrador",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "review_no_confident_headcount_match": {
+        "origen": "headcount",
+        "impacto": "Match de asistencia con Headcount no es confiable",
+        "accion": "Revisar identificacion del trabajador en asistencia o Headcount",
+        "nivel_default": NIVEL_REVIEW,
+    },
+    "nuevo_ingreso_ni_no_computa": {
+        "origen": "asistencia",
+        "impacto": "Dia NI no computa en dias de pago",
+        "accion": "Verificar registro de nuevo ingreso",
+        "nivel_default": NIVEL_INFO,
+    },
+    "retardo_r_computa_posible_deduccion_manual": {
+        "origen": "asistencia",
+        "impacto": "Retardo computa; puede requerir deduccion manual",
+        "accion": "Validar si aplica deduccion",
+        "nivel_default": NIVEL_INFO,
+    },
+    WARN_BLOCK_CALC_MISSING_SALARY: {
+        "origen": "parametros",
+        "impacto": "No se puede calcular percepciones sin salario operativo",
+        "accion": "Completar salario en Parametros o Headcount",
+        "nivel_default": NIVEL_CRITICAL,
+    },
+    WARN_BLOCK_CALC_MISSING_VALOR_HE: {
+        "origen": "parametros",
+        "impacto": "Horas extra sin valor operativo bloquean el calculo de HE",
+        "accion": "Completar valor x HE en Parametros",
+        "nivel_default": NIVEL_CRITICAL,
+    },
 }
 
 
@@ -53,18 +135,489 @@ def _unique_ordered(values: list[str]) -> list[str]:
     return out
 
 
-def _has_prima_signal(payload_row: dict[str, Any], raw_row: dict[str, Any] | None) -> bool:
-    if int(payload_row.get("prima_vacacional_aplicada") or 0) == 1:
-        return True
-    if _float_or_zero(payload_row.get("dias_prima_vacacional_pendientes")) > 0:
-        return True
-    warns = {str(w or "") for w in (payload_row.get("warnings_json") or [])}
-    if "prima_vacacional_sin_datos_vacaciones" in warns:
-        return True
-    if "prima_vacacional_ya_cubierta" in warns:
-        return True
-    prima_raw = _norm_header(str((raw_row or {}).get("prima_vacacional") or ""))
-    return prima_raw == "SOLICITA"
+def _norm_nss(value: Any) -> str:
+    return re.sub(r"\s+", "", str(value or "").strip())
+
+
+def _norm_name(value: Any) -> str:
+    s = " ".join(str(value or "").replace("\u00a0", " ").upper().split()).strip()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
+    s = re.sub(r"[^A-Z0-9 ]+", " ", s)
+    return " ".join(s.split()).strip()
+
+
+def _vacaciones_row_name(vac_row: dict[str, Any]) -> str:
+    for key in ("nombre_normalizado", "excel_nombre_original", "nombre_historico", "nombre_headcount"):
+        nm = _norm_name(vac_row.get(key))
+        if nm:
+            return nm
+    return ""
+
+
+def _make_observacion(
+    *,
+    nivel: str,
+    origen: str,
+    trabajador: str,
+    detalle: str,
+    impacto: str,
+    accion_sugerida: str,
+    fila: int | None = None,
+    codigo: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "nivel": nivel,
+        "origen": origen,
+        "trabajador": trabajador,
+        "fila": fila,
+        "detalle": detalle,
+        "impacto": impacto,
+        "accion_sugerida": accion_sugerida,
+        "codigo": codigo or "",
+    }
+
+
+def _observacion_key(obs: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(obs.get("nivel") or ""),
+            str(obs.get("codigo") or ""),
+            str(obs.get("trabajador") or ""),
+            str(obs.get("fila") or ""),
+            str(obs.get("detalle") or ""),
+        ]
+    )
+
+
+def _append_observacion(observaciones: list[dict[str, Any]], seen: set[str], obs: dict[str, Any]) -> None:
+    key = _observacion_key(obs)
+    if key in seen:
+        return
+    seen.add(key)
+    observaciones.append(obs)
+
+
+def _build_vacaciones_index(
+    db_path: str,
+) -> tuple[int | None, dict[str, dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    vac_imp = get_latest_vacaciones_import_id(db_path)
+    by_nss: dict[str, dict[str, Any]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    if not vac_imp:
+        return None, by_nss, by_name
+    for vr in list_vacaciones_empleados(db_path, import_id=vac_imp, limit=8000):
+        nss = _norm_nss(vr.get("nss"))
+        if nss and nss not in by_nss:
+            by_nss[nss] = vr
+        nm = _vacaciones_row_name(vr)
+        if nm:
+            by_name.setdefault(nm, []).append(vr)
+    return vac_imp, by_nss, by_name
+
+
+def _match_vacaciones_for_asistencia(
+    row: dict[str, Any],
+    *,
+    by_nss: dict[str, dict[str, Any]],
+    by_name: dict[str, list[dict[str, Any]]],
+) -> tuple[dict[str, Any] | None, str, bool]:
+    nss = _norm_nss(row.get("nss"))
+    if nss and nss in by_nss:
+        vac_row = by_nss[nss]
+        ms = normalize_match_status_legacy(vac_row.get("match_status"))
+        return vac_row, "nss", ms == MATCH_OK
+
+    nm = _norm_name(row.get("nombre_empleado"))
+    candidates = by_name.get(nm) or []
+    if len(candidates) == 1:
+        vac_row = candidates[0]
+        ms = normalize_match_status_legacy(vac_row.get("match_status"))
+        return vac_row, "nombre", ms == MATCH_OK
+    if len(candidates) > 1:
+        return None, "nombre_ambiguo", False
+    return None, "sin_match", False
+
+
+def _vacaciones_prima_estatus(vac_row: dict[str, Any]) -> tuple[str, str]:
+    prima_2026 = bool(int(vac_row.get("prima_2026_pagada") or 0))
+    saldo = _float_or_zero(vac_row.get("saldo_calculado") or vac_row.get("dias_restantes_calculado"))
+    dias_pag = _float_or_zero(vac_row.get("dias_pagados"))
+    if prima_2026:
+        return "pagada", "Prima vacacional 2026 marcada como pagada en Vacaciones"
+    if saldo > 0:
+        return "pendiente", f"Saldo pendiente en Vacaciones: {saldo:.2f} dias"
+    if dias_pag > 0:
+        return "parcial", f"Dias pagados registrados en Vacaciones: {dias_pag:.2f}"
+    return "sin_pendiente", "Vacaciones no indica prima pendiente"
+
+
+def _asistencia_prima_solicita(raw_row: dict[str, Any] | None) -> bool:
+    if not raw_row:
+        return False
+    return _norm_header(str(raw_row.get("prima_vacacional") or "")) == "SOLICITA"
+
+
+def _trabajador_label(row: dict[str, Any], payload_row: dict[str, Any] | None = None) -> str:
+    nombre = str((payload_row or row).get("nombre_empleado") or row.get("nombre_empleado") or "").strip()
+    nss = str((payload_row or row).get("nss") or row.get("nss") or "").strip()
+    if nombre and nss:
+        return f"{nombre} (NSS {nss})"
+    return nombre or (f"NSS {nss}" if nss else "Trabajador sin identificar")
+
+
+def _cliente_planta_label(row: dict[str, Any], vac_row: dict[str, Any] | None = None) -> str:
+    cliente = str(row.get("cliente") or (vac_row or {}).get("cliente") or "").strip()
+    planta = str(row.get("planta") or (vac_row or {}).get("planta_headcount") or (vac_row or {}).get("ubicacion_headcount") or "").strip()
+    if cliente and planta:
+        return f"{cliente} / {planta}"
+    return cliente or planta or "—"
+
+
+def _catalog_observacion(
+    code: str,
+    *,
+    trabajador: str,
+    detalle: str,
+    fila: int | None = None,
+    nivel: str | None = None,
+    origen: str | None = None,
+) -> dict[str, Any]:
+    meta = _WARNING_CATALOG.get(code, {})
+    return _make_observacion(
+        nivel=nivel or meta.get("nivel_default") or NIVEL_REVIEW,
+        origen=origen or meta.get("origen") or "sistema",
+        trabajador=trabajador,
+        fila=fila,
+        detalle=detalle,
+        impacto=meta.get("impacto") or "Revisar antes de generar borrador",
+        accion_sugerida=meta.get("accion") or "Revisar detalle en asistencia o modulos relacionados",
+        codigo=code,
+    )
+
+
+def _observacion_from_run_warning(warning: str) -> dict[str, Any]:
+    if warning == MSG_HEADCOUNT_UNAVAILABLE_CALCULO:
+        return _make_observacion(
+            nivel=NIVEL_REVIEW,
+            origen="headcount",
+            trabajador="—",
+            detalle=warning,
+            impacto="Matches de asistencia no validados contra Headcount en vivo",
+            accion_sugerida="Verificar identificacion de trabajadores antes de confirmar borrador",
+            codigo="headcount_unavailable",
+        )
+    if warning.startswith(f"{WARN_SAME_NSS_MULTIPLE_CLIENTS}:"):
+        nss = warning.split(":", 1)[-1].strip()
+        return _make_observacion(
+            nivel=NIVEL_REVIEW,
+            origen="asistencia",
+            trabajador=f"NSS {nss}",
+            detalle="Mismo NSS asociado a multiples clientes en la asistencia importada",
+            impacto="Puede generar cruces incorrectos en parametros o vacaciones",
+            accion_sugerida="Revisar clientes duplicados para el NSS en asistencia",
+            codigo=WARN_SAME_NSS_MULTIPLE_CLIENTS,
+        )
+    return _make_observacion(
+        nivel=NIVEL_INFO,
+        origen="sistema",
+        trabajador="—",
+        detalle=warning,
+        impacto="Validacion interna del preflight",
+        accion_sugerida="Revisar detalle antes de generar borrador",
+    )
+
+
+def _build_prima_vacacional_context(
+    preview_rows: list[dict[str, Any]],
+    rows_by_id: dict[int, dict[str, Any]],
+    *,
+    by_nss: dict[str, dict[str, Any]],
+    by_name: dict[str, list[dict[str, Any]]],
+    observaciones: list[dict[str, Any]],
+    seen: set[str],
+) -> list[dict[str, Any]]:
+    informativa: list[dict[str, Any]] = []
+    for payload_row in preview_rows:
+        aid = int(payload_row.get("asistencia_row_id") or 0)
+        raw_row = rows_by_id.get(aid)
+        if raw_row is None:
+            continue
+
+        trabajador = _trabajador_label(raw_row, payload_row)
+        fila = int(raw_row.get("row_number") or aid or 0) or None
+        asistencia_sol = _asistencia_prima_solicita(raw_row)
+        vac_row, match_method, match_confident = _match_vacaciones_for_asistencia(
+            raw_row, by_nss=by_nss, by_name=by_name
+        )
+
+        payload_aplica = int(payload_row.get("prima_vacacional_aplicada") or 0) == 1
+        dias_pend = _float_or_zero(payload_row.get("dias_prima_vacacional_pendientes"))
+        importe_est = _float_or_zero(payload_row.get("importe_prima_vacacional"))
+        warns = {str(w or "") for w in (payload_row.get("warnings_json") or [])}
+
+        tiene_senal = (
+            asistencia_sol
+            or payload_aplica
+            or dias_pend > 0
+            or "prima_vacacional_sin_datos_vacaciones" in warns
+            or "prima_vacacional_ya_cubierta" in warns
+        )
+        if not tiene_senal:
+            continue
+
+        if vac_row and match_confident:
+            estatus_key, estatus_detalle = _vacaciones_prima_estatus(vac_row)
+            vac_pendiente = estatus_key in {"pendiente", "parcial"}
+            vac_pagada = estatus_key == "pagada"
+
+            if vac_pendiente or payload_aplica:
+                impacto = (
+                    f"Importe estimado en borrador: ${importe_est:,.2f}"
+                    if importe_est > 0
+                    else "Se evaluara conforme a saldo en Vacaciones"
+                )
+                if dias_pend > 0:
+                    impacto = f"{dias_pend:.2f} dias pendientes · {impacto}"
+                informativa.append(
+                    {
+                        "trabajador": trabajador,
+                        "cliente_planta": _cliente_planta_label(raw_row, vac_row),
+                        "origen": "Vacaciones",
+                        "estatus": estatus_detalle,
+                        "impacto": impacto,
+                        "accion": "Se considerara en el borrador conforme a Vacaciones.",
+                        "match_method": match_method,
+                    }
+                )
+
+            if asistencia_sol and vac_pagada:
+                _append_observacion(
+                    observaciones,
+                    seen,
+                    _make_observacion(
+                        nivel=NIVEL_REVIEW,
+                        origen="vacaciones",
+                        trabajador=trabajador,
+                        fila=fila,
+                        detalle=(
+                            "Contradiccion: asistencia solicita prima vacacional "
+                            f"pero Vacaciones indica: {estatus_detalle}"
+                        ),
+                        impacto="Puede afectar el pago de prima vacacional",
+                        accion_sugerida="Revisar modulo Vacaciones o asistencia antes de generar nomina",
+                        codigo="prima_vacacional_contradiccion_asistencia_vacaciones",
+                    ),
+                )
+            elif not asistencia_sol and vac_pendiente:
+                _append_observacion(
+                    observaciones,
+                    seen,
+                    _make_observacion(
+                        nivel=NIVEL_REVIEW,
+                        origen="vacaciones",
+                        trabajador=trabajador,
+                        fila=fila,
+                        detalle=(
+                            "Vacaciones indica prima pendiente pero asistencia no marca SOLICITA "
+                            f"({estatus_detalle})"
+                        ),
+                        impacto="El borrador puede no reflejar prima vacacional esperada",
+                        accion_sugerida="Alinear asistencia con Vacaciones o validar antes de calcular",
+                        codigo="prima_vacacional_pendiente_sin_solicitud_asistencia",
+                    ),
+                )
+            continue
+
+        if asistencia_sol or "prima_vacacional_sin_datos_vacaciones" in warns:
+            detalle = "Prima vacacional sin match confiable en Vacaciones"
+            if match_method == "nombre_ambiguo":
+                detalle = "Prima vacacional solicitada con match ambiguo por nombre en Vacaciones"
+            elif vac_row and not match_confident:
+                detalle = (
+                    "Prima vacacional solicitada pero el match en Vacaciones requiere revision "
+                    f"({vac_row.get('match_status') or 'sin estatus'})"
+                )
+            _append_observacion(
+                observaciones,
+                seen,
+                _make_observacion(
+                    nivel=NIVEL_REVIEW,
+                    origen="vacaciones",
+                    trabajador=trabajador,
+                    fila=fila,
+                    detalle=detalle,
+                    impacto="Puede afectar el pago de prima vacacional",
+                    accion_sugerida="Revisar modulo Vacaciones o asistencia antes de generar nomina",
+                    codigo="prima_vacacional_sin_match_confiable",
+                ),
+            )
+        elif "prima_vacacional_ya_cubierta" in warns:
+            _append_observacion(
+                observaciones,
+                seen,
+                _catalog_observacion(
+                    "prima_vacacional_ya_cubierta",
+                    trabajador=trabajador,
+                    fila=fila,
+                    detalle="Asistencia o calculo previo sugiere prima ya cubierta sin confirmacion en Vacaciones",
+                ),
+            )
+
+    return informativa
+
+
+def _build_observaciones_from_payload(
+    payload: dict[str, Any],
+    rows_by_id: dict[int, dict[str, Any]],
+    *,
+    by_nss: dict[str, dict[str, Any]],
+    by_name: dict[str, list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    observaciones: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for warning in (payload.get("raw_json") or {}).get("run_warnings") or []:
+        w = str(warning or "").strip()
+        if w:
+            _append_observacion(observaciones, seen, _observacion_from_run_warning(w))
+
+    preview_rows = list(payload.get("rows") or [])
+    for payload_row in preview_rows:
+        aid = int(payload_row.get("asistencia_row_id") or 0)
+        raw_row = rows_by_id.get(aid) or {}
+        trabajador = _trabajador_label(raw_row, payload_row)
+        fila = int(raw_row.get("row_number") or aid or 0) or None
+
+        for block in payload_row.get("blocks_json") or []:
+            code = str(block or "").strip()
+            if not code:
+                continue
+            _append_observacion(
+                observaciones,
+                seen,
+                _catalog_observacion(
+                    code,
+                    trabajador=trabajador,
+                    fila=fila,
+                    detalle=f"Fila bloqueada para calculo seguro: {code}",
+                    nivel=NIVEL_CRITICAL,
+                ),
+            )
+
+        for warn in payload_row.get("warnings_json") or []:
+            code = str(warn or "").strip()
+            if not code:
+                continue
+            if code.startswith("infonavit_no_aplicado_automaticamente:"):
+                st = code.split(":", 1)[-1]
+                _append_observacion(
+                    observaciones,
+                    seen,
+                    _make_observacion(
+                        nivel=NIVEL_REVIEW,
+                        origen="infonavit",
+                        trabajador=trabajador,
+                        fila=fila,
+                        detalle=f"INFONAVIT no aplicado automaticamente ({st})",
+                        impacto="Puede afectar deduccion y neto",
+                        accion_sugerida="Revisar registro INFONAVIT del trabajador",
+                        codigo=code,
+                    ),
+                )
+                continue
+            if code in {"prima_vacacional_sin_datos_vacaciones", "prima_vacacional_ya_cubierta"}:
+                continue
+            _append_observacion(
+                observaciones,
+                seen,
+                _catalog_observacion(
+                    code,
+                    trabajador=trabajador,
+                    fila=fila,
+                    detalle=code.replace("_", " "),
+                ),
+            )
+
+        for warn in raw_row.get("warnings") or []:
+            txt = str(warn or "").strip()
+            if not txt:
+                continue
+            if "PRIMA VACACIONAL" in txt.upper():
+                continue
+            _append_observacion(
+                observaciones,
+                seen,
+                _make_observacion(
+                    nivel=NIVEL_INFO,
+                    origen="asistencia",
+                    trabajador=trabajador,
+                    fila=fila,
+                    detalle=txt,
+                    impacto="Advertencia en fila importada",
+                    accion_sugerida="Revisar asistencia importada",
+                    codigo="asistencia_warning",
+                ),
+            )
+
+    prima_info = _build_prima_vacacional_context(
+        preview_rows,
+        rows_by_id,
+        by_nss=by_nss,
+        by_name=by_name,
+        observaciones=observaciones,
+        seen=seen,
+    )
+    return observaciones, prima_info
+
+
+def _resumen_observaciones(observaciones: list[dict[str, Any]]) -> dict[str, int]:
+    resumen = {NIVEL_CRITICAL: 0, NIVEL_REVIEW: 0, NIVEL_INFO: 0}
+    for obs in observaciones:
+        nivel = str(obs.get("nivel") or NIVEL_INFO)
+        if nivel in resumen:
+            resumen[nivel] += 1
+    return resumen
+
+
+def _preguntas_necesarias(
+    preview_rows: list[dict[str, Any]],
+    *,
+    observaciones: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    has_dl = any(int(r.get("domingo_laborado_detected") or 0) > 0 for r in preview_rows)
+    has_bonos_ambiguos = any(
+        "bono_manual_no_numerico_revisar" in {str(w or "") for w in (r.get("warnings_json") or [])}
+        for r in preview_rows
+    )
+
+    preguntas: list[dict[str, Any]] = []
+    if has_dl:
+        preguntas.append(
+            {
+                "id": "domingo_dl",
+                "prompt": "Se detecto clave DL. Como se pagaran los domingos laborados (DL)?",
+                "options": [
+                    {"value": "proporcional", "label": "Proporcional 1.17"},
+                    {"value": "prima", "label": "Prima dominical 1.25"},
+                    {"value": "manual", "label": "Revision manual"},
+                ],
+                "default": "proporcional",
+            }
+        )
+    if has_bonos_ambiguos:
+        preguntas.append(
+            {
+                "id": "bonos_ambiguos",
+                "prompt": "Se detectaron bonos con informacion no estandar. Como deseas tratarlos?",
+                "options": [
+                    {"value": "manual", "label": "Mandar a revision manual"},
+                    {"value": "solo_numericos", "label": "Continuar solo con bonos numericos validos"},
+                ],
+                "default": "manual",
+            }
+        )
+    return preguntas
 
 
 def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
@@ -78,9 +631,17 @@ def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
         "total_trabajadores_validos": 0,
         "alertas_criticas": [],
         "alertas_no_criticas": [],
+        "observaciones": [],
+        "observaciones_resumen": {NIVEL_CRITICAL: 0, NIVEL_REVIEW: 0, NIVEL_INFO: 0},
+        "tiene_observaciones_criticas": False,
+        "tiene_observaciones_revision": False,
+        "requiere_aceptacion_observaciones": False,
+        "prima_vacacional_informativa": [],
         "preguntas_necesarias": [],
         "defaults_politica": dict(CALCULO_DEFAULT_POLICY),
         "payload_preview": None,
+        "preflight_version": PREFLIGHT_VERSION,
+        "vacaciones_import_id": None,
     }
     imp = get_asistencia_import(db_path, int(import_id))
     if imp is None:
@@ -135,84 +696,29 @@ def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
 
     out["payload_preview"] = payload
 
-    run_warnings = [str(w) for w in ((payload.get("raw_json") or {}).get("run_warnings") or []) if str(w).strip()]
-    out["alertas_no_criticas"].extend(run_warnings)
-    if int(payload.get("warning_count") or 0) > 0:
-        out["alertas_no_criticas"].append(
-            f"Se detectaron {int(payload.get('warning_count') or 0)} advertencias en filas del borrador."
-        )
-    if int(payload.get("block_count") or 0) > 0:
-        out["alertas_no_criticas"].append(
-            f"Se detectaron {int(payload.get('block_count') or 0)} filas bloqueadas para revision manual."
-        )
-
+    vac_imp, by_nss, by_name = _build_vacaciones_index(db_path)
+    out["vacaciones_import_id"] = vac_imp
     rows_by_id = {int(r.get("id") or 0): r for r in rows if int(r.get("id") or 0) > 0}
-    preview_rows = list(payload.get("rows") or [])
-    has_dl = any(int(r.get("domingo_laborado_detected") or 0) > 0 for r in preview_rows)
-    has_prima = any(
-        _has_prima_signal(r, rows_by_id.get(int(r.get("asistencia_row_id") or 0)))
-        for r in preview_rows
+    observaciones, prima_info = _build_observaciones_from_payload(
+        payload,
+        rows_by_id,
+        by_nss=by_nss,
+        by_name=by_name,
     )
-    has_bonos_ambiguos = any(
-        "bono_manual_no_numerico_revisar" in {str(w or "") for w in (r.get("warnings_json") or [])}
-        for r in preview_rows
-    )
+    out["observaciones"] = observaciones
+    out["prima_vacacional_informativa"] = prima_info
+    resumen = _resumen_observaciones(observaciones)
+    out["observaciones_resumen"] = resumen
+    out["tiene_observaciones_criticas"] = resumen[NIVEL_CRITICAL] > 0
+    out["tiene_observaciones_revision"] = resumen[NIVEL_REVIEW] > 0
+    out["requiere_aceptacion_observaciones"] = resumen[NIVEL_REVIEW] > 0 and resumen[NIVEL_CRITICAL] == 0
 
-    preguntas: list[dict[str, Any]] = []
-    if has_dl:
-        preguntas.append(
-            {
-                "id": "domingo_dl",
-                "prompt": "Se detecto clave DL. Como se pagaran los domingos laborados (DL)?",
-                "options": [
-                    {"value": "proporcional", "label": "Proporcional 1.17"},
-                    {"value": "prima", "label": "Prima dominical 1.25"},
-                    {"value": "manual", "label": "Revision manual"},
-                ],
-                "default": "proporcional",
-            }
-        )
-    if has_prima:
-        preguntas.append(
-            {
-                "id": "prima_vacacional",
-                "prompt": "Se detecto prima vacacional solicitada o pendiente. Como deseas manejarla?",
-                "options": [
-                    {
-                        "value": "auto",
-                        "label": "Aplicar automaticamente cuando el historial indique que procede",
-                    },
-                    {"value": "manual", "label": "Mandar a revision manual"},
-                    {"value": "no_aplicar", "label": "No aplicar en este calculo"},
-                ],
-                "default": "auto",
-            }
-        )
-    if has_bonos_ambiguos:
-        preguntas.append(
-            {
-                "id": "bonos_ambiguos",
-                "prompt": "Se detectaron bonos con informacion no estandar. Como deseas tratarlos?",
-                "options": [
-                    {"value": "manual", "label": "Mandar a revision manual"},
-                    {"value": "solo_numericos", "label": "Continuar solo con bonos numericos validos"},
-                ],
-                "default": "manual",
-            }
-        )
-    if out["alertas_no_criticas"]:
-        preguntas.append(
-            {
-                "id": "alertas_no_criticas",
-                "prompt": "Se detectaron alertas no criticas. Deseas continuar con advertencias?",
-                "options": [
-                    {"value": "continuar", "label": "Continuar con advertencias"},
-                    {"value": "cancelar", "label": "Cancelar y revisar asistencia"},
-                ],
-                "default": "continuar",
-            }
-        )
-    out["preguntas_necesarias"] = preguntas
+    out["alertas_no_criticas"] = [
+        f"[{obs['nivel']}] {obs['detalle']}" for obs in observaciones if obs.get("nivel") != NIVEL_CRITICAL
+    ]
+
+    preview_rows = list(payload.get("rows") or [])
+    out["preguntas_necesarias"] = _preguntas_necesarias(preview_rows, observaciones=observaciones)
     return out
 
 
@@ -222,3 +728,15 @@ def resolve_config_from_preflight_answers(answers: dict[str, str]) -> dict[str, 
     if dom in {"proporcional", "prima", "manual"}:
         cfg["domingo_opcion"] = dom
     return cfg
+
+
+def preflight_requires_screen(preflight: dict[str, Any]) -> bool:
+    if preflight.get("alertas_criticas"):
+        return True
+    if preflight.get("preguntas_necesarias"):
+        return True
+    if preflight.get("observaciones"):
+        return True
+    if preflight.get("prima_vacacional_informativa"):
+        return True
+    return False
