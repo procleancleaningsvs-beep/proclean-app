@@ -120,6 +120,7 @@ from modules.nomina.calculo_preflight import (
     build_calculo_preflight,
     preflight_requires_screen,
     resolve_config_from_preflight_answers,
+    save_parametro_from_preflight,
 )
 from modules.nomina.validators import ValidationError, parse_and_validate_asistencia_excel
 from modules.nomina.vacaciones_excel import (
@@ -3377,6 +3378,37 @@ def calculo_preflight():
     return _render_preflight_or_generate(import_id)
 
 
+@nomina_bp.post("/calculo/preflight/parametros")
+@_nomina_dashboard_required
+def calculo_preflight_parametros():
+    db_path = _db_path()
+    import_id = _extract_import_id_from_form()
+    if import_id <= 0:
+        flash("Selecciona una importacion de asistencia valida.", "error")
+        return redirect(url_for("nomina.calculo_index"))
+    try:
+        asistencia_row_id = int(request.form.get("asistencia_row_id") or 0)
+    except ValueError:
+        asistencia_row_id = 0
+    if asistencia_row_id <= 0:
+        flash("Fila de asistencia invalida para guardar parametros.", "error")
+        return _render_preflight_or_generate(import_id)
+    uid = int(g.user["id"]) if g.user is not None else None
+    now_iso = _now_iso()
+    ok, msg = save_parametro_from_preflight(
+        db_path,
+        asistencia_import_id=import_id,
+        asistencia_row_id=asistencia_row_id,
+        salario_operativo=request.form.get("salario_operativo"),
+        valor_x_he=request.form.get("valor_x_he"),
+        comentario=str(request.form.get("comentario") or "").strip(),
+        updated_by=uid,
+        now_iso=now_iso,
+    )
+    flash(msg, "success" if ok else "error")
+    return _render_preflight_or_generate(import_id)
+
+
 @nomina_bp.post("/calculo/generar")
 @_nomina_dashboard_required
 def calculo_generar():
@@ -3404,7 +3436,7 @@ def calculo_generar():
         flash("No se puede generar borrador: corrige las observaciones criticas antes de continuar.", "error")
         return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
     if preflight.get("requiere_aceptacion_observaciones") and request.form.get("acepta_observaciones") != "1":
-        flash("Debes aceptar continuar con las observaciones de revision visibles.", "error")
+        flash("Debes confirmar que revisaste las observaciones de nomina antes de continuar.", "error")
         return render_template("nomina/calculo_preflight.html", preflight=preflight, bloqueado=False)
     if preflight.get("requiere_aceptacion_observaciones"):
         answers["acepta_observaciones"] = "1"

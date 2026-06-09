@@ -14,8 +14,11 @@ from modules.nomina.config import (
 )
 from modules.nomina.db import (
     get_asistencia_import,
+    get_empleado_parametro,
     get_latest_vacaciones_import_id,
+    list_empleado_parametros,
     list_vacaciones_empleados,
+    upsert_empleado_parametros,
 )
 from modules.nomina.validators import _norm_header
 from modules.nomina.vacaciones_util import MATCH_OK, normalize_match_status_legacy
@@ -36,66 +39,87 @@ NIVEL_INFO = "info"
 
 _WARNING_CATALOG: dict[str, dict[str, str]] = {
     "prima_vacacional_sin_datos_vacaciones": {
+        "detalle": "Prima vacacional solicitada sin datos confirmados en Vacaciones.",
         "origen": "vacaciones",
         "impacto": "Puede afectar el pago de prima vacacional",
         "accion": "Revisar modulo Vacaciones o asistencia antes de generar nomina",
         "nivel_default": NIVEL_REVIEW,
     },
     "prima_vacacional_ya_cubierta": {
+        "detalle": "Asistencia sugiere prima vacacional ya cubierta.",
         "origen": "vacaciones",
         "impacto": "Asistencia solicita prima pero Vacaciones indica cobertura previa",
         "accion": "Validar saldo y pagos en Vacaciones",
         "nivel_default": NIVEL_REVIEW,
     },
     "vacaciones_laboradas_saldo_insuficiente": {
+        "detalle": "Vacaciones laboradas superan el saldo disponible.",
         "origen": "vacaciones",
         "impacto": "Puede afectar dias de vacaciones laboradas",
         "accion": "Revisar saldo en modulo Vacaciones",
         "nivel_default": NIVEL_REVIEW,
     },
     "bono_manual_no_numerico_revisar": {
+        "detalle": "Bono manual con formato no numerico estandar.",
         "origen": "asistencia",
         "impacto": "El bono manual no se interpretara automaticamente",
         "accion": "Corregir bono en asistencia o revisar manualmente en borrador",
         "nivel_default": NIVEL_REVIEW,
     },
     "deduccion_manual_no_numerica_revisar": {
+        "detalle": "Deduccion manual con formato no numerico estandar.",
         "origen": "asistencia",
         "impacto": "La deduccion manual no se interpretara automaticamente",
         "accion": "Corregir deduccion en asistencia o revisar manualmente en borrador",
         "nivel_default": NIVEL_REVIEW,
     },
     "review_no_confident_headcount_match": {
+        "detalle": "Match de asistencia con Headcount no es confiable.",
         "origen": "headcount",
         "impacto": "Match de asistencia con Headcount no es confiable",
         "accion": "Revisar identificacion del trabajador en asistencia o Headcount",
         "nivel_default": NIVEL_REVIEW,
     },
     "nuevo_ingreso_ni_no_computa": {
+        "detalle": "Dia NI detectado: no computa en dias de pago.",
         "origen": "asistencia",
         "impacto": "Dia NI no computa en dias de pago",
         "accion": "Verificar registro de nuevo ingreso",
         "nivel_default": NIVEL_INFO,
     },
     "retardo_r_computa_posible_deduccion_manual": {
+        "detalle": "Retardo (R) detectado en asistencia.",
         "origen": "asistencia",
         "impacto": "Retardo computa; puede requerir deduccion manual",
         "accion": "Validar si aplica deduccion",
         "nivel_default": NIVEL_INFO,
     },
     WARN_BLOCK_CALC_MISSING_SALARY: {
+        "detalle": "Falta salario operativo en Parametros de Nomina.",
         "origen": "parametros",
-        "impacto": "No se puede calcular percepciones sin salario operativo",
-        "accion": "Completar salario en Parametros o Headcount",
+        "impacto": "No se pueden calcular percepciones sin salario operativo.",
+        "accion": "Captura el salario operativo semanal y guarda en Parametros.",
         "nivel_default": NIVEL_CRITICAL,
     },
     WARN_BLOCK_CALC_MISSING_VALOR_HE: {
+        "detalle": "Falta Valor x HE en Parametros de Nomina.",
         "origen": "parametros",
-        "impacto": "Horas extra sin valor operativo bloquean el calculo de HE",
-        "accion": "Completar valor x HE en Parametros",
+        "impacto": "Horas extra detectadas sin valor operativo para calcular HE.",
+        "accion": "Captura Valor x HE y guarda en Parametros.",
         "nivel_default": NIVEL_CRITICAL,
     },
+    "infonavit_sin_registro_para_nss": {
+        "detalle": "Sin registro INFONAVIT para NSS.",
+        "origen": "infonavit",
+        "impacto": "",
+        "accion": "",
+        "nivel_default": NIVEL_INFO,
+    },
 }
+
+_PREFLIGHT_SKIP_WARNING_CODES = frozenset({"infonavit_sin_registro_para_nss"})
+
+_NIVEL_ORDER = {NIVEL_CRITICAL: 0, NIVEL_REVIEW: 1, NIVEL_INFO: 2}
 
 
 def _float_or_zero(value: Any) -> float:
@@ -165,6 +189,7 @@ def _make_observacion(
     accion_sugerida: str,
     fila: int | None = None,
     codigo: str | None = None,
+    accion_parametros: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "nivel": nivel,
@@ -175,6 +200,7 @@ def _make_observacion(
         "impacto": impacto,
         "accion_sugerida": accion_sugerida,
         "codigo": codigo or "",
+        "accion_parametros": accion_parametros,
     }
 
 
@@ -274,14 +300,90 @@ def _cliente_planta_label(row: dict[str, Any], vac_row: dict[str, Any] | None = 
     return cliente or planta or "—"
 
 
+def _humanize_unknown_code(code: str) -> str:
+    return "Validacion interna requiere revision antes del calculo."
+
+
+def _should_skip_preflight_warning(code: str) -> bool:
+    base = str(code or "").strip()
+    if not base:
+        return True
+    if base in _PREFLIGHT_SKIP_WARNING_CODES:
+        return True
+    return False
+
+
+def _infonavit_conflict_message(code: str) -> tuple[str, str, str] | None:
+    if not code.startswith("infonavit_no_aplicado_automaticamente:"):
+        return None
+    st = code.split(":", 1)[-1].strip()
+    if st == "suspendido":
+        return (
+            NIVEL_INFO,
+            "Credito INFONAVIT suspendido; no se aplicara descuento automatico.",
+            "Validar estatus en modulo INFONAVIT si esperabas descuento activo.",
+        )
+    if st.startswith("match_no_confiable"):
+        return (
+            NIVEL_REVIEW,
+            "Credito INFONAVIT detectado pero el match no es confiable.",
+            "Revisar registro INFONAVIT y conciliacion del trabajador.",
+        )
+    if st.startswith("estatus_no_activo"):
+        return (
+            NIVEL_REVIEW,
+            f"Credito INFONAVIT con estatus no activo ({st.split(':', 1)[-1]}).",
+            "Revisar aviso/credito en modulo INFONAVIT.",
+        )
+    if st == "umi_no_disponible":
+        return (
+            NIVEL_REVIEW,
+            "Credito INFONAVIT detectado pero falta UMI para calcular descuento.",
+            "Verificar parametros fiscales del periodo o registro INFONAVIT.",
+        )
+    if st == "sin_monto_aplicable":
+        return (
+            NIVEL_REVIEW,
+            "Credito INFONAVIT activo sin monto aplicable en el registro importado.",
+            "Completar datos del credito en modulo INFONAVIT.",
+        )
+    return (
+        NIVEL_REVIEW,
+        "Credito INFONAVIT detectado pero no se pudo aplicar automaticamente.",
+        "Revisar registro INFONAVIT del trabajador.",
+    )
+
+
+def _param_action_payload(
+    payload_row: dict[str, Any],
+    raw_row: dict[str, Any],
+    *,
+    needs_salario: bool = False,
+    needs_valor_he: bool = False,
+) -> dict[str, Any]:
+    return {
+        "asistencia_row_id": int(payload_row.get("asistencia_row_id") or raw_row.get("id") or 0),
+        "parametro_empleado_id": payload_row.get("parametro_empleado_id"),
+        "nss": str(payload_row.get("nss") or raw_row.get("nss") or "").strip(),
+        "nombre_empleado": str(payload_row.get("nombre_empleado") or raw_row.get("nombre_empleado") or "").strip(),
+        "numero_empleado": str(payload_row.get("numero_empleado") or "").strip(),
+        "cliente": str(raw_row.get("cliente") or payload_row.get("cliente") or "").strip(),
+        "planta": str(raw_row.get("planta") or payload_row.get("planta") or "").strip(),
+        "fila": int(raw_row.get("row_number") or 0) or None,
+        "needs_salario": bool(needs_salario),
+        "needs_valor_he": bool(needs_valor_he),
+    }
+
+
 def _catalog_observacion(
     code: str,
     *,
     trabajador: str,
-    detalle: str,
+    detalle: str | None = None,
     fila: int | None = None,
     nivel: str | None = None,
     origen: str | None = None,
+    accion_parametros: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     meta = _WARNING_CATALOG.get(code, {})
     return _make_observacion(
@@ -289,10 +391,11 @@ def _catalog_observacion(
         origen=origen or meta.get("origen") or "sistema",
         trabajador=trabajador,
         fila=fila,
-        detalle=detalle,
+        detalle=detalle or meta.get("detalle") or _humanize_unknown_code(code),
         impacto=meta.get("impacto") or "Revisar antes de generar borrador",
         accion_sugerida=meta.get("accion") or "Revisar detalle en asistencia o modulos relacionados",
         codigo=code,
+        accion_parametros=accion_parametros,
     )
 
 
@@ -371,7 +474,7 @@ def _build_prima_vacacional_context(
             vac_pendiente = estatus_key in {"pendiente", "parcial"}
             vac_pagada = estatus_key == "pagada"
 
-            if vac_pendiente or payload_aplica:
+            if vac_pendiente or (payload_aplica and not vac_pagada):
                 impacto = (
                     f"Importe estimado en borrador: ${importe_est:,.2f}"
                     if importe_est > 0
@@ -391,7 +494,7 @@ def _build_prima_vacacional_context(
                     }
                 )
 
-            if asistencia_sol and vac_pagada:
+            if vac_pagada and (asistencia_sol or payload_aplica or "prima_vacacional_ya_cubierta" in warns):
                 _append_observacion(
                     observaciones,
                     seen,
@@ -400,13 +503,10 @@ def _build_prima_vacacional_context(
                         origen="vacaciones",
                         trabajador=trabajador,
                         fila=fila,
-                        detalle=(
-                            "Contradiccion: asistencia solicita prima vacacional "
-                            f"pero Vacaciones indica: {estatus_detalle}"
-                        ),
+                        detalle="Posible duplicidad: Vacaciones indica prima ya pagada.",
                         impacto="Puede afectar el pago de prima vacacional",
                         accion_sugerida="Revisar modulo Vacaciones o asistencia antes de generar nomina",
-                        codigo="prima_vacacional_contradiccion_asistencia_vacaciones",
+                        codigo="prima_vacacional_posible_duplicidad",
                     ),
                 )
             elif not asistencia_sol and vac_pendiente:
@@ -489,10 +589,18 @@ def _build_observaciones_from_payload(
         trabajador = _trabajador_label(raw_row, payload_row)
         fila = int(raw_row.get("row_number") or aid or 0) or None
 
-        for block in payload_row.get("blocks_json") or []:
-            code = str(block or "").strip()
-            if not code:
-                continue
+        blocks = {str(block or "").strip() for block in (payload_row.get("blocks_json") or []) if str(block or "").strip()}
+        for code in blocks:
+            param_action = None
+            if code == WARN_BLOCK_CALC_MISSING_SALARY:
+                param_action = _param_action_payload(payload_row, raw_row, needs_salario=True)
+            elif code == WARN_BLOCK_CALC_MISSING_VALOR_HE:
+                param_action = _param_action_payload(
+                    payload_row,
+                    raw_row,
+                    needs_valor_he=True,
+                    needs_salario=WARN_BLOCK_CALC_MISSING_SALARY in blocks,
+                )
             _append_observacion(
                 observaciones,
                 seen,
@@ -500,29 +608,30 @@ def _build_observaciones_from_payload(
                     code,
                     trabajador=trabajador,
                     fila=fila,
-                    detalle=f"Fila bloqueada para calculo seguro: {code}",
                     nivel=NIVEL_CRITICAL,
+                    accion_parametros=param_action,
                 ),
             )
 
         for warn in payload_row.get("warnings_json") or []:
             code = str(warn or "").strip()
-            if not code:
+            if not code or _should_skip_preflight_warning(code):
                 continue
-            if code.startswith("infonavit_no_aplicado_automaticamente:"):
-                st = code.split(":", 1)[-1]
+            inf_msg = _infonavit_conflict_message(code)
+            if inf_msg is not None:
+                nivel, detalle, accion = inf_msg
                 _append_observacion(
                     observaciones,
                     seen,
                     _make_observacion(
-                        nivel=NIVEL_REVIEW,
+                        nivel=nivel,
                         origen="infonavit",
                         trabajador=trabajador,
                         fila=fila,
-                        detalle=f"INFONAVIT no aplicado automaticamente ({st})",
-                        impacto="Puede afectar deduccion y neto",
-                        accion_sugerida="Revisar registro INFONAVIT del trabajador",
-                        codigo=code,
+                        detalle=detalle,
+                        impacto="Puede afectar deduccion INFONAVIT y neto",
+                        accion_sugerida=accion,
+                        codigo=code.split(":", 1)[0],
                     ),
                 )
                 continue
@@ -535,7 +644,6 @@ def _build_observaciones_from_payload(
                     code,
                     trabajador=trabajador,
                     fila=fila,
-                    detalle=code.replace("_", " "),
                 ),
             )
 
@@ -569,6 +677,148 @@ def _build_observaciones_from_payload(
         seen=seen,
     )
     return observaciones, prima_info
+
+
+def _split_observaciones(observaciones: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    accionables = [o for o in observaciones if str(o.get("nivel") or "") in {NIVEL_CRITICAL, NIVEL_REVIEW}]
+    informativas = [o for o in observaciones if str(o.get("nivel") or "") == NIVEL_INFO]
+    accionables.sort(key=lambda o: (_NIVEL_ORDER.get(str(o.get("nivel") or ""), 9), str(o.get("trabajador") or "")))
+    informativas.sort(key=lambda o: (str(o.get("trabajador") or ""), str(o.get("detalle") or "")))
+    return accionables, informativas
+
+
+def _find_parametro_row(
+    db_path: str,
+    *,
+    parametro_empleado_id: int | None,
+    nss: str,
+    nombre_norm: str,
+    cliente: str,
+) -> dict[str, Any] | None:
+    if parametro_empleado_id:
+        row = get_empleado_parametro(db_path, int(parametro_empleado_id))
+        if row:
+            return row
+    nss_k = _norm_nss(nss)
+    if nss_k:
+        for p in list_empleado_parametros(db_path, limit=8000):
+            if _norm_nss(p.get("nss")) == nss_k:
+                return p
+    if nombre_norm:
+        cliente_k = " ".join(str(cliente or "").strip().lower().split())
+        for p in list_empleado_parametros(db_path, limit=8000):
+            p_nm = _norm_name(p.get("nombre_normalizado") or p.get("nombre"))
+            p_cl = " ".join(str(p.get("cliente") or "").strip().lower().split())
+            if p_nm == nombre_norm and (not cliente_k or not p_cl or p_cl == cliente_k):
+                return p
+    return None
+
+
+def save_parametro_from_preflight(
+    db_path: str,
+    *,
+    asistencia_import_id: int,
+    asistencia_row_id: int,
+    salario_operativo: Any = None,
+    valor_x_he: Any = None,
+    comentario: str = "",
+    updated_by: int | None = None,
+    now_iso: str,
+) -> tuple[bool, str]:
+    imp = get_asistencia_import(db_path, int(asistencia_import_id))
+    if imp is None:
+        return False, "No se encontro la importacion de asistencia."
+    raw_row = next((r for r in (imp.get("rows") or []) if int(r.get("id") or 0) == int(asistencia_row_id)), None)
+    if raw_row is None:
+        return False, "No se encontro la fila de asistencia seleccionada."
+
+    salario: float | None = None
+    valor_he: float | None = None
+    if str(salario_operativo or "").strip() != "":
+        try:
+            salario = float(salario_operativo)
+        except (TypeError, ValueError):
+            return False, "Salario operativo invalido."
+        if salario <= 0:
+            return False, "Salario operativo debe ser mayor a 0."
+    if str(valor_x_he or "").strip() != "":
+        try:
+            valor_he = float(valor_x_he)
+        except (TypeError, ValueError):
+            return False, "Valor x HE invalido."
+        if valor_he < 0:
+            return False, "Valor x HE debe ser mayor o igual a 0."
+    if salario is None and valor_he is None:
+        return False, "Captura al menos salario operativo o Valor x HE."
+
+    nombre = str(raw_row.get("nombre_empleado") or "").strip()
+    nombre_norm = _norm_name(nombre)
+    nss = str(raw_row.get("nss") or "").strip()
+    cliente = str(raw_row.get("cliente") or "").strip()
+    existing = _find_parametro_row(
+        db_path,
+        parametro_empleado_id=None,
+        nss=nss,
+        nombre_norm=nombre_norm,
+        cliente=cliente,
+    )
+
+    if existing:
+        cur_sal = _float_or_zero(existing.get("salario_operativo"))
+        cur_he = existing.get("valor_x_he")
+        cur_he_f = _float_or_zero(cur_he) if cur_he not in (None, "") else None
+        if salario is not None and cur_sal > 0 and abs(cur_sal - salario) > 0.009:
+            return False, "Ya existe salario operativo en Parametros; editalo en el modulo si necesitas cambiarlo."
+        if valor_he is not None and cur_he_f is not None and cur_he_f > 0 and abs(cur_he_f - valor_he) > 0.009:
+            return False, "Ya existe Valor x HE en Parametros; editalo en el modulo si necesitas cambiarlo."
+
+    trace_entry = {
+        "at": now_iso,
+        "by": updated_by,
+        "origen": "preflight_calculo_nomina",
+        "asistencia_import_id": int(asistencia_import_id),
+        "asistencia_row_id": int(asistencia_row_id),
+        "comentario": str(comentario or "").strip(),
+        "campos": {
+            k: v
+            for k, v in {
+                "salario_operativo": salario,
+                "valor_x_he": valor_he,
+            }.items()
+            if v is not None
+        },
+    }
+    editable = dict((existing or {}).get("editable_json") or {})
+    editable.setdefault("preflight_capturas", []).append(trace_entry)
+
+    payload_row: dict[str, Any] = {
+        "nombre": nombre,
+        "nombre_normalizado": nombre_norm,
+        "nss": nss or None,
+        "cliente": cliente or None,
+        "planta": str(raw_row.get("planta") or "").strip() or None,
+        "puesto": str(raw_row.get("puesto") or "").strip() or None,
+        "banco": str(raw_row.get("banco") or "").strip() or None,
+        "cuenta": str(raw_row.get("cuenta") or "").strip() or None,
+        "record_kind": "preflight_manual",
+        "editable_json": editable,
+    }
+    if salario is not None and (not existing or _float_or_zero(existing.get("salario_operativo")) <= 0):
+        payload_row["salario_operativo"] = salario
+        payload_row["fuente_salario_operativo"] = "preflight_calculo_nomina"
+    if valor_he is not None and (
+        not existing or existing.get("valor_x_he") in (None, "") or _float_or_zero(existing.get("valor_x_he")) <= 0
+    ):
+        payload_row["valor_x_he"] = valor_he
+        payload_row["fuente_valor_x_he"] = "preflight_calculo_nomina"
+
+    upsert_empleado_parametros(
+        db_path,
+        [payload_row],
+        import_id=0,
+        now_iso=now_iso,
+    )
+    return True, "Parametros guardados. Preflight recalculado."
 
 
 def _resumen_observaciones(observaciones: list[dict[str, Any]]) -> dict[str, int]:
@@ -632,6 +882,8 @@ def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
         "alertas_criticas": [],
         "alertas_no_criticas": [],
         "observaciones": [],
+        "observaciones_accionables": [],
+        "observaciones_informativas": [],
         "observaciones_resumen": {NIVEL_CRITICAL: 0, NIVEL_REVIEW: 0, NIVEL_INFO: 0},
         "tiene_observaciones_criticas": False,
         "tiene_observaciones_revision": False,
@@ -706,6 +958,9 @@ def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
         by_name=by_name,
     )
     out["observaciones"] = observaciones
+    accionables, informativas = _split_observaciones(observaciones)
+    out["observaciones_accionables"] = accionables
+    out["observaciones_informativas"] = informativas
     out["prima_vacacional_informativa"] = prima_info
     resumen = _resumen_observaciones(observaciones)
     out["observaciones_resumen"] = resumen

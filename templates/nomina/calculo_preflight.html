@@ -100,7 +100,7 @@
     </section>
     {% endif %}
 
-    {% if preflight.observaciones %}
+    {% if preflight.observaciones_accionables or preflight.observaciones_informativas %}
     <section class="cp-card cp-obs-panel{% if preflight.tiene_observaciones_criticas %} cp-obs-panel--critical{% endif %}">
       <header class="pc-form-step-head">
         <span class="pc-form-step-number{% if not preflight.prima_vacacional_informativa %} pc-form-step-number--green{% endif %}" aria-hidden="true">{% if preflight.prima_vacacional_informativa %}03{% else %}02{% endif %}</span>
@@ -114,6 +114,8 @@
         <span class="cp-obs-chip cp-obs-chip--review">Revision: {{ (preflight.observaciones_resumen or {}).get('review', 0) }}</span>
         <span class="cp-obs-chip cp-obs-chip--info">Informativas: {{ (preflight.observaciones_resumen or {}).get('info', 0) }}</span>
       </div>
+
+      {% if preflight.observaciones_accionables %}
       <div class="cp-table-wrap">
         <table class="cp-obs-table">
           <thead>
@@ -124,10 +126,11 @@
               <th>Detalle</th>
               <th>Impacto</th>
               <th>Accion sugerida</th>
+              <th>Accion</th>
             </tr>
           </thead>
           <tbody>
-            {% for obs in preflight.observaciones %}
+            {% for obs in preflight.observaciones_accionables %}
             <tr class="cp-obs-row cp-obs-row--{{ obs.nivel }}">
               <td><span class="cp-obs-level cp-obs-level--{{ obs.nivel }}">{{ obs.nivel }}</span></td>
               <td>{{ obs.origen }}</td>
@@ -138,20 +141,87 @@
               <td>{{ obs.detalle }}</td>
               <td>{{ obs.impacto }}</td>
               <td>{{ obs.accion_sugerida }}</td>
+              <td class="cp-obs-action-cell">
+                {% if obs.accion_parametros %}
+                <form method="post" action="{{ url_for('nomina.calculo_preflight_parametros') }}" class="cp-param-inline-form">
+                  <input type="hidden" name="asistencia_import_id" value="{{ preflight.import_id }}">
+                  <input type="hidden" name="asistencia_row_id" value="{{ obs.accion_parametros.asistencia_row_id }}">
+                  {% if obs.accion_parametros.cliente or obs.accion_parametros.planta %}
+                  <p class="cp-param-meta">{{ obs.accion_parametros.cliente }}{% if obs.accion_parametros.planta %} / {{ obs.accion_parametros.planta }}{% endif %}</p>
+                  {% endif %}
+                  {% if obs.accion_parametros.needs_salario %}
+                  <label class="cp-param-field">
+                    <span>Salario operativo semanal</span>
+                    <input type="number" name="salario_operativo" step="0.01" min="0.01" required placeholder="0.00">
+                  </label>
+                  {% endif %}
+                  {% if obs.accion_parametros.needs_valor_he %}
+                  <label class="cp-param-field">
+                    <span>Valor x HE</span>
+                    <input type="number" name="valor_x_he" step="0.01" min="0" placeholder="0.00">
+                  </label>
+                  {% endif %}
+                  <label class="cp-param-field">
+                    <span>Comentario opcional</span>
+                    <input type="text" name="comentario" maxlength="240" placeholder="Captura desde preflight">
+                  </label>
+                  <button type="submit" class="btn btn-secondary cp-param-save-btn">Guardar en Parametros y recalcular preflight</button>
+                </form>
+                {% else %}
+                <span class="cp-obs-action-empty">—</span>
+                {% endif %}
+              </td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
+      {% endif %}
+
+      {% if preflight.observaciones_informativas %}
+      <details class="cp-obs-info-collapse">
+        <summary>Ver informacion adicional ({{ (preflight.observaciones_informativas or [])|length }})</summary>
+        <div class="cp-table-wrap">
+          <table class="cp-obs-table">
+            <thead>
+              <tr>
+                <th>Nivel</th>
+                <th>Origen</th>
+                <th>Trabajador / fila</th>
+                <th>Detalle</th>
+                <th>Impacto</th>
+                <th>Accion sugerida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for obs in preflight.observaciones_informativas %}
+              <tr class="cp-obs-row cp-obs-row--info">
+                <td><span class="cp-obs-level cp-obs-level--info">{{ obs.nivel }}</span></td>
+                <td>{{ obs.origen }}</td>
+                <td>
+                  {{ obs.trabajador }}
+                  {% if obs.fila %}<span class="cp-obs-fila">Fila {{ obs.fila }}</span>{% endif %}
+                </td>
+                <td>{{ obs.detalle }}</td>
+                <td>{{ obs.impacto }}</td>
+                <td>{{ obs.accion_sugerida }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+      {% endif %}
+
       {% if preflight.tiene_observaciones_criticas %}
-      <p class="cp-obs-block-msg">Hay observaciones criticas que impiden generar un borrador seguro. Corrige la asistencia, Parametros o Vacaciones antes de continuar.</p>
+      <p class="cp-obs-block-msg">Resuelve las observaciones criticas antes de generar el borrador.</p>
       {% endif %}
     </section>
     {% endif %}
 
     <section class="cp-card pc-form-card">
       <header class="pc-form-step-head">
-        {% set step_num = '04' if preflight.prima_vacacional_informativa and preflight.observaciones else ('03' if preflight.prima_vacacional_informativa or preflight.observaciones else '02') %}
+        {% set step_num = '04' if preflight.prima_vacacional_informativa and (preflight.observaciones_accionables or preflight.observaciones_informativas) else ('03' if preflight.prima_vacacional_informativa or preflight.observaciones_accionables or preflight.observaciones_informativas else '02') %}
         <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">{{ step_num }}</span>
         <div class="pc-form-step-text">
           <h3 class="pc-form-step-title">Configuracion previa</h3>
@@ -181,20 +251,20 @@
         <fieldset class="cp-question cp-question--accept">
           <label>
             <input type="checkbox" name="acepta_observaciones" value="1">
-            Acepto continuar y generar borrador con las observaciones de revision visibles arriba.
+            Confirmo que revise las observaciones de nomina.
           </label>
         </fieldset>
         {% endif %}
 
         <div class="cp-actions pc-form-actionbar pc-form-actionbar--primary pc-sticky-actions">
           {% if preflight.tiene_observaciones_criticas %}
-          <button type="button" class="btn btn-primary" disabled>Generar borrador bloqueado</button>
+          <button type="button" class="btn btn-primary" disabled>Confirmar y generar borrador</button>
           <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver a revisar asistencia</a>
-          {% elif preflight.observaciones %}
+          {% elif preflight.tiene_observaciones_revision %}
           <button type="submit" class="btn btn-primary">Generar borrador con observaciones</button>
           <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Volver a revisar asistencia</a>
           {% else %}
-          <button type="submit" class="btn btn-primary">Confirmar y generar borrador</button>
+          <button type="submit" class="btn btn-primary">Generar borrador</button>
           <a class="btn btn-secondary" href="{{ url_for('nomina.calculo_index') }}">Cancelar</a>
           {% endif %}
         </div>

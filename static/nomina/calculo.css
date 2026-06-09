@@ -501,6 +501,87 @@
   font-weight: 600;
 }
 
+.cp-obs-action-cell {
+  min-width: 220px;
+}
+
+.cp-param-inline-form {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.35rem 0;
+}
+
+.cp-param-meta {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--pc-text-muted);
+}
+
+.cp-param-field {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.cp-param-field span {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--pc-text-muted);
+}
+
+.cp-param-field input {
+  width: 100%;
+  max-width: 180px;
+  font-size: 0.82rem;
+  padding: 0.28rem 0.4rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-md, 6px);
+  background: var(--pc-surface);
+}
+
+.cp-param-field input:focus {
+  border-color: var(--pc-blue);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(26, 119, 211, 0.12);
+}
+
+.cp-param-save-btn {
+  justify-self: start;
+  font-size: 0.78rem !important;
+  padding: 0.32rem 0.75rem !important;
+}
+
+.cp-obs-action-empty {
+  color: var(--pc-text-muted);
+}
+
+.cp-obs-info-collapse {
+  margin-top: 0.85rem;
+  border: 1px solid var(--pc-border);
+  border-radius: var(--pc-radius-lg, 12px);
+  background: var(--pc-surface-soft);
+  padding: 0.55rem 0.75rem;
+}
+
+.cp-obs-info-collapse summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--pc-blue, #1A77D3);
+  list-style: none;
+}
+
+.cp-obs-info-collapse summary::-webkit-details-marker {
+  display: none;
+}
+
+.cp-obs-info-collapse[open] summary {
+  margin-bottom: 0.65rem;
+}
+
+.cp-obs-info-collapse .cp-table-wrap {
+  margin-top: 0.35rem;
+}
+
 /* ── 4. View — visualizador borrador ───────────────────────────── */
 
 .cv-table-wrap {
