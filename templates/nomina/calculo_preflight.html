@@ -181,13 +181,6 @@
                   {% if obs.accion_parametros.fila %}
                   <input type="hidden" name="fila_asistencia" value="{{ obs.accion_parametros.fila }}">
                   {% endif %}
-                  {% if obs.accion_parametros.cliente or obs.accion_parametros.planta or obs.accion_parametros.puesto %}
-                  <div class="cp-param-context">
-                    {% if obs.accion_parametros.cliente %}<span>Cliente: {{ obs.accion_parametros.cliente }}</span>{% endif %}
-                    {% if obs.accion_parametros.planta %}<span>Planta: {{ obs.accion_parametros.planta }}</span>{% endif %}
-                    {% if obs.accion_parametros.puesto %}<span>Puesto: {{ obs.accion_parametros.puesto }}</span>{% endif %}
-                  </div>
-                  {% endif %}
                   {% if obs.accion_parametros.needs_salario %}
                   <label class="cp-param-field">
                     <span>Salario operativo semanal</span>

@@ -4,6 +4,9 @@ from __future__ import annotations
 import unittest
 
 from modules.nomina.calculo_preflight import (
+    CODE_PARAMETROS_DUPLICADOS,
+    MSG_PARAM_SAVE_AMBIGUOUS,
+    MSG_PARAM_SAVE_OK,
     NIVEL_CRITICAL,
     NIVEL_INFO,
     NIVEL_REVIEW,
@@ -14,6 +17,7 @@ from modules.nomina.calculo_preflight import (
     _build_trabajador_datos,
     _catalog_observacion,
     _match_vacaciones_for_asistencia,
+    _param_row_used_by_calc,
     _resumen_observaciones,
     _should_skip_preflight_warning,
     _split_observaciones,
@@ -246,6 +250,51 @@ class TestCalculoPreflightObservaciones(unittest.TestCase):
         self.assertEqual(datos["fila"], 91)
         self.assertNotIn("NSS", observaciones[0]["trabajador"])
 
+    def test_salario_critico_usa_id_que_lee_calculo(self):
+        import sqlite3
+        import tempfile
+        import os
+
+        from modules.nomina.db import ensure_nomina_tables
+
+        fd, db = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        conn = sqlite3.connect(db)
+        ensure_nomina_tables(conn)
+        iso = "2026-06-09 12:00:00"
+        conn.execute(
+            """INSERT INTO nomina_empleado_parametros
+               (nombre, nombre_normalizado, nss, cliente, salario_operativo, record_kind, is_active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+            ("CARLOS", "CARLOS", "333", "CARRIER", 0, "test", iso, iso),
+        )
+        conn.commit()
+        conn.close()
+
+        raw = {"id": 3, "row_number": 8, "nombre_empleado": "CARLOS", "nss": "333", "cliente": "CARRIER"}
+        payload = {
+            "raw_json": {"run_warnings": []},
+            "rows": [{
+                "asistencia_row_id": 3,
+                "nombre_empleado": "CARLOS",
+                "nss": "333",
+                "blocks_json": [WARN_BLOCK_CALC_MISSING_SALARY],
+            }],
+        }
+        observaciones, _ = _build_observaciones_from_payload(
+            payload, {3: raw}, by_nss={}, by_name={}, db_path=db
+        )
+        action = observaciones[0]["accion_parametros"]
+        self.assertTrue(action["needs_salario"])
+        self.assertIsNotNone(action["parametro_empleado_id"])
+        self.assertEqual(action["parametro_empleado_id"], action["calc_parametro_id"])
+
+    def test_template_accion_sin_cliente_planta_puesto_visibles(self):
+        from pathlib import Path
+
+        html = Path("templates/nomina/calculo_preflight.html").read_text(encoding="utf-8")
+        self.assertNotIn("cp-param-context", html)
+
 
 class TestCalculoPreflightGuardadoParametros(unittest.TestCase):
     def test_guardar_salario_elimina_critica_en_preflight(self):
@@ -301,7 +350,7 @@ class TestCalculoPreflightGuardadoParametros(unittest.TestCase):
             updated_by=1,
             now_iso=iso,
         )
-        self.assertTrue(ok, msg)
+        self.assertEqual(ok, "ok", msg)
         self.assertIn("Preflight actualizado", msg)
 
         pre2 = build_calculo_preflight(db, import_id=import_id)
@@ -347,7 +396,7 @@ class TestCalculoPreflightGuardadoParametros(unittest.TestCase):
         )
         row = get_asistencia_import(db, import_id)["rows"][0]
         row_id = int(row["id"])
-        ok, _ = save_parametro_from_preflight(
+        status, _ = save_parametro_from_preflight(
             db,
             asistencia_import_id=import_id,
             asistencia_row_id=row_id,
@@ -355,11 +404,270 @@ class TestCalculoPreflightGuardadoParametros(unittest.TestCase):
             updated_by=1,
             now_iso=iso,
         )
-        self.assertTrue(ok)
+        self.assertEqual(status, "ok")
         by_nss, by_name = _param_index(list_empleado_parametros(db, limit=100))
         matched = _match_parametro(row, by_nss, by_name)
         self.assertIsNotNone(matched)
         self.assertGreater(float(matched.get("salario_operativo") or 0), 0)
+
+    def test_guardar_por_id_exacto_actualiza_registro_correcto(self):
+        from modules.nomina.db import ensure_nomina_tables, get_asistencia_import, save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        param_id = self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        import_id = save_asistencia_import(
+            db,
+            {
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 42,
+                    "nombre_empleado": "ESTRELLA JUDITH HERNANDEZ LUNA",
+                    "cliente": "CARRIER",
+                    "planta": "F",
+                    "puesto": "AUXILIAR",
+                    "nss": "98765432101",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        row_id = int(get_asistencia_import(db, import_id)["rows"][0]["id"])
+        status, msg = save_parametro_from_preflight(
+            db,
+            asistencia_import_id=import_id,
+            asistencia_row_id=row_id,
+            salario_operativo=1450.0,
+            parametro_empleado_id=param_id,
+            updated_by=1,
+            now_iso=iso,
+        )
+        self.assertEqual(status, "ok", msg)
+        self.assertEqual(msg, MSG_PARAM_SAVE_OK)
+        raw_row = get_asistencia_import(db, import_id)["rows"][0]
+        matched = _param_row_used_by_calc(db, raw_row)
+        self.assertIsNotNone(matched)
+        self.assertEqual(int(matched["id"]), param_id)
+        self.assertGreater(float(matched.get("salario_operativo") or 0), 0)
+
+    def test_guardar_en_duplicado_incorrecto_marca_ambiguo(self):
+        from modules.nomina.db import get_asistencia_import, save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        wrong_id = self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        calc_id = self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        import_id = save_asistencia_import(
+            db,
+            {
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 42,
+                    "nombre_empleado": "ESTRELLA JUDITH HERNANDEZ LUNA",
+                    "cliente": "CARRIER",
+                    "nss": "98765432101",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        row_id = int(get_asistencia_import(db, import_id)["rows"][0]["id"])
+        status, msg = save_parametro_from_preflight(
+            db,
+            asistencia_import_id=import_id,
+            asistencia_row_id=row_id,
+            salario_operativo=1450.0,
+            parametro_empleado_id=wrong_id,
+            updated_by=1,
+            now_iso=iso,
+        )
+        self.assertEqual(status, "ambiguous")
+        self.assertEqual(msg, MSG_PARAM_SAVE_AMBIGUOUS)
+        matched = _param_row_used_by_calc(db, get_asistencia_import(db, import_id)["rows"][0])
+        self.assertEqual(int(matched["id"]), calc_id)
+        self.assertLessEqual(float(matched.get("salario_operativo") or 0), 0)
+        self.assertNotEqual(wrong_id, calc_id)
+
+    def test_guardar_sin_id_usa_registro_que_lee_calculo_con_duplicados(self):
+        from modules.nomina.db import get_asistencia_import, save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        calc_id = self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        import_id = save_asistencia_import(
+            db,
+            {
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 42,
+                    "nombre_empleado": "ESTRELLA JUDITH HERNANDEZ LUNA",
+                    "cliente": "CARRIER",
+                    "nss": "98765432101",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        row_id = int(get_asistencia_import(db, import_id)["rows"][0]["id"])
+        status, msg = save_parametro_from_preflight(
+            db,
+            asistencia_import_id=import_id,
+            asistencia_row_id=row_id,
+            salario_operativo=1450.0,
+            updated_by=1,
+            now_iso=iso,
+        )
+        self.assertEqual(status, "ok", msg)
+        matched = _param_row_used_by_calc(db, get_asistencia_import(db, import_id)["rows"][0])
+        self.assertEqual(int(matched["id"]), calc_id)
+        self.assertGreater(float(matched.get("salario_operativo") or 0), 0)
+
+    def test_duplicados_generan_observacion_ambiguedad(self):
+        from modules.nomina.db import save_asistencia_import
+
+        db = self._mk_db()
+        iso = "2026-06-09 12:00:00"
+        self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=1200.0,
+            iso=iso,
+        )
+        self._insert_parametro(
+            db,
+            nombre="ESTRELLA JUDITH HERNANDEZ LUNA",
+            nss="98765432101",
+            cliente="CARRIER",
+            salario=0,
+            iso=iso,
+        )
+        import_id = save_asistencia_import(
+            db,
+            {
+                "fecha_inicio": "2026-06-02",
+                "fecha_fin": "2026-06-08",
+                "cliente": "CARRIER",
+                "clientes": ["CARRIER"],
+                "total_rows": 1,
+                "rows": [{
+                    "row_number": 42,
+                    "nombre_empleado": "ESTRELLA JUDITH HERNANDEZ LUNA",
+                    "cliente": "CARRIER",
+                    "nss": "98765432101",
+                    "dia_1_value": "A",
+                    "dia_2_value": "A",
+                    "dia_3_value": "A",
+                    "dia_4_value": "A",
+                    "dia_5_value": "A",
+                    "dia_6_value": "D",
+                    "dia_7_value": "D",
+                }],
+            },
+            created_by=None,
+            now_iso=iso,
+        )
+        pre = build_calculo_preflight(db, import_id=import_id)
+        dup_obs = [
+            o for o in (pre.get("observaciones_accionables") or [])
+            if o.get("codigo") == CODE_PARAMETROS_DUPLICADOS
+        ]
+        self.assertGreaterEqual(len(dup_obs), 1)
+        self.assertIn("duplicados", dup_obs[0]["detalle"].lower())
+
+    @staticmethod
+    def _insert_parametro(
+        db: str,
+        *,
+        nombre: str,
+        nss: str,
+        cliente: str,
+        salario: float,
+        iso: str,
+    ) -> int:
+        import sqlite3
+
+        conn = sqlite3.connect(db)
+        cur = conn.execute(
+            """INSERT INTO nomina_empleado_parametros
+               (nombre, nombre_normalizado, nss, cliente, salario_operativo, record_kind, is_active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+            (nombre, nombre, nss, cliente, salario, "test", iso, iso),
+        )
+        pid = int(cur.lastrowid)
+        conn.commit()
+        conn.close()
+        return pid
 
     @staticmethod
     def _mk_db() -> str:

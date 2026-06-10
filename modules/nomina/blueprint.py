@@ -3399,7 +3399,7 @@ def calculo_preflight_parametros():
         return _render_preflight_or_generate(import_id)
     uid = int(g.user["id"]) if g.user is not None else None
     now_iso = _now_iso()
-    ok, msg = save_parametro_from_preflight(
+    status, msg = save_parametro_from_preflight(
         db_path,
         asistencia_import_id=import_id,
         asistencia_row_id=asistencia_row_id,
@@ -3410,7 +3410,8 @@ def calculo_preflight_parametros():
         updated_by=uid,
         now_iso=now_iso,
     )
-    flash(msg, "success" if ok else "error")
+    flash_level = "success" if status == "ok" else ("warning" if status == "ambiguous" else "error")
+    flash(msg, flash_level)
     return _render_preflight_or_generate(import_id)
 
 

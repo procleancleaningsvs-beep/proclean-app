@@ -532,33 +532,21 @@
   margin-top: 0.08rem;
 }
 
-.cp-param-context {
-  display: grid;
-  gap: 0.1rem;
-  font-size: 0.74rem;
-  color: var(--pc-text-muted);
-  margin-bottom: 0.15rem;
-}
-
 .cp-obs-action-cell {
-  min-width: 220px;
+  min-width: 240px;
+  max-width: 320px;
 }
 
 .cp-param-inline-form {
   display: grid;
-  gap: 0.45rem;
+  gap: 0.5rem;
   padding: 0.35rem 0;
-}
-
-.cp-param-meta {
-  margin: 0;
-  font-size: 0.74rem;
-  color: var(--pc-text-muted);
+  min-width: 200px;
 }
 
 .cp-param-field {
   display: grid;
-  gap: 0.15rem;
+  gap: 0.18rem;
 }
 
 .cp-param-field span {
@@ -567,14 +555,17 @@
   color: var(--pc-text-muted);
 }
 
-.cp-param-field input {
+.cp-param-field input[type="number"],
+.cp-param-field input[type="text"] {
   width: 100%;
-  max-width: 180px;
+  min-width: 140px;
+  max-width: 220px;
   font-size: 0.82rem;
-  padding: 0.28rem 0.4rem;
+  padding: 0.32rem 0.45rem;
   border: 1px solid var(--pc-border);
   border-radius: var(--pc-radius-md, 6px);
   background: var(--pc-surface);
+  box-sizing: border-box;
 }
 
 .cp-param-field input:focus {
@@ -585,8 +576,13 @@
 
 .cp-param-save-btn {
   justify-self: start;
-  font-size: 0.78rem !important;
-  padding: 0.32rem 0.75rem !important;
+  width: auto;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.35;
+  font-size: 0.76rem !important;
+  padding: 0.38rem 0.8rem !important;
 }
 
 .cp-obs-action-empty {

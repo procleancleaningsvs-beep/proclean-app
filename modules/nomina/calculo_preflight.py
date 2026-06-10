@@ -7,7 +7,13 @@ import sqlite3
 import unicodedata
 from typing import Any
 
-from modules.nomina.calc_service import _match_parametro, _param_index, build_calculo_payload
+from modules.nomina.calc_service import (
+    _match_parametro,
+    _norm_key,
+    _norm_name_param,
+    _param_index,
+    build_calculo_payload,
+)
 from modules.nomina.config import (
     MSG_HEADCOUNT_UNAVAILABLE_CALCULO,
     WARN_BLOCK_CALC_MISSING_SALARY,
@@ -26,6 +32,15 @@ from modules.nomina.validators import _norm_header
 from modules.nomina.vacaciones_util import MATCH_OK, normalize_match_status_legacy
 
 PREFLIGHT_VERSION = "2"
+PARAM_ROWS_LIMIT = 5000  # Debe coincidir con calc_service.build_calculo_payload
+
+MSG_PARAM_SAVE_OK = "Parametros guardados correctamente. Preflight actualizado."
+MSG_PARAM_SAVE_FAIL = "No se pudieron guardar los parametros. Revisa los datos capturados."
+MSG_PARAM_SAVE_AMBIGUOUS = (
+    "El salario se guardo, pero el calculo sigue encontrando un registro ambiguo en Parametros. "
+    "Revisa duplicados o vuelve a seleccionar el registro correcto."
+)
+CODE_PARAMETROS_DUPLICADOS = "parametros_duplicados_ambiguos"
 
 CALCULO_DEFAULT_POLICY = {
     "domingo_opcion": "proporcional",
@@ -385,11 +400,14 @@ def _param_action_payload(
     *,
     needs_salario: bool = False,
     needs_valor_he: bool = False,
+    calc_match: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     datos = _build_trabajador_datos(raw_row, payload_row)
+    calc_id = int((calc_match or {}).get("id") or payload_row.get("parametro_empleado_id") or 0) or None
     return {
         "asistencia_row_id": int(payload_row.get("asistencia_row_id") or raw_row.get("id") or 0),
-        "parametro_empleado_id": payload_row.get("parametro_empleado_id"),
+        "parametro_empleado_id": calc_id,
+        "calc_parametro_id": calc_id,
         "nss": datos["nss"],
         "nombre_empleado": datos["nombre"],
         "nombre_normalizado": datos["nombre_normalizado"],
@@ -609,9 +627,11 @@ def _build_observaciones_from_payload(
     *,
     by_nss: dict[str, dict[str, Any]],
     by_name: dict[str, list[dict[str, Any]]],
+    db_path: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     observaciones: list[dict[str, Any]] = []
     seen: set[str] = set()
+    param_rows = _param_rows_for_calc(db_path) if db_path else []
 
     for warning in (payload.get("raw_json") or {}).get("run_warnings") or []:
         w = str(warning or "").strip()
@@ -627,16 +647,34 @@ def _build_observaciones_from_payload(
         fila = datos["fila"]
 
         blocks = {str(block or "").strip() for block in (payload_row.get("blocks_json") or []) if str(block or "").strip()}
+        calc_match = _param_row_used_by_calc_from_rows(param_rows, raw_row) if param_rows else None
+
+        if WARN_BLOCK_CALC_MISSING_SALARY in blocks and param_rows:
+            _append_param_ambiguity_observation(
+                observaciones,
+                seen,
+                raw_row=raw_row,
+                payload_row=payload_row,
+                datos=datos,
+                fila=fila,
+                trabajador=trabajador,
+                calc_match=calc_match,
+                param_rows=param_rows,
+            )
+
         for code in blocks:
             param_action = None
             if code == WARN_BLOCK_CALC_MISSING_SALARY:
-                param_action = _param_action_payload(payload_row, raw_row, needs_salario=True)
+                param_action = _param_action_payload(
+                    payload_row, raw_row, needs_salario=True, calc_match=calc_match
+                )
             elif code == WARN_BLOCK_CALC_MISSING_VALOR_HE:
                 param_action = _param_action_payload(
                     payload_row,
                     raw_row,
                     needs_valor_he=True,
                     needs_salario=WARN_BLOCK_CALC_MISSING_SALARY in blocks,
+                    calc_match=calc_match,
                 )
             _append_observacion(
                 observaciones,
@@ -720,6 +758,155 @@ def _build_observaciones_from_payload(
     return observaciones, prima_info
 
 
+def _param_rows_for_calc(db_path: str) -> list[dict[str, Any]]:
+    return list_empleado_parametros(db_path, limit=PARAM_ROWS_LIMIT)
+
+
+def _param_row_used_by_calc_from_rows(
+    param_rows: list[dict[str, Any]],
+    raw_row: dict[str, Any],
+) -> dict[str, Any] | None:
+    by_nss, by_name_cliente = _param_index(param_rows)
+    return _match_parametro(raw_row, by_nss, by_name_cliente)
+
+
+def _param_row_used_by_calc(db_path: str, raw_row: dict[str, Any]) -> dict[str, Any] | None:
+    return _param_row_used_by_calc_from_rows(_param_rows_for_calc(db_path), raw_row)
+
+
+def _param_candidates_for_asistencia(
+    param_rows: list[dict[str, Any]],
+    raw_row: dict[str, Any],
+) -> list[dict[str, Any]]:
+    nss = _norm_nss(raw_row.get("nss"))
+    nm = _norm_name_param(str(raw_row.get("nombre_empleado") or ""))
+    cl = _norm_key(str(raw_row.get("cliente") or ""))
+    out: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for p in param_rows:
+        pid = int(p.get("id") or 0)
+        if not pid or pid in seen_ids:
+            continue
+        p_nss = _norm_nss(p.get("nss"))
+        p_nm = _norm_name_param(str(p.get("nombre") or p.get("nombre_normalizado") or ""))
+        p_cl = _norm_key(str(p.get("cliente") or ""))
+        matched = False
+        if nss and p_nss and p_nss == nss:
+            matched = True
+        elif nm and p_nm == nm and (not cl or not p_cl or p_cl == cl):
+            matched = True
+        if matched:
+            out.append(p)
+            seen_ids.add(pid)
+    return out
+
+
+def _param_has_valid_salario(row: dict[str, Any] | None) -> bool:
+    return _float_or_zero((row or {}).get("salario_operativo")) > 0
+
+
+def _param_has_valid_valor_he(row: dict[str, Any] | None) -> bool:
+    val = (row or {}).get("valor_x_he")
+    if val in (None, ""):
+        return False
+    return _float_or_zero(val) >= 0 and _float_or_zero(val) > 0
+
+
+def _append_param_ambiguity_observation(
+    observaciones: list[dict[str, Any]],
+    seen: set[str],
+    *,
+    raw_row: dict[str, Any],
+    payload_row: dict[str, Any],
+    datos: dict[str, Any],
+    fila: int | None,
+    trabajador: str,
+    calc_match: dict[str, Any] | None,
+    param_rows: list[dict[str, Any]],
+) -> None:
+    candidates = _param_candidates_for_asistencia(param_rows, raw_row)
+    if len(candidates) <= 1:
+        return
+    calc_id = int((calc_match or {}).get("id") or 0)
+    calc_sal_ok = _param_has_valid_salario(calc_match)
+    others_with_sal = [
+        c for c in candidates
+        if int(c.get("id") or 0) != calc_id and _param_has_valid_salario(c)
+    ]
+    if calc_sal_ok or not others_with_sal:
+        return
+    clientes = sorted({str(c.get("cliente") or "").strip() for c in candidates if str(c.get("cliente") or "").strip()})
+    detalle = "Parametros duplicados o ambiguos para este trabajador. Revisa Parametros de Nomina."
+    if len(clientes) > 1:
+        detalle = (
+            f"{detalle} Se detectaron {len(candidates)} registros candidatos "
+            f"en clientes: {', '.join(clientes)}."
+        )
+    else:
+        detalle = f"{detalle} Se detectaron {len(candidates)} registros candidatos."
+    _append_observacion(
+        observaciones,
+        seen,
+        _make_observacion(
+            nivel=NIVEL_REVIEW,
+            origen="parametros",
+            trabajador=trabajador,
+            fila=fila,
+            detalle=detalle,
+            impacto="El calculo puede seguir leyendo un registro distinto al actualizado",
+            accion_sugerida="Consolida o corrige duplicados en Parametros de Nomina",
+            codigo=CODE_PARAMETROS_DUPLICADOS,
+            trabajador_datos=datos,
+            accion_parametros=_param_action_payload(
+                payload_row, raw_row, needs_salario=True, calc_match=calc_match
+            ),
+        ),
+    )
+
+
+def _resolve_parametro_target_id(
+    db_path: str,
+    raw_row: dict[str, Any],
+    *,
+    parametro_empleado_id: int | None = None,
+) -> tuple[int | None, dict[str, Any] | None]:
+    calc_match = _param_row_used_by_calc(db_path, raw_row)
+    if parametro_empleado_id:
+        explicit = get_empleado_parametro(db_path, int(parametro_empleado_id))
+        if explicit:
+            return int(parametro_empleado_id), explicit
+    if calc_match:
+        return int(calc_match["id"]), calc_match
+    return None, None
+
+
+def _verify_parametro_post_save(
+    db_path: str,
+    raw_row: dict[str, Any],
+    *,
+    need_salario: bool,
+    need_valor_he: bool,
+    saved_param_id: int | None,
+) -> tuple[str, dict[str, Any] | None]:
+    calc_match = _param_row_used_by_calc(db_path, raw_row)
+    if calc_match is None:
+        if need_salario:
+            return "ambiguous", None
+        return "ok", None
+
+    calc_id = int(calc_match.get("id") or 0)
+    sal_ok = _param_has_valid_salario(calc_match)
+    he_ok = not need_valor_he or _param_has_valid_valor_he(calc_match)
+
+    if need_salario and not sal_ok:
+        if saved_param_id and calc_id != int(saved_param_id):
+            return "ambiguous", calc_match
+        return "ambiguous", calc_match
+    if not he_ok:
+        return "ambiguous", calc_match
+    return "ok", calc_match
+
+
 def _split_observaciones(observaciones: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     accionables = [o for o in observaciones if str(o.get("nivel") or "") in {NIVEL_CRITICAL, NIVEL_REVIEW}]
     informativas = [o for o in observaciones if str(o.get("nivel") or "") == NIVEL_INFO]
@@ -736,21 +923,6 @@ def _split_observaciones(observaciones: list[dict[str, Any]]) -> tuple[list[dict
         )
     )
     return accionables, informativas
-
-
-def _resolve_parametro_for_asistencia(
-    db_path: str,
-    raw_row: dict[str, Any],
-    *,
-    parametro_empleado_id: int | None = None,
-) -> dict[str, Any] | None:
-    if parametro_empleado_id:
-        row = get_empleado_parametro(db_path, int(parametro_empleado_id))
-        if row:
-            return row
-    param_rows = list_empleado_parametros(db_path, limit=8000)
-    by_nss, by_name_cliente = _param_index(param_rows)
-    return _match_parametro(raw_row, by_nss, by_name_cliente)
 
 
 def _apply_parametro_preflight_patch(
@@ -795,7 +967,17 @@ def _apply_parametro_preflight_patch(
             tuple(params),
         )
         conn.commit()
-        return conn.total_changes > 0
+        verify = conn.execute(
+            "SELECT salario_operativo, valor_x_he FROM nomina_empleado_parametros WHERE id = ?",
+            (int(param_id),),
+        ).fetchone()
+        if verify is None:
+            return False
+        if salario is not None and _float_or_zero(verify[0]) <= 0:
+            return False
+        if valor_he is not None and _float_or_zero(verify[1]) < 0:
+            return False
+        return True
     finally:
         conn.close()
 
@@ -811,13 +993,14 @@ def save_parametro_from_preflight(
     parametro_empleado_id: int | None = None,
     updated_by: int | None = None,
     now_iso: str,
-) -> tuple[bool, str]:
+) -> tuple[str, str]:
+    """Retorna (estado, mensaje) donde estado es ok | ambiguous | error."""
     imp = get_asistencia_import(db_path, int(asistencia_import_id))
     if imp is None:
-        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+        return "error", MSG_PARAM_SAVE_FAIL
     raw_row = next((r for r in (imp.get("rows") or []) if int(r.get("id") or 0) == int(asistencia_row_id)), None)
     if raw_row is None:
-        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+        return "error", MSG_PARAM_SAVE_FAIL
 
     salario: float | None = None
     valor_he: float | None = None
@@ -825,22 +1008,22 @@ def save_parametro_from_preflight(
         try:
             salario = float(salario_operativo)
         except (TypeError, ValueError):
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
         if salario <= 0:
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
     if str(valor_x_he or "").strip() != "":
         try:
             valor_he = float(valor_x_he)
         except (TypeError, ValueError):
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
         if valor_he < 0:
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
     if salario is None and valor_he is None:
-        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+        return "error", MSG_PARAM_SAVE_FAIL
 
     datos = _build_trabajador_datos(raw_row)
     nss = datos["nss"]
-    existing = _resolve_parametro_for_asistencia(
+    target_id, existing = _resolve_parametro_target_id(
         db_path,
         raw_row,
         parametro_empleado_id=parametro_empleado_id,
@@ -851,9 +1034,9 @@ def save_parametro_from_preflight(
         cur_he = existing.get("valor_x_he")
         cur_he_f = _float_or_zero(cur_he) if cur_he not in (None, "") else None
         if salario is not None and cur_sal > 0 and abs(cur_sal - salario) > 0.009:
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
         if valor_he is not None and cur_he_f is not None and cur_he_f > 0 and abs(cur_he_f - valor_he) > 0.009:
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
+            return "error", MSG_PARAM_SAVE_FAIL
 
     trace_entry = {
         "at": now_iso,
@@ -861,6 +1044,7 @@ def save_parametro_from_preflight(
         "origen": "preflight_calculo_nomina",
         "asistencia_import_id": int(asistencia_import_id),
         "asistencia_row_id": int(asistencia_row_id),
+        "parametro_empleado_id": target_id,
         "comentario": str(comentario or "").strip(),
         "campos": {
             k: v
@@ -874,10 +1058,11 @@ def save_parametro_from_preflight(
     editable = dict((existing or {}).get("editable_json") or {})
     editable.setdefault("preflight_capturas", []).append(trace_entry)
 
-    if existing:
+    saved_id: int | None = None
+    if target_id and existing:
         ok = _apply_parametro_preflight_patch(
             db_path,
-            int(existing["id"]),
+            int(target_id),
             salario=salario,
             valor_he=valor_he,
             nss=nss,
@@ -886,39 +1071,53 @@ def save_parametro_from_preflight(
             updated_by=updated_by,
         )
         if not ok:
-            return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
-        return True, "Parametros guardados correctamente. Preflight actualizado."
+            return "error", MSG_PARAM_SAVE_FAIL
+        saved_id = int(target_id)
+    else:
+        payload_row: dict[str, Any] = {
+            "nombre": datos["nombre"],
+            "nombre_normalizado": _norm_name_param(datos["nombre"]),
+            "nss": nss or None,
+            "numero_empleado": datos["numero_empleado"] or None,
+            "cliente": datos["cliente"] or None,
+            "planta": datos["planta"] or None,
+            "puesto": datos["puesto"] or None,
+            "banco": str(raw_row.get("banco") or "").strip() or None,
+            "cuenta": str(raw_row.get("cuenta") or "").strip() or None,
+            "record_kind": "preflight_manual",
+            "editable_json": editable,
+        }
+        if salario is not None:
+            payload_row["salario_operativo"] = salario
+            payload_row["fuente_salario_operativo"] = "preflight_calculo_nomina"
+        if valor_he is not None:
+            payload_row["valor_x_he"] = valor_he
+            payload_row["fuente_valor_x_he"] = "preflight_calculo_nomina"
 
-    payload_row: dict[str, Any] = {
-        "nombre": datos["nombre"],
-        "nombre_normalizado": datos["nombre_normalizado"],
-        "nss": nss or None,
-        "numero_empleado": datos["numero_empleado"] or None,
-        "cliente": datos["cliente"] or None,
-        "planta": datos["planta"] or None,
-        "puesto": datos["puesto"] or None,
-        "banco": str(raw_row.get("banco") or "").strip() or None,
-        "cuenta": str(raw_row.get("cuenta") or "").strip() or None,
-        "record_kind": "preflight_manual",
-        "editable_json": editable,
-    }
-    if salario is not None:
-        payload_row["salario_operativo"] = salario
-        payload_row["fuente_salario_operativo"] = "preflight_calculo_nomina"
-    if valor_he is not None:
-        payload_row["valor_x_he"] = valor_he
-        payload_row["fuente_valor_x_he"] = "preflight_calculo_nomina"
+        inserted, updated = upsert_empleado_parametros(
+            db_path,
+            [payload_row],
+            import_id=0,
+            now_iso=now_iso,
+            overwrite_keys={"salario_operativo", "valor_x_he", "nss", "fuente_salario_operativo", "fuente_valor_x_he"},
+        )
+        if inserted <= 0 and updated <= 0:
+            return "error", MSG_PARAM_SAVE_FAIL
+        refreshed = _param_row_used_by_calc(db_path, raw_row)
+        saved_id = int(refreshed["id"]) if refreshed else None
 
-    inserted, updated = upsert_empleado_parametros(
+    verify_status, _ = _verify_parametro_post_save(
         db_path,
-        [payload_row],
-        import_id=0,
-        now_iso=now_iso,
-        overwrite_keys={"salario_operativo", "valor_x_he", "nss", "fuente_salario_operativo", "fuente_valor_x_he"},
+        raw_row,
+        need_salario=salario is not None,
+        need_valor_he=valor_he is not None,
+        saved_param_id=saved_id,
     )
-    if inserted <= 0 and updated <= 0:
-        return False, "No se pudieron guardar los parametros. Revisa los datos capturados."
-    return True, "Parametros guardados correctamente. Preflight actualizado."
+    if verify_status == "ok":
+        return "ok", MSG_PARAM_SAVE_OK
+    if verify_status == "ambiguous":
+        return "ambiguous", MSG_PARAM_SAVE_AMBIGUOUS
+    return "error", MSG_PARAM_SAVE_FAIL
 
 
 def _resumen_observaciones(observaciones: list[dict[str, Any]]) -> dict[str, int]:
@@ -1056,6 +1255,7 @@ def build_calculo_preflight(db_path: str, *, import_id: int) -> dict[str, Any]:
         rows_by_id,
         by_nss=by_nss,
         by_name=by_name,
+        db_path=db_path,
     )
     out["observaciones"] = observaciones
     accionables, informativas = _split_observaciones(observaciones)
