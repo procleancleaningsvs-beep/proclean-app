@@ -272,7 +272,7 @@ REFERENCE_FIELDS: dict[str, ReferenceField] = {
         _range("t_tpa", "Tiempo TTPA", "25.4", "44.7", "seg", "25.4 - 44.7 seg"),
         _range("wsterg", "Westergren", "1", "15", "mm/h", "1-15 mm/h"),
         _range("vitad", "Vitamina D", "30", "100", "ng/mL", "30 - 100 ng/mL"),
-        _exact("o_col", "Color", ("Amarillo",), "Amarillo"),
+        _exact("o_col", "Color", ("Amarillo", "Transparente"), "Amarillo o Transparente"),
         _exact("o_asp", "Aspecto", ("Claro",), "Claro"),
         _range("o_dens", "Densidad", "1.005", "1.030", "", "1.005 - 1.030"),
         _range("o_ph", "pH", "4.8", "7.4", "", "4.8 - 7.4"),
@@ -391,24 +391,18 @@ CLINICAL_PLACEHOLDER_NAMES: tuple[str, ...] = (
     CHEMISTRY_FIELDS + HEMATOLOGY_FIELDS + COAGULATION_FIELDS + URINE_FIELDS
 )
 
+MANUAL_CLINICAL_PLACEHOLDER_NAMES: tuple[str, ...] = ("gsanth",)
+GENERATED_CLINICAL_PLACEHOLDER_NAMES: tuple[str, ...] = tuple(
+    name for name in CLINICAL_PLACEHOLDER_NAMES if name not in MANUAL_CLINICAL_PLACEHOLDER_NAMES
+)
+
 
 def clinical_form_sections() -> tuple[dict[str, Any], ...]:
     return (
-        {"title": "Quimica", "description": "Resultados manuales dentro de limites.", "fields": _fields(CHEMISTRY_FIELDS)},
-        {
-            "title": "Biometria hematica",
-            "description": "Porcentajes y absolutos capturados por separado.",
-            "fields": _fields(HEMATOLOGY_FIELDS),
-        },
         {
             "title": "Grupo sanguineo, coagulacion y complementarios",
-            "description": "INR, Tiempo Testigo e ISI son obligatorios y no se calculan.",
-            "fields": _fields(COAGULATION_FIELDS),
-        },
-        {
-            "title": "Examen general de orina",
-            "description": "Captura exacta; no se agregan unidades ni conversiones automaticas.",
-            "fields": _fields(URINE_FIELDS),
+            "description": "Solo el grupo sanguineo y Rh se captura manualmente.",
+            "fields": _fields(MANUAL_CLINICAL_PLACEHOLDER_NAMES),
         },
     )
 
@@ -495,11 +489,22 @@ def validate_field_value(field: ReferenceField, value: Any) -> str | None:
     return f"{field.label}: tipo de validacion no soportado."
 
 
-def validate_unified_clinical_results(data: dict[str, Any]) -> list[str]:
+def validate_unified_clinical_results(
+    data: dict[str, Any],
+    names: tuple[str, ...] = CLINICAL_PLACEHOLDER_NAMES,
+) -> list[str]:
     errors: list[str] = []
-    for name in CLINICAL_PLACEHOLDER_NAMES:
+    for name in names:
         err = validate_field_value(REFERENCE_FIELDS[name], data.get(name))
         if err:
             errors.append(err)
     return errors
+
+
+def validate_manual_clinical_results(data: dict[str, Any]) -> list[str]:
+    return validate_unified_clinical_results(data, MANUAL_CLINICAL_PLACEHOLDER_NAMES)
+
+
+def validate_generated_clinical_results(data: dict[str, Any]) -> list[str]:
+    return validate_unified_clinical_results(data, GENERATED_CLINICAL_PLACEHOLDER_NAMES)
 

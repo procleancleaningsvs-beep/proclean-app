@@ -25,6 +25,7 @@ from flask import (
 from functools import wraps
 
 from modules.examenes_medicos.db import ensure_examenes_medicos_tables_path
+from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.expediente_db import (
     delete_examenes_expediente,
     ensure_examenes_expediente_table,
@@ -47,8 +48,11 @@ from modules.examenes_medicos.identifiers import (
 )
 from modules.examenes_medicos.paths import UNIFICADO_DOCX
 from modules.examenes_medicos.reference_ranges import (
+    GENERATED_CLINICAL_PLACEHOLDER_NAMES,
+    MANUAL_CLINICAL_PLACEHOLDER_NAMES,
     clinical_form_sections,
-    validate_unified_clinical_results,
+    validate_generated_clinical_results,
+    validate_manual_clinical_results,
 )
 from modules.examenes_medicos.unified_document import (
     UnifiedTemplateError,
@@ -120,7 +124,6 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
     for label, key in (
         ("Nombres", "nombres"),
         ("Apellidos", "apellidos"),
-        ("Dirigido a", "dirigido_a"),
     ):
         e = validate_required_non_empty(data.get(key), label)
         if e:
@@ -153,16 +156,6 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
         e = validate_required_non_empty(data.get(key), label)
         if e:
             errs.append(e)
-
-    p1 = validate_positive_float(data.get("peso_kg"), "Peso (kg)")
-    p2 = validate_positive_float(data.get("estatura_m"), "Estatura (m)")
-    if p1[1]:
-        errs.append(p1[1])
-    if p2[1]:
-        errs.append(p2[1])
-    est = p2[0]
-    if est is not None and est > 2.6:
-        errs.append("Estatura fuera de rango razonable (metros).")
 
     return errs
 
@@ -395,16 +388,20 @@ def _history_master_payload(raw: dict[str, Any], ident: dict[str, str]) -> dict[
         "fecha_nacimiento",
         "edad",
         "sexo",
-        "dirigido_a",
         "fecha_estudio",
         "fecha_toma",
         "hora_toma",
         "fecha_val",
         "hora_val",
-        "peso_kg",
-        "estatura_m",
     )
     return {**{k: raw.get(k) for k in keys if k in raw}, **ident}
+
+
+def _generated_clinical_from_bundle(bundle: dict[str, Any]) -> dict[str, str]:
+    raw = bundle.get("unificado") if isinstance(bundle, dict) else None
+    if not isinstance(raw, dict):
+        raise ValueError("El generador clinico no devolvio resultados unificados.")
+    return {name: str(raw[name]).strip() if name in raw else "" for name in GENERATED_CLINICAL_PLACEHOLDER_NAMES}
 
 
 @examenes_medicos_bp.route("/api/master/preview-identificadores", methods=["POST"])
@@ -452,7 +449,7 @@ def api_master_download():
 
     raw = _form_dict_clean(data)
     errs = _errors_master_form(raw)
-    errs.extend(validate_unified_clinical_results(raw))
+    errs.extend(validate_manual_clinical_results(raw))
     if errs:
         return jsonify({"ok": False, "errors": errs}), 400
 
@@ -479,6 +476,21 @@ def api_master_download():
         want,
     )
 
+    try:
+        clinical_bundle = generate_clinical_bundle(sexo=str(master_base.get("sexo") or ""))
+        generated_clinical = _generated_clinical_from_bundle(clinical_bundle)
+    except Exception:
+        current_app.logger.exception("examenes_medicos: generador clinico fallo")
+        return jsonify({"ok": False, "error": "No se pudieron generar resultados clinicos validos."}), 500
+
+    clinical_payload = {
+        **generated_clinical,
+        **{name: raw.get(name) for name in MANUAL_CLINICAL_PLACEHOLDER_NAMES},
+    }
+    generated_errors = validate_generated_clinical_results(clinical_payload)
+    if generated_errors:
+        return jsonify({"ok": False, "errors": generated_errors}), 500
+
     db_path = str(current_app.config["DATABASE"])
     expediente_id = _parse_expediente_id(data.get("expediente_id"))
     conn = sqlite3.connect(db_path)
@@ -500,7 +512,7 @@ def api_master_download():
     finally:
         conn.close()
 
-    master = {**raw, **master_base, **ident}
+    master = {**raw, **master_base, **clinical_payload, **ident}
     mapping = build_unified_mapping(master)
 
     def hist_payload() -> dict[str, Any]:

@@ -115,10 +115,6 @@
     var msg = document.getElementById("em-msg");
     var fnac = document.getElementById("em-fnac");
     var edadEl = document.getElementById("em-edad");
-    var peso = document.getElementById("em-peso");
-    var est = document.getElementById("em-estatura");
-    var imcVal = document.getElementById("em-imc-val");
-    var imcClas = document.getElementById("em-imc-clas");
     var horaToma = form.querySelector('input[name="hora_toma"]');
     var horaVal = form.querySelector('input[name="hora_val"]');
     var expedienteIdInput = document.getElementById("em-expediente-id");
@@ -126,19 +122,6 @@
     function syncEdad() {
       edadEl.value = edadDesdeFnac(fnac.value);
     }
-    function syncImc() {
-      var p = parseFloat(String(peso.value).replace(",", "."));
-      var e = parseFloat(String(est.value).replace(",", "."));
-      if (!(p > 0) || !(e > 0)) {
-        imcVal.value = "";
-        imcClas.value = "";
-        return;
-      }
-      var imc = p / (e * e);
-      imcVal.value = imc.toFixed(2);
-      imcClas.value = clasificarImc(imc);
-    }
-
     function applyDefaultHoras() {
       if (!horaToma || !horaVal) return;
       horaToma.value = secondsToTimeStr(randomTomaSeconds());
@@ -149,11 +132,8 @@
 
     ["input", "change"].forEach(function (ev) {
       fnac.addEventListener(ev, syncEdad);
-      peso.addEventListener(ev, syncImc);
-      est.addEventListener(ev, syncImc);
     });
     syncEdad();
-    syncImc();
 
     if (horaToma && horaVal) {
       horaVal.addEventListener("input", function () {

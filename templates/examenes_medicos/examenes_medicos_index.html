@@ -8,7 +8,7 @@
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Vitroflex</span>
     <h2 class="pc-page-title">Exámenes médicos</h2>
-    <p class="pc-page-subtitle">Formulario único: identificadores administrativos se generan al descargar. Los resultados clínicos se capturan manualmente y deben estar dentro de referencia.</p>
+    <p class="pc-page-subtitle">Formulario único: el usuario captura datos generales y grupo sanguíneo; los resultados clínicos se generan y validan automáticamente.</p>
   </div>
   <div class="pc-hub-hero__actions page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
@@ -33,7 +33,6 @@
     <label>Apellidos <input name="apellidos" id="em-apellidos" required autocomplete="family-name" /></label>
     <label>Fecha de nacimiento <input name="fecha_nacimiento" id="em-fnac" type="date" required /></label>
     <label>Edad (calculada) <input id="em-edad" type="text" readonly class="em-readonly" /></label>
-    <label>Dirigido a <input name="dirigido_a" required autocomplete="organization" /></label>
     <label>Sexo
       <select name="sexo" id="em-sexo" required>
         <option value="">—</option>
@@ -66,28 +65,10 @@
   <div class="pc-form-step">
     <header class="pc-form-step-head">
       <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">03</span>
-      <span class="pc-icon-chip pc-icon-chip--green pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
-      <div class="pc-form-step-text">
-        <h3 class="pc-form-step-title">IMC y acciones</h3>
-        <p class="pc-form-step-desc">Antropometría y descarga de documentos.</p>
-      </div>
-    </header>
-  <fieldset class="em-fieldset vf-grid vf-grid-2 pc-form-card pc-form-card--soft-green">
-    <legend class="pc-form-help">IMC</legend>
-    <label>Peso (kg) <input name="peso_kg" id="em-peso" type="number" step="any" min="0" required /></label>
-    <label>Estatura (m) <input name="estatura_m" id="em-estatura" type="number" step="any" min="0" max="3" placeholder="Ej. 1.70" required /></label>
-    <label>IMC <input id="em-imc-val" type="text" readonly class="em-readonly" /></label>
-    <label>Clasificación <input id="em-imc-clas" type="text" readonly class="em-readonly" /></label>
-  </fieldset>
-
-  </div>
-  <div class="pc-form-step">
-    <header class="pc-form-step-head">
-      <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">04</span>
       <span class="pc-icon-chip pc-icon-chip--green pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
       <div class="pc-form-step-text">
-        <h3 class="pc-form-step-title">Resultados clínicos</h3>
-        <p class="pc-form-step-desc">Solo se genera el documento cuando todos los resultados cumplen su referencia.</p>
+        <h3 class="pc-form-step-title">Grupo sanguíneo y generación</h3>
+        <p class="pc-form-step-desc">El resto de resultados se genera automáticamente y se valida antes de crear archivos.</p>
       </div>
     </header>
 
@@ -103,8 +84,8 @@
           <label>
             {{ field.label }}
             {% if field.validation_type == 'exact_option' %}
-            <select name="{{ field.placeholder }}" required>
-              <option value="">—</option>
+            <select name="{{ field.placeholder }}" id="em-field-{{ field.placeholder }}" required autocomplete="yes">
+              <option value="">Selecciona una opción</option>
               {% for option in field.options %}
               <option value="{{ option }}">{{ option }}</option>
               {% endfor %}
@@ -141,7 +122,7 @@
 <div id="em-modal" class="em-modal" role="dialog" aria-modal="true" aria-labelledby="em-modal-title" hidden>
   <div class="em-modal-inner panel vf-panel">
     <h3 id="em-modal-title" class="panel-title">Generar documento unificado</h3>
-    <p class="em-modal-lead">Al confirmar, ProClean validará todos los resultados capturados. Si algún valor está fuera de referencia, no se generará DOCX, PDF ni historial.</p>
+    <p class="em-modal-lead">Al confirmar, ProClean generará y validará automáticamente los resultados clínicos. Si algún valor queda fuera de referencia, no se generará DOCX, PDF ni historial.</p>
 
     <div class="em-modal-block">
       <div class="em-modal-label">Formato</div>

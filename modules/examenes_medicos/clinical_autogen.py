@@ -7,7 +7,14 @@ No modifica plantillas: solo produce cadenas para placeholders.
 from __future__ import annotations
 
 import random
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
+
+from modules.examenes_medicos.reference_ranges import (
+    GENERATED_CLINICAL_PLACEHOLDER_NAMES,
+    REFERENCE_FIELDS,
+    ReferenceField,
+)
 
 
 def _r(rng: random.Random, lo: float, hi: float, nd: int = 2) -> float:
@@ -17,6 +24,61 @@ def _r(rng: random.Random, lo: float, hi: float, nd: int = 2) -> float:
 def _fmt(v: float, nd: int = 2) -> str:
     s = f"{v:.{nd}f}"
     return s.rstrip("0").rstrip(".") if "." in s else s
+
+
+def _decimal_places(value: Decimal | None) -> int:
+    if value is None:
+        return 0
+    exp = value.as_tuple().exponent
+    return abs(exp) if exp < 0 else 0
+
+
+def _fmt_decimal(value: Decimal, nd: int) -> str:
+    if nd <= 0:
+        return str(int(value))
+    quantum = Decimal("1").scaleb(-nd)
+    return format(value.quantize(quantum, rounding=ROUND_HALF_UP), "f")
+
+
+def _generated_numeric(rng: random.Random, field: ReferenceField) -> str:
+    assert field.minimum is not None and field.maximum is not None
+    nd = max(_decimal_places(field.minimum), _decimal_places(field.maximum))
+    if nd == 0:
+        lo = int(field.minimum)
+        hi = int(field.maximum) if field.max_inclusive else int(field.maximum) - 1
+        return str(rng.randint(lo, hi))
+    scale = Decimal(10) ** nd
+    lo_i = int(field.minimum * scale)
+    hi_i = int(field.maximum * scale)
+    if not field.max_inclusive:
+        hi_i -= 1
+    n = Decimal(rng.randint(lo_i, hi_i)) / scale
+    return _fmt_decimal(n, nd)
+
+
+def _generated_value(rng: random.Random, field: ReferenceField) -> str:
+    if field.validation_type == "numeric_range":
+        return _generated_numeric(rng, field)
+    if field.validation_type == "exact_option":
+        if "Ausentes" in field.options:
+            return "Ausentes"
+        return rng.choice(list(field.options))
+    if field.validation_type == "negative_or_less_than":
+        if rng.random() < 0.65:
+            return "Negativo"
+        return _generated_numeric(rng, field)
+    if field.validation_type == "leukocyte_count":
+        return rng.choice(["Ausentes", "1", "2", "3", "4", "5", "1-2", "2-4", "4-5"])
+    if field.validation_type == "erythrocyte_count":
+        return rng.choice(["Ausentes", "1", "2", "1-2"])
+    raise ValueError(f"Tipo de validacion no soportado para autogeneracion: {field.validation_type}")
+
+
+def generate_unified_clinical_results(rng: random.Random) -> dict[str, str]:
+    return {
+        name: _generated_value(rng, REFERENCE_FIELDS[name])
+        for name in GENERATED_CLINICAL_PLACEHOLDER_NAMES
+    }
 
 
 def generate_clinical_bundle(
@@ -98,4 +160,4 @@ def generate_clinical_bundle(
         "trigliceridos": str(int(rng.randint(65, 165))),
     }
 
-    return {"orina": orina, "sangre": sangre}
+    return {"orina": orina, "sangre": sangre, "unificado": generate_unified_clinical_results(rng)}

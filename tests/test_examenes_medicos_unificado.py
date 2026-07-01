@@ -5,13 +5,16 @@ import inspect
 import sqlite3
 import tempfile
 import unittest
+from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
-from flask import Flask, g
+from flask import Blueprint, Flask, g
 
 from modules.examenes_medicos.blueprint import api_master_download, register_examenes_medicos
+from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.identifiers import (
     build_unified_filename_base,
     compact_order,
@@ -26,7 +29,9 @@ from modules.examenes_medicos.reference_ranges import (
     BLOOD_GROUP_OPTIONS,
     CLINICAL_PLACEHOLDER_NAMES,
     EXPECTED_UNIFIED_PLACEHOLDERS,
+    GENERATED_CLINICAL_PLACEHOLDER_NAMES,
     REFERENCE_FIELDS,
+    validate_generated_clinical_results,
     validate_field_value,
 )
 from modules.examenes_medicos.unified_document import (
@@ -45,37 +50,51 @@ def _valid_payload() -> dict[str, str | bool]:
         "apellidos": "Perez Lopez",
         "fecha_nacimiento": "1990-01-15",
         "sexo": "Hombre",
-        "dirigido_a": "ProClean",
         "fecha_estudio": "2026-07-01",
         "fecha_toma": "2026-07-01",
         "hora_toma": "08:00:00",
         "fecha_val": "2026-07-01",
         "hora_val": "12:00:00",
-        "peso_kg": "80",
-        "estatura_m": "1.80",
+        "gsanth": "A Positivo",
         "scope": "unificado",
         "format": "pdf",
         "confirmar_generacion": True,
     }
-    for name in CLINICAL_PLACEHOLDER_NAMES:
-        field = REFERENCE_FIELDS[name]
-        if field.validation_type == "numeric_range":
-            payload[name] = str(field.minimum)
-        elif field.validation_type == "positive_decimal":
-            payload[name] = "1.1"
-        elif field.validation_type == "negative_or_less_than":
-            payload[name] = "Negativo"
-        elif field.validation_type == "leukocyte_count":
-            payload[name] = "1-2"
-        elif field.validation_type == "erythrocyte_count":
-            payload[name] = "1-2"
-        else:
-            payload[name] = field.options[0]
     return payload
 
 
+def _valid_generated_values() -> dict[str, str]:
+    generated = generate_clinical_bundle(sexo="Hombre", seed=12345)["unificado"]
+    assert validate_generated_clinical_results(generated) == []
+    return generated
+
+
+def _valid_mapping_payload() -> dict[str, str | bool]:
+    payload = _valid_payload()
+    payload.update(_valid_generated_values())
+    payload.update(
+        {
+            "folio": "34126431",
+            "orden": "B20002724",
+            "paciente_id": "12345678",
+            "edad": "36",
+        }
+    )
+    return payload
+
+
+def _docx_text(docx_bytes: bytes) -> str:
+    with ZipFile(BytesIO(docx_bytes), "r") as zf:
+        parts = []
+        for name in zf.namelist():
+            if name.startswith("word/") and name.endswith(".xml"):
+                parts.append(zf.read(name).decode("utf-8", errors="ignore"))
+    return "\n".join(parts)
+
+
 def _app(tmp: Path) -> Flask:
-    app = Flask(__name__, template_folder=str(Path(__file__).resolve().parents[1] / "templates"))
+    repo = Path(__file__).resolve().parents[1]
+    app = Flask(__name__, template_folder=str(repo / "templates"))
     app.config.update(
         TESTING=True,
         SECRET_KEY="test",
@@ -89,6 +108,18 @@ def _app(tmp: Path) -> Flask:
         conn.commit()
     finally:
         conn.close()
+    vitroflex_bp = Blueprint(
+        "vitroflex",
+        __name__,
+        static_folder=str(repo / "static" / "vitroflex"),
+        static_url_path="/vf-test-static",
+    )
+
+    @vitroflex_bp.route("/memo")
+    def memo_mensual() -> str:
+        return ""
+
+    app.register_blueprint(vitroflex_bp)
     register_examenes_medicos(app)
 
     @app.before_request
@@ -111,15 +142,7 @@ class TestUnifiedTemplateContract(unittest.TestCase):
         self.assertNotIn("{{isi}}", placeholders)
 
     def test_mapping_replaces_all_placeholders(self):
-        payload = _valid_payload()
-        payload.update(
-            {
-                "folio": "34126431",
-                "orden": "B20002724",
-                "paciente_id": "12345678",
-                "edad": "36",
-            }
-        )
+        payload = _valid_mapping_payload()
         mapping = build_unified_mapping(payload)
         self.assertEqual(len(mapping), 85)
         self.assertEqual(set(mapping), set(EXPECTED_UNIFIED_PLACEHOLDERS))
@@ -129,13 +152,39 @@ class TestUnifiedTemplateContract(unittest.TestCase):
 
     def test_productive_download_does_not_reference_clinical_autogen(self):
         source = inspect.getsource(api_master_download)
-        self.assertNotIn("generate_clinical_bundle", source)
+        self.assertIn("generate_clinical_bundle", source)
         self.assertNotIn("bundle_clinico", source)
         self.assertNotIn("generate_unique_folio_orina", source)
         self.assertNotIn("generate_unique_folio_sangre", source)
 
 
+class TestUnifiedFormUI(unittest.TestCase):
+    def test_form_is_trimmed_to_admin_and_blood_group(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            with app.test_client() as client:
+                res = client.get("/vitroflex/examenes-medicos/")
+        self.assertEqual(res.status_code, 200)
+        html = res.get_data(as_text=True)
+        self.assertIn('name="gsanth"', html)
+        self.assertIn("Selecciona una opción", html)
+        self.assertNotIn('name="gluco"', html)
+        self.assertNotIn('name="hemog"', html)
+        self.assertNotIn('name="o_dens"', html)
+        self.assertNotIn('name="dirigido_a"', html)
+        self.assertNotIn("Tiempo Testigo", html)
+        self.assertNotIn("Solo orina", html)
+        self.assertNotIn("Solo sangre", html)
+        self.assertNotIn(">Ambos<", html)
+
+
 class TestUnifiedReferenceRanges(unittest.TestCase):
+    def test_generate_clinical_bundle_unified_values_are_valid(self):
+        generated = generate_clinical_bundle(sexo="Hombre", seed=321)["unificado"]
+        self.assertEqual(set(generated), set(GENERATED_CLINICAL_PLACEHOLDER_NAMES))
+        self.assertEqual(validate_generated_clinical_results(generated), [])
+        self.assertIn(generated["o_col"], {"Amarillo", "Transparente"})
+
     def test_inclusive_boundaries(self):
         for field in REFERENCE_FIELDS.values():
             if field.validation_type != "numeric_range" or not field.max_inclusive:
@@ -190,8 +239,8 @@ class TestUnifiedReferenceRanges(unittest.TestCase):
         for value in ("0", "3", "2-3", "Negativo"):
             self.assertIsNotNone(validate_field_value(eri, value))
 
-        payload = _valid_payload()
-        payload.update({"folio": "34126431", "orden": "B20002724", "paciente_id": "12345678", "edad": "36", "o_el": "0"})
+        payload = _valid_mapping_payload()
+        payload["o_el"] = "0"
         self.assertEqual(build_unified_mapping(payload)["{{o_el}}"], "0")
         payload["o_el"] = "Negativo"
         self.assertEqual(build_unified_mapping(payload)["{{o_el}}"], "Negativo")
@@ -206,8 +255,7 @@ class TestUnifiedReferenceRanges(unittest.TestCase):
             self.assertIsNone(validate_field_value(gsanth, value))
         self.assertIsNotNone(validate_field_value(gsanth, "A+"))
 
-        payload = _valid_payload()
-        payload.update({"folio": "34126431", "orden": "B20002724", "paciente_id": "12345678", "edad": "36"})
+        payload = _valid_mapping_payload()
         mapping = build_unified_mapping(payload)
         self.assertNotIn("{{inr}}", mapping)
         self.assertNotIn("{{tiempo_testigo}}", mapping)
@@ -289,11 +337,13 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             app = _app(Path(td))
             payload = _valid_payload()
-            payload["gluco"] = "54.99"
+            generated = _valid_generated_values()
+            generated["gluco"] = "54.99"
             with app.test_client() as client:
-                with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes") as pdf_mock:
-                    res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
-            self.assertEqual(res.status_code, 400)
+                with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle", return_value={"unificado": generated}):
+                    with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes") as pdf_mock:
+                        res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+            self.assertEqual(res.status_code, 500)
             pdf_mock.assert_not_called()
             self.assertFalse((Path(td) / "generated").exists())
             conn = sqlite3.connect(app.config["DATABASE"])
@@ -302,6 +352,44 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             finally:
                 conn.close()
             self.assertEqual(count, 0)
+
+    def test_invalid_generated_bundle_blocks_without_history(self):
+        cases = [
+            ("missing", lambda d: d.pop("gluco")),
+            ("empty", lambda d: d.__setitem__("gluco", "")),
+            ("invalid_qualitative", lambda d: d.__setitem__("o_col", "Azul")),
+        ]
+        for _label, mutate in cases:
+            with self.subTest(_label):
+                with tempfile.TemporaryDirectory() as td:
+                    app = _app(Path(td))
+                    payload = _valid_payload()
+                    generated = _valid_generated_values()
+                    mutate(generated)
+                    with app.test_client() as client:
+                        with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle", return_value={"unificado": generated}):
+                            with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes") as pdf_mock:
+                                res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                    self.assertEqual(res.status_code, 500)
+                    pdf_mock.assert_not_called()
+                    self.assertFalse((Path(td) / "generated").exists())
+                    conn = sqlite3.connect(app.config["DATABASE"])
+                    try:
+                        count = conn.execute("SELECT COUNT(*) FROM examenes_medicos_expediente").fetchone()[0]
+                    finally:
+                        conn.close()
+                    self.assertEqual(count, 0)
+
+    def test_manual_blood_group_invalid_blocks_generation(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            payload["gsanth"] = "A+"
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle") as gen_mock:
+                    res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+            self.assertEqual(res.status_code, 400)
+            gen_mock.assert_not_called()
 
     def test_valid_payload_generates_single_document_and_history(self):
         with tempfile.TemporaryDirectory() as td:
@@ -338,6 +426,24 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertRegex(row[5], r"^\d{8}$")
             self.assertEqual(row[6], build_unified_filename_base(row[4], row[5], "1990-01-15"))
             self.assertEqual(res.headers["Content-Disposition"], f'attachment; filename="{row[6]}.pdf"')
+
+    def test_generated_values_appear_in_docx(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            payload["format"] = "docx"
+            generated = _valid_generated_values()
+            generated.update({"gluco": "87", "hemog": "15.7", "o_dens": "1.021"})
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle", return_value={"unificado": generated}):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+            self.assertEqual(res.status_code, 200)
+            text = _docx_text(res.data)
+            self.assertIn("87", text)
+            self.assertIn("15.7", text)
+            self.assertIn("1.021", text)
+            self.assertEqual(extract_docx_placeholders(res.data), [])
 
     def test_word_then_pdf_same_expediente_reuses_identifiers_and_name(self):
         with tempfile.TemporaryDirectory() as td:
