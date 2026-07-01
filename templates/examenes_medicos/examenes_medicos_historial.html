@@ -38,17 +38,22 @@
           <td class="em-imc-cell">{{ r.imc_label or '—' }}</td>
           <td class="em-chip-cell">
             <div class="em-chip-row">
+              {% if r.last_scope == 'unificado' %}
+              {% if r.sangre_pdf_relpath %}<span class="em-chip em-chip-pdf">Unificado PDF</span>{% endif %}
+              {% if r.sangre_docx_relpath %}<span class="em-chip em-chip-muted">Unificado DOCX</span>{% endif %}
+              {% else %}
               {% if r.orina_pdf_relpath %}<span class="em-chip em-chip-pdf">Orina PDF</span>{% endif %}
               {% if r.orina_docx_relpath %}<span class="em-chip em-chip-muted">Orina DOCX</span>{% endif %}
               {% if r.sangre_pdf_relpath %}<span class="em-chip em-chip-pdf">Sangre PDF</span>{% endif %}
               {% if r.sangre_docx_relpath %}<span class="em-chip em-chip-muted">Sangre DOCX</span>{% endif %}
+              {% endif %}
               {% if not (r.orina_pdf_relpath or r.orina_docx_relpath or r.sangre_pdf_relpath or r.sangre_docx_relpath) %}
               <span class="em-chip em-chip-muted">Sin archivos</span>
               {% endif %}
             </div>
             {% if r.last_scope and r.last_format and r.last_format != '—' %}
             <div class="em-last-dl">Última descarga:
-              {% if r.last_scope == 'both' %}Ambos{% elif r.last_scope == 'orina' %}Orina{% elif r.last_scope == 'sangre' %}Sangre{% else %}{{ r.last_scope }}{% endif %}
+              {% if r.last_scope == 'unificado' %}Unificado{% elif r.last_scope == 'both' %}Ambos{% elif r.last_scope == 'orina' %}Orina{% elif r.last_scope == 'sangre' %}Sangre{% else %}{{ r.last_scope }}{% endif %}
               · {{ (r.last_format or '')|upper }}
             </div>
             {% endif %}

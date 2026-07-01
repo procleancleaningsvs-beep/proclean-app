@@ -32,6 +32,13 @@
   <div class="em-pdf-actions">
     <p class="em-pdf-title">Descargar PDF</p>
     <div class="em-pdf-btn-row">
+      {% if row.last_scope == 'unificado' %}
+      {% if pdf_sangre_ok %}
+      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='unificado') }}">PDF unificado</a>
+      {% else %}
+      <span class="em-pdf-missing">PDF unificado no disponible</span>
+      {% endif %}
+      {% else %}
       {% if pdf_orina_ok %}
       <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='orina') }}">PDF orina</a>
       {% else %}
@@ -42,8 +49,9 @@
       {% else %}
       <span class="em-pdf-missing">PDF sangre no disponible</span>
       {% endif %}
+      {% endif %}
     </div>
-    {% if not pdf_orina_ok and not pdf_sangre_ok %}
+    {% if (row.last_scope == 'unificado' and not pdf_sangre_ok) or (row.last_scope != 'unificado' and not pdf_orina_ok and not pdf_sangre_ok) %}
     <p class="helper em-error">No hay PDFs guardados en el servidor para este expediente.</p>
     {% endif %}
   </div>

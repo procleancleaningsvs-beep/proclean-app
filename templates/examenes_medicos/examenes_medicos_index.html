@@ -8,7 +8,7 @@
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Vitroflex</span>
     <h2 class="pc-page-title">Exámenes médicos</h2>
-    <p class="pc-page-subtitle">Formulario único: identificadores administrativos se generan al descargar. Los resultados de laboratorio son sintéticos dentro de rangos típicos.</p>
+    <p class="pc-page-subtitle">Formulario único: identificadores administrativos se generan al descargar. Los resultados clínicos se capturan manualmente y deben estar dentro de referencia.</p>
   </div>
   <div class="pc-hub-hero__actions page-head-actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
@@ -17,6 +17,7 @@
 </section>
 
 <form id="form-master" class="panel vf-panel em-master-form pc-form-shell">
+  <input type="hidden" name="expediente_id" id="em-expediente-id" value="" />
   <div class="pc-form-step">
     <header class="pc-form-step-head">
       <span class="pc-form-step-number" aria-hidden="true">01</span>
@@ -32,6 +33,7 @@
     <label>Apellidos <input name="apellidos" id="em-apellidos" required autocomplete="family-name" /></label>
     <label>Fecha de nacimiento <input name="fecha_nacimiento" id="em-fnac" type="date" required /></label>
     <label>Edad (calculada) <input id="em-edad" type="text" readonly class="em-readonly" /></label>
+    <label>Dirigido a <input name="dirigido_a" required autocomplete="organization" /></label>
     <label>Sexo
       <select name="sexo" id="em-sexo" required>
         <option value="">—</option>
@@ -78,8 +80,58 @@
     <label>Clasificación <input id="em-imc-clas" type="text" readonly class="em-readonly" /></label>
   </fieldset>
 
+  </div>
+  <div class="pc-form-step">
+    <header class="pc-form-step-head">
+      <span class="pc-form-step-number pc-form-step-number--green" aria-hidden="true">04</span>
+      <span class="pc-icon-chip pc-icon-chip--green pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></span>
+      <div class="pc-form-step-text">
+        <h3 class="pc-form-step-title">Resultados clínicos</h3>
+        <p class="pc-form-step-desc">Solo se genera el documento cuando todos los resultados cumplen su referencia.</p>
+      </div>
+    </header>
+
+    <div class="em-clinical-stack">
+      {% for section in clinical_sections %}
+      <details class="em-clinical-section pc-form-card" open>
+        <summary>
+          <span>{{ section.title }}</span>
+          <small>{{ section.description }}</small>
+        </summary>
+        <div class="vf-grid vf-grid-2 em-clinical-grid">
+          {% for field in section.fields %}
+          <label>
+            {{ field.label }}
+            {% if field.validation_type == 'exact_option' %}
+            <select name="{{ field.placeholder }}" required>
+              <option value="">—</option>
+              {% for option in field.options %}
+              <option value="{{ option }}">{{ option }}</option>
+              {% endfor %}
+            </select>
+            {% elif field.validation_type == 'numeric_range' or field.validation_type == 'positive_decimal' %}
+            <input name="{{ field.placeholder }}" type="number" step="any" required inputmode="decimal" />
+            {% else %}
+            <input name="{{ field.placeholder }}" type="text" required
+              {% if field.options %}list="em-list-{{ field.placeholder }}"{% endif %} />
+            {% if field.options %}
+            <datalist id="em-list-{{ field.placeholder }}">
+              {% for option in field.options %}
+              <option value="{{ option }}"></option>
+              {% endfor %}
+            </datalist>
+            {% endif %}
+            {% endif %}
+            <span class="pc-field-note em-reference">Referencia: {{ field.visible_limit }}{% if field.unit and field.validation_type == 'positive_decimal' %} {{ field.unit }}{% endif %}</span>
+          </label>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    </div>
+
   <div class="em-actions vf-toolbar pc-form-actionbar pc-form-actionbar--primary pc-sticky-actions">
-    <button type="button" class="btn btn-primary" id="em-open-modal">Descargar documentos</button>
+    <button type="button" class="btn btn-primary" id="em-open-modal">Generar documento unificado</button>
   </div>
   </div>
   <p id="em-msg" class="helper em-msg pc-field-note" hidden></p>
@@ -88,17 +140,8 @@
 <div id="em-modal-backdrop" class="em-modal-backdrop" hidden aria-hidden="true"></div>
 <div id="em-modal" class="em-modal" role="dialog" aria-modal="true" aria-labelledby="em-modal-title" hidden>
   <div class="em-modal-inner panel vf-panel">
-    <h3 id="em-modal-title" class="panel-title">Descargar documentos</h3>
-    <p class="em-modal-lead">Al confirmar se guarda automáticamente en el historial del paciente. Si elige ambos exámenes, recibirá un ZIP con los dos archivos en el formato seleccionado.</p>
-
-    <div class="em-modal-block">
-      <div class="em-modal-label">Qué descargar</div>
-      <div class="em-seg em-seg-3" role="group" aria-label="Alcance de descarga">
-        <button type="button" class="em-seg-btn" data-em-scope="both" aria-pressed="true">Ambos</button>
-        <button type="button" class="em-seg-btn" data-em-scope="orina" aria-pressed="false">Solo orina</button>
-        <button type="button" class="em-seg-btn" data-em-scope="sangre" aria-pressed="false">Solo sangre</button>
-      </div>
-    </div>
+    <h3 id="em-modal-title" class="panel-title">Generar documento unificado</h3>
+    <p class="em-modal-lead">Al confirmar, ProClean validará todos los resultados capturados. Si algún valor está fuera de referencia, no se generará DOCX, PDF ni historial.</p>
 
     <div class="em-modal-block">
       <div class="em-modal-label">Formato</div>

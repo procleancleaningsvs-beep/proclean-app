@@ -81,6 +81,7 @@
         });
       }
       if (!res.ok) return Promise.reject({ error: "Error " + res.status });
+      var expedienteId = res.headers.get("X-Examenes-Expediente-Id") || "";
       return res.blob().then(function (blob) {
         var dispo = res.headers.get("Content-Disposition") || "";
         var m = /filename\*=UTF-8''([^;]+)|filename="([^"]+)"|filename=([^;]+)/i.exec(dispo);
@@ -95,6 +96,7 @@
         setTimeout(function () {
           URL.revokeObjectURL(a.href);
         }, 2000);
+        return { expedienteId: expedienteId };
       });
     });
   }
@@ -119,6 +121,7 @@
     var imcClas = document.getElementById("em-imc-clas");
     var horaToma = form.querySelector('input[name="hora_toma"]');
     var horaVal = form.querySelector('input[name="hora_val"]');
+    var expedienteIdInput = document.getElementById("em-expediente-id");
 
     function syncEdad() {
       edadEl.value = edadDesdeFnac(fnac.value);
@@ -164,7 +167,7 @@
 
     var backdrop = document.getElementById("em-modal-backdrop");
     var modal = document.getElementById("em-modal");
-    var scopeState = "both";
+    var scopeState = "unificado";
     var formatState = "pdf";
 
     function syncSegActive(container, attr, value) {
@@ -190,16 +193,13 @@
       });
     }
 
-    var seg3 = modal && modal.querySelector(".em-seg-3");
     var seg2 = modal && modal.querySelector(".em-seg-2");
-    wireSeg(seg3, "data-em-scope", scopeState, function (v) {
-      scopeState = v;
-    });
     wireSeg(seg2, "data-em-format", formatState, function (v) {
       formatState = v;
     });
 
     function openModal() {
+      if (!form.reportValidity()) return;
       if (backdrop) backdrop.hidden = false;
       if (modal) modal.hidden = false;
     }
@@ -216,11 +216,15 @@
       var data = formDataObject(form);
       data.scope = scopeState;
       data.format = formatState;
+      data.confirmar_generacion = true;
       showMsg(msg, "Generando…", false);
       closeModal();
-      var ext = formatState === "docx" ? ".docx" : scopeState === "both" ? ".zip" : ".pdf";
+      var ext = formatState === "docx" ? ".docx" : ".pdf";
       postDownload(window.__emDownloadUrl, data, "examenes" + ext)
-        .then(function () {
+        .then(function (result) {
+          if (result && result.expedienteId && expedienteIdInput) {
+            expedienteIdInput.value = result.expedienteId;
+          }
           showMsg(msg, "Descarga iniciada. El historial del paciente se actualizó automáticamente.", false);
         })
         .catch(function (err) {

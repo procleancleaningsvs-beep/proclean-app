@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from modules.examenes_medicos.identifiers import normalize_nombre_key
+from modules.examenes_medicos.identifiers import normalize_nombre_key, normalize_patient_identity_key
 
 _log = logging.getLogger(__name__)
 
@@ -69,6 +69,26 @@ def ensure_examenes_expediente_table(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_em_exp_user_date ON examenes_medicos_expediente "
         "(user_id, last_export_at DESC)"
     )
+    _ensure_expediente_column(conn, "paciente_id", "TEXT")
+    _ensure_expediente_column(conn, "orden", "TEXT")
+    _ensure_expediente_column(conn, "folio", "TEXT")
+    _ensure_expediente_column(conn, "fecha_nacimiento", "TEXT")
+    _ensure_expediente_column(conn, "filename_base", "TEXT")
+    _ensure_expediente_column(conn, "template_name", "TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_em_exp_orden_unique "
+        "ON examenes_medicos_expediente (orden) WHERE orden IS NOT NULL"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_em_exp_folio_unique "
+        "ON examenes_medicos_expediente (folio) WHERE folio IS NOT NULL"
+    )
+
+
+def _ensure_expediente_column(conn: sqlite3.Connection, name: str, ddl_type: str) -> None:
+    cols = {str(row[1]) for row in conn.execute("PRAGMA table_info(examenes_medicos_expediente)").fetchall()}
+    if name not in cols:
+        conn.execute(f"ALTER TABLE examenes_medicos_expediente ADD COLUMN {name} {ddl_type}")
 
 
 def _canonical_display_name(master: dict[str, Any]) -> str:
@@ -363,6 +383,12 @@ class ExpedienteRow:
     created_at: str
     updated_at: str
     username: str | None = None
+    paciente_id: str | None = None
+    orden: str | None = None
+    folio: str | None = None
+    fecha_nacimiento: str | None = None
+    filename_base: str | None = None
+    template_name: str | None = None
 
 
 def _exp_row(r: sqlite3.Row) -> ExpedienteRow:
@@ -389,6 +415,121 @@ def _exp_row(r: sqlite3.Row) -> ExpedienteRow:
         created_at=str(r["created_at"]),
         updated_at=str(r["updated_at"]),
         username=str(r["username"]) if "username" in keys and r["username"] is not None else None,
+        paciente_id=str(r["paciente_id"]) if "paciente_id" in keys and r["paciente_id"] else None,
+        orden=str(r["orden"]) if "orden" in keys and r["orden"] else None,
+        folio=str(r["folio"]) if "folio" in keys and r["folio"] else None,
+        fecha_nacimiento=str(r["fecha_nacimiento"]) if "fecha_nacimiento" in keys and r["fecha_nacimiento"] else None,
+        filename_base=str(r["filename_base"]) if "filename_base" in keys and r["filename_base"] else None,
+        template_name=str(r["template_name"]) if "template_name" in keys and r["template_name"] else None,
+    )
+
+
+def insert_unified_expediente(
+    conn: sqlite3.Connection,
+    *,
+    user_id: int,
+    master: dict[str, Any],
+    ident: dict[str, str],
+    last_format: str,
+    docx_relpath: str | None,
+    pdf_relpath: str | None,
+    docx_download_name: str | None,
+    pdf_download_name: str | None,
+    when_iso: str,
+    template_name: str,
+) -> int:
+    patient_identity = normalize_patient_identity_key(
+        str(master.get("nombres") or ""),
+        str(master.get("apellidos") or ""),
+        str(master.get("fecha_nacimiento") or ""),
+    )
+    orden = str(ident["orden"])
+    patient_key = f"{patient_identity}|||{orden}"
+    display = _canonical_display_name(master)
+    imc_lab = _imc_label_from_master(master)
+    cur = conn.execute(
+        """
+        INSERT INTO examenes_medicos_expediente (
+            user_id, patient_key, cliente_numero, patient_display_name, imc_label,
+            sangre_pdf_relpath, sangre_pdf_download_name,
+            sangre_docx_relpath, sangre_docx_download_name,
+            last_scope, last_format, last_export_at, last_user_id, created_at, updated_at,
+            paciente_id, orden, folio, fecha_nacimiento, filename_base, template_name
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unificado', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            user_id,
+            patient_key,
+            ident.get("paciente_id"),
+            display,
+            imc_lab,
+            pdf_relpath,
+            pdf_download_name,
+            docx_relpath,
+            docx_download_name,
+            last_format,
+            when_iso,
+            user_id,
+            when_iso,
+            when_iso,
+            ident.get("paciente_id"),
+            ident.get("orden"),
+            ident.get("folio"),
+            str(master.get("fecha_nacimiento") or "")[:10],
+            ident.get("filename_base"),
+            template_name,
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def update_unified_expediente_export(
+    conn: sqlite3.Connection,
+    *,
+    expediente_id: int,
+    user_id: int,
+    last_format: str,
+    docx_relpath: str | None,
+    pdf_relpath: str | None,
+    docx_download_name: str | None,
+    pdf_download_name: str | None,
+    when_iso: str,
+    template_name: str,
+) -> None:
+    row = conn.execute(
+        "SELECT id FROM examenes_medicos_expediente WHERE id = ? AND user_id = ?",
+        (expediente_id, user_id),
+    ).fetchone()
+    if row is None:
+        raise ValueError("Expediente no encontrado.")
+    conn.execute(
+        """
+        UPDATE examenes_medicos_expediente SET
+            sangre_pdf_relpath = COALESCE(?, sangre_pdf_relpath),
+            sangre_pdf_download_name = COALESCE(?, sangre_pdf_download_name),
+            sangre_docx_relpath = COALESCE(?, sangre_docx_relpath),
+            sangre_docx_download_name = COALESCE(?, sangre_docx_download_name),
+            last_scope = 'unificado',
+            last_format = ?,
+            last_export_at = ?,
+            last_user_id = ?,
+            updated_at = ?,
+            template_name = ?
+        WHERE id = ? AND user_id = ?
+        """,
+        (
+            pdf_relpath,
+            pdf_download_name,
+            docx_relpath,
+            docx_download_name,
+            last_format,
+            when_iso,
+            user_id,
+            when_iso,
+            template_name,
+            expediente_id,
+            user_id,
+        ),
     )
 
 

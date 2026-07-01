@@ -219,6 +219,40 @@
 }
 .em-historial-wrap::-webkit-scrollbar-thumb:hover { background: var(--pc-blue); }
 
+.em-clinical-stack {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.em-clinical-section {
+  border: 1.5px solid var(--pc-border);
+  background: var(--pc-surface);
+}
+
+.em-clinical-section summary {
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-weight: 700;
+  color: var(--pc-text);
+}
+
+.em-clinical-section summary small {
+  font-weight: 500;
+  color: var(--pc-text-muted);
+}
+
+.em-clinical-grid {
+  margin-top: 1rem;
+}
+
+.em-reference {
+  display: block;
+  margin-top: 0.25rem;
+}
+
 .em-historial-table {
   margin: 0;
   min-width: 52rem;

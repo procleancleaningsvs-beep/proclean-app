@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import io
-import json
-import random
 import sqlite3
 import uuid
-import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
-from pypdf import PdfReader, PdfWriter
 
 from flask import (
     Blueprint,
@@ -29,33 +24,37 @@ from flask import (
 )
 from functools import wraps
 
-from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.db import ensure_examenes_medicos_tables_path
 from modules.examenes_medicos.expediente_db import (
     delete_examenes_expediente,
     ensure_examenes_expediente_table,
     get_examenes_expediente,
+    insert_unified_expediente,
     list_examenes_expedientes,
-    upsert_examenes_expediente_merge,
+    update_unified_expediente_export,
 )
 from modules.examenes_medicos.export_helpers import (
     app_mx_today,
-    build_orina_data_for_mapping,
-    build_orina_mapping,
-    build_sangre_data_for_mapping,
-    build_sangre_mapping,
     default_yesterday_iso_mx,
     resolve_generated_artifact,
-    safe_file_stem,
 )
 from modules.examenes_medicos.identifiers import (
-    generate_unique_folio_orina,
-    generate_unique_folio_sangre,
-    get_or_create_cliente_numero,
+    build_unified_filename_base,
+    generate_unique_folio_unificado,
+    generate_unique_orden_unificada,
+    get_or_create_paciente_id,
     normalize_nombre_key,
-    stable_codigo_barra,
 )
-from modules.examenes_medicos.paths import ORINA_DOCX, SANGRE_DOCX
+from modules.examenes_medicos.paths import UNIFICADO_DOCX
+from modules.examenes_medicos.reference_ranges import (
+    clinical_form_sections,
+    validate_unified_clinical_results,
+)
+from modules.examenes_medicos.unified_document import (
+    UnifiedTemplateError,
+    build_unified_mapping,
+    render_unified_docx_bytes,
+)
 from modules.examenes_medicos.validation import (
     edad_desde_fecha_nacimiento,
     parse_date_iso,
@@ -63,7 +62,6 @@ from modules.examenes_medicos.validation import (
     validate_required_non_empty,
     validate_sexo,
 )
-from modules.finiquitos.docx_placeholders import replace_placeholders_in_docx_bytes
 from modules.vitroflex_docs.libreoffice_pdf import docx_bytes_to_pdf_bytes
 from services.app_activity import log_app_activity
 
@@ -122,6 +120,7 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
     for label, key in (
         ("Nombres", "nombres"),
         ("Apellidos", "apellidos"),
+        ("Dirigido a", "dirigido_a"),
     ):
         e = validate_required_non_empty(data.get(key), label)
         if e:
@@ -168,148 +167,176 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
     return errs
 
 
-def _assign_admin_ids(conn: sqlite3.Connection, master: dict[str, Any], rng: random.Random) -> dict[str, str]:
-    """Añade folio_orina, folio_sangre, cliente_numero, codigo_barra únicos/reutilizados."""
-    key = normalize_nombre_key(
-        str(master.get("nombres") or ""),
-        str(master.get("apellidos") or ""),
-    )
-    cliente = get_or_create_cliente_numero(conn, key, rng)
-    codigo = stable_codigo_barra(key)
-    fo = generate_unique_folio_orina(conn, rng)
-    fs = generate_unique_folio_sangre(conn, rng)
-    return {
-        "folio_orina": fo,
-        "folio_sangre": fs,
-        "cliente_numero": cliente,
-        "codigo_barra": codigo,
-    }
+def _parse_expediente_id(value: Any) -> int | None:
+    try:
+        n = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
 
 
-def _persist_export(
+def _prepare_unified_ids(
+    conn: sqlite3.Connection,
     *,
-    exam_type: str,
+    master: dict[str, Any],
+    expediente_id: int | None,
+    user_id: int,
+) -> tuple[dict[str, str], int | None]:
+    if expediente_id is not None:
+        row = conn.execute(
+            """
+            SELECT paciente_id, orden, folio, filename_base
+            FROM examenes_medicos_expediente
+            WHERE id = ? AND user_id = ? AND last_scope = 'unificado'
+            """,
+            (expediente_id, user_id),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Expediente unificado no encontrado.")
+        paciente_id, orden, folio, filename_base = [str(v or "") for v in row]
+        if not (paciente_id and orden and folio and filename_base):
+            raise ValueError("El expediente no tiene identificadores unificados completos.")
+        return {
+            "paciente_id": paciente_id,
+            "orden": orden,
+            "folio": folio,
+            "filename_base": filename_base,
+        }, expediente_id
+
+    paciente_id = get_or_create_paciente_id(
+        conn,
+        nombres=str(master.get("nombres") or ""),
+        apellidos=str(master.get("apellidos") or ""),
+        fecha_nacimiento=str(master.get("fecha_nacimiento") or ""),
+    )
+    orden = generate_unique_orden_unificada(conn)
+    folio = generate_unique_folio_unificado(conn)
+    filename_base = build_unified_filename_base(orden, folio, str(master.get("fecha_nacimiento") or ""))
+    return {
+        "paciente_id": paciente_id,
+        "orden": orden,
+        "folio": folio,
+        "filename_base": filename_base,
+    }, None
+
+
+def _persist_unified_export(
+    *,
     payload: dict[str, Any],
     docx_bytes: bytes,
-    pdf_bytes: bytes,
+    pdf_bytes: bytes | None,
     docx_download: str,
-    pdf_download: str,
+    pdf_download: str | None,
+    expediente_id: int | None,
     when_iso: str | None = None,
 ) -> int:
     gen = Path(current_app.config["GENERATED_DIR"])
     gen.mkdir(parents=True, exist_ok=True)
+    db_path = str(current_app.config["DATABASE"])
+    user_id = int(g.user["id"])
+    ident = payload.get("identificadores") if isinstance(payload.get("identificadores"), dict) else {}
+    filename_base = str(ident.get("filename_base") or "").strip()
+    if not filename_base:
+        raise RuntimeError("No existe nombre base para el expediente unificado.")
+
     rel_dir = f"examenes_medicos/{uuid.uuid4().hex}"
+    if expediente_id is not None:
+        existing = get_examenes_expediente(db_path, expediente_id)
+        if existing and int(existing.user_id) == user_id:
+            existing_rel = existing.sangre_docx_relpath or existing.sangre_pdf_relpath
+            if existing_rel and "/" in existing_rel:
+                rel_dir = existing_rel.rsplit("/", 1)[0]
+
     folder = gen / rel_dir
     folder.mkdir(parents=True, exist_ok=True)
-    docx_name = "examen.docx"
-    pdf_name = "examen.pdf"
-    (folder / docx_name).write_bytes(docx_bytes)
-    (folder / pdf_name).write_bytes(pdf_bytes)
-    db_path = str(current_app.config["DATABASE"])
+    docx_name = f"{filename_base}.docx"
+    pdf_name = f"{filename_base}.pdf"
+    docx_path = folder / docx_name
+    pdf_path = folder / pdf_name
+    written: list[Path] = []
+    preexisting = {p for p in (docx_path, pdf_path) if p.exists()}
     when = when_iso or _now_iso()
     fm = payload.get("formulario_maestro") if isinstance(payload.get("formulario_maestro"), dict) else {}
-    ident = payload.get("identificadores") if isinstance(payload.get("identificadores"), dict) else {}
     conn = sqlite3.connect(db_path)
     try:
+        docx_path.write_bytes(docx_bytes)
+        written.append(docx_path)
+        pdf_relpath = None
+        if pdf_bytes is not None:
+            pdf_path.write_bytes(pdf_bytes)
+            written.append(pdf_path)
+            pdf_relpath = f"{rel_dir}/{pdf_name}"
+
         ensure_examenes_expediente_table(conn)
-        eid = upsert_examenes_expediente_merge(
-            conn,
-            user_id=int(g.user["id"]),
-            master=fm,
-            ident=ident,
-            exam_type=exam_type,
-            last_scope=str(payload.get("alcance") or "orina"),
-            last_format=str(payload.get("formato_descarga") or "pdf"),
-            docx_relpath=f"{rel_dir}/{docx_name}",
-            pdf_relpath=f"{rel_dir}/{pdf_name}",
-            docx_download_name=docx_download,
-            pdf_download_name=pdf_download,
-            when_iso=when,
-        )
+        if expediente_id is None:
+            eid = insert_unified_expediente(
+                conn,
+                user_id=user_id,
+                master=fm,
+                ident=ident,
+                last_format=str(payload.get("formato_descarga") or "pdf"),
+                docx_relpath=f"{rel_dir}/{docx_name}",
+                pdf_relpath=pdf_relpath,
+                docx_download_name=docx_download,
+                pdf_download_name=pdf_download,
+                when_iso=when,
+                template_name=UNIFICADO_DOCX.name,
+            )
+        else:
+            eid = expediente_id
+            update_unified_expediente_export(
+                conn,
+                expediente_id=eid,
+                user_id=user_id,
+                last_format=str(payload.get("formato_descarga") or "pdf"),
+                docx_relpath=f"{rel_dir}/{docx_name}",
+                pdf_relpath=pdf_relpath,
+                docx_download_name=docx_download,
+                pdf_download_name=pdf_download,
+                when_iso=when,
+                template_name=UNIFICADO_DOCX.name,
+            )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        for path in written:
+            if path in preexisting:
+                continue
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        raise
     finally:
         conn.close()
     log_app_activity(
         db_path,
-        user_id=int(g.user["id"]),
+        user_id=user_id,
         module="examenes_medicos",
         action="exportar",
         status="ok",
         ref=str(eid),
-        detail=exam_type,
+        detail="unificado",
     )
     return eid
 
 
-def _persist_export_safe(**kwargs) -> int | None:
-    """Intenta guardar historial sin bloquear la descarga si falla."""
-    try:
-        return _persist_export(**kwargs)
-    except Exception:
-        current_app.logger.exception(
-            "examenes_medicos: fallo guardando historial exam_type=%s",
-            kwargs.get("exam_type"),
-        )
-        return None
-
-
-def _orina_docx_bytes(mapping: dict[str, str]) -> bytes:
-    if not ORINA_DOCX.is_file():
-        raise FileNotFoundError(str(ORINA_DOCX))
-    raw = ORINA_DOCX.read_bytes()
-    return replace_placeholders_in_docx_bytes(raw, mapping)
-
-
-def _sangre_docx_bytes(mapping: dict[str, str]) -> bytes:
-    if not SANGRE_DOCX.is_file():
-        raise FileNotFoundError(str(SANGRE_DOCX))
-    raw = SANGRE_DOCX.read_bytes()
-    return replace_placeholders_in_docx_bytes(raw, mapping)
-
-
-def _sangre_pdf_fix_pagination(pdf_bytes: bytes) -> bytes:
-    """
-    Corrige caso observado de página intermedia casi vacía en salida de sangre.
-    Si detecta patrón de 4 páginas con la 2 sin bloque analítico, descarta esa página.
-    """
-    try:
-        rd = PdfReader(io.BytesIO(pdf_bytes))
-    except Exception:
-        return pdf_bytes
-    if len(rd.pages) != 4:
-        return pdf_bytes
-    p2 = (rd.pages[1].extract_text() or "").lower()
-    has_content = any(
-        k in p2
-        for k in (
-            "neutrófilos",
-            "neutrofilos",
-            "monocitos",
-            "química clínica",
-            "quimica clinica",
-            "glucosa",
-            "urea",
-        )
-    )
-    looks_orphan = ("acreditaci" in p2 and "marcados con el signo" in p2) or ("resultados" in p2 and not has_content)
-    if has_content or not looks_orphan:
-        return pdf_bytes
-
-    wr = PdfWriter()
-    wr.add_page(rd.pages[0])
-    wr.add_page(rd.pages[2])
-    wr.add_page(rd.pages[3])
-    out = io.BytesIO()
-    wr.write(out)
-    current_app.logger.info("examenes_medicos.sangre_pdf_fix: 4->3 páginas (removida página 2 huérfana)")
-    return out.getvalue()
+def _unificado_docx_bytes(mapping: dict[str, str]) -> bytes:
+    if not UNIFICADO_DOCX.is_file():
+        raise FileNotFoundError(str(UNIFICADO_DOCX))
+    raw = UNIFICADO_DOCX.read_bytes()
+    return render_unified_docx_bytes(raw, mapping)
 
 
 @examenes_medicos_bp.route("/", methods=["GET"])
 @_login_required_page
 def index():
     y = default_yesterday_iso_mx()
-    return render_template("examenes_medicos_index.html", default_fecha=y)
+    return render_template(
+        "examenes_medicos_index.html",
+        default_fecha=y,
+        clinical_sections=clinical_form_sections(),
+    )
 
 
 @examenes_medicos_bp.route("/historial", methods=["GET"])
@@ -347,22 +374,37 @@ def api_clinical_preview():
     err = _login_required_json()
     if err:
         return err
-    sexo = str(request.args.get("sexo") or "Mujer").strip()
-    raw = request.args.get("seed")
-    seed: int | None
-    try:
-        seed = int(raw) if raw is not None and str(raw).strip() != "" else None
-    except ValueError:
-        seed = None
-    if seed is None:
-        seed = random.randrange(0, 2**31)
-    bundle = generate_clinical_bundle(sexo=sexo, seed=seed)
-    return jsonify({"ok": True, "seed": seed, "bundle": bundle})
+    return jsonify({"ok": False, "error": "La captura clínica ahora es manual y validada."}), 410
 
 
 def _form_dict_clean(data: dict[str, Any]) -> dict[str, Any]:
-    skip = frozenset({"target", "format", "scope", "seed_clinico"})
+    skip = frozenset({"target", "format", "scope", "confirmar_generacion", "expediente_id"})
     return {k: v for k, v in data.items() if k not in skip}
+
+
+def _is_confirmed(value: Any) -> bool:
+    if value is True:
+        return True
+    return str(value or "").strip().lower() in {"1", "true", "si", "sí", "yes"}
+
+
+def _history_master_payload(raw: dict[str, Any], ident: dict[str, str]) -> dict[str, Any]:
+    keys = (
+        "nombres",
+        "apellidos",
+        "fecha_nacimiento",
+        "edad",
+        "sexo",
+        "dirigido_a",
+        "fecha_estudio",
+        "fecha_toma",
+        "hora_toma",
+        "fecha_val",
+        "hora_val",
+        "peso_kg",
+        "estatura_m",
+    )
+    return {**{k: raw.get(k) for k in keys if k in raw}, **ident}
 
 
 @examenes_medicos_bp.route("/api/master/preview-identificadores", methods=["POST"])
@@ -375,22 +417,26 @@ def api_preview_identificadores():
     a = str(data.get("apellidos") or "").strip()
     if not n or not a:
         return jsonify({"ok": False, "error": "Indique nombres y apellidos."}), 400
-    key = normalize_nombre_key(n, a)
+    fnac = str(data.get("fecha_nacimiento") or "").strip()[:10]
     db_path = str(current_app.config["DATABASE"])
     conn = sqlite3.connect(db_path)
     try:
-        row = conn.execute(
-            "SELECT cliente_numero FROM examenes_medicos_cliente_cache WHERE nombre_key = ?",
-            (key,),
-        ).fetchone()
+        row = None
+        if fnac:
+            from modules.examenes_medicos.identifiers import normalize_patient_identity_key
+
+            key = normalize_patient_identity_key(n, a, fnac)
+            row = conn.execute(
+                "SELECT paciente_id FROM examenes_medicos_paciente_ids WHERE patient_identity_key = ?",
+                (key,),
+            ).fetchone()
     finally:
         conn.close()
     return jsonify(
         {
             "ok": True,
-            "codigo_barra": stable_codigo_barra(key),
-            "cliente_numero_existente": str(row[0]) if row else None,
-            "nota_folios": "Los folios de orina y sangre se asignan al confirmar la descarga.",
+            "paciente_id_existente": str(row[0]) if row else None,
+            "nota_identificadores": "Paciente ID se reutiliza por nombre y fecha de nacimiento; orden y folio se asignan al generar un expediente nuevo.",
         }
     )
 
@@ -401,14 +447,22 @@ def api_master_download():
     if err:
         return err
     data = request.get_json(silent=True) or {}
+    if not _is_confirmed(data.get("confirmar_generacion")):
+        return jsonify({"ok": False, "error": "Confirme la generacion del documento."}), 400
+
     raw = _form_dict_clean(data)
     errs = _errors_master_form(raw)
+    errs.extend(validate_unified_clinical_results(raw))
     if errs:
         return jsonify({"ok": False, "errors": errs}), 400
 
-    scope = str(data.get("scope") or "both").strip().lower()
-    if scope not in ("both", "orina", "sangre"):
-        return jsonify({"ok": False, "error": "scope debe ser both, orina o sangre."}), 400
+    raw_scope = str(data.get("scope") or "unificado").strip().lower()
+    if raw_scope == "both":
+        scope = "unificado"
+    else:
+        scope = raw_scope
+    if scope != "unificado":
+        return jsonify({"ok": False, "error": "scope debe ser unificado."}), 400
     want = str(data.get("format") or "pdf").lower().strip()
     if want not in ("docx", "pdf"):
         return jsonify({"ok": False, "error": "format debe ser docx o pdf."}), 400
@@ -424,142 +478,75 @@ def api_master_download():
         scope,
         want,
     )
-    raw_seed = data.get("seed_clinico")
-    try:
-        clin_seed: int | None = int(raw_seed) if raw_seed is not None and str(raw_seed).strip() != "" else None
-    except (TypeError, ValueError):
-        clin_seed = None
-    if clin_seed is None:
-        clin_seed = random.randrange(0, 2**31)
 
     db_path = str(current_app.config["DATABASE"])
-    rng = random.Random()
+    expediente_id = _parse_expediente_id(data.get("expediente_id"))
     conn = sqlite3.connect(db_path)
     try:
-        ident = _assign_admin_ids(conn, master_base, rng)
+        ensure_examenes_expediente_table(conn)
+        ident, expediente_id = _prepare_unified_ids(
+            conn,
+            master=master_base,
+            expediente_id=expediente_id,
+            user_id=int(g.user["id"]),
+        )
         conn.commit()
+    except ValueError as exc:
+        conn.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception:
         conn.rollback()
         raise
     finally:
         conn.close()
 
-    master = {**master_base, **ident}
-    bundle = generate_clinical_bundle(sexo=str(master.get("sexo") or ""), seed=clin_seed)
+    master = {**raw, **master_base, **ident}
+    mapping = build_unified_mapping(master)
 
-    def build_one_orina() -> tuple[bytes, bytes, str, dict[str, str], dict[str, Any]]:
-        odata = build_orina_data_for_mapping(master, bundle["orina"])
-        mapping = build_orina_mapping(odata)
-        dx = _orina_docx_bytes(mapping)
-        stem_o = safe_file_stem("Examen de Orina", str(master.get("nombres")), str(master.get("apellidos")))
-        pdf_b = docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_o)
-        return dx, pdf_b, stem_o, mapping, odata
-
-    def build_one_sangre() -> tuple[bytes, bytes, str, dict[str, str], dict[str, Any]]:
-        sdata = build_sangre_data_for_mapping(master, bundle["sangre"])
-        mapping = build_sangre_mapping(sdata)
-        dx = _sangre_docx_bytes(mapping)
-        qr_code = str(sdata.get("codigo_barra") or mapping.get("{codigo_barra}") or "").strip().upper()
-        stem_s = safe_file_stem(qr_code or "SANGRE")
-        pdf_b = docx_bytes_to_pdf_bytes(dx, pdf_stem=stem_s)
-        return dx, pdf_b, stem_s, mapping, sdata
-
-    def hist_payload(exam_k: str, mapping: dict[str, str]) -> dict[str, Any]:
+    def hist_payload() -> dict[str, Any]:
         return {
-            "tipo": exam_k,
-            "formulario_maestro": {**raw, **ident},
+            "tipo": "unificado",
+            "formulario_maestro": _history_master_payload(master_base, ident),
             "formato_descarga": want,
             "alcance": scope,
-            "seed_clinico": clin_seed,
-            "bundle_clinico": bundle,
-            "placeholders": mapping,
+            "plantilla": UNIFICADO_DOCX.name,
+            "placeholders_count": len(mapping),
             "identificadores": ident,
         }
 
-    rid_o: int | None = None
-    rid_s: int | None = None
     rid: int | None = None
     export_ts = _now_iso()
     try:
-        if scope == "orina":
-            docx_b, pdf_b, stem, mapping, _extra = build_one_orina()
-            docx_fn = f"{stem}.docx"
-            pdf_fn = f"{stem}.pdf"
-            rid = _persist_export_safe(
-                exam_type="orina",
-                payload=hist_payload("orina", mapping),
-                docx_bytes=docx_b,
-                pdf_bytes=pdf_b,
-                docx_download=docx_fn,
-                pdf_download=pdf_fn,
-                when_iso=export_ts,
-            )
-            artifact = docx_b if want == "docx" else pdf_b
-            out_name = docx_fn if want == "docx" else pdf_fn
-            mime = (
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                if want == "docx"
-                else "application/pdf"
-            )
-        elif scope == "sangre":
-            docx_b, pdf_b, stem, mapping, _extra = build_one_sangre()
-            docx_fn = f"{stem}.docx"
-            pdf_fn = f"{stem}.pdf"
-            rid = _persist_export_safe(
-                exam_type="sangre",
-                payload=hist_payload("sangre", mapping),
-                docx_bytes=docx_b,
-                pdf_bytes=pdf_b,
-                docx_download=docx_fn,
-                pdf_download=pdf_fn,
-                when_iso=export_ts,
-            )
-            artifact = docx_b if want == "docx" else pdf_b
-            out_name = docx_fn if want == "docx" else pdf_fn
-            mime = (
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                if want == "docx"
-                else "application/pdf"
-            )
-        else:
-            dx_o, pdf_o, stem_o, map_o, _ = build_one_orina()
-            dx_s, pdf_s, stem_s, map_s, _ = build_one_sangre()
-            docx_fn_o = f"{stem_o}.docx"
-            pdf_fn_o = f"{stem_o}.pdf"
-            docx_fn_s = f"{stem_s}.docx"
-            pdf_fn_s = f"{stem_s}.pdf"
-            rid_o = _persist_export_safe(
-                exam_type="orina",
-                payload=hist_payload("orina", map_o),
-                docx_bytes=dx_o,
-                pdf_bytes=pdf_o,
-                docx_download=docx_fn_o,
-                pdf_download=pdf_fn_o,
-                when_iso=export_ts,
-            )
-            rid_s = _persist_export_safe(
-                exam_type="sangre",
-                payload=hist_payload("sangre", map_s),
-                docx_bytes=dx_s,
-                pdf_bytes=pdf_s,
-                docx_download=docx_fn_s,
-                pdf_download=pdf_fn_s,
-                when_iso=export_ts,
-            )
-            zstem = safe_file_stem("Examenes medicos", str(master.get("nombres")), str(master.get("apellidos")))
-            zbuf = io.BytesIO()
-            with zipfile.ZipFile(zbuf, "w", zipfile.ZIP_DEFLATED) as zf:
-                if want == "docx":
-                    zf.writestr(docx_fn_o, dx_o)
-                    zf.writestr(docx_fn_s, dx_s)
-                else:
-                    zf.writestr(pdf_fn_o, pdf_o)
-                    zf.writestr(pdf_fn_s, pdf_s)
-            artifact = zbuf.getvalue()
-            out_name = f"{zstem}.zip"
-            mime = "application/zip"
-            rid = rid_s or rid_o
+        docx_b = _unificado_docx_bytes(mapping)
+        if not docx_b:
+            return jsonify({"ok": False, "error": "El documento generado esta vacio."}), 500
+        stem = ident["filename_base"]
+        pdf_b: bytes | None = None
+        if want == "pdf":
+            pdf_b = docx_bytes_to_pdf_bytes(docx_b, pdf_stem=stem)
+            if not pdf_b:
+                return jsonify({"ok": False, "error": "El PDF generado esta vacio."}), 500
+        docx_fn = f"{stem}.docx"
+        pdf_fn = f"{stem}.pdf"
+        rid = _persist_unified_export(
+            payload=hist_payload(),
+            docx_bytes=docx_b,
+            pdf_bytes=pdf_b,
+            docx_download=docx_fn,
+            pdf_download=pdf_fn if pdf_b is not None else None,
+            expediente_id=expediente_id,
+            when_iso=export_ts,
+        )
+        artifact = docx_b if want == "docx" else pdf_b
+        out_name = docx_fn if want == "docx" else pdf_fn
+        mime = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            if want == "docx"
+            else "application/pdf"
+        )
     except FileNotFoundError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except UnifiedTemplateError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     except RuntimeError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 503
@@ -573,7 +560,7 @@ def api_master_download():
         return jsonify({"ok": False, "error": "Error interno al generar la descarga."}), 500
 
     headers: dict[str, str] = {"Content-Disposition": f'attachment; filename="{out_name}"'}
-    exp_id = rid_s or rid_o or rid
+    exp_id = rid
     if exp_id:
         headers["X-Examenes-Expediente-Id"] = str(exp_id)
         headers["X-Examenes-Historial-Id"] = str(exp_id)
@@ -651,6 +638,8 @@ def api_historial_item(rid: int):
 @_login_required_page
 def download_expediente_pdf(rid: int, kind: str):
     k = str(kind or "").lower().strip()
+    if k == "unificado":
+        k = "sangre"
     if k not in ("orina", "sangre"):
         abort(404)
     row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
