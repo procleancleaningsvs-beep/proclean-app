@@ -41,10 +41,11 @@ from modules.examenes_medicos.export_helpers import (
 )
 from modules.examenes_medicos.identifiers import (
     build_unified_filename_base,
+    combined_apellidos,
     generate_unique_folio_unificado,
     generate_unique_orden_unificada,
     get_or_create_paciente_id,
-    normalize_nombre_key,
+    split_legacy_apellidos,
 )
 from modules.examenes_medicos.paths import UNIFICADO_DOCX
 from modules.examenes_medicos.reference_ranges import (
@@ -61,8 +62,8 @@ from modules.examenes_medicos.unified_document import (
 )
 from modules.examenes_medicos.validation import (
     edad_desde_fecha_nacimiento,
+    format_registration_datetime,
     parse_date_iso,
-    validate_positive_float,
     validate_required_non_empty,
     validate_sexo,
 )
@@ -113,6 +114,11 @@ def _is_admin() -> bool:
 def _normalize_master(data: dict[str, Any]) -> dict[str, Any]:
     """Añade `edad` coherente con fecha de nacimiento."""
     m = {k: data.get(k) for k in data}
+    if not m.get("apellido_paterno") and not m.get("apellido_materno") and m.get("apellidos"):
+        ap, am = split_legacy_apellidos(m.get("apellidos"))
+        m["apellido_paterno"] = ap
+        m["apellido_materno"] = am
+    m["apellidos"] = combined_apellidos(m.get("apellido_paterno"), m.get("apellido_materno"))
     fnac, _ = parse_date_iso(m.get("fecha_nacimiento"))
     if fnac is not None:
         m["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
@@ -122,8 +128,8 @@ def _normalize_master(data: dict[str, Any]) -> dict[str, Any]:
 def _errors_master_form(data: dict[str, Any]) -> list[str]:
     errs: list[str] = []
     for label, key in (
-        ("Nombres", "nombres"),
-        ("Apellidos", "apellidos"),
+        ("Nombre o nombres", "nombres"),
+        ("Apellido paterno", "apellido_paterno"),
     ):
         e = validate_required_non_empty(data.get(key), label)
         if e:
@@ -137,25 +143,15 @@ def _errors_master_form(data: dict[str, Any]) -> list[str]:
     if e:
         errs.append(e)
 
-    for label, key in (
-        ("Fecha de estudio", "fecha_estudio"),
-        ("Fecha de toma", "fecha_toma"),
-        ("Fecha de validación", "fecha_val"),
-    ):
-        e = validate_required_non_empty(data.get(key), label)
-        if e:
-            errs.append(e)
-    for key in ("fecha_estudio", "fecha_toma", "fecha_val"):
-        if parse_date_iso(data.get(key))[1]:
-            errs.append(f"{key}: fecha inválida.")
-
-    for label, key in (
-        ("Hora de toma", "hora_toma"),
-        ("Hora de validación", "hora_val"),
-    ):
-        e = validate_required_non_empty(data.get(key), label)
-        if e:
-            errs.append(e)
+    if validate_required_non_empty(data.get("fecha_registro"), "Fecha de Registro"):
+        errs.append("Captura la Fecha de Registro.")
+    if validate_required_non_empty(data.get("hora_registro"), "Hora de Registro"):
+        errs.append("Captura la Hora de Registro.")
+    try:
+        if data.get("fecha_registro") and data.get("hora_registro"):
+            format_registration_datetime(data.get("fecha_registro"), data.get("hora_registro"))
+    except ValueError as exc:
+        errs.append(str(exc))
 
     return errs
 
@@ -199,7 +195,8 @@ def _prepare_unified_ids(
     paciente_id = get_or_create_paciente_id(
         conn,
         nombres=str(master.get("nombres") or ""),
-        apellidos=str(master.get("apellidos") or ""),
+        apellido_paterno=str(master.get("apellido_paterno") or ""),
+        apellido_materno=str(master.get("apellido_materno") or ""),
         fecha_nacimiento=str(master.get("fecha_nacimiento") or ""),
     )
     orden = generate_unique_orden_unificada(conn)
@@ -385,14 +382,13 @@ def _history_master_payload(raw: dict[str, Any], ident: dict[str, str]) -> dict[
     keys = (
         "nombres",
         "apellidos",
+        "apellido_paterno",
+        "apellido_materno",
         "fecha_nacimiento",
         "edad",
         "sexo",
-        "fecha_estudio",
-        "fecha_toma",
-        "hora_toma",
-        "fecha_val",
-        "hora_val",
+        "fecha_registro",
+        "hora_registro",
     )
     return {**{k: raw.get(k) for k in keys if k in raw}, **ident}
 
@@ -411,9 +407,10 @@ def api_preview_identificadores():
         return err
     data = request.get_json(silent=True) or {}
     n = str(data.get("nombres") or "").strip()
-    a = str(data.get("apellidos") or "").strip()
-    if not n or not a:
-        return jsonify({"ok": False, "error": "Indique nombres y apellidos."}), 400
+    ap = str(data.get("apellido_paterno") or data.get("apellidos") or "").strip()
+    am = str(data.get("apellido_materno") or "").strip()
+    if not n or not ap:
+        return jsonify({"ok": False, "error": "Indique nombres y apellido paterno."}), 400
     fnac = str(data.get("fecha_nacimiento") or "").strip()[:10]
     db_path = str(current_app.config["DATABASE"])
     conn = sqlite3.connect(db_path)
@@ -422,7 +419,12 @@ def api_preview_identificadores():
         if fnac:
             from modules.examenes_medicos.identifiers import normalize_patient_identity_key
 
-            key = normalize_patient_identity_key(n, a, fnac)
+            key = normalize_patient_identity_key(
+                n,
+                fecha_nacimiento=fnac,
+                apellido_paterno=ap,
+                apellido_materno=am,
+            )
             row = conn.execute(
                 "SELECT paciente_id FROM examenes_medicos_paciente_ids WHERE patient_identity_key = ?",
                 (key,),

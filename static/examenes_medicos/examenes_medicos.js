@@ -1,39 +1,4 @@
 (function () {
-  function pad2(n) {
-    return String(n).padStart(2, "0");
-  }
-
-  /** Segundos desde medianoche, entre 06:20:00 y 09:40:59 inclusive. */
-  function randomTomaSeconds() {
-    var start = 6 * 3600 + 20 * 60;
-    var end = 9 * 3600 + 40 * 60 + 59;
-    return start + Math.floor(Math.random() * (end - start + 1));
-  }
-
-  function secondsToTimeStr(sec) {
-    sec = ((sec % 86400) + 86400) % 86400;
-    var h = Math.floor(sec / 3600);
-    var m = Math.floor((sec % 3600) / 60);
-    var s = sec % 60;
-    return pad2(h) + ":" + pad2(m) + ":" + pad2(s);
-  }
-
-  /** Aprox. 6 u 7 horas después con minutos y segundos aleatorios (no fijo). */
-  function randomValidationAfterToma(tomaStr) {
-    if (!tomaStr) return "";
-    var parts = tomaStr.split(":");
-    var h = parseInt(parts[0], 10) || 0;
-    var m = parseInt(parts[1], 10) || 0;
-    var sec = parseInt(parts[2], 10) || 0;
-    var tomaSec = h * 3600 + m * 60 + sec;
-    var baseH = 6 + Math.floor(Math.random() * 2);
-    var extraMin = Math.floor(Math.random() * 38);
-    var extraSec = Math.floor(Math.random() * 60);
-    var delta = baseH * 3600 + extraMin * 60 + extraSec;
-    if (delta < 3600) delta += 3600;
-    return secondsToTimeStr(tomaSec + delta);
-  }
-
   function formDataObject(form) {
     var fd = new FormData(form);
     var o = {};
@@ -115,35 +80,15 @@
     var msg = document.getElementById("em-msg");
     var fnac = document.getElementById("em-fnac");
     var edadEl = document.getElementById("em-edad");
-    var horaToma = form.querySelector('input[name="hora_toma"]');
-    var horaVal = form.querySelector('input[name="hora_val"]');
     var expedienteIdInput = document.getElementById("em-expediente-id");
 
     function syncEdad() {
       edadEl.value = edadDesdeFnac(fnac.value);
     }
-    function applyDefaultHoras() {
-      if (!horaToma || !horaVal) return;
-      horaToma.value = secondsToTimeStr(randomTomaSeconds());
-      horaVal.dataset.manual = "";
-      horaVal.value = randomValidationAfterToma(horaToma.value);
-    }
-    applyDefaultHoras();
-
     ["input", "change"].forEach(function (ev) {
       fnac.addEventListener(ev, syncEdad);
     });
     syncEdad();
-
-    if (horaToma && horaVal) {
-      horaVal.addEventListener("input", function () {
-        horaVal.dataset.manual = "1";
-      });
-      horaToma.addEventListener("change", function () {
-        if (horaVal.dataset.manual === "1") return;
-        horaVal.value = randomValidationAfterToma(horaToma.value);
-      });
-    }
 
     var backdrop = document.getElementById("em-modal-backdrop");
     var modal = document.getElementById("em-modal");

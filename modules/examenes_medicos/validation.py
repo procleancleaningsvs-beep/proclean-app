@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, time
 from typing import Any
 
 
@@ -68,6 +68,34 @@ def parse_date_iso(value: Any) -> tuple[date | None, str | None]:
         return date.fromisoformat(s), None
     except ValueError:
         return None, "Fecha inválida (use AAAA-MM-DD)."
+
+
+def parse_time_hhmmss(value: Any) -> tuple[time | None, str | None]:
+    s = _norm(value)
+    if not s:
+        return None, "Hora inválida."
+    parts = s.split(":")
+    if len(parts) not in (2, 3):
+        return None, "Hora inválida."
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+        second = int(parts[2]) if len(parts) == 3 else 0
+        return time(hour, minute, second), None
+    except (TypeError, ValueError):
+        return None, "Hora inválida."
+
+
+def format_registration_datetime(fecha_registro: Any, hora_registro: Any) -> str:
+    d, derr = parse_date_iso(fecha_registro)
+    if derr or d is None:
+        raise ValueError("La Fecha de Registro no es válida.")
+    t, terr = parse_time_hhmmss(hora_registro)
+    if terr or t is None:
+        raise ValueError("La Hora de Registro no es válida.")
+    suffix = "a. m." if t.hour < 12 else "p. m."
+    hour12 = t.hour % 12 or 12
+    return f"{d.day:02d}/{d.month:02d}/{d.year}  {hour12:02d}:{t.minute:02d}:{t.second:02d}{suffix}"
 
 
 def edad_desde_fecha_nacimiento(fnac: date, ref: date) -> int:

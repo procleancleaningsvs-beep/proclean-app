@@ -29,8 +29,9 @@
     </header>
   <fieldset class="em-fieldset vf-grid vf-grid-2 pc-form-card">
     <legend class="pc-form-help">Datos del paciente</legend>
-    <label>Nombres <input name="nombres" id="em-nombres" required autocomplete="given-name" /></label>
-    <label>Apellidos <input name="apellidos" id="em-apellidos" required autocomplete="family-name" /></label>
+    <label>Nombre o nombres <input name="nombres" id="em-nombres" required autocomplete="given-name" /></label>
+    <label>Apellido paterno <input name="apellido_paterno" id="em-apellido-paterno" required autocomplete="family-name" /></label>
+    <label>Apellido materno <input name="apellido_materno" id="em-apellido-materno" autocomplete="family-name" /></label>
     <label>Fecha de nacimiento <input name="fecha_nacimiento" id="em-fnac" type="date" required /></label>
     <label>Edad (calculada) <input id="em-edad" type="text" readonly class="em-readonly" /></label>
     <label>Sexo
@@ -49,16 +50,13 @@
       <span class="pc-form-step-number" aria-hidden="true">02</span>
       <span class="pc-icon-chip pc-icon-chip--neutral pc-form-step-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/></svg></span>
       <div class="pc-form-step-text">
-        <h3 class="pc-form-step-title">Fechas y horas del estudio</h3>
+        <h3 class="pc-form-step-title">Fecha y hora de registro</h3>
       </div>
     </header>
   <fieldset class="em-fieldset vf-grid vf-grid-2 pc-form-card">
-    <legend class="pc-form-help">Fechas y horas</legend>
-    <label>Fecha de estudio <input name="fecha_estudio" type="date" required value="{{ default_fecha }}" /></label>
-    <label>Fecha de toma <input name="fecha_toma" type="date" required value="{{ default_fecha }}" /></label>
-    <label>Hora de toma <input name="hora_toma" type="time" step="1" required /></label>
-    <label>Fecha de validación <input name="fecha_val" type="date" required value="{{ default_fecha }}" /></label>
-    <label>Hora de validación <input name="hora_val" type="time" step="1" required /></label>
+    <legend class="pc-form-help">Registro</legend>
+    <label>Fecha de Registro <input name="fecha_registro" id="em-fecha-registro" type="date" required /></label>
+    <label>Hora de Registro <input name="hora_registro" id="em-hora-registro" type="time" step="1" required /></label>
   </fieldset>
 
   </div>

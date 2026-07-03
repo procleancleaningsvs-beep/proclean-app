@@ -8,7 +8,13 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from modules.examenes_medicos.identifiers import normalize_nombre_key, normalize_patient_identity_key
+from modules.examenes_medicos.identifiers import (
+    build_patient_display_name,
+    combined_apellidos,
+    normalize_nombre_key,
+    normalize_patient_identity_key,
+    split_legacy_apellidos,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -92,9 +98,11 @@ def _ensure_expediente_column(conn: sqlite3.Connection, name: str, ddl_type: str
 
 
 def _canonical_display_name(master: dict[str, Any]) -> str:
-    a = " ".join(str(master.get("apellidos") or "").split())
-    n = " ".join(str(master.get("nombres") or "").split())
-    s = f"{a} {n}".strip()
+    apellido_paterno = str(master.get("apellido_paterno") or "")
+    apellido_materno = str(master.get("apellido_materno") or "")
+    if not apellido_paterno and not apellido_materno:
+        apellido_paterno, apellido_materno = split_legacy_apellidos(master.get("apellidos"))
+    s = build_patient_display_name(str(master.get("nombres") or ""), apellido_paterno, apellido_materno)
     return s if s else "Paciente"
 
 
@@ -128,7 +136,11 @@ def upsert_examenes_expediente_merge(
 ) -> int:
     """Fusiona una exportación (orina o sangre) en un único expediente por paciente."""
     n = str(master.get("nombres") or "")
-    a = str(master.get("apellidos") or "")
+    apellido_paterno = str(master.get("apellido_paterno") or "")
+    apellido_materno = str(master.get("apellido_materno") or "")
+    if not apellido_paterno and not apellido_materno:
+        apellido_paterno, apellido_materno = split_legacy_apellidos(master.get("apellidos"))
+    a = combined_apellidos(apellido_paterno, apellido_materno)
     patient_key = normalize_nombre_key(n, a)
     display = _canonical_display_name(master)
     cliente = str(
@@ -438,10 +450,15 @@ def insert_unified_expediente(
     when_iso: str,
     template_name: str,
 ) -> int:
+    apellido_paterno = str(master.get("apellido_paterno") or "")
+    apellido_materno = str(master.get("apellido_materno") or "")
+    if not apellido_paterno and not apellido_materno:
+        apellido_paterno, apellido_materno = split_legacy_apellidos(master.get("apellidos"))
     patient_identity = normalize_patient_identity_key(
         str(master.get("nombres") or ""),
-        str(master.get("apellidos") or ""),
-        str(master.get("fecha_nacimiento") or ""),
+        fecha_nacimiento=str(master.get("fecha_nacimiento") or ""),
+        apellido_paterno=apellido_paterno,
+        apellido_materno=apellido_materno,
     )
     orden = str(ident["orden"])
     patient_key = f"{patient_identity}|||{orden}"

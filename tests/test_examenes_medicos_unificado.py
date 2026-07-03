@@ -5,6 +5,7 @@ import inspect
 import sqlite3
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
@@ -16,6 +17,7 @@ from flask import Blueprint, Flask, g
 from modules.examenes_medicos.blueprint import api_master_download, register_examenes_medicos
 from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.identifiers import (
+    build_patient_display_name,
     build_unified_filename_base,
     compact_order,
     generate_unique_folio_unificado,
@@ -39,22 +41,21 @@ from modules.examenes_medicos.unified_document import (
     extract_docx_placeholders,
     render_unified_docx_bytes,
 )
+from modules.examenes_medicos.validation import format_registration_datetime
 
 
-UNIFIED_TEMPLATE_SHA256 = "e99736784fc898923da759e7894bff850779b83d980ccdbd1af8ec334c12d27b"
+UNIFIED_TEMPLATE_SHA256 = "638798a04557692150e50ca313bd362c7fd143bbc368035b8eabb0c8cf1e732a"
 
 
 def _valid_payload() -> dict[str, str | bool]:
     payload: dict[str, str | bool] = {
         "nombres": "Juan",
-        "apellidos": "Perez Lopez",
+        "apellido_paterno": "Perez",
+        "apellido_materno": "Lopez",
         "fecha_nacimiento": "1990-01-15",
         "sexo": "Hombre",
-        "fecha_estudio": "2026-07-01",
-        "fecha_toma": "2026-07-01",
-        "hora_toma": "08:00:00",
-        "fecha_val": "2026-07-01",
-        "hora_val": "12:00:00",
+        "fecha_registro": "2026-07-01",
+        "hora_registro": "08:00:00",
         "gsanth": "A Positivo",
         "scope": "unificado",
         "format": "pdf",
@@ -90,6 +91,24 @@ def _docx_text(docx_bytes: bytes) -> str:
             if name.startswith("word/") and name.endswith(".xml"):
                 parts.append(zf.read(name).decode("utf-8", errors="ignore"))
     return "\n".join(parts)
+
+
+def _run_font_sizes_for_text(docx_bytes: bytes, text: str) -> list[str]:
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    sizes: list[str] = []
+    with ZipFile(BytesIO(docx_bytes), "r") as zf:
+        for name in zf.namelist():
+            if not (name.startswith("word/") and name.endswith(".xml")):
+                continue
+            root = ET.fromstring(zf.read(name))
+            for run in root.iter(w + "r"):
+                run_text = "".join(t.text or "" for t in run.iter(w + "t"))
+                if run_text == text:
+                    rpr = run.find(w + "rPr")
+                    sz = rpr.find(w + "sz") if rpr is not None else None
+                    if sz is not None:
+                        sizes.append(str(sz.attrib.get(w + "val") or ""))
+    return sizes
 
 
 def _app(tmp: Path) -> Flask:
@@ -150,6 +169,21 @@ class TestUnifiedTemplateContract(unittest.TestCase):
         self.assertGreater(len(rendered), 0)
         self.assertEqual(extract_docx_placeholders(rendered), [])
 
+    def test_mapping_uses_canonical_patient_name_and_registration_datetime(self):
+        payload = _valid_mapping_payload()
+        payload.update(
+            {
+                "nombres": "Yahir Ramon",
+                "apellido_paterno": "Ramirez",
+                "apellido_materno": "Mata",
+                "fecha_registro": "2026-06-30",
+                "hora_registro": "08:47:20",
+            }
+        )
+        mapping = build_unified_mapping(payload)
+        self.assertEqual(mapping["{{paciente_nombre}}"], "RAMIREZ MATA YAHIR RAMON")
+        self.assertEqual(mapping["{{fecha_registro}}"], "30/06/2026  08:47:20a. m.")
+
     def test_productive_download_does_not_reference_clinical_autogen(self):
         source = inspect.getsource(api_master_download)
         self.assertIn("generate_clinical_bundle", source)
@@ -166,6 +200,23 @@ class TestUnifiedFormUI(unittest.TestCase):
                 res = client.get("/vitroflex/examenes-medicos/")
         self.assertEqual(res.status_code, 200)
         html = res.get_data(as_text=True)
+        self.assertIn('name="nombres"', html)
+        self.assertIn('name="apellido_paterno"', html)
+        self.assertIn('name="apellido_materno"', html)
+        self.assertIn("Nombre o nombres", html)
+        self.assertIn("Apellido paterno", html)
+        self.assertIn("Apellido materno", html)
+        self.assertIn('name="fecha_registro"', html)
+        self.assertIn('name="hora_registro"', html)
+        self.assertIn("Fecha de Registro", html)
+        self.assertIn("Hora de Registro", html)
+        self.assertNotIn('name="apellidos"', html)
+        self.assertNotIn('name="fecha_toma"', html)
+        self.assertNotIn('name="fecha_val"', html)
+        self.assertNotIn('name="hora_val"', html)
+        self.assertNotIn("Fecha de toma", html)
+        self.assertNotIn("Fecha de validación", html)
+        self.assertNotIn("Hora de validación", html)
         self.assertIn('name="gsanth"', html)
         self.assertIn("Selecciona una opción", html)
         self.assertNotIn('name="gluco"', html)
@@ -263,6 +314,51 @@ class TestUnifiedReferenceRanges(unittest.TestCase):
 
 
 class TestUnifiedIdentifiers(unittest.TestCase):
+    def test_patient_display_name_components(self):
+        self.assertEqual(
+            build_patient_display_name("Yahir Ramon", "Ramirez", "Mata"),
+            "RAMIREZ MATA YAHIR RAMON",
+        )
+        self.assertEqual(
+            build_patient_display_name("  Yahir   Ramon  ", "  Ramirez  ", "  Mata  "),
+            "RAMIREZ MATA YAHIR RAMON",
+        )
+        self.assertEqual(
+            build_patient_display_name("Íñigo  Ángel", "Muñoz", "Pérez"),
+            "MUÑOZ PÉREZ ÍÑIGO ÁNGEL",
+        )
+        self.assertEqual(
+            build_patient_display_name("Yahir Ramon", "Ramirez", ""),
+            "RAMIREZ YAHIR RAMON",
+        )
+
+    def test_registration_datetime_format(self):
+        self.assertEqual(
+            format_registration_datetime("2026-06-30", "08:47:20"),
+            "30/06/2026  08:47:20a. m.",
+        )
+        self.assertEqual(
+            format_registration_datetime("2026-06-30", "15:15"),
+            "30/06/2026  03:15:00p. m.",
+        )
+        self.assertEqual(
+            format_registration_datetime("2026-06-30", "00:05"),
+            "30/06/2026  12:05:00a. m.",
+        )
+        self.assertEqual(
+            format_registration_datetime("2026-06-30", "12:00"),
+            "30/06/2026  12:00:00p. m.",
+        )
+        for fecha, hora in (
+            ("2026-02-30", "08:00"),
+            ("", "08:00"),
+            ("2026-06-30", "25:00"),
+            ("2026-06-30", ""),
+        ):
+            with self.subTest(fecha=fecha, hora=hora):
+                with self.assertRaises(ValueError):
+                    format_registration_datetime(fecha, hora)
+
     def test_order_pattern_and_filename(self):
         self.assertTrue(validate_orden_unificada("B20002724"))
         self.assertEqual(compact_order("B20002724"), "B22724")
@@ -279,19 +375,22 @@ class TestUnifiedIdentifiers(unittest.TestCase):
             a = get_or_create_paciente_id(
                 conn,
                 nombres=" José  ",
-                apellidos="Pérez",
+                apellido_paterno="Pérez",
+                apellido_materno="",
                 fecha_nacimiento="1990-01-01",
             )
             b = get_or_create_paciente_id(
                 conn,
                 nombres="jose",
-                apellidos="PEREZ",
+                apellido_paterno=" PEREZ ",
+                apellido_materno="",
                 fecha_nacimiento="1990-01-01",
             )
             c = get_or_create_paciente_id(
                 conn,
                 nombres="Jose",
-                apellidos="Perez",
+                apellido_paterno="Perez",
+                apellido_materno="",
                 fecha_nacimiento="1991-01-01",
             )
         finally:
@@ -391,6 +490,34 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertEqual(res.status_code, 400)
             gen_mock.assert_not_called()
 
+    def test_registration_datetime_errors_block_generation_and_history(self):
+        cases = [
+            ("missing_date", "fecha_registro", "", "Captura la Fecha de Registro."),
+            ("missing_time", "hora_registro", "", "Captura la Hora de Registro."),
+            ("invalid_date", "fecha_registro", "2026-02-30", "La Fecha de Registro no es válida."),
+            ("invalid_time", "hora_registro", "25:00", "La Hora de Registro no es válida."),
+        ]
+        for label, key, value, expected in cases:
+            with self.subTest(label):
+                with tempfile.TemporaryDirectory() as td:
+                    app = _app(Path(td))
+                    payload = _valid_payload()
+                    payload[key] = value
+                    with app.test_client() as client:
+                        with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle") as gen_mock:
+                            with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes") as pdf_mock:
+                                res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                    self.assertEqual(res.status_code, 400)
+                    self.assertIn(expected, " ".join(res.get_json()["errors"]))
+                    gen_mock.assert_not_called()
+                    pdf_mock.assert_not_called()
+                    conn = sqlite3.connect(app.config["DATABASE"])
+                    try:
+                        count = conn.execute("SELECT COUNT(*) FROM examenes_medicos_expediente").fetchone()[0]
+                    finally:
+                        conn.close()
+                    self.assertEqual(count, 0)
+
     def test_valid_payload_generates_single_document_and_history(self):
         with tempfile.TemporaryDirectory() as td:
             app = _app(Path(td))
@@ -433,7 +560,7 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             payload = _valid_payload()
             payload["format"] = "docx"
             generated = _valid_generated_values()
-            generated.update({"gluco": "87", "hemog": "15.7", "o_dens": "1.021"})
+            generated.update({"gluco": "87", "hemog": "15.7", "o_dens": "1.021", "o_col": "Transparente"})
             with app.test_client() as client:
                 with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle", return_value={"unificado": generated}):
                     with patch("modules.examenes_medicos.blueprint.log_app_activity"):
@@ -443,6 +570,10 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertIn("87", text)
             self.assertIn("15.7", text)
             self.assertIn("1.021", text)
+            self.assertIn("PEREZ LOPEZ JUAN", text)
+            self.assertIn("01/07/2026  08:00:00a. m.", text)
+            self.assertIn("Transparente", text)
+            self.assertEqual(_run_font_sizes_for_text(res.data, "Transparente"), ["12"])
             self.assertEqual(extract_docx_placeholders(res.data), [])
 
     def test_word_then_pdf_same_expediente_reuses_identifiers_and_name(self):

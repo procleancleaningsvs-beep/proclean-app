@@ -19,15 +19,53 @@ def normalize_nombre_key(nombres: str, apellidos: str) -> str:
     return f"{n}|||{a}"
 
 
+def _clean_component(value: Any) -> str:
+    return " ".join(str(value or "").strip().split())
+
+
+def build_patient_display_name(
+    nombres: str,
+    apellido_paterno: str,
+    apellido_materno: str | None = None,
+) -> str:
+    parts = (
+        _clean_component(apellido_paterno),
+        _clean_component(apellido_materno),
+        _clean_component(nombres),
+    )
+    return " ".join(part.upper() for part in parts if part)
+
+
+def split_legacy_apellidos(apellidos: Any) -> tuple[str, str]:
+    parts = _clean_component(apellidos).split(" ", 1)
+    if not parts:
+        return "", ""
+    if len(parts) == 1:
+        return parts[0], ""
+    return parts[0], parts[1]
+
+
+def combined_apellidos(apellido_paterno: Any, apellido_materno: Any = "") -> str:
+    return " ".join(part for part in (_clean_component(apellido_paterno), _clean_component(apellido_materno)) if part)
+
+
 def _strip_accents(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value)
     return "".join(ch for ch in normalized if not unicodedata.combining(ch))
 
 
-def normalize_patient_identity_key(nombres: str, apellidos: str, fecha_nacimiento: Any) -> str:
+def normalize_patient_identity_key(
+    nombres: str,
+    apellidos: str | None = None,
+    fecha_nacimiento: Any = "",
+    apellido_paterno: str | None = None,
+    apellido_materno: str | None = None,
+) -> str:
     """Identidad persistente: nombre completo normalizado + fecha de nacimiento."""
     n = _strip_accents(" ".join(str(nombres or "").split())).casefold()
-    a = _strip_accents(" ".join(str(apellidos or "").split())).casefold()
+    if apellido_paterno is None and apellido_materno is None:
+        apellido_paterno, apellido_materno = split_legacy_apellidos(apellidos)
+    a = _strip_accents(combined_apellidos(apellido_paterno, apellido_materno)).casefold()
     fn = str(fecha_nacimiento or "")[:10]
     return f"{n}|||{a}|||{fn}"
 
@@ -140,11 +178,20 @@ def get_or_create_paciente_id(
     conn: sqlite3.Connection,
     *,
     nombres: str,
-    apellidos: str,
+    apellidos: str | None = None,
     fecha_nacimiento: str,
+    apellido_paterno: str | None = None,
+    apellido_materno: str | None = None,
     max_attempts: int = 80,
 ) -> str:
-    patient_key = normalize_patient_identity_key(nombres, apellidos, fecha_nacimiento)
+    if apellido_paterno is None and apellido_materno is None:
+        apellido_paterno, apellido_materno = split_legacy_apellidos(apellidos)
+    patient_key = normalize_patient_identity_key(
+        nombres,
+        fecha_nacimiento=fecha_nacimiento,
+        apellido_paterno=apellido_paterno,
+        apellido_materno=apellido_materno,
+    )
     row = conn.execute(
         "SELECT paciente_id FROM examenes_medicos_paciente_ids WHERE patient_identity_key = ?",
         (patient_key,),
@@ -169,7 +216,7 @@ def get_or_create_paciente_id(
                     patient_key,
                     cand,
                     _strip_accents(" ".join(str(nombres or "").split())).casefold(),
-                    _strip_accents(" ".join(str(apellidos or "").split())).casefold(),
+                    _strip_accents(combined_apellidos(apellido_paterno, apellido_materno)).casefold(),
                     str(fecha_nacimiento or "")[:10],
                 ),
             )
