@@ -55,9 +55,20 @@ def validate_sexo(value: Any) -> str | None:
     s = _norm(value)
     if not s:
         return "Sexo es obligatorio."
-    if s not in ("Mujer", "Hombre", "Otro"):
+    if s not in ("Femenino", "Masculino"):
         return "Sexo no válido."
     return None
+
+
+def normalize_sexo_display(value: Any) -> str:
+    s = _norm(value)
+    aliases = {
+        "Hombre": "Masculino",
+        "Masculino": "Masculino",
+        "Mujer": "Femenino",
+        "Femenino": "Femenino",
+    }
+    return aliases.get(s, s)
 
 
 def parse_date_iso(value: Any) -> tuple[date | None, str | None]:

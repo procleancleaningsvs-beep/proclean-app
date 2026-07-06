@@ -44,7 +44,7 @@ from modules.examenes_medicos.unified_document import (
 from modules.examenes_medicos.validation import format_registration_datetime
 
 
-UNIFIED_TEMPLATE_SHA256 = "638798a04557692150e50ca313bd362c7fd143bbc368035b8eabb0c8cf1e732a"
+UNIFIED_TEMPLATE_SHA256 = "deb1420e2002546f3458ecfb4c02ab34581e2d68df97d097cdbdff997994f41e"
 
 
 def _valid_payload() -> dict[str, str | bool]:
@@ -53,7 +53,7 @@ def _valid_payload() -> dict[str, str | bool]:
         "apellido_paterno": "Perez",
         "apellido_materno": "Lopez",
         "fecha_nacimiento": "1990-01-15",
-        "sexo": "Hombre",
+        "sexo": "Masculino",
         "fecha_registro": "2026-07-01",
         "hora_registro": "08:00:00",
         "gsanth": "A Positivo",
@@ -65,7 +65,7 @@ def _valid_payload() -> dict[str, str | bool]:
 
 
 def _valid_generated_values() -> dict[str, str]:
-    generated = generate_clinical_bundle(sexo="Hombre", seed=12345)["unificado"]
+    generated = generate_clinical_bundle(sexo="Masculino", seed=12345)["unificado"]
     assert validate_generated_clinical_results(generated) == []
     return generated
 
@@ -111,7 +111,83 @@ def _run_font_sizes_for_text(docx_bytes: bytes, text: str) -> list[str]:
     return sizes
 
 
-def _app(tmp: Path) -> Flask:
+def _zip_part(docx_bytes: bytes, name: str) -> bytes:
+    with ZipFile(BytesIO(docx_bytes), "r") as zf:
+        return zf.read(name)
+
+
+def _word_xml_names(docx_bytes: bytes, prefix: str) -> list[str]:
+    with ZipFile(BytesIO(docx_bytes), "r") as zf:
+        return sorted(name for name in zf.namelist() if name.startswith(prefix) and name.endswith(".xml"))
+
+
+def _xml_text(docx_bytes: bytes, name: str) -> str:
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    root = ET.fromstring(_zip_part(docx_bytes, name))
+    return "".join(t.text or "" for t in root.iter(w + "t"))
+
+
+def _border_signature(docx_bytes: bytes):
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    root = ET.fromstring(_zip_part(docx_bytes, "word/document.xml"))
+    out = []
+    for tbl_i, table in enumerate(root.iter(w + "tbl")):
+        tbl_pr = table.find(w + "tblPr")
+        tbl_borders = tbl_pr.find(w + "tblBorders") if tbl_pr is not None else None
+        table_edges = []
+        if tbl_borders is not None:
+            table_edges = [
+                (edge.tag, tuple(sorted(edge.attrib.items())))
+                for edge in tbl_borders
+                if edge.tag.startswith(w)
+            ]
+        cell_edges = []
+        for cell_i, cell in enumerate(table.iter(w + "tc")):
+            tc_pr = cell.find(w + "tcPr")
+            tc_borders = tc_pr.find(w + "tcBorders") if tc_pr is not None else None
+            if tc_borders is None:
+                continue
+            for edge in tc_borders:
+                if edge.tag.startswith(w):
+                    cell_edges.append((cell_i, edge.tag, tuple(sorted(edge.attrib.items()))))
+        if table_edges or cell_edges:
+            out.append((tbl_i, tuple(table_edges), tuple(cell_edges)))
+    return tuple(out)
+
+
+def _paragraph_style_signature(docx_bytes: bytes, needles: tuple[str, ...]):
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    root = ET.fromstring(_zip_part(docx_bytes, "word/document.xml"))
+    out = []
+    for idx, paragraph in enumerate(root.iter(w + "p")):
+        text = "".join(t.text or "" for t in paragraph.iter(w + "t"))
+        if not any(needle in text for needle in needles):
+            continue
+        p_pr = paragraph.find(w + "pPr")
+        runs = []
+        for run in paragraph.iter(w + "r"):
+            run_text = "".join(t.text or "" for t in run.iter(w + "t"))
+            if not run_text:
+                continue
+            r_pr = run.find(w + "rPr")
+            runs.append(
+                (
+                    run_text,
+                    ET.tostring(r_pr, encoding="unicode") if r_pr is not None else "",
+                )
+            )
+        out.append(
+            (
+                idx,
+                text,
+                ET.tostring(p_pr, encoding="unicode") if p_pr is not None else "",
+                tuple(runs),
+            )
+        )
+    return tuple(out)
+
+
+def _app(tmp: Path, *, role: str = "admin") -> Flask:
     repo = Path(__file__).resolve().parents[1]
     app = Flask(__name__, template_folder=str(repo / "templates"))
     app.config.update(
@@ -143,7 +219,7 @@ def _app(tmp: Path) -> Flask:
 
     @app.before_request
     def _user() -> None:
-        g.user = {"id": 1, "role": "admin", "username": "admin"}
+        g.user = {"id": 1, "role": role, "username": "admin"}
 
     return app
 
@@ -169,6 +245,24 @@ class TestUnifiedTemplateContract(unittest.TestCase):
         self.assertGreater(len(rendered), 0)
         self.assertEqual(extract_docx_placeholders(rendered), [])
 
+    def test_render_preserves_template_ooxml_structure_outside_placeholders(self):
+        raw = UNIFICADO_DOCX.read_bytes()
+        payload = _valid_mapping_payload()
+        payload["o_col"] = "Transparente"
+        rendered = render_unified_docx_bytes(raw, build_unified_mapping(payload))
+
+        self.assertEqual(_border_signature(rendered), _border_signature(raw))
+        self.assertEqual(
+            _paragraph_style_signature(rendered, ("Resultados", "Análisis Clínicos")),
+            _paragraph_style_signature(raw, ("Resultados", "Análisis Clínicos")),
+        )
+        for name in _word_xml_names(raw, "word/footer"):
+            self.assertEqual(_zip_part(rendered, name), _zip_part(raw, name), name)
+            footer_text = _xml_text(rendered, name).lower()
+            self.assertNotIn("cl-001", footer_text)
+            self.assertNotIn("acredit", footer_text)
+        self.assertEqual(_run_font_sizes_for_text(rendered, "Transparente"), ["17"])
+
     def test_mapping_uses_canonical_patient_name_and_registration_datetime(self):
         payload = _valid_mapping_payload()
         payload.update(
@@ -184,12 +278,26 @@ class TestUnifiedTemplateContract(unittest.TestCase):
         self.assertEqual(mapping["{{paciente_nombre}}"], "RAMIREZ MATA YAHIR RAMON")
         self.assertEqual(mapping["{{fecha_registro}}"], "30/06/2026  08:47:20a. m.")
 
+    def test_sexo_mapping_uses_masculino_femenino_and_legacy_aliases(self):
+        payload = _valid_mapping_payload()
+        payload["sexo"] = "Masculino"
+        self.assertEqual(build_unified_mapping(payload)["{{sexo}}"], "Masculino")
+        payload["sexo"] = "Femenino"
+        self.assertEqual(build_unified_mapping(payload)["{{sexo}}"], "Femenino")
+        payload["sexo"] = "Hombre"
+        self.assertEqual(build_unified_mapping(payload)["{{sexo}}"], "Masculino")
+        payload["sexo"] = "Mujer"
+        self.assertEqual(build_unified_mapping(payload)["{{sexo}}"], "Femenino")
+
     def test_productive_download_does_not_reference_clinical_autogen(self):
         source = inspect.getsource(api_master_download)
         self.assertIn("generate_clinical_bundle", source)
         self.assertNotIn("bundle_clinico", source)
         self.assertNotIn("generate_unique_folio_orina", source)
         self.assertNotIn("generate_unique_folio_sangre", source)
+        document_source = inspect.getsource(render_unified_docx_bytes)
+        self.assertNotIn("shrink_transparente", document_source)
+        self.assertNotIn("w:sz", document_source)
 
 
 class TestUnifiedFormUI(unittest.TestCase):
@@ -219,6 +327,11 @@ class TestUnifiedFormUI(unittest.TestCase):
         self.assertNotIn("Hora de validación", html)
         self.assertIn('name="gsanth"', html)
         self.assertIn("Selecciona una opción", html)
+        self.assertIn('value="Masculino"', html)
+        self.assertIn('value="Femenino"', html)
+        self.assertNotIn(">Hombre<", html)
+        self.assertNotIn(">Mujer<", html)
+        self.assertNotIn(">Otro<", html)
         self.assertNotIn('name="gluco"', html)
         self.assertNotIn('name="hemog"', html)
         self.assertNotIn('name="o_dens"', html)
@@ -228,10 +341,21 @@ class TestUnifiedFormUI(unittest.TestCase):
         self.assertNotIn("Solo sangre", html)
         self.assertNotIn(">Ambos<", html)
 
+    def test_delete_ui_has_context_and_loading_guard(self):
+        repo = Path(__file__).resolve().parents[1]
+        html = (repo / "templates" / "examenes_medicos" / "examenes_medicos_historial.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("data-patient", html)
+        self.assertIn("data-order", html)
+        self.assertIn('method: "DELETE"', html)
+        self.assertIn('btn.dataset.loading === "1"', html)
+        self.assertIn("btn.disabled = true", html)
+
 
 class TestUnifiedReferenceRanges(unittest.TestCase):
     def test_generate_clinical_bundle_unified_values_are_valid(self):
-        generated = generate_clinical_bundle(sexo="Hombre", seed=321)["unificado"]
+        generated = generate_clinical_bundle(sexo="Masculino", seed=321)["unificado"]
         self.assertEqual(set(generated), set(GENERATED_CLINICAL_PLACEHOLDER_NAMES))
         self.assertEqual(validate_generated_clinical_results(generated), [])
         self.assertIn(generated["o_col"], {"Amarillo", "Transparente"})
@@ -490,6 +614,20 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertEqual(res.status_code, 400)
             gen_mock.assert_not_called()
 
+    def test_new_capture_rejects_legacy_or_invalid_sexo(self):
+        for sexo in ("Hombre", "Mujer", "Otro"):
+            with self.subTest(sexo):
+                with tempfile.TemporaryDirectory() as td:
+                    app = _app(Path(td))
+                    payload = _valid_payload()
+                    payload["sexo"] = sexo
+                    with app.test_client() as client:
+                        with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle") as gen_mock:
+                            res = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                    self.assertEqual(res.status_code, 400)
+                    self.assertIn("Sexo no válido.", res.get_json()["errors"])
+                    gen_mock.assert_not_called()
+
     def test_registration_datetime_errors_block_generation_and_history(self):
         cases = [
             ("missing_date", "fecha_registro", "", "Captura la Fecha de Registro."),
@@ -573,7 +711,7 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertIn("PEREZ LOPEZ JUAN", text)
             self.assertIn("01/07/2026  08:00:00a. m.", text)
             self.assertIn("Transparente", text)
-            self.assertEqual(_run_font_sizes_for_text(res.data, "Transparente"), ["12"])
+            self.assertEqual(_run_font_sizes_for_text(res.data, "Transparente"), ["17"])
             self.assertEqual(extract_docx_placeholders(res.data), [])
 
     def test_word_then_pdf_same_expediente_reuses_identifiers_and_name(self):
@@ -632,6 +770,112 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertEqual(rows[0][0], rows[1][0])
             self.assertNotEqual(rows[0][1], rows[1][1])
             self.assertNotEqual(rows[0][2], rows[1][2])
+
+    def test_delete_requires_admin_permission(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td), role="operador")
+            payload = _valid_payload()
+            with app.test_client() as client:
+                with patch(
+                    "modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes",
+                    return_value=b"%PDF-1.4\n%test\n",
+                ):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        created = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                self.assertEqual(created.status_code, 200)
+                expediente_id = created.headers["X-Examenes-Expediente-Id"]
+                res = client.delete(f"/vitroflex/examenes-medicos/api/historial/{expediente_id}")
+            self.assertEqual(res.status_code, 403)
+
+    def test_delete_missing_id_returns_404(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            with app.test_client() as client:
+                res = client.delete("/vitroflex/examenes-medicos/api/historial/999")
+            self.assertEqual(res.status_code, 404)
+
+    def test_delete_removes_only_selected_expediente_files_and_keeps_patient_and_template(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            with app.test_client() as client:
+                with patch(
+                    "modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes",
+                    return_value=b"%PDF-1.4\n%test\n",
+                ):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        first = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                        second = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                self.assertEqual(first.status_code, 200)
+                self.assertEqual(second.status_code, 200)
+                first_id = first.headers["X-Examenes-Expediente-Id"]
+                second_id = second.headers["X-Examenes-Expediente-Id"]
+                gen_dir = Path(app.config["GENERATED_DIR"])
+                template_sha = hashlib.sha256(UNIFICADO_DOCX.read_bytes()).hexdigest()
+                conn = sqlite3.connect(app.config["DATABASE"])
+                try:
+                    first_paths = conn.execute(
+                        "SELECT sangre_docx_relpath, sangre_pdf_relpath FROM examenes_medicos_expediente WHERE id = ?",
+                        (first_id,),
+                    ).fetchone()
+                    second_paths = conn.execute(
+                        "SELECT sangre_docx_relpath, sangre_pdf_relpath FROM examenes_medicos_expediente WHERE id = ?",
+                        (second_id,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                first_files = [gen_dir / first_paths[0], gen_dir / first_paths[1]]
+                second_files = [gen_dir / second_paths[0], gen_dir / second_paths[1]]
+                self.assertTrue(all(path.is_file() for path in first_files + second_files))
+
+                res = client.delete(f"/vitroflex/examenes-medicos/api/historial/{first_id}")
+
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.get_json()["deleted_files"], 2)
+            self.assertFalse(any(path.exists() for path in first_files))
+            self.assertTrue(all(path.is_file() for path in second_files))
+            self.assertEqual(hashlib.sha256(UNIFICADO_DOCX.read_bytes()).hexdigest(), template_sha)
+            conn = sqlite3.connect(app.config["DATABASE"])
+            try:
+                rows = conn.execute("SELECT id FROM examenes_medicos_expediente ORDER BY id").fetchall()
+                patient_ids = conn.execute("SELECT COUNT(*) FROM examenes_medicos_paciente_ids").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual([int(row[0]) for row in rows], [int(second_id)])
+            self.assertEqual(patient_ids, 1)
+
+    def test_delete_allows_missing_generated_file_but_deletes_record(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            with app.test_client() as client:
+                with patch(
+                    "modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes",
+                    return_value=b"%PDF-1.4\n%test\n",
+                ):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        created = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                self.assertEqual(created.status_code, 200)
+                expediente_id = created.headers["X-Examenes-Expediente-Id"]
+                conn = sqlite3.connect(app.config["DATABASE"])
+                try:
+                    rels = conn.execute(
+                        "SELECT sangre_docx_relpath, sangre_pdf_relpath FROM examenes_medicos_expediente WHERE id = ?",
+                        (expediente_id,),
+                    ).fetchone()
+                finally:
+                    conn.close()
+                missing = Path(app.config["GENERATED_DIR"]) / rels[1]
+                missing.unlink()
+                res = client.delete(f"/vitroflex/examenes-medicos/api/historial/{expediente_id}")
+            self.assertEqual(res.status_code, 200)
+            self.assertEqual(res.get_json()["missing_files"], 1)
+            conn = sqlite3.connect(app.config["DATABASE"])
+            try:
+                count = conn.execute("SELECT COUNT(*) FROM examenes_medicos_expediente").fetchone()[0]
+            finally:
+                conn.close()
+            self.assertEqual(count, 0)
 
 
 if __name__ == "__main__":

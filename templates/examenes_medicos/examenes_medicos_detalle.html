@@ -14,7 +14,8 @@
   <div class="page-head-actions pc-hub-hero__actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
     {% if is_admin %}
-    {{ icon_button('trash-2', 'Eliminar expediente', 'danger', class='em-del-btn', extra_attrs='id="em-del-btn" data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=row.id) ~ '"') }}
+    {% set delete_attrs = 'id="em-del-btn" data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=row.id) ~ '" data-patient="' ~ (row.patient_display_name | e) ~ '" data-order="' ~ ((row.orden or '—') | e) ~ '"' %}
+    {{ icon_button('trash-2', 'Eliminar expediente', 'danger', class='em-del-btn', extra_attrs=delete_attrs) }}
     {% endif %}
   </div>
 </section>
@@ -60,14 +61,32 @@
 {% if is_admin %}
 <script>
 document.getElementById("em-del-btn")?.addEventListener("click", function () {
-  if (!confirm("¿Eliminar este expediente del paciente y todos los archivos asociados?")) return;
-  fetch(this.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
-    .then(function (r) { return r.json(); })
-    .then(function (j) {
-      if (j.ok) window.location.href = {{ url_for('examenes_medicos.historial_page') | tojson }};
-      else alert(j.error || "No se pudo eliminar");
+  var btn = this;
+  if (btn.dataset.loading === "1") return;
+  var patient = btn.getAttribute("data-patient") || "Paciente sin nombre";
+  var order = btn.getAttribute("data-order") || "—";
+  var ok = confirm(
+    "¿Eliminar este expediente del paciente?\n\n" +
+    "Paciente: " + patient + "\n" +
+    "Orden: " + order + "\n\n" +
+    "Se eliminarán solo sus archivos generados y el registro de historial."
+  );
+  if (!ok) return;
+  btn.dataset.loading = "1";
+  btn.disabled = true;
+  fetch(btn.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo eliminar el expediente.");
+        return j;
+      });
     })
-    .catch(function () { alert("Error de red"); });
+    .then(function () { window.location.href = {{ url_for('examenes_medicos.historial_page') | tojson }}; })
+    .catch(function (err) {
+      alert(err && err.message ? err.message : "No se pudo eliminar el expediente.");
+      btn.dataset.loading = "";
+      btn.disabled = false;
+    });
 });
 </script>
 {% endif %}

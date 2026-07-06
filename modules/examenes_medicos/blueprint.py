@@ -63,6 +63,7 @@ from modules.examenes_medicos.unified_document import (
 from modules.examenes_medicos.validation import (
     edad_desde_fecha_nacimiento,
     format_registration_datetime,
+    normalize_sexo_display,
     parse_date_iso,
     validate_required_non_empty,
     validate_sexo,
@@ -119,6 +120,7 @@ def _normalize_master(data: dict[str, Any]) -> dict[str, Any]:
         m["apellido_paterno"] = ap
         m["apellido_materno"] = am
     m["apellidos"] = combined_apellidos(m.get("apellido_paterno"), m.get("apellido_materno"))
+    m["sexo"] = normalize_sexo_display(m.get("sexo"))
     fnac, _ = parse_date_iso(m.get("fecha_nacimiento"))
     if fnac is not None:
         m["edad"] = str(edad_desde_fecha_nacimiento(fnac, app_mx_today()))
@@ -162,6 +164,20 @@ def _parse_expediente_id(value: Any) -> int | None:
     except (TypeError, ValueError):
         return None
     return n if n > 0 else None
+
+
+def _delete_target_for_generated_file(generated_dir: Path, relpath: str | None) -> tuple[Path | None, str]:
+    if not relpath or not str(relpath).strip():
+        return None, "empty"
+    base = generated_dir.resolve()
+    target = (base / str(relpath)).resolve()
+    try:
+        target.relative_to(base)
+    except ValueError:
+        return None, "invalid"
+    if not target.is_file():
+        return None, "missing"
+    return target, "ok"
 
 
 def _prepare_unified_ids(
@@ -597,20 +613,36 @@ def api_historial_item(rid: int):
         if not _is_admin():
             return jsonify({"ok": False, "error": "Solo administradores pueden eliminar registros."}), 403
         gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+        deleted_files = 0
+        missing_files = 0
         for rel in (
             row.orina_pdf_relpath,
             row.orina_docx_relpath,
             row.sangre_pdf_relpath,
             row.sangre_docx_relpath,
         ):
-            if not rel:
+            p, status = _delete_target_for_generated_file(gen, rel)
+            if status == "empty":
                 continue
-            p = resolve_generated_artifact(gen, rel)
-            if p and p.is_file():
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
+            if status == "invalid":
+                current_app.logger.warning(
+                    "examenes_medicos: ruta generada invalida al eliminar expediente id=%s",
+                    rid,
+                )
+                return jsonify({"ok": False, "error": "No se pudo eliminar el expediente por una ruta inválida."}), 500
+            if status == "missing":
+                missing_files += 1
+                continue
+            try:
+                assert p is not None
+                p.unlink()
+                deleted_files += 1
+            except OSError:
+                current_app.logger.exception(
+                    "examenes_medicos: no se pudo eliminar archivo generado expediente id=%s",
+                    rid,
+                )
+                return jsonify({"ok": False, "error": "No se pudo eliminar un archivo generado del expediente."}), 500
         conn = sqlite3.connect(db_path)
         try:
             ensure_examenes_expediente_table(conn)
@@ -628,7 +660,7 @@ def api_historial_item(rid: int):
             status="ok",
             ref=str(rid),
         )
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "deleted_files": deleted_files, "missing_files": missing_files})
 
     gen = Path(current_app.config["GENERATED_DIR"]).resolve()
     return jsonify(

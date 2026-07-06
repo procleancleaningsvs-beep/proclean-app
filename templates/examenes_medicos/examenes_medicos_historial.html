@@ -63,7 +63,8 @@
           <td class="em-actions-cell actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('eye', 'Ver detalle del expediente', url_for('examenes_medicos.historial_detalle', rid=r.id)) }}
             {% if is_admin %}
-            {{ icon_button('trash-2', 'Eliminar expediente del historial', 'danger', class='em-del-exp-btn', extra_attrs='data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=r.id) ~ '"') }}
+            {% set delete_attrs = 'data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=r.id) ~ '" data-patient="' ~ (r.patient_display_name | e) ~ '" data-order="' ~ ((r.orden or '—') | e) ~ '"' %}
+            {{ icon_button('trash-2', 'Eliminar expediente del historial', 'danger', class='em-del-exp-btn', extra_attrs=delete_attrs) }}
             {% endif %}
           </td>
         </tr>
@@ -77,16 +78,37 @@
 
 {% if is_admin %}
 <script>
+function emDeleteExpediente(btn, onSuccess) {
+  if (!btn || btn.dataset.loading === "1") return;
+  var patient = btn.getAttribute("data-patient") || "Paciente sin nombre";
+  var order = btn.getAttribute("data-order") || "—";
+  var ok = confirm(
+    "¿Eliminar este expediente del historial?\n\n" +
+    "Paciente: " + patient + "\n" +
+    "Orden: " + order + "\n\n" +
+    "Se eliminarán solo sus archivos generados y el registro de historial."
+  );
+  if (!ok) return;
+  btn.dataset.loading = "1";
+  btn.disabled = true;
+  fetch(btn.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok || !j.ok) throw new Error(j.error || "No se pudo eliminar el expediente.");
+        return j;
+      });
+    })
+    .then(function (j) { onSuccess(j); })
+    .catch(function (err) {
+      alert(err && err.message ? err.message : "No se pudo eliminar el expediente.");
+      btn.dataset.loading = "";
+      btn.disabled = false;
+    });
+}
+
 document.querySelectorAll(".em-del-exp-btn").forEach(function (btn) {
   btn.addEventListener("click", function () {
-    if (!confirm("¿Eliminar este expediente del historial? Esta acción no se puede deshacer.")) return;
-    fetch(btn.getAttribute("data-url"), { method: "DELETE", credentials: "same-origin" })
-      .then(function (r) { return r.json(); })
-      .then(function (j) {
-        if (j.ok) window.location.reload();
-        else alert(j.error || "No se pudo eliminar");
-      })
-      .catch(function () { alert("Error de red"); });
+    emDeleteExpediente(btn, function () { window.location.reload(); });
   });
 });
 </script>

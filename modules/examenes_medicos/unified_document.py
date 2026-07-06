@@ -19,17 +19,12 @@ from modules.examenes_medicos.reference_ranges import (
     CLINICAL_PLACEHOLDER_NAMES,
     EXPECTED_UNIFIED_PLACEHOLDERS,
 )
-from modules.examenes_medicos.validation import _norm, format_registration_datetime
+from modules.examenes_medicos.validation import _norm, format_registration_datetime, normalize_sexo_display
 from modules.finiquitos.docx_placeholders import replace_placeholders_in_docx_bytes
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
 _WORD_TEXT = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
-_WORD_RUN = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r"
-_WORD_RPR = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr"
-_WORD_SZ = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}sz"
-_WORD_SZ_CS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}szCs"
-_WORD_VAL = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
 
 
 class UnifiedTemplateError(RuntimeError):
@@ -102,7 +97,7 @@ def build_unified_mapping(data: dict[str, Any]) -> dict[str, str]:
         "{{orden}}": _mapping_val(data, "orden"),
         "{{paciente_id}}": _mapping_val(data, "paciente_id"),
         "{{paciente_nombre}}": build_patient_display_name(nombres, apellido_paterno, apellido_materno),
-        "{{sexo}}": _mapping_val(data, "sexo"),
+        "{{sexo}}": normalize_sexo_display(_mapping_val(data, "sexo")),
         "{{fecha_nacimiento}}": fecha_iso_a_dd_mm_yyyy(fnac) if fnac else "",
         "{{edad}}": _mapping_val(data, "edad"),
         "{{fecha_registro}}": format_registration_datetime(fecha_registro, hora_registro),
@@ -124,7 +119,7 @@ def build_unified_mapping(data: dict[str, Any]) -> dict[str, str]:
 def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) -> bytes:
     assert_template_placeholders_match(template_bytes, mapping)
     rendered = replace_placeholders_in_docx_bytes(template_bytes, mapping)
-    rendered = shrink_transparente_runs(rendered)
+    rendered = _restore_word_xml_parts_without_placeholders(template_bytes, rendered, mapping)
     if not rendered:
         raise UnifiedTemplateError("El DOCX generado esta vacio.")
     remaining = extract_docx_placeholders(rendered)
@@ -135,41 +130,41 @@ def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) ->
     return rendered
 
 
-def shrink_transparente_runs(docx_bytes: bytes, half_points: int = 12) -> bytes:
-    """Reduce solo el run generado con texto exacto 'Transparente' en la copia DOCX."""
+def _restore_word_xml_parts_without_placeholders(
+    template_bytes: bytes,
+    rendered_bytes: bytes,
+    mapping: dict[str, str],
+) -> bytes:
+    """Preserva byte a byte las partes XML de Word que no contienen placeholders."""
     out = BytesIO()
-    with ZipFile(BytesIO(docx_bytes), "r") as zin:
+    with ZipFile(BytesIO(template_bytes), "r") as ztemplate:
+        restore_names = {
+            name
+            for name in ztemplate.namelist()
+            if name.startswith("word/")
+            and name.endswith(".xml")
+            and not _part_contains_any_placeholder(ztemplate.read(name), mapping)
+        }
+        original = {name: ztemplate.read(name) for name in restore_names}
+        original_info = {name: ztemplate.getinfo(name) for name in restore_names}
+
+    with ZipFile(BytesIO(rendered_bytes), "r") as zin:
         with ZipFile(out, "w", ZIP_DEFLATED) as zout:
             for info in zin.infolist():
-                data = zin.read(info.filename)
-                if info.filename.startswith("word/") and info.filename.endswith(".xml"):
-                    try:
-                        root = ET.fromstring(data)
-                    except ET.ParseError:
-                        zout.writestr(info, data)
-                        continue
-                    changed = False
-                    for run in root.iter(_WORD_RUN):
-                        text = "".join(t.text or "" for t in run.iter(_WORD_TEXT))
-                        if text == "Transparente":
-                            _set_run_font_size(run, half_points)
-                            changed = True
-                    if changed:
-                        data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
-                zout.writestr(info, data)
+                if info.filename in original:
+                    zout.writestr(original_info[info.filename], original[info.filename])
+                else:
+                    zout.writestr(info, zin.read(info.filename))
     return out.getvalue()
 
 
-def _set_run_font_size(run: ET.Element, half_points: int) -> None:
-    rpr = run.find(_WORD_RPR)
-    if rpr is None:
-        rpr = ET.Element(_WORD_RPR)
-        run.insert(0, rpr)
-    for tag in (_WORD_SZ, _WORD_SZ_CS):
-        node = rpr.find(tag)
-        if node is None:
-            node = ET.SubElement(rpr, tag)
-        node.set(_WORD_VAL, str(max(12, int(half_points))))
+def _part_contains_any_placeholder(part_bytes: bytes, mapping: dict[str, str]) -> bool:
+    try:
+        root = ET.fromstring(part_bytes)
+    except ET.ParseError:
+        return False
+    text = "".join(t.text or "" for t in root.iter(_WORD_TEXT))
+    return any(key in text for key in mapping)
 
 
 def _docx_text_contains(docx_bytes: bytes, token: str) -> bool:

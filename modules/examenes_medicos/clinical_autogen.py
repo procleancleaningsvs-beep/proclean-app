@@ -89,10 +89,10 @@ def generate_clinical_bundle(
     """
     Devuelve {"orina": {...}, "sangre": {...}} para fusionar con datos del formulario maestro.
 
-    `sexo`: Mujer | Hombre | Otro (ajusta rangos hematológicos ligeramente).
+    `sexo`: Femenino | Masculino (acepta Mujer/Hombre históricos para rangos).
     """
     rng = random.Random(seed)
-    mujer = (sexo or "").strip() == "Mujer"
+    mujer = (sexo or "").strip() in {"Femenino", "Mujer"}
 
     aspecto = rng.choice(["Límpido", "Límpido", "Ligeramente turbio"])
     color = rng.choice(["Amarillo", "Amarillo", "Ámbar"])
