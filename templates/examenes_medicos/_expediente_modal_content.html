@@ -1,0 +1,81 @@
+<section class="em-expediente-view" data-expediente-id="{{ row.id }}">
+  <h3 class="panel-title em-detalle-name">Expediente del paciente</h3>
+  <p class="em-detalle-meta">Registro #{{ row.id }} · Actualizado {{ row.last_export_at }}{% if row.username %} · {{ row.username }}{% endif %}</p>
+
+  <div class="em-detalle-head">
+    <p class="helper em-detalle-sub"><strong>{{ row.patient_display_name }}</strong></p>
+    <dl class="em-dl">
+      <dt>ID de paciente</dt>
+      <dd>{{ row.paciente_id or '—' }}</dd>
+      <dt>No. cliente</dt>
+      <dd>{{ row.cliente_numero or '—' }}</dd>
+      <dt>Orden</dt>
+      <dd>{{ row.orden or '—' }}</dd>
+      <dt>Folio</dt>
+      <dd>{{ row.folio or '—' }}</dd>
+    </dl>
+  </div>
+
+  <div class="em-pdf-actions">
+    <p class="em-pdf-title">Descargar archivos</p>
+    <div class="em-pdf-btn-row">
+      {% if row.last_scope == 'unificado' %}
+        {% if pdf_sangre_ok %}
+        <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='unificado') }}">PDF unificado</a>
+        {% else %}
+        <span class="em-pdf-missing">PDF unificado no disponible</span>
+        {% endif %}
+        {% if docx_sangre_ok %}
+        <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.download_expediente_docx', rid=row.id, kind='unificado') }}">DOCX unificado</a>
+        {% else %}
+        <span class="em-pdf-missing">DOCX unificado no disponible</span>
+        {% endif %}
+      {% else %}
+        {% if pdf_orina_ok %}
+        <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='orina') }}">PDF orina</a>
+        {% else %}
+        <span class="em-pdf-missing">PDF orina no disponible</span>
+        {% endif %}
+        {% if docx_orina_ok %}
+        <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.download_expediente_docx', rid=row.id, kind='orina') }}">DOCX orina</a>
+        {% else %}
+        <span class="em-pdf-missing">DOCX orina no disponible</span>
+        {% endif %}
+        {% if pdf_sangre_ok %}
+        <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='sangre') }}">PDF sangre</a>
+        {% else %}
+        <span class="em-pdf-missing">PDF sangre no disponible</span>
+        {% endif %}
+        {% if docx_sangre_ok %}
+        <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.download_expediente_docx', rid=row.id, kind='sangre') }}">DOCX sangre</a>
+        {% else %}
+        <span class="em-pdf-missing">DOCX sangre no disponible</span>
+        {% endif %}
+      {% endif %}
+    </div>
+
+    {% if is_admin %}
+    <div class="em-modal-actions em-modal-actions-inline">
+      <button
+        type="button"
+        class="btn-icon btn-icon--danger"
+        title="Eliminar expediente"
+        aria-label="Eliminar expediente"
+        data-em-delete-btn="1"
+        data-expediente-id="{{ row.id }}"
+        data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}"
+        data-patient="{{ row.patient_display_name }}"
+        data-order="{{ row.orden or '—' }}"
+      >
+        <i data-lucide="trash-2" aria-hidden="true"></i>
+      </button>
+    </div>
+    {% endif %}
+
+    {% if not in_modal %}
+    <div class="em-modal-actions em-modal-actions-inline">
+      <a class="btn btn-secondary" href="{{ url_for('examenes_medicos.historial_page') }}">Volver al historial</a>
+    </div>
+    {% endif %}
+  </div>
+</section>

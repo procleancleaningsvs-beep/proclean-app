@@ -6,6 +6,7 @@ import sqlite3
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from io import BytesIO
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +15,12 @@ from zipfile import ZipFile
 
 from flask import Blueprint, Flask, g
 
-from modules.examenes_medicos.blueprint import api_master_download, register_examenes_medicos
+from modules.examenes_medicos.blueprint import (
+    MONTERREY_TZ,
+    _build_registration_defaults,
+    api_master_download,
+    register_examenes_medicos,
+)
 from modules.examenes_medicos.clinical_autogen import generate_clinical_bundle
 from modules.examenes_medicos.identifiers import (
     build_patient_display_name,
@@ -422,6 +428,40 @@ class TestUnifiedTemplateContract(unittest.TestCase):
 
 
 class TestUnifiedFormUI(unittest.TestCase):
+    def test_registration_defaults_use_monterrey_date_and_operational_range(self):
+        now_monterrey = datetime(2026, 7, 6, 23, 59, 58, tzinfo=MONTERREY_TZ)
+        fecha, hora = _build_registration_defaults(now=now_monterrey, randbelow=lambda _n: 3661)
+        self.assertEqual(fecha, "2026-07-06")
+        self.assertEqual(hora, "08:01:01")
+
+        fecha_min, hora_min = _build_registration_defaults(now=now_monterrey, randbelow=lambda _n: 0)
+        fecha_max, hora_max = _build_registration_defaults(now=now_monterrey, randbelow=lambda _n: 7200)
+        self.assertEqual(fecha_min, "2026-07-06")
+        self.assertEqual(hora_min, "07:00:00")
+        self.assertEqual(fecha_max, "2026-07-06")
+        self.assertEqual(hora_max, "09:00:00")
+        self.assertEqual(len(hora.split(":")), 3)
+
+    def test_registration_defaults_convert_utc_to_monterrey_day(self):
+        now_utc = datetime(2026, 7, 7, 4, 30, 0, tzinfo=timezone.utc)
+        fecha, _hora = _build_registration_defaults(now=now_utc, randbelow=lambda _n: 0)
+        self.assertEqual(fecha, "2026-07-06")
+
+    def test_index_renders_autofilled_registration_inputs(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            with patch("modules.examenes_medicos.blueprint._now_monterrey", return_value=datetime(2026, 7, 6, 10, 0, 0, tzinfo=MONTERREY_TZ)):
+                with patch("modules.examenes_medicos.blueprint.secrets.randbelow", return_value=3723):
+                    with app.test_client() as client:
+                        res = client.get("/vitroflex/examenes-medicos/")
+        self.assertEqual(res.status_code, 200)
+        html = res.get_data(as_text=True)
+        self.assertIn('id="em-fecha-registro"', html)
+        self.assertIn('value="2026-07-06"', html)
+        self.assertIn('id="em-hora-registro"', html)
+        self.assertIn('value="08:02:03"', html)
+        self.assertIn('type="time" step="1"', html)
+
     def test_form_is_trimmed_to_admin_and_blood_group(self):
         with tempfile.TemporaryDirectory() as td:
             app = _app(Path(td))
@@ -473,6 +513,29 @@ class TestUnifiedFormUI(unittest.TestCase):
         self.assertIn('method: "DELETE"', html)
         self.assertIn('btn.dataset.loading === "1"', html)
         self.assertIn("btn.disabled = true", html)
+        self.assertIn('class="btn-icon js-open-expediente"', html)
+        self.assertIn('type="button"', html)
+        self.assertIn("data-expediente-id", html)
+        self.assertIn("data-modal-url", html)
+        self.assertIn("event.preventDefault()", html)
+        self.assertIn("event.key === \"Escape\"", html)
+        self.assertIn("event.target === backdrop", html)
+        self.assertIn("event.target === modal", html)
+        self.assertIn("activeButton.focus()", html)
+        self.assertEqual(html.count('document.addEventListener("click"'), 1)
+
+    def test_form_script_does_not_overwrite_registration_inputs_after_user_changes(self):
+        repo = Path(__file__).resolve().parents[1]
+        js = (repo / "static" / "examenes_medicos" / "examenes_medicos.js").read_text(encoding="utf-8")
+        self.assertNotIn("em-fecha-registro", js)
+        self.assertNotIn("em-hora-registro", js)
+        self.assertEqual(html.count('document.addEventListener("click"'), 1)
+
+    def test_form_script_does_not_overwrite_registration_inputs_after_user_changes(self):
+        repo = Path(__file__).resolve().parents[1]
+        js = (repo / "static" / "examenes_medicos" / "examenes_medicos.js").read_text(encoding="utf-8")
+        self.assertNotIn("em-fecha-registro", js)
+        self.assertNotIn("em-hora-registro", js)
 
 
 class TestUnifiedReferenceRanges(unittest.TestCase):
@@ -778,6 +841,29 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
                         conn.close()
                     self.assertEqual(count, 0)
 
+    def test_retry_after_invalid_submission_keeps_registration_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            payload["format"] = "docx"
+            payload["fecha_registro"] = "2026-07-06"
+            payload["hora_registro"] = "08:22:33"
+            payload["gsanth"] = "A+"
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.generate_clinical_bundle") as gen_mock:
+                    invalid = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+            self.assertEqual(invalid.status_code, 400)
+            gen_mock.assert_not_called()
+
+            payload["gsanth"] = "A Positivo"
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                    ok = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+            self.assertEqual(ok.status_code, 200)
+            self.assertEqual(ok.mimetype, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            text = _docx_text(ok.data)
+            self.assertIn("06/07/2026  08:22:33a. m.", text)
+
     def test_valid_payload_generates_single_document_and_history(self):
         with tempfile.TemporaryDirectory() as td:
             app = _app(Path(td))
@@ -869,6 +955,65 @@ class TestUnifiedGenerationEndpoint(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertTrue(rows[0][4])
             self.assertTrue(rows[0][5])
+
+    def test_modal_endpoint_returns_expediente_html_for_authorized_user(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            payload["format"] = "pdf"
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes", return_value=b"%PDF-1.4\n%test\n"):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        created = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                self.assertEqual(created.status_code, 200)
+                expediente_id = created.headers["X-Examenes-Expediente-Id"]
+                res = client.get(f"/vitroflex/examenes-medicos/historial/{expediente_id}/modal")
+            self.assertEqual(res.status_code, 200)
+            html = res.get_data(as_text=True)
+            self.assertIn("Expediente del paciente", html)
+            self.assertIn("PEREZ LOPEZ JUAN", html)
+            self.assertIn(f"/vitroflex/examenes-medicos/api/historial/{expediente_id}/pdf/unificado", html)
+            self.assertIn(f"/vitroflex/examenes-medicos/api/historial/{expediente_id}/docx/unificado", html)
+
+    def test_modal_endpoint_returns_403_without_permission(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td), role="operador")
+            payload = _valid_payload()
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes", return_value=b"%PDF-1.4\n%test\n"):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        created = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                self.assertEqual(created.status_code, 200)
+                expediente_id = int(created.headers["X-Examenes-Expediente-Id"])
+            conn = sqlite3.connect(app.config["DATABASE"])
+            try:
+                conn.execute("UPDATE examenes_medicos_expediente SET user_id = 999 WHERE id = ?", (expediente_id,))
+                conn.commit()
+            finally:
+                conn.close()
+            with app.test_client() as client:
+                res = client.get(f"/vitroflex/examenes-medicos/historial/{expediente_id}/modal")
+            self.assertEqual(res.status_code, 403)
+
+    def test_modal_endpoint_returns_404_for_missing_expediente(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            with app.test_client() as client:
+                res = client.get("/vitroflex/examenes-medicos/historial/999/modal")
+            self.assertEqual(res.status_code, 404)
+
+    def test_full_detail_route_still_works_as_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            app = _app(Path(td))
+            payload = _valid_payload()
+            with app.test_client() as client:
+                with patch("modules.examenes_medicos.blueprint.docx_bytes_to_pdf_bytes", return_value=b"%PDF-1.4\n%test\n"):
+                    with patch("modules.examenes_medicos.blueprint.log_app_activity"):
+                        created = client.post("/vitroflex/examenes-medicos/api/master/download", json=payload)
+                expediente_id = created.headers["X-Examenes-Expediente-Id"]
+                detail = client.get(f"/vitroflex/examenes-medicos/historial/{expediente_id}")
+            self.assertEqual(detail.status_code, 200)
+            self.assertIn("Vista completa de respaldo.", detail.get_data(as_text=True))
 
     def test_same_patient_new_exam_gets_new_order_and_folio(self):
         with tempfile.TemporaryDirectory() as td:

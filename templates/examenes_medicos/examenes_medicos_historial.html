@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
@@ -32,7 +31,7 @@
       </thead>
       <tbody>
         {% for r in rows %}
-        <tr>
+        <tr data-expediente-row-id="{{ r.id }}">
           <td class="em-mono">{{ r.cliente_numero or '—' }}</td>
           <td class="em-patient-cell">{{ r.patient_display_name }}</td>
           <td class="em-imc-cell">{{ r.imc_label or '—' }}</td>
@@ -61,7 +60,17 @@
           <td class="em-date-cell">{{ r.last_export_at }}</td>
           <td>{{ r.username or '—' }}</td>
           <td class="em-actions-cell actions-cell actions-cell--nowrap pc-row-actions">
-            {{ icon_link('eye', 'Ver detalle del expediente', url_for('examenes_medicos.historial_detalle', rid=r.id)) }}
+            <button
+              type="button"
+              class="btn-icon js-open-expediente"
+              title="Ver expediente"
+              aria-label="Ver expediente"
+              data-expediente-id="{{ r.id }}"
+              data-modal-url="{{ url_for('examenes_medicos.historial_modal', rid=r.id) }}"
+              data-fallback-url="{{ url_for('examenes_medicos.historial_detalle', rid=r.id) }}"
+            >
+              <i data-lucide="eye" aria-hidden="true"></i>
+            </button>
             {% if is_admin %}
             <button
               type="button"
@@ -69,6 +78,7 @@
               title="Eliminar expediente del historial"
               aria-label="Eliminar expediente del historial"
               data-em-delete-btn="1"
+              data-expediente-id="{{ r.id }}"
               data-url="{{ url_for('examenes_medicos.api_historial_item', rid=r.id) }}"
               data-patient="{{ r.patient_display_name }}"
               data-order="{{ r.orden or '—' }}"
@@ -86,7 +96,31 @@
   </div>
 </section>
 
-{% if is_admin %}
+<div id="em-expediente-backdrop" class="em-modal-backdrop" hidden aria-hidden="true"></div>
+<div
+  id="em-expediente-modal"
+  class="em-modal em-expediente-modal"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="em-expediente-modal-title"
+  hidden
+>
+  <div class="em-modal-inner em-expediente-modal-inner">
+    <header class="em-expediente-modal-head">
+      <h3 id="em-expediente-modal-title" class="panel-title">Expediente del paciente</h3>
+      <button type="button" class="btn-icon" data-em-exp-close="1" aria-label="Cerrar expediente" title="Cerrar expediente">
+        <i data-lucide="x" aria-hidden="true"></i>
+      </button>
+    </header>
+    <div id="em-expediente-modal-content" class="em-expediente-modal-content" tabindex="-1">
+      <p class="helper">Selecciona un expediente para ver su detalle.</p>
+    </div>
+    <footer class="em-modal-actions">
+      <button type="button" class="btn btn-secondary" data-em-exp-close="1">Cerrar</button>
+    </footer>
+  </div>
+</div>
+
 <script>
 function emDeleteExpediente(btn, onSuccess) {
   if (!btn || btn.dataset.loading === "1") return;
@@ -116,12 +150,126 @@ function emDeleteExpediente(btn, onSuccess) {
     });
 }
 
-document.addEventListener("click", function (event) {
-  var btn = event.target.closest("[data-em-delete-btn]");
-  if (!btn) return;
-  event.preventDefault();
-  emDeleteExpediente(btn, function () { window.location.reload(); });
-});
+(function () {
+  var modal = document.getElementById("em-expediente-modal");
+  var backdrop = document.getElementById("em-expediente-backdrop");
+  var content = document.getElementById("em-expediente-modal-content");
+  var title = document.getElementById("em-expediente-modal-title");
+  var activeButton = null;
+  var activeExpedienteId = "";
+  var requestToken = 0;
+
+  function lockBodyScroll(lock) {
+    document.body.classList.toggle("em-modal-open", !!lock);
+  }
+
+  function openModalSkeleton() {
+    if (!modal || !backdrop || !content) return;
+    backdrop.hidden = false;
+    modal.hidden = false;
+    lockBodyScroll(true);
+    content.innerHTML = '<p class="helper">Cargando expediente…</p>';
+    content.focus();
+  }
+
+  function closeModal() {
+    if (!modal || !backdrop || !content) return;
+    modal.hidden = true;
+    backdrop.hidden = true;
+    content.innerHTML = "";
+    activeExpedienteId = "";
+    lockBodyScroll(false);
+    if (activeButton && typeof activeButton.focus === "function") activeButton.focus();
+  }
+
+  function removeRowByExpedienteId(expedienteId) {
+    var rid = String(expedienteId || "");
+    if (!rid) return;
+    var row = document.querySelector('tr[data-expediente-row-id="' + rid + '"]');
+    if (!row) return;
+    row.remove();
+    var tbody = document.querySelector(".em-historial-table tbody");
+    if (!tbody) return;
+    var hasRows = tbody.querySelector("tr[data-expediente-row-id]");
+    if (!hasRows) {
+      var empty = document.createElement("tr");
+      empty.innerHTML = '<td colspan="7" class="em-empty-row">Sin registros aún.</td>';
+      tbody.appendChild(empty);
+    }
+  }
+
+  function fetchAndRenderExpediente(btn) {
+    var modalUrl = btn.getAttribute("data-modal-url");
+    if (!modalUrl) {
+      var fallback = btn.getAttribute("data-fallback-url");
+      if (fallback) window.location.href = fallback;
+      return;
+    }
+    activeButton = btn;
+    activeExpedienteId = btn.getAttribute("data-expediente-id") || "";
+    requestToken += 1;
+    var currentToken = requestToken;
+    openModalSkeleton();
+    if (title) title.textContent = "Expediente del paciente";
+    fetch(modalUrl, { method: "GET", credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } })
+      .then(function (res) {
+        if (!res.ok) {
+          if (res.status === 403) throw new Error("No tienes permisos para ver este expediente.");
+          if (res.status === 404) throw new Error("El expediente solicitado no existe.");
+          throw new Error("No se pudo cargar el expediente.");
+        }
+        return res.text();
+      })
+      .then(function (html) {
+        if (currentToken !== requestToken || !content) return;
+        content.innerHTML = html;
+      })
+      .catch(function (err) {
+        if (currentToken !== requestToken || !content) return;
+        content.innerHTML =
+          '<div class="em-modal-error"><p class="helper em-error">' +
+          (err && err.message ? err.message : "No se pudo cargar el expediente.") +
+          "</p></div>";
+      });
+  }
+
+  document.addEventListener("click", function (event) {
+    var openBtn = event.target.closest(".js-open-expediente");
+    if (openBtn) {
+      event.preventDefault();
+      fetchAndRenderExpediente(openBtn);
+      return;
+    }
+
+    var closeBtn = event.target.closest("[data-em-exp-close]");
+    if (closeBtn) {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+
+    if (event.target === backdrop || event.target === modal) {
+      event.preventDefault();
+      closeModal();
+      return;
+    }
+
+    var delBtn = event.target.closest("[data-em-delete-btn]");
+    if (!delBtn) return;
+    event.preventDefault();
+    emDeleteExpediente(delBtn, function () {
+      var rid = delBtn.getAttribute("data-expediente-id") || activeExpedienteId;
+      removeRowByExpedienteId(rid);
+      if (rid && rid === activeExpedienteId) closeModal();
+    });
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && modal && !modal.hidden) {
+      event.preventDefault();
+      closeModal();
+    }
+  });
+})();
 </script>
-{% endif %}
 {% endblock %}

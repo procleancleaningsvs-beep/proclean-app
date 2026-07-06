@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import sqlite3
+import secrets
 import uuid
-from datetime import datetime
+from datetime import datetime, time, timedelta
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -36,7 +38,6 @@ from modules.examenes_medicos.expediente_db import (
 )
 from modules.examenes_medicos.export_helpers import (
     app_mx_today,
-    default_yesterday_iso_mx,
     resolve_generated_artifact,
 )
 from modules.examenes_medicos.identifiers import (
@@ -83,6 +84,8 @@ examenes_medicos_bp = Blueprint(
     static_url_path="em-assets",
 )
 
+MONTERREY_TZ = ZoneInfo("America/Monterrey")
+
 
 def _login_required_page(view):
     @wraps(view)
@@ -102,6 +105,22 @@ def _login_required_json():
 
 def _now_iso() -> str:
     return datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _now_monterrey() -> datetime:
+    return datetime.now(MONTERREY_TZ)
+
+
+def _build_registration_defaults(
+    *,
+    now: datetime | None = None,
+    randbelow: Callable[[int], int] | None = None,
+) -> tuple[str, str]:
+    now_monterrey = (now or _now_monterrey()).astimezone(MONTERREY_TZ)
+    start = datetime.combine(now_monterrey.date(), time(hour=7, minute=0, second=0), tzinfo=MONTERREY_TZ)
+    randbelow_fn = randbelow or secrets.randbelow
+    generated = start + timedelta(seconds=randbelow_fn(7201))
+    return now_monterrey.strftime("%Y-%m-%d"), generated.strftime("%H:%M:%S")
 
 
 def _is_admin() -> bool:
@@ -225,6 +244,25 @@ def _prepare_unified_ids(
     }, None
 
 
+def _load_expediente_for_current_user_or_abort(rid: int, *, forbidden_status: int = 404):
+    row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
+    if not row:
+        abort(404)
+    if not _is_admin() and int(row.user_id) != int(g.user["id"]):
+        abort(forbidden_status)
+    return row
+
+
+def _expediente_artifact_flags(row: Any) -> dict[str, bool]:
+    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+    return {
+        "pdf_orina_ok": resolve_generated_artifact(gen, row.orina_pdf_relpath) is not None,
+        "pdf_sangre_ok": resolve_generated_artifact(gen, row.sangre_pdf_relpath) is not None,
+        "docx_orina_ok": resolve_generated_artifact(gen, row.orina_docx_relpath) is not None,
+        "docx_sangre_ok": resolve_generated_artifact(gen, row.sangre_docx_relpath) is not None,
+    }
+
+
 def _persist_unified_export(
     *,
     payload: dict[str, Any],
@@ -329,10 +367,11 @@ def _persist_unified_export(
 @examenes_medicos_bp.route("/", methods=["GET"])
 @_login_required_page
 def index():
-    y = default_yesterday_iso_mx()
+    default_fecha_registro, default_hora_registro = _build_registration_defaults()
     return render_template(
         "examenes_medicos_index.html",
-        default_fecha=y,
+        default_fecha_registro=default_fecha_registro,
+        default_hora_registro=default_hora_registro,
         clinical_sections=clinical_form_sections(),
     )
 
@@ -350,20 +389,27 @@ def historial_page():
 @examenes_medicos_bp.route("/historial/<int:rid>", methods=["GET"])
 @_login_required_page
 def historial_detalle(rid: int):
-    row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
-    if not row:
-        abort(404)
-    if not _is_admin() and int(row.user_id) != int(g.user["id"]):
-        abort(404)
-    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
-    pdf_orina = resolve_generated_artifact(gen, row.orina_pdf_relpath)
-    pdf_sangre = resolve_generated_artifact(gen, row.sangre_pdf_relpath)
+    row = _load_expediente_for_current_user_or_abort(rid, forbidden_status=404)
+    artifact_flags = _expediente_artifact_flags(row)
     return render_template(
         "examenes_medicos_detalle.html",
         row=row,
-        pdf_orina_ok=pdf_orina is not None,
-        pdf_sangre_ok=pdf_sangre is not None,
+        **artifact_flags,
         is_admin=_is_admin(),
+    )
+
+
+@examenes_medicos_bp.route("/historial/<int:rid>/modal", methods=["GET"])
+@_login_required_page
+def historial_modal(rid: int):
+    row = _load_expediente_for_current_user_or_abort(rid, forbidden_status=403)
+    artifact_flags = _expediente_artifact_flags(row)
+    return render_template(
+        "examenes_medicos/_expediente_modal_content.html",
+        row=row,
+        **artifact_flags,
+        is_admin=_is_admin(),
+        in_modal=True,
     )
 
 
@@ -691,6 +737,31 @@ def download_expediente_pdf(rid: int, kind: str):
         rel, name = row.orina_pdf_relpath, row.orina_pdf_download_name
     else:
         rel, name = row.sangre_pdf_relpath, row.sangre_pdf_download_name
+    p = resolve_generated_artifact(gen, rel)
+    if not p:
+        abort(404)
+    dl = name or p.name
+    return send_file(p, as_attachment=True, download_name=dl)
+
+
+@examenes_medicos_bp.route("/api/historial/<int:rid>/docx/<kind>", methods=["GET"])
+@_login_required_page
+def download_expediente_docx(rid: int, kind: str):
+    k = str(kind or "").lower().strip()
+    if k == "unificado":
+        k = "sangre"
+    if k not in ("orina", "sangre"):
+        abort(404)
+    row = get_examenes_expediente(str(current_app.config["DATABASE"]), rid)
+    if not row:
+        abort(404)
+    if not _is_admin() and int(row.user_id) != int(g.user["id"]):
+        abort(404)
+    gen = Path(current_app.config["GENERATED_DIR"]).resolve()
+    if k == "orina":
+        rel, name = row.orina_docx_relpath, row.orina_docx_download_name
+    else:
+        rel, name = row.sangre_docx_relpath, row.sangre_docx_download_name
     p = resolve_generated_artifact(gen, rel)
     if not p:
         abort(404)

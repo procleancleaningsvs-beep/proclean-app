@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% from '_icon_button.html' import icon_button %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('vitroflex.static', filename='vitroflex.css') }}">
 <link rel="stylesheet" href="{{ url_for('examenes_medicos.static', filename='examenes_medicos.css') }}">
@@ -9,64 +8,15 @@
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Vitroflex</span>
     <h2 class="pc-page-title">Expediente del paciente</h2>
-    <p class="em-detalle-meta pc-page-subtitle">Registro #{{ row.id }} · Actualizado {{ row.last_export_at }} · {{ row.username or '—' }}</p>
+    <p class="em-detalle-meta pc-page-subtitle">Vista completa de respaldo.</p>
   </div>
   <div class="page-head-actions pc-hub-hero__actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
-    {% if is_admin %}
-    <button
-      type="button"
-      class="btn-icon btn-icon--danger em-del-btn"
-      id="em-del-btn"
-      title="Eliminar expediente"
-      aria-label="Eliminar expediente"
-      data-em-delete-btn="1"
-      data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}"
-      data-patient="{{ row.patient_display_name }}"
-      data-order="{{ row.orden or '—' }}"
-    >
-      <i data-lucide="trash-2" aria-hidden="true"></i>
-    </button>
-    {% endif %}
   </div>
 </section>
 
 <section class="panel vf-panel em-detalle-panel">
-  <div class="em-detalle-head">
-    <div>
-      <h3 class="panel-title em-detalle-name">{{ row.patient_display_name }}</h3>
-      <p class="helper em-detalle-sub">No. cliente: <span class="em-mono">{{ row.cliente_numero or '—' }}</span>
-        {% if row.imc_label %}· IMC: {{ row.imc_label }}{% endif %}
-      </p>
-    </div>
-  </div>
-
-  <div class="em-pdf-actions">
-    <p class="em-pdf-title">Descargar PDF</p>
-    <div class="em-pdf-btn-row">
-      {% if row.last_scope == 'unificado' %}
-      {% if pdf_sangre_ok %}
-      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='unificado') }}">PDF unificado</a>
-      {% else %}
-      <span class="em-pdf-missing">PDF unificado no disponible</span>
-      {% endif %}
-      {% else %}
-      {% if pdf_orina_ok %}
-      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='orina') }}">PDF orina</a>
-      {% else %}
-      <span class="em-pdf-missing">PDF orina no disponible</span>
-      {% endif %}
-      {% if pdf_sangre_ok %}
-      <a class="btn btn-primary" href="{{ url_for('examenes_medicos.download_expediente_pdf', rid=row.id, kind='sangre') }}">PDF sangre</a>
-      {% else %}
-      <span class="em-pdf-missing">PDF sangre no disponible</span>
-      {% endif %}
-      {% endif %}
-    </div>
-    {% if (row.last_scope == 'unificado' and not pdf_sangre_ok) or (row.last_scope != 'unificado' and not pdf_orina_ok and not pdf_sangre_ok) %}
-    <p class="helper em-error">No hay PDFs guardados en el servidor para este expediente.</p>
-    {% endif %}
-  </div>
+  {% include 'examenes_medicos/_expediente_modal_content.html' %}
 </section>
 
 {% if is_admin %}

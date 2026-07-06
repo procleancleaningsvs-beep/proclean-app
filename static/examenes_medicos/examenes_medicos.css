@@ -89,6 +89,10 @@
   padding: 1rem;
 }
 
+.em-modal-open {
+  overflow: hidden;
+}
+
 .em-modal[hidden] {
   display: none !important;
 }
@@ -185,6 +189,36 @@
 
 .em-modal-primary {
   min-width: 9rem;
+}
+
+.em-expediente-modal-inner {
+  max-width: 46rem;
+}
+
+.em-expediente-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.em-expediente-modal-content {
+  min-height: 6rem;
+  max-height: 72vh;
+  overflow: auto;
+  outline: none;
+}
+
+.em-modal-error {
+  padding: 1rem;
+  border: 1px dashed var(--pc-border);
+  border-radius: var(--pc-radius-md);
+  background: var(--pc-surface-soft);
+}
+
+.em-modal-actions-inline {
+  justify-content: flex-start;
 }
 
 /* ── D) Historial — panel + tabla ProClean ─────────────────────
@@ -550,6 +584,37 @@
   margin: 0;
   font-size: 0.875rem;
   color: var(--pc-text);
+}
+
+@media (max-width: 960px) {
+  .em-expediente-modal-inner {
+    max-width: min(94vw, 40rem);
+  }
+}
+
+@media (max-width: 640px) {
+  .em-modal {
+    padding: 0.75rem;
+  }
+
+  .em-expediente-modal-inner {
+    max-width: 100%;
+    border-radius: var(--pc-radius-lg);
+    padding: 1rem;
+  }
+
+  .em-expediente-modal-content {
+    max-height: 78vh;
+  }
+
+  .em-pdf-btn-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .em-dl {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── J) Misceláneos ─────────────────────────────────────────── */
