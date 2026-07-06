@@ -30,9 +30,12 @@ from modules.finiquitos.docx_placeholders import replace_placeholders_in_docx_by
 PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
 _WORD_TEXT = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
 _WORD_RUN = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r"
+_WORD_PPR = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr"
 _WORD_RPR = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr"
-_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
-_ALIGNMENT_SPACE_PLACEHOLDERS = ("{{basopc}}", "{{baso_a}}", "{{o_leva}}")
+_WORD_JC = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}jc"
+_WORD_VAL = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val"
+TARGET_ALIGNMENT_KEYS = frozenset({"potas", "leuco", "basopc", "baso_a", "o_leva"})
+_ALIGNMENT_SPACE_PLACEHOLDERS = frozenset(f"{{{{{key}}}}}" for key in TARGET_ALIGNMENT_KEYS)
 
 
 @dataclass(frozen=True)
@@ -172,7 +175,7 @@ def read_validated_unified_template(
 
 def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) -> bytes:
     assert_template_placeholders_match(template_bytes, mapping)
-    template_copy = _add_alignment_spaces_before_placeholders(template_bytes)
+    template_copy = normalize_specific_result_alignment(template_bytes)
     rendered = replace_placeholders_in_docx_bytes(template_copy, mapping)
     rendered = _restore_word_xml_parts_without_placeholders(template_bytes, rendered, mapping)
     if not rendered:
@@ -185,53 +188,72 @@ def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) ->
     return rendered
 
 
-def _add_alignment_spaces_before_placeholders(template_bytes: bytes) -> bytes:
+def normalize_specific_result_alignment(docx_bytes: bytes) -> bytes:
+    """Normaliza la alineación visual solo de los resultados autorizados."""
     out = BytesIO()
-    with ZipFile(BytesIO(template_bytes), "r") as zin:
+    with ZipFile(BytesIO(docx_bytes), "r") as zin:
         with ZipFile(out, "w", ZIP_DEFLATED) as zout:
             for info in zin.infolist():
                 data = zin.read(info.filename)
                 if info.filename == "word/document.xml":
                     root = ET.fromstring(data)
-                    if _add_alignment_spaces_to_document(root):
+                    if _normalize_alignment_spaces_in_document(root):
                         data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
                 zout.writestr(info, data)
     return out.getvalue()
 
 
-def _add_alignment_spaces_to_document(root: ET.Element) -> bool:
+def _normalize_alignment_spaces_in_document(root: ET.Element) -> bool:
     changed = False
     for paragraph in root.iter(_w("p")):
         text_nodes = list(paragraph.iter(_WORD_TEXT))
         full = "".join(t.text or "" for t in text_nodes)
-        if full not in _ALIGNMENT_SPACE_PLACEHOLDERS:
+        if full.strip() not in _ALIGNMENT_SPACE_PLACEHOLDERS:
             continue
-        first_text = next((t for t in paragraph.iter(_WORD_TEXT) if t.text), None)
-        if first_text is None:
-            continue
-        first_run = _ancestor(paragraph, first_text, _WORD_RUN)
-        if first_run is None:
-            continue
-        space_run = ET.Element(_WORD_RUN)
-        rpr = first_run.find(_WORD_RPR)
-        if rpr is not None:
-            space_run.append(ET.fromstring(ET.tostring(rpr, encoding="utf-8")))
-        text = ET.SubElement(space_run, _WORD_TEXT)
-        text.set(_XML_SPACE, "preserve")
-        text.text = " "
-        paragraph.insert(list(paragraph).index(first_run), space_run)
-        changed = True
+        changed = _strip_existing_alignment_prefix(paragraph) or changed
+        changed = _ensure_centered_paragraph(paragraph) or changed
     return changed
 
 
-def _ancestor(root: ET.Element, child: ET.Element, tag: str) -> ET.Element | None:
-    parent = {c: p for p in root.iter() for c in p}
-    current = child
-    while current in parent:
-        current = parent[current]
-        if current.tag == tag:
-            return current
-    return None
+def _strip_existing_alignment_prefix(paragraph: ET.Element) -> bool:
+    changed = False
+    for child in list(paragraph):
+        if child.tag != _WORD_RUN:
+            continue
+        run_text = "".join(t.text or "" for t in child.iter(_WORD_TEXT))
+        if run_text and run_text.strip(" ") == "":
+            paragraph.remove(child)
+            changed = True
+            continue
+        first_text = next((t for t in child.iter(_WORD_TEXT) if t.text), None)
+        if first_text is not None:
+            stripped = first_text.text.lstrip(" ")
+            if stripped != first_text.text:
+                first_text.text = stripped
+                changed = True
+        break
+    return changed
+
+
+def _ensure_centered_paragraph(paragraph: ET.Element) -> bool:
+    ppr = paragraph.find(_WORD_PPR)
+    if ppr is None:
+        ppr = ET.Element(_WORD_PPR)
+        paragraph.insert(0, ppr)
+    jc = ppr.find(_WORD_JC)
+    if jc is None:
+        jc = ET.Element(_WORD_JC)
+        insert_at = 0
+        for idx, child in enumerate(list(ppr)):
+            if child.tag == _WORD_RPR:
+                insert_at = idx
+                break
+            insert_at = idx + 1
+        ppr.insert(insert_at, jc)
+    if jc.get(_WORD_VAL) == "center":
+        return False
+    jc.set(_WORD_VAL, "center")
+    return True
 
 
 def _w(name: str) -> str:

@@ -37,13 +37,16 @@ from modules.examenes_medicos.reference_ranges import (
     validate_field_value,
 )
 from modules.examenes_medicos.unified_document import (
+    TARGET_ALIGNMENT_KEYS,
     build_unified_mapping,
     extract_docx_placeholders,
     generate_unified_medical_document,
+    normalize_specific_result_alignment,
     read_validated_unified_template,
     render_unified_docx_bytes,
 )
 from modules.examenes_medicos.validation import format_registration_datetime
+from modules.vitroflex_docs.libreoffice_pdf import docx_bytes_to_pdf_bytes
 
 
 UNIFIED_TEMPLATE_SHA256 = "deb1420e2002546f3458ecfb4c02ab34581e2d68df97d097cdbdff997994f41e"
@@ -276,16 +279,108 @@ class TestUnifiedTemplateContract(unittest.TestCase):
 
     def test_alignment_spaces_are_presentation_only_for_affected_results(self):
         payload = _valid_mapping_payload()
-        payload.update({"basopc": "0.7", "baso_a": "0.03", "o_leva": "Ausentes"})
+        payload.update({"potas": "4.8", "leuco": "5.0", "basopc": "0.7", "baso_a": "0.03", "o_leva": "Ausentes"})
         mapping = build_unified_mapping(payload)
+        self.assertEqual(TARGET_ALIGNMENT_KEYS, {"potas", "leuco", "basopc", "baso_a", "o_leva"})
+        self.assertEqual(mapping["{{potas}}"], "4.8")
+        self.assertEqual(mapping["{{leuco}}"], "5.0")
         self.assertEqual(mapping["{{basopc}}"], "0.7")
         self.assertEqual(mapping["{{baso_a}}"], "0.03")
         self.assertEqual(mapping["{{o_leva}}"], "Ausentes")
+        normalized_once = normalize_specific_result_alignment(UNIFICADO_DOCX.read_bytes())
+        normalized_twice = normalize_specific_result_alignment(normalized_once)
+        self.assertEqual(normalized_once, normalized_twice)
         rendered = render_unified_docx_bytes(UNIFICADO_DOCX.read_bytes(), mapping)
         document_text = _xml_text(rendered, "word/document.xml")
-        self.assertIn(" 0.7", document_text)
-        self.assertIn(" 0.03", document_text)
-        self.assertIn(" Ausentes", document_text)
+        self.assertIn("4.8", document_text)
+        self.assertIn("5.0", document_text)
+        self.assertIn("0.7", document_text)
+        self.assertIn("0.03", document_text)
+        self.assertIn("Ausentes", document_text)
+        self.assertNotIn("  4.8", document_text)
+        self.assertNotIn("  5.0", document_text)
+        self.assertNotIn("  0.7", document_text)
+        self.assertNotIn("  0.03", document_text)
+        self.assertNotIn("  Ausentes", document_text)
+        centered = _paragraph_style_signature(rendered, ("4.8", "5.0", "0.7", "0.03", "Ausentes"))
+        self.assertTrue(any('val="center"' in ppr and text == "4.8" for _, text, ppr, _ in centered))
+        self.assertTrue(any('val="center"' in ppr and text == "5.0" for _, text, ppr, _ in centered))
+        self.assertTrue(any('val="center"' in ppr and text == "0.7" for _, text, ppr, _ in centered))
+        self.assertTrue(any('val="center"' in ppr and text == "0.03" for _, text, ppr, _ in centered))
+
+    def test_alignment_centers_are_within_pdf_tolerance(self):
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("PyMuPDF no esta disponible para validar coordenadas PDF.")
+
+        payload = _valid_mapping_payload()
+        payload.update(
+            {
+                "calcio": "9.4",
+                "sodio": "140",
+                "potas": "4.8",
+                "leuco": "5.0",
+                "eritro": "5.20",
+                "hemog": "15.0",
+                "eosipc": "2.0",
+                "basopc": "0.6",
+                "eosi_a": "0.20",
+                "baso_a": "0.03",
+                "o_bact": "Ausentes",
+                "o_rmuc": "Ausentes",
+                "o_leva": "Ausentes",
+            }
+        )
+        rendered = render_unified_docx_bytes(UNIFICADO_DOCX.read_bytes(), build_unified_mapping(payload))
+        try:
+            pdf_bytes = docx_bytes_to_pdf_bytes(rendered)
+        except RuntimeError as exc:
+            self.skipTest(f"LibreOffice no esta disponible para validar coordenadas PDF: {exc}")
+
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        words = []
+        wanted = {"9.4", "140", "4.8", "5.0", "5.20", "15.0", "2.0", "0.6", "0.20", "0.03", "Ausentes"}
+        for page_no, page in enumerate(doc, start=1):
+            for word in page.get_text("words"):
+                if word[4] in wanted:
+                    words.append((page_no, word[4], tuple(float(x) for x in word[:4])))
+
+        def pick(page: int, text: str, y_min: float, y_max: float) -> float:
+            matches = [
+                box
+                for page_no, word_text, box in words
+                if page_no == page and word_text == text and y_min <= box[1] <= y_max
+            ]
+            self.assertTrue(matches, f"No se encontro {text!r} en pagina {page}, rango y {y_min}-{y_max}")
+            box = sorted(matches, key=lambda item: (item[1], item[0]))[0]
+            return (box[0] + box[2]) / 2
+
+        centers = {
+            "calcio": pick(2, "9.4", 300, 320),
+            "sodio": pick(2, "140", 315, 330),
+            "potas": pick(2, "4.8", 325, 345),
+            "leuco": pick(2, "5.0", 385, 405),
+            "eritro": pick(2, "5.20", 400, 420),
+            "hemog": pick(2, "15.0", 410, 430),
+            "eosipc": pick(2, "2.0", 550, 570),
+            "basopc": pick(2, "0.6", 565, 585),
+            "eosi_a": pick(2, "0.20", 610, 630),
+            "baso_a": pick(2, "0.03", 625, 645),
+            "o_bact": pick(4, "Ausentes", 430, 445),
+            "o_rmuc": pick(4, "Ausentes", 455, 470),
+            "o_leva": pick(4, "Ausentes", 475, 495),
+        }
+        comparisons = {
+            "potas": ("calcio", "sodio"),
+            "leuco": ("eritro", "hemog"),
+            "basopc": ("eosipc",),
+            "baso_a": ("eosi_a",),
+            "o_leva": ("o_bact", "o_rmuc"),
+        }
+        for target, references in comparisons.items():
+            reference_center = sum(centers[name] for name in references) / len(references)
+            self.assertLessEqual(abs(centers[target] - reference_center), 2.0, target)
 
     def test_mapping_uses_canonical_patient_name_and_registration_datetime(self):
         payload = _valid_mapping_payload()
