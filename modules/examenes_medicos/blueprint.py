@@ -57,8 +57,7 @@ from modules.examenes_medicos.reference_ranges import (
 )
 from modules.examenes_medicos.unified_document import (
     UnifiedTemplateError,
-    build_unified_mapping,
-    render_unified_docx_bytes,
+    generate_unified_medical_document,
 )
 from modules.examenes_medicos.validation import (
     edad_desde_fecha_nacimiento,
@@ -327,13 +326,6 @@ def _persist_unified_export(
     return eid
 
 
-def _unificado_docx_bytes(mapping: dict[str, str]) -> bytes:
-    if not UNIFICADO_DOCX.is_file():
-        raise FileNotFoundError(str(UNIFICADO_DOCX))
-    raw = UNIFICADO_DOCX.read_bytes()
-    return render_unified_docx_bytes(raw, mapping)
-
-
 @examenes_medicos_bp.route("/", methods=["GET"])
 @_login_required_page
 def index():
@@ -531,23 +523,24 @@ def api_master_download():
         conn.close()
 
     master = {**raw, **master_base, **clinical_payload, **ident}
-    mapping = build_unified_mapping(master)
-
-    def hist_payload() -> dict[str, Any]:
-        return {
-            "tipo": "unificado",
-            "formulario_maestro": _history_master_payload(master_base, ident),
-            "formato_descarga": want,
-            "alcance": scope,
-            "plantilla": UNIFICADO_DOCX.name,
-            "placeholders_count": len(mapping),
-            "identificadores": ident,
-        }
-
     rid: int | None = None
     export_ts = _now_iso()
     try:
-        docx_b = _unificado_docx_bytes(mapping)
+        document = generate_unified_medical_document(master)
+        mapping = document.mapping
+
+        def hist_payload() -> dict[str, Any]:
+            return {
+                "tipo": "unificado",
+                "formulario_maestro": _history_master_payload(master_base, ident),
+                "formato_descarga": want,
+                "alcance": scope,
+                "plantilla": UNIFICADO_DOCX.name,
+                "placeholders_count": len(mapping),
+                "identificadores": ident,
+            }
+
+        docx_b = document.docx_bytes
         if not docx_b:
             return jsonify({"ok": False, "error": "El documento generado esta vacio."}), 500
         stem = ident["filename_base"]

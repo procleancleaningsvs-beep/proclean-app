@@ -63,8 +63,18 @@
           <td class="em-actions-cell actions-cell actions-cell--nowrap pc-row-actions">
             {{ icon_link('eye', 'Ver detalle del expediente', url_for('examenes_medicos.historial_detalle', rid=r.id)) }}
             {% if is_admin %}
-            {% set delete_attrs = 'data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=r.id) ~ '" data-patient="' ~ (r.patient_display_name | e) ~ '" data-order="' ~ ((r.orden or '—') | e) ~ '"' %}
-            {{ icon_button('trash-2', 'Eliminar expediente del historial', 'danger', class='em-del-exp-btn', extra_attrs=delete_attrs) }}
+            <button
+              type="button"
+              class="btn-icon btn-icon--danger em-del-exp-btn"
+              title="Eliminar expediente del historial"
+              aria-label="Eliminar expediente del historial"
+              data-em-delete-btn="1"
+              data-url="{{ url_for('examenes_medicos.api_historial_item', rid=r.id) }}"
+              data-patient="{{ r.patient_display_name }}"
+              data-order="{{ r.orden or '—' }}"
+            >
+              <i data-lucide="trash-2" aria-hidden="true"></i>
+            </button>
             {% endif %}
           </td>
         </tr>
@@ -106,10 +116,11 @@ function emDeleteExpediente(btn, onSuccess) {
     });
 }
 
-document.querySelectorAll(".em-del-exp-btn").forEach(function (btn) {
-  btn.addEventListener("click", function () {
-    emDeleteExpediente(btn, function () { window.location.reload(); });
-  });
+document.addEventListener("click", function (event) {
+  var btn = event.target.closest("[data-em-delete-btn]");
+  if (!btn) return;
+  event.preventDefault();
+  emDeleteExpediente(btn, function () { window.location.reload(); });
 });
 </script>
 {% endif %}

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from collections import Counter
+from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 import xml.etree.ElementTree as ET
@@ -19,12 +22,25 @@ from modules.examenes_medicos.reference_ranges import (
     CLINICAL_PLACEHOLDER_NAMES,
     EXPECTED_UNIFIED_PLACEHOLDERS,
 )
+from modules.examenes_medicos.paths import UNIFICADO_DOCX, UNIFICADO_DOCX_SHA256
 from modules.examenes_medicos.validation import _norm, format_registration_datetime, normalize_sexo_display
 from modules.finiquitos.docx_placeholders import replace_placeholders_in_docx_bytes
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{[^{}]+\}\}")
 _WORD_TEXT = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+_WORD_RUN = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}r"
+_WORD_RPR = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}rPr"
+_XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
+_ALIGNMENT_SPACE_PLACEHOLDERS = ("{{basopc}}", "{{baso_a}}", "{{o_leva}}")
+
+
+@dataclass(frozen=True)
+class UnifiedMedicalDocument:
+    template_path: Path
+    template_sha256: str
+    mapping: dict[str, str]
+    docx_bytes: bytes
 
 
 class UnifiedTemplateError(RuntimeError):
@@ -116,9 +132,48 @@ def build_unified_mapping(data: dict[str, Any]) -> dict[str, str]:
     return mapping
 
 
+def generate_unified_medical_document(
+    data: dict[str, Any],
+    *,
+    template_path: Path = UNIFICADO_DOCX,
+    expected_sha256: str = UNIFICADO_DOCX_SHA256,
+) -> UnifiedMedicalDocument:
+    template_bytes, template_sha = read_validated_unified_template(
+        template_path,
+        expected_sha256=expected_sha256,
+    )
+    mapping = build_unified_mapping(data)
+    docx_bytes = render_unified_docx_bytes(template_bytes, mapping)
+    return UnifiedMedicalDocument(
+        template_path=template_path.resolve(),
+        template_sha256=template_sha,
+        mapping=mapping,
+        docx_bytes=docx_bytes,
+    )
+
+
+def read_validated_unified_template(
+    template_path: Path = UNIFICADO_DOCX,
+    *,
+    expected_sha256: str = UNIFICADO_DOCX_SHA256,
+) -> tuple[bytes, str]:
+    path = template_path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(str(path))
+    raw = path.read_bytes()
+    sha = hashlib.sha256(raw).hexdigest()
+    if sha.lower() != expected_sha256.lower():
+        raise UnifiedTemplateError(
+            "La plantilla unificada activa no coincide con el SHA-256 esperado. "
+            f"Esperado: {expected_sha256}. Actual: {sha}. Ruta: {path}."
+        )
+    return raw, sha
+
+
 def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) -> bytes:
     assert_template_placeholders_match(template_bytes, mapping)
-    rendered = replace_placeholders_in_docx_bytes(template_bytes, mapping)
+    template_copy = _add_alignment_spaces_before_placeholders(template_bytes)
+    rendered = replace_placeholders_in_docx_bytes(template_copy, mapping)
     rendered = _restore_word_xml_parts_without_placeholders(template_bytes, rendered, mapping)
     if not rendered:
         raise UnifiedTemplateError("El DOCX generado esta vacio.")
@@ -128,6 +183,59 @@ def render_unified_docx_bytes(template_bytes: bytes, mapping: dict[str, str]) ->
     if _docx_text_contains(rendered, "{{") or _docx_text_contains(rendered, "}}"):
         raise UnifiedTemplateError("Quedaron secuencias de placeholder en el DOCX generado.")
     return rendered
+
+
+def _add_alignment_spaces_before_placeholders(template_bytes: bytes) -> bytes:
+    out = BytesIO()
+    with ZipFile(BytesIO(template_bytes), "r") as zin:
+        with ZipFile(out, "w", ZIP_DEFLATED) as zout:
+            for info in zin.infolist():
+                data = zin.read(info.filename)
+                if info.filename == "word/document.xml":
+                    root = ET.fromstring(data)
+                    if _add_alignment_spaces_to_document(root):
+                        data = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+                zout.writestr(info, data)
+    return out.getvalue()
+
+
+def _add_alignment_spaces_to_document(root: ET.Element) -> bool:
+    changed = False
+    for paragraph in root.iter(_w("p")):
+        text_nodes = list(paragraph.iter(_WORD_TEXT))
+        full = "".join(t.text or "" for t in text_nodes)
+        if full not in _ALIGNMENT_SPACE_PLACEHOLDERS:
+            continue
+        first_text = next((t for t in paragraph.iter(_WORD_TEXT) if t.text), None)
+        if first_text is None:
+            continue
+        first_run = _ancestor(paragraph, first_text, _WORD_RUN)
+        if first_run is None:
+            continue
+        space_run = ET.Element(_WORD_RUN)
+        rpr = first_run.find(_WORD_RPR)
+        if rpr is not None:
+            space_run.append(ET.fromstring(ET.tostring(rpr, encoding="utf-8")))
+        text = ET.SubElement(space_run, _WORD_TEXT)
+        text.set(_XML_SPACE, "preserve")
+        text.text = " "
+        paragraph.insert(list(paragraph).index(first_run), space_run)
+        changed = True
+    return changed
+
+
+def _ancestor(root: ET.Element, child: ET.Element, tag: str) -> ET.Element | None:
+    parent = {c: p for p in root.iter() for c in p}
+    current = child
+    while current in parent:
+        current = parent[current]
+        if current.tag == tag:
+            return current
+    return None
+
+
+def _w(name: str) -> str:
+    return f"{{http://schemas.openxmlformats.org/wordprocessingml/2006/main}}{name}"
 
 
 def _restore_word_xml_parts_without_placeholders(

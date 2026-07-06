@@ -39,6 +39,8 @@ from modules.examenes_medicos.reference_ranges import (
 from modules.examenes_medicos.unified_document import (
     build_unified_mapping,
     extract_docx_placeholders,
+    generate_unified_medical_document,
+    read_validated_unified_template,
     render_unified_docx_bytes,
 )
 from modules.examenes_medicos.validation import format_registration_datetime
@@ -245,6 +247,15 @@ class TestUnifiedTemplateContract(unittest.TestCase):
         self.assertGreater(len(rendered), 0)
         self.assertEqual(extract_docx_placeholders(rendered), [])
 
+    def test_public_generator_uses_active_template_and_mapping(self):
+        payload = _valid_mapping_payload()
+        document = generate_unified_medical_document(payload)
+        _raw, sha = read_validated_unified_template()
+        self.assertEqual(document.template_path, UNIFICADO_DOCX.resolve())
+        self.assertEqual(document.template_sha256, sha)
+        self.assertEqual(document.mapping, build_unified_mapping(payload))
+        self.assertEqual(extract_docx_placeholders(document.docx_bytes), [])
+
     def test_render_preserves_template_ooxml_structure_outside_placeholders(self):
         raw = UNIFICADO_DOCX.read_bytes()
         payload = _valid_mapping_payload()
@@ -262,6 +273,19 @@ class TestUnifiedTemplateContract(unittest.TestCase):
             self.assertNotIn("cl-001", footer_text)
             self.assertNotIn("acredit", footer_text)
         self.assertEqual(_run_font_sizes_for_text(rendered, "Transparente"), ["17"])
+
+    def test_alignment_spaces_are_presentation_only_for_affected_results(self):
+        payload = _valid_mapping_payload()
+        payload.update({"basopc": "0.7", "baso_a": "0.03", "o_leva": "Ausentes"})
+        mapping = build_unified_mapping(payload)
+        self.assertEqual(mapping["{{basopc}}"], "0.7")
+        self.assertEqual(mapping["{{baso_a}}"], "0.03")
+        self.assertEqual(mapping["{{o_leva}}"], "Ausentes")
+        rendered = render_unified_docx_bytes(UNIFICADO_DOCX.read_bytes(), mapping)
+        document_text = _xml_text(rendered, "word/document.xml")
+        self.assertIn(" 0.7", document_text)
+        self.assertIn(" 0.03", document_text)
+        self.assertIn(" Ausentes", document_text)
 
     def test_mapping_uses_canonical_patient_name_and_registration_datetime(self):
         payload = _valid_mapping_payload()
@@ -292,6 +316,8 @@ class TestUnifiedTemplateContract(unittest.TestCase):
     def test_productive_download_does_not_reference_clinical_autogen(self):
         source = inspect.getsource(api_master_download)
         self.assertIn("generate_clinical_bundle", source)
+        self.assertIn("generate_unified_medical_document", source)
+        self.assertNotIn("render_unified_docx_bytes", source)
         self.assertNotIn("bundle_clinico", source)
         self.assertNotIn("generate_unique_folio_orina", source)
         self.assertNotIn("generate_unique_folio_sangre", source)
@@ -348,6 +374,7 @@ class TestUnifiedFormUI(unittest.TestCase):
         )
         self.assertIn("data-patient", html)
         self.assertIn("data-order", html)
+        self.assertIn("data-em-delete-btn", html)
         self.assertIn('method: "DELETE"', html)
         self.assertIn('btn.dataset.loading === "1"', html)
         self.assertIn("btn.disabled = true", html)

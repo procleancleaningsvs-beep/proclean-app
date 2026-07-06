@@ -14,8 +14,19 @@
   <div class="page-head-actions pc-hub-hero__actions">
     <a href="{{ url_for('examenes_medicos.historial_page') }}" class="btn btn-secondary">Historial</a>
     {% if is_admin %}
-    {% set delete_attrs = 'id="em-del-btn" data-url="' ~ url_for('examenes_medicos.api_historial_item', rid=row.id) ~ '" data-patient="' ~ (row.patient_display_name | e) ~ '" data-order="' ~ ((row.orden or '—') | e) ~ '"' %}
-    {{ icon_button('trash-2', 'Eliminar expediente', 'danger', class='em-del-btn', extra_attrs=delete_attrs) }}
+    <button
+      type="button"
+      class="btn-icon btn-icon--danger em-del-btn"
+      id="em-del-btn"
+      title="Eliminar expediente"
+      aria-label="Eliminar expediente"
+      data-em-delete-btn="1"
+      data-url="{{ url_for('examenes_medicos.api_historial_item', rid=row.id) }}"
+      data-patient="{{ row.patient_display_name }}"
+      data-order="{{ row.orden or '—' }}"
+    >
+      <i data-lucide="trash-2" aria-hidden="true"></i>
+    </button>
     {% endif %}
   </div>
 </section>
@@ -60,8 +71,10 @@
 
 {% if is_admin %}
 <script>
-document.getElementById("em-del-btn")?.addEventListener("click", function () {
-  var btn = this;
+document.addEventListener("click", function (event) {
+  var btn = event.target.closest("[data-em-delete-btn]");
+  if (!btn) return;
+  event.preventDefault();
   if (btn.dataset.loading === "1") return;
   var patient = btn.getAttribute("data-patient") || "Paciente sin nombre";
   var order = btn.getAttribute("data-order") || "—";
