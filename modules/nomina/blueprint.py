@@ -197,6 +197,10 @@ nomina_bp = Blueprint(
     template_folder=str(_TEMPLATE_DIR),
 )
 
+from modules.nomina.banorte.routes import register_banorte_routes
+
+register_banorte_routes(nomina_bp)
+
 
 @nomina_bp.before_request
 def _nomina_module_access_guard() -> None:
