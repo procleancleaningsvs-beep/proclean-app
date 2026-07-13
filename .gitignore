@@ -22,3 +22,10 @@ AVI_*.pdf
 
 # Comparación visual PDF (datos reales, no versionar)
 tmp/pdf_regression/
+
+# Banorte operative / private samples (real PII — never commit)
+private_fixtures/banorte/
+NOMINA BANORTE.xlsx
+Reporte_Detallado_*.xlsx
+NI67059*.pag
+

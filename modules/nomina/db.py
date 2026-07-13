@@ -580,6 +580,9 @@ def ensure_nomina_tables(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_nomina_calculo_rows_calculo ON nomina_calculo_rows(calculo_id)"
     )
     _migrate_nomina_calculo_rows_neto411(conn)
+    from modules.nomina.banorte.schema import ensure_banorte_tables
+
+    ensure_banorte_tables(conn)
     from modules.nomina.headcount_snapshot import ensure_headcount_snapshot_tables
 
     ensure_headcount_snapshot_tables(conn)

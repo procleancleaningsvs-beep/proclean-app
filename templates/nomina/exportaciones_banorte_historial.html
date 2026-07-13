@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Historial Banorte — ProClean{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
+{% endblock %}
+{% block content %}
+<div class="pc-safe-zone banorte-wrap">
+  <header class="page-head">
+    <p class="eyebrow">Nóminas · Exportaciones · Banorte</p>
+    <h1>Historial</h1>
+    <p><a href="{{ url_for('nomina.banorte_index') }}">Volver</a></p>
+  </header>
+  <section class="banorte-panel">
+    <table class="banorte-table">
+      <thead>
+        <tr><th>ID</th><th>Archivo</th><th>Fecha</th><th>Consec.</th><th>Pagos</th><th>Total centavos</th><th>Usuario</th><th>SHA-256</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for e in exports %}
+        <tr>
+          <td>{{ e['id'] }}</td>
+          <td>{{ e['filename'] }}</td>
+          <td>{{ e['layout_date'] }}</td>
+          <td>{{ e['consecutive'] }}</td>
+          <td>{{ e['payment_count'] }}</td>
+          <td>{{ e['total_cents'] }}</td>
+          <td>{{ e['created_by'] }}</td>
+          <td class="banorte-mono">{{ e['file_sha256'][:16] }}…</td>
+          <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}">Descargar</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9">Sin exportaciones.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+</div>
+{% endblock %}
