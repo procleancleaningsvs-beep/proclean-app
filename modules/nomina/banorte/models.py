@@ -1,0 +1,54 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from decimal import Decimal
+from enum import Enum
+
+
+class ValidationStatus(str, Enum):
+    IMPORTADO_EXITOSO = "IMPORTADO_EXITOSO"
+    MANUAL_PENDIENTE_VALIDACION = "MANUAL_PENDIENTE_VALIDACION"
+
+
+class RecordStatus(str, Enum):
+    ACTIVO = "ACTIVO"
+    INACTIVO_REEMPLAZADO = "INACTIVO_REEMPLAZADO"
+    CONFLICTO_CRITICO = "CONFLICTO_CRITICO"
+
+
+class SourceKind(str, Enum):
+    ALTAS_NOMINA_BANORTE = "ALTAS_NOMINA_BANORTE"
+    REPORTE_DETALLADO = "REPORTE_DETALLADO"
+    ALTA_MANUAL = "ALTA_MANUAL"
+
+
+class MatchKind(str, Enum):
+    EXACT = "EXACT"
+    ALIAS = "ALIAS"
+    FUZZY_ACCEPTED = "FUZZY_ACCEPTED"
+    MANUAL_SELECT = "MANUAL_SELECT"
+    MANUAL_CREATE = "MANUAL_CREATE"
+
+
+class ImportDecision(str, Enum):
+    IMPORTED_EXITOSO = "IMPORTED_EXITOSO"
+    IMPORTED_MANUAL = "IMPORTED_MANUAL"
+    EXCLUDED_FALLIDO = "EXCLUDED_FALLIDO"
+    EXCLUDED_FALLIDOS_SHEET_EMPTY_STATUS = "EXCLUDED_FALLIDOS_SHEET_EMPTY_STATUS"
+    EXCLUDED_INCOMPLETE = "EXCLUDED_INCOMPLETE"
+    EXCLUDED_EMPTY = "EXCLUDED_EMPTY"
+    EXCLUDED_HEADER = "EXCLUDED_HEADER"
+    REPLACED_DUPLICATE = "REPLACED_DUPLICATE"
+    CONFLICT = "CONFLICT"
+    LINKED_VALIDATED = "LINKED_VALIDATED"
+    REIMPORT_NO_CHANGE = "REIMPORT_NO_CHANGE"
+    PRECISION_REVIEW = "PRECISION_REVIEW"
+
+
+@dataclass(frozen=True)
+class NormalizedPayment:
+    beneficiary_id: int | None
+    employee_number: str
+    account_number: str
+    amount: Decimal
+    source_reference: str | None
