@@ -407,4 +407,52 @@
       record_status: document.getElementById("banorte-ben-rec").value,
     });
   });
+
+  let excelToken = null;
+  async function excelMultipart(url, extra) {
+    const fileInput = document.getElementById("banorte-excel-file");
+    if (!fileInput.files || !fileInput.files[0]) return { res: { status: 400 }, data: { ok: false, code: "file_required" } };
+    const fd = new FormData();
+    fd.append("file", fileInput.files[0]);
+    fd.append("csrf_token", csrf);
+    Object.keys(extra || {}).forEach(function (k) { fd.append(k, extra[k]); });
+    const res = await fetch(url, { method: "POST", headers: { "X-CSRF-Token": csrf }, body: fd });
+    const data = await res.json().catch(function () { return {}; });
+    setCsrf(data.csrf_token);
+    return { res: res, data: data };
+  }
+
+  document.getElementById("banorte-excel-inspect").addEventListener("click", async function () {
+    const out = await excelMultipart("/nomina/exportaciones/banorte/excel/inspect");
+    if (!out.data.ok) { alert(out.data.code || "inspect error"); return; }
+    excelToken = out.data.token;
+    const sel = document.getElementById("banorte-excel-sheet");
+    sel.innerHTML = "";
+    (out.data.sheets || []).forEach(function (s) {
+      const opt = document.createElement("option");
+      opt.value = s;
+      opt.textContent = s;
+      sel.appendChild(opt);
+    });
+    sel.disabled = false;
+    document.getElementById("banorte-excel-preview").disabled = false;
+    document.getElementById("banorte-excel-prepare").disabled = false;
+  });
+
+  document.getElementById("banorte-excel-preview").addEventListener("click", async function () {
+    const sheet = document.getElementById("banorte-excel-sheet").value;
+    const out = await excelMultipart("/nomina/exportaciones/banorte/excel/preview", { sheet: sheet, token: excelToken || "" });
+    const pre = document.getElementById("banorte-excel-preview-out");
+    if (!out.data.ok) { pre.hidden = false; pre.textContent = out.data.code || "preview error"; return; }
+    pre.hidden = false;
+    pre.textContent = JSON.stringify(out.data.preview, null, 2);
+  });
+
+  document.getElementById("banorte-excel-prepare").addEventListener("click", async function () {
+    const sheet = document.getElementById("banorte-excel-sheet").value;
+    const out = await excelMultipart("/nomina/exportaciones/banorte/excel/prepare", { sheet: sheet, token: excelToken || "" });
+    if (!out.data.ok) { alert(out.data.code || "prepare error"); return; }
+    showHub();
+    renderEditor(out.data.draft);
+  });
 })();

@@ -425,6 +425,19 @@ def abandon_draft(
             """,
             (user, now, int(draft_id), int(expected_revision)),
         )
+        if cur.rowcount != 1:
+            row = conn.execute(
+                "SELECT revision FROM nomina_banorte_export_drafts WHERE id=?",
+                (int(draft_id),),
+            ).fetchone()
+            raise DraftStaleError(int(draft_id), int(row["revision"]) if row else expected_revision)
+        conn.commit()
+    except DraftStaleError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return get_draft(db_path, draft_id)  # type: ignore[return-value]

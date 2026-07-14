@@ -464,3 +464,104 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
             ON nomina_banorte_export_draft_rows(draft_id, excluded_at)
         """
     )
+
+    _migrate_drafts_excel_nomina(conn)
+
+
+def _drafts_sql_allows_excel_nomina(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='nomina_banorte_export_drafts'"
+    ).fetchone()
+    if row is None or not row[0]:
+        return False
+    return "EXCEL_NOMINA" in str(row[0])
+
+
+def _migrate_drafts_excel_nomina(conn: sqlite3.Connection) -> None:
+    """Rebuild drafts table when CHECK lacks EXCEL_NOMINA; add source_* columns."""
+    if not _table_cols(conn, "nomina_banorte_export_drafts"):
+        return
+    _add_column_if_missing(conn, "nomina_banorte_export_drafts", "source_filename", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_export_drafts", "source_sha256", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_export_drafts", "source_sheet", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_export_drafts", "source_file_size", "INTEGER")
+    if _drafts_sql_allows_excel_nomina(conn):
+        return
+    before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_export_drafts").fetchone()[0])
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE nomina_banorte_export_drafts__new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_by TEXT NOT NULL,
+                updated_by TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                origin_kind TEXT NOT NULL
+                    CHECK (origin_kind IN ('CALCULO_RUN', 'MANUAL_CAPTURE', 'EXCEL_NOMINA')),
+                calculo_id INTEGER,
+                origin_updated_at TEXT,
+                origin_hash TEXT NOT NULL,
+                status TEXT NOT NULL
+                    CHECK (status IN ('OPEN', 'GENERATED', 'ABANDONED', 'BLOCKED_DRIFT')),
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+                consecutive_pref TEXT,
+                layout_date_pref TEXT,
+                source_filename TEXT,
+                source_sha256 TEXT,
+                source_sheet TEXT,
+                source_file_size INTEGER,
+                CHECK (
+                    (origin_kind = 'CALCULO_RUN' AND calculo_id IS NOT NULL)
+                    OR (origin_kind = 'MANUAL_CAPTURE' AND calculo_id IS NULL)
+                    OR (origin_kind = 'EXCEL_NOMINA' AND calculo_id IS NULL)
+                ),
+                CHECK (length(origin_hash) > 0)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO nomina_banorte_export_drafts__new (
+                id, created_by, updated_by, created_at, updated_at, origin_kind, calculo_id,
+                origin_updated_at, origin_hash, status, revision, consecutive_pref, layout_date_pref,
+                source_filename, source_sha256, source_sheet, source_file_size
+            )
+            SELECT
+                id, created_by, updated_by, created_at, updated_at, origin_kind, calculo_id,
+                origin_updated_at, origin_hash, status, revision, consecutive_pref, layout_date_pref,
+                source_filename, source_sha256, source_sheet, source_file_size
+            FROM nomina_banorte_export_drafts
+            """
+        )
+        after = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_export_drafts__new").fetchone()[0])
+        if after != before:
+            raise RuntimeError("draft_migration_count_mismatch")
+        conn.execute("DROP TABLE nomina_banorte_export_drafts")
+        conn.execute("ALTER TABLE nomina_banorte_export_drafts__new RENAME TO nomina_banorte_export_drafts")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_calculo ON nomina_banorte_export_drafts(calculo_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_status ON nomina_banorte_export_drafts(status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_user ON nomina_banorte_export_drafts(created_by)"
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_draft_open_user_calculo
+                ON nomina_banorte_export_drafts(created_by, calculo_id)
+                WHERE status = 'OPEN'
+                  AND origin_kind = 'CALCULO_RUN'
+                  AND calculo_id IS NOT NULL
+            """
+        )
+        fk_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if fk_issues:
+            raise RuntimeError("draft_migration_fk_check_failed")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise

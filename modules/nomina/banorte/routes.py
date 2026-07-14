@@ -53,6 +53,12 @@ from modules.nomina.banorte.export_service import (
     normalize_consecutive,
     resolve_layout_date_monterrey,
 )
+from modules.nomina.banorte.excel_nomina_service import (
+    ExcelNominaError,
+    inspect_excel,
+    prepare_excel_draft,
+    preview_excel,
+)
 from modules.nomina.banorte.import_service import (
     import_nomina_banorte_xlsx,
     import_reporte_detallado_xlsx,
@@ -526,6 +532,73 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    def banorte_excel_inspect():
+        require_csrf()
+        f = request.files.get("file")
+        if f is None:
+            return _json_no_store({"ok": False, "code": "file_required"}, 400)
+        raw = f.read()
+        try:
+            out = inspect_excel(
+                raw,
+                f.filename or "upload.xlsx",
+                secret_key=str(current_app.config["SECRET_KEY"]),
+                user=_username(),
+            )
+        except ExcelNominaError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, **out, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_excel_preview():
+        require_csrf()
+        f = request.files.get("file")
+        sheet = str(request.form.get("sheet") or "")
+        token = str(request.form.get("token") or "")
+        if f is None or not sheet or not token:
+            return _json_no_store({"ok": False, "code": "missing_fields"}, 400)
+        raw = f.read()
+        try:
+            prev = preview_excel(
+                raw,
+                filename=f.filename or "upload.xlsx",
+                sheet=sheet,
+                token=token,
+                secret_key=str(current_app.config["SECRET_KEY"]),
+                user=_username(),
+            )
+        except ExcelNominaError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "preview": prev.__dict__, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_excel_prepare():
+        require_csrf()
+        f = request.files.get("file")
+        sheet = str(request.form.get("sheet") or "")
+        token = str(request.form.get("token") or "")
+        if f is None or not sheet or not token:
+            return _json_no_store({"ok": False, "code": "missing_fields"}, 400)
+        raw = f.read()
+        try:
+            draft = prepare_excel_draft(
+                _db_path(),
+                _username(),
+                raw,
+                filename=f.filename or "upload.xlsx",
+                sheet=sheet,
+                token=token,
+                secret_key=str(current_app.config["SECRET_KEY"]),
+            )
+        except ExcelNominaError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
     def banorte_beneficiarios_search_name():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -753,6 +826,24 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/drafts/manual",
         endpoint="banorte_draft_manual",
         view_func=banorte_draft_manual,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/excel/inspect",
+        endpoint="banorte_excel_inspect",
+        view_func=banorte_excel_inspect,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/excel/preview",
+        endpoint="banorte_excel_preview",
+        view_func=banorte_excel_preview,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/excel/prepare",
+        endpoint="banorte_excel_prepare",
+        view_func=banorte_excel_prepare,
         methods=["POST"],
     )
     bp.add_url_rule(

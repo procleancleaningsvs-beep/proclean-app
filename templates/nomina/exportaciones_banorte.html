@@ -195,7 +195,14 @@
     <section class="banorte-panel pc-card">
       <h3 class="pc-panel-title">Importar nómina Excel</h3>
       <p class="banorte-hint">Seleccione un archivo .xlsx o .xlsm, elija la hoja y prepare el borrador.</p>
-      <div id="banorte-excel-host"></div>
+      <form id="banorte-excel-form">
+        <label>Archivo<input type="file" id="banorte-excel-file" accept=".xlsx,.xlsm" required></label>
+        <button type="button" class="btn btn-secondary" id="banorte-excel-inspect">Inspeccionar hojas</button>
+        <label>Hoja<select id="banorte-excel-sheet" disabled><option value="">—</option></select></label>
+        <button type="button" class="btn btn-secondary" id="banorte-excel-preview" disabled>Vista previa</button>
+        <button type="button" class="btn btn-primary" id="banorte-excel-prepare" disabled>Preparar editor</button>
+      </form>
+      <pre id="banorte-excel-preview-out" class="banorte-hint" hidden></pre>
     </section>
   </section>
 
