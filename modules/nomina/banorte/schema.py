@@ -9,6 +9,8 @@ BANORTE_TABLES: tuple[str, ...] = (
     "nomina_banorte_import_rows",
     "nomina_banorte_exports",
     "nomina_banorte_export_items",
+    "nomina_banorte_export_drafts",
+    "nomina_banorte_export_draft_rows",
 )
 
 
@@ -319,7 +321,137 @@ def ensure_banorte_tables(conn: sqlite3.Connection) -> None:
     _migrate_banorte_schema(conn)
 
 
+def _table_cols(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, ddl_type: str) -> None:
+    if column not in _table_cols(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+
+
 def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     """Additive migrations only; never DROP Banorte tables."""
-    # Placeholder for future PRAGMA table_info + ALTER TABLE additions.
-    _ = {row[1] for row in conn.execute("PRAGMA table_info(nomina_banorte_beneficiaries)").fetchall()}
+    _add_column_if_missing(conn, "nomina_banorte_exports", "calculo_id", "INTEGER")
+    _add_column_if_missing(conn, "nomina_banorte_exports", "draft_id", "INTEGER")
+    # capture_origin already exists NOT NULL on Fase 1 CREATE; if somehow missing:
+    if "capture_origin" not in _table_cols(conn, "nomina_banorte_exports"):
+        conn.execute("ALTER TABLE nomina_banorte_exports ADD COLUMN capture_origin TEXT")
+
+    _add_column_if_missing(conn, "nomina_banorte_export_items", "calculo_row_id", "INTEGER")
+
+    _add_column_if_missing(conn, "nomina_banorte_beneficiaries", "replace_reason", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_beneficiaries", "replaced_by", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_beneficiaries", "replaced_at", "TEXT")
+    _add_column_if_missing(
+        conn,
+        "nomina_banorte_beneficiaries",
+        "manual_effective_from_account",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_exports_calculo ON nomina_banorte_exports(calculo_id)"
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_exports_draft_id
+            ON nomina_banorte_exports(draft_id)
+            WHERE draft_id IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_export_items_calculo_row
+            ON nomina_banorte_export_items(calculo_row_id)
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_export_drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_by TEXT NOT NULL,
+            updated_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            origin_kind TEXT NOT NULL
+                CHECK (origin_kind IN ('CALCULO_RUN', 'MANUAL_CAPTURE')),
+            calculo_id INTEGER,
+            origin_updated_at TEXT,
+            origin_hash TEXT NOT NULL,
+            status TEXT NOT NULL
+                CHECK (status IN ('OPEN', 'GENERATED', 'ABANDONED', 'BLOCKED_DRIFT')),
+            revision INTEGER NOT NULL DEFAULT 1
+                CHECK (revision >= 1),
+            consecutive_pref TEXT,
+            layout_date_pref TEXT,
+            CHECK (
+                (origin_kind = 'CALCULO_RUN' AND calculo_id IS NOT NULL)
+                OR (origin_kind = 'MANUAL_CAPTURE' AND calculo_id IS NULL)
+            ),
+            CHECK (length(origin_hash) > 0)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_calculo ON nomina_banorte_export_drafts(calculo_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_status ON nomina_banorte_export_drafts(status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_drafts_user ON nomina_banorte_export_drafts(created_by)"
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_draft_open_user_calculo
+            ON nomina_banorte_export_drafts(created_by, calculo_id)
+            WHERE status = 'OPEN'
+              AND origin_kind = 'CALCULO_RUN'
+              AND calculo_id IS NOT NULL
+        """
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_export_draft_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            calculo_row_id INTEGER,
+            nombre_recibido TEXT NOT NULL,
+            nss_snapshot TEXT,
+            banco_snapshot TEXT,
+            beneficiary_id INTEGER,
+            employee_number_snapshot TEXT,
+            account_number_snapshot TEXT,
+            amount_original_cents INTEGER NOT NULL
+                CHECK (amount_original_cents >= 0),
+            amount_final_cents INTEGER NOT NULL
+                CHECK (amount_final_cents >= 0),
+            included INTEGER NOT NULL
+                CHECK (included IN (0, 1)),
+            match_kind TEXT NOT NULL,
+            alias_id INTEGER,
+            row_state TEXT NOT NULL
+                CHECK (row_state IN ('OK', 'NEEDS_REVIEW', 'BLOCKED', 'EXCLUDED')),
+            warnings_json TEXT NOT NULL,
+            user_decision_json TEXT NOT NULL,
+            CHECK (included = 0 OR amount_final_cents > 0),
+            FOREIGN KEY (draft_id)
+                REFERENCES nomina_banorte_export_drafts(id) ON DELETE CASCADE,
+            FOREIGN KEY (beneficiary_id)
+                REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
+            FOREIGN KEY (alias_id)
+                REFERENCES nomina_banorte_aliases(id) ON DELETE RESTRICT,
+            UNIQUE (draft_id, position)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_draft_rows_draft
+            ON nomina_banorte_export_draft_rows(draft_id)
+        """
+    )
