@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
+{% endblock %}
+{% block content %}
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas · Banorte</span>
+    <h2 class="pc-page-title">Beneficiarios</h2>
+    <p class="pc-page-subtitle">Administración paginada (máx. 50 por página)</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_index') }}">Volver a Banorte</a>
+  </div>
+</section>
+<div class="pc-safe-zone banorte-wrap">
+  <section class="banorte-panel">
+    <form method="get" class="banorte-export-bar">
+      <label>Nombre <input name="q_name" value="{{ q_name }}"></label>
+      <label>Empleado <input name="q_emp" value="{{ q_emp }}"></label>
+      <label>Validación
+        <select name="validation_status">
+          <option value="">Todas</option>
+          <option value="IMPORTADO_EXITOSO" {% if validation_status=='IMPORTADO_EXITOSO' %}selected{% endif %}>Validado Banorte</option>
+          <option value="MANUAL_PENDIENTE_VALIDACION" {% if validation_status=='MANUAL_PENDIENTE_VALIDACION' %}selected{% endif %}>Pendiente</option>
+        </select>
+      </label>
+      <label>Ciclo
+        <select name="record_status">
+          <option value="">Todos</option>
+          <option value="ACTIVO" {% if record_status=='ACTIVO' %}selected{% endif %}>Activo</option>
+          <option value="INACTIVO_REEMPLAZADO" {% if record_status=='INACTIVO_REEMPLAZADO' %}selected{% endif %}>Reemplazado</option>
+          <option value="CONFLICTO_CRITICO" {% if record_status=='CONFLICTO_CRITICO' %}selected{% endif %}>Conflicto</option>
+        </select>
+      </label>
+      <button class="btn btn-primary" type="submit">Filtrar</button>
+    </form>
+    <p class="banorte-hint">Total {{ listing.total }} · página {{ listing.page }} · tamaño {{ listing.page_size }}</p>
+    <div class="pc-table-shell">
+      <table class="banorte-table">
+        <thead>
+          <tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th>Ciclo</th></tr>
+        </thead>
+        <tbody>
+          {% for b in listing.rows %}
+          <tr>
+            <td>{{ b.id }}</td>
+            <td>{{ b.nombre_original }}</td>
+            <td>{{ b.employee_number_effective }}</td>
+            <td class="banorte-mono">{{ b.account_number }}</td>
+            <td>
+              {% if b.validation_status == 'IMPORTADO_EXITOSO' and b.record_status == 'ACTIVO' %}
+              <span class="banorte-status banorte-status--ok" title="Validado por Banorte">Validado Banorte</span>
+              {% elif b.manual_effective_from_account and b.record_status == 'ACTIVO' %}
+              <span class="banorte-status banorte-status--ok" title="Utilizable estructuralmente; no validado por Banorte">Usizable (manual)</span>
+              {% elif b.record_status == 'CONFLICTO_CRITICO' %}
+              <span class="banorte-status banorte-status--bad" title="Conflicto crítico">Conflicto</span>
+              {% elif b.record_status == 'INACTIVO_REEMPLAZADO' %}
+              <span class="banorte-status banorte-status--muted" title="Reemplazado">Reemplazado</span>
+              {% else %}
+              <span class="banorte-status banorte-status--warn" title="Pendiente de validación">Pendiente</span>
+              {% endif %}
+            </td>
+            <td>{{ b.record_status }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="banorte-empty">Sin resultados.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="banorte-export-bar">
+      {% if listing.page > 1 %}
+      <a class="btn btn-secondary" href="?page={{ listing.page - 1 }}&q_name={{ q_name }}&q_emp={{ q_emp }}&validation_status={{ validation_status }}&record_status={{ record_status }}">Anterior</a>
+      {% endif %}
+      {% if listing.page * listing.page_size < listing.total %}
+      <a class="btn btn-secondary" href="?page={{ listing.page + 1 }}&q_name={{ q_name }}&q_emp={{ q_emp }}&validation_status={{ validation_status }}&record_status={{ record_status }}">Siguiente</a>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

@@ -19,11 +19,33 @@ from flask import (
     url_for,
 )
 
+from modules.nomina.banorte.beneficiary_service import (
+    BeneficiaryError,
+    create_manual_beneficiary,
+    list_beneficiaries,
+    replace_beneficiary,
+    replacement_history,
+    search_by_account,
+)
+from modules.nomina.banorte.calculo_adapter import build_draft_rows_from_calculo, origin_hash_for_manual_capture
+from modules.nomina.banorte.calculo_queries import get_calculo_run_readonly, list_exportable_calculo_runs
 from modules.nomina.banorte.csrf import issue_csrf_token, require_csrf
+from modules.nomina.banorte.draft_repository import (
+    DraftConflictError,
+    DraftStaleError,
+    abandon_draft,
+    create_draft_from_adapter,
+    create_manual_draft_shell,
+    find_open_manual_draft,
+    get_draft,
+    reorder_draft_rows,
+    save_draft_rows,
+)
 from modules.nomina.banorte.export_service import (
     DraftPaymentRow,
     ExportBlockedError,
     generate_export,
+    generate_from_persistent_draft,
     get_export_blob,
 )
 from modules.nomina.banorte.import_service import (
@@ -32,6 +54,7 @@ from modules.nomina.banorte.import_service import (
 )
 from modules.nomina.banorte.matching_service import match_name, save_alias
 from modules.nomina.banorte.paste_service import parse_paste_lists
+from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.roles_access import NOMINA_DASHBOARD_ROLES
@@ -77,36 +100,33 @@ def _username() -> str:
         return "user"
 
 
+def _json_no_store(payload: dict[str, Any], status: int = 200) -> Response:
+    resp = jsonify(payload)
+    resp.status_code = status
+    resp.headers.update(_NO_STORE)
+    return resp
+
+
+def _stale_response(exc: DraftStaleError) -> Response:
+    return _json_no_store(
+        {
+            "ok": False,
+            "code": "draft_stale",
+            "draft_id": exc.draft_id,
+            "current_revision": exc.current_revision,
+        },
+        409,
+    )
+
+
 def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_index():
-        conn = connect(_db_path())
-        try:
-            ensure_banorte_tables(conn)
-            conn.commit()
-            beneficiaries = conn.execute(
-                """
-                SELECT id, nombre_original, employee_number_effective, account_number,
-                       validation_status, record_status, curp
-                FROM nomina_banorte_beneficiaries
-                ORDER BY id DESC LIMIT 200
-                """
-            ).fetchall()
-            exports = conn.execute(
-                """
-                SELECT id, filename, layout_date, consecutive, payment_count, total_cents,
-                       created_at, created_by, file_sha256
-                FROM nomina_banorte_exports
-                ORDER BY id DESC LIMIT 50
-                """
-            ).fetchall()
-        finally:
-            conn.close()
+        runs = list_exportable_calculo_runs(_db_path(), limit=20, offset=0)
         resp = Response(
             render_template(
                 "nomina/exportaciones_banorte.html",
-                beneficiaries=beneficiaries,
-                exports=exports,
+                runs=runs,
                 csrf_token=issue_csrf_token(),
             )
         )
@@ -132,9 +152,7 @@ def register_banorte_routes(bp) -> None:
             flash("Mismo archivo (SHA) ya importado. Confirme reimportación.", "warning")
         else:
             flash(
-                f"Importación ALTAS OK. EXITOSO={result.count_exitosos} manuales={result.count_manuales} "
-                f"FALLIDOS hoja={result.count_excluidos_hoja_fallidos_total} "
-                f"({result.count_fallidos_estatus}+{result.count_fallidos_hoja_sin_estatus}).",
+                f"Importación ALTAS OK. EXITOSO={result.count_exitosos} manuales={result.count_manuales}.",
                 "success",
             )
         return redirect(url_for("nomina.banorte_index"))
@@ -182,13 +200,11 @@ def register_banorte_routes(bp) -> None:
                 )
             else:
                 matches.append({"position": row.position, "kind": "NONE", "auto_selected": False})
-        return jsonify(
+        return _json_no_store(
             {
                 "ok": True,
                 "length_mismatch": parsed.length_mismatch,
                 "warning": parsed.warning,
-                "name_headers": parsed.name_headers_detected,
-                "amount_headers": parsed.amount_headers_detected,
                 "rows": [
                     {
                         "position": r.position,
@@ -197,7 +213,6 @@ def register_banorte_routes(bp) -> None:
                         "incomplete": r.incomplete,
                         "amount_ok": bool(r.amount_result and r.amount_result.ok),
                         "amount": str(r.amount_result.amount) if r.amount_result and r.amount_result.ok else None,
-                        "rounded": bool(r.amount_result.rounded) if r.amount_result else False,
                     }
                     for r in parsed.rows
                 ],
@@ -217,10 +232,11 @@ def register_banorte_routes(bp) -> None:
             int(data["beneficiary_id"]),
             _username(),
         )
-        return jsonify({"ok": True, "alias_id": alias_id, "csrf_token": issue_csrf_token()})
+        return _json_no_store({"ok": True, "alias_id": alias_id, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_export_generate():
+        """Legacy paste-path generate (compat). Prefer draft generate endpoint."""
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
@@ -250,10 +266,11 @@ def register_banorte_routes(bp) -> None:
                 confirm_duplicate_consecutive=bool(data.get("confirm_duplicate_consecutive")),
                 confirm_manuals=bool(data.get("confirm_manuals")),
                 confirm_date_override=bool(data.get("confirm_date_override")),
+                capture_origin="PASTE_LISTS",
             )
         except ExportBlockedError as exc:
-            return jsonify({"ok": False, "code": exc.code, "rows": exc.rows}), 400
-        return jsonify(
+            return _json_no_store({"ok": False, "code": exc.code, "rows": exc.rows}, 400)
+        return _json_no_store(
             {
                 "ok": True,
                 "export_id": result.export_id,
@@ -264,22 +281,295 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
+    def banorte_draft_from_calculo(calculo_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            adapted = build_draft_rows_from_calculo(_db_path(), int(calculo_id))
+        except KeyError:
+            return _json_no_store({"ok": False, "code": "calculo_not_found"}, 404)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        draft = create_draft_from_adapter(_db_path(), _username(), adapted)
+        prepared = prepare_draft_rows(_db_path(), draft["rows"])
+        draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_get(draft_id: int):
+        draft = get_draft(_db_path(), int(draft_id))
+        if draft is None:
+            return _json_no_store({"ok": False, "code": "draft_not_found"}, 404)
+        if draft["created_by"] != _username() and _current_role() != "admin":
+            # admin may view; nomina only own — keep simple: same roles share module
+            pass
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_save(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = save_draft_rows(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+                list(data.get("rows") or []),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_reorder(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = reorder_draft_rows(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+                [int(x) for x in (data.get("ordered_row_ids") or [])],
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_abandon(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        if not data.get("confirm"):
+            return _json_no_store({"ok": False, "code": "confirm_required"}, 400)
+        try:
+            draft = abandon_draft(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_generate(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            result = generate_from_persistent_draft(
+                _db_path(),
+                _username(),
+                int(draft_id),
+                expected_revision=int(data.get("expected_revision")),
+                consecutive=str(data.get("consecutive") or ""),
+                layout_date=data.get("layout_date"),
+                confirm_duplicate_consecutive=bool(data.get("confirm_duplicate_consecutive")),
+                confirm_manuals=bool(data.get("confirm_manuals")),
+                confirm_date_override=bool(data.get("confirm_date_override")),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ExportBlockedError as exc:
+            return _json_no_store({"ok": False, "code": exc.code, "rows": exc.rows}, 400)
+        except KeyError:
+            return _json_no_store({"ok": False, "code": "draft_not_found"}, 404)
+        return _json_no_store(
+            {
+                "ok": True,
+                "export_id": result.export_id,
+                "filename": result.filename,
+                "sha256": result.file_sha256,
+                "csrf_token": issue_csrf_token(),
+            }
+        )
+
+    @_banorte_access_required
+    def banorte_draft_manual():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        force_new = bool(data.get("force_new"))
+        if force_new:
+            # require prior abandon — do not auto-abandon
+            existing = find_open_manual_draft(_db_path(), _username())
+            if existing is not None:
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "manual_open_exists",
+                        "existing_draft_id": existing["id"],
+                        "existing_revision": existing["revision"],
+                    },
+                    409,
+                )
+        result = create_manual_draft_shell(
+            _db_path(),
+            _username(),
+            names_text=str(data.get("names") or ""),
+            amounts_text=str(data.get("amounts") or ""),
+            force_new=False,
+        )
+        if result.get("needs_choice"):
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": "manual_open_exists",
+                    "existing_draft_id": result["existing_draft_id"],
+                    "existing_revision": result["existing_revision"],
+                    "csrf_token": issue_csrf_token(),
+                },
+                409,
+            )
+        # populate rows from paste
+        parsed = parse_paste_lists(data.get("names") or "", data.get("amounts") or "")
+        draft = result["draft"]
+        rows = []
+        for i, r in enumerate(parsed.rows, start=1):
+            cents = 0
+            if r.amount_result and r.amount_result.ok and r.amount_result.amount is not None:
+                from modules.nomina.banorte.money import to_cents
+
+                cents = to_cents(r.amount_result.amount)
+            rows.append(
+                {
+                    "position": i,
+                    "nombre_recibido": r.raw_name or "",
+                    "amount_original_cents": max(0, cents),
+                    "amount_final_cents": cents if cents > 0 else 0,
+                    "included": 1 if cents > 0 else 0,
+                    "match_kind": "NONE",
+                    "row_state": "NEEDS_REVIEW" if cents > 0 else "EXCLUDED",
+                    "warnings": [],
+                    "user_decision": {},
+                }
+            )
+        prepared = prepare_draft_rows(_db_path(), rows)
+        draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_page():
+        page = int(request.args.get("page") or 1)
+        data = list_beneficiaries(
+            _db_path(),
+            page=page,
+            q_name=str(request.args.get("q_name") or ""),
+            q_emp=str(request.args.get("q_emp") or ""),
+            validation_status=str(request.args.get("validation_status") or ""),
+            record_status=str(request.args.get("record_status") or ""),
+        )
+        resp = Response(
+            render_template(
+                "nomina/exportaciones_banorte_beneficiarios.html",
+                listing=data,
+                csrf_token=issue_csrf_token(),
+                q_name=request.args.get("q_name") or "",
+                q_emp=request.args.get("q_emp") or "",
+                validation_status=request.args.get("validation_status") or "",
+                record_status=request.args.get("record_status") or "",
+            )
+        )
+        resp.headers.update(_NO_STORE)
+        return resp
+
+    @_banorte_access_required
+    def banorte_beneficiarios_search_account():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            rows = search_by_account(_db_path(), str(data.get("account") or ""))
+        except BeneficiaryError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, "rows": rows, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_create():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            created = create_manual_beneficiary(
+                _db_path(),
+                _username(),
+                nombre=str(data.get("nombre") or ""),
+                account=str(data.get("account") or ""),
+                confirm_effective_from_account=bool(data.get("confirm_effective_from_account")),
+            )
+        except BeneficiaryError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, "beneficiary": created, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_replace(beneficiary_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            out = replace_beneficiary(
+                _db_path(),
+                _username(),
+                int(beneficiary_id),
+                nombre=data.get("nombre"),
+                account=data.get("account"),
+                employee_number_effective=data.get("employee_number_effective"),
+                reason=str(data.get("reason") or ""),
+            )
+        except BeneficiaryError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, "beneficiary": out, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_history(beneficiary_id: int):
+        chain = replacement_history(_db_path(), int(beneficiary_id))
+        return _json_no_store({"ok": True, "chain": chain, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
     def banorte_historial():
         conn = connect(_db_path())
         try:
+            ensure_banorte_tables(conn)
             exports = conn.execute(
                 """
-                SELECT id, filename, layout_date, consecutive, payment_count, total_cents,
-                       created_at, created_by, file_sha256
-                FROM nomina_banorte_exports ORDER BY id DESC LIMIT 100
+                SELECT e.id, e.filename, e.layout_date, e.consecutive, e.payment_count, e.total_cents,
+                       e.created_at, e.created_by, e.file_sha256, e.capture_origin, e.calculo_id, e.draft_id,
+                       r.fecha_inicio, r.fecha_fin, r.cliente AS calculo_cliente
+                FROM nomina_banorte_exports e
+                LEFT JOIN nomina_calculo_runs r ON r.id = e.calculo_id
+                ORDER BY e.id DESC LIMIT 100
                 """
             ).fetchall()
+            # prior counts per calculo
+            enriched = []
+            for e in exports:
+                d = dict(e)
+                if d.get("calculo_id"):
+                    n = conn.execute(
+                        "SELECT COUNT(*) AS c FROM nomina_banorte_exports WHERE calculo_id=?",
+                        (int(d["calculo_id"]),),
+                    ).fetchone()
+                    d["same_calculo_export_count"] = int(n["c"])
+                else:
+                    d["same_calculo_export_count"] = 0
+                enriched.append(d)
         finally:
             conn.close()
         resp = Response(
             render_template(
                 "nomina/exportaciones_banorte_historial.html",
-                exports=exports,
+                exports=enriched,
                 csrf_token=issue_csrf_token(),
             )
         )
@@ -288,7 +578,6 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     def banorte_download(export_id: int):
-        # Re-check role already done by decorator.
         filename, blob, _digest = get_export_blob(_db_path(), export_id)
         resp = send_file(
             BytesIO(blob),
@@ -299,12 +588,7 @@ def register_banorte_routes(bp) -> None:
         resp.headers.update(_NO_STORE)
         return resp
 
-    bp.add_url_rule(
-        "/exportaciones/banorte",
-        endpoint="banorte_index",
-        view_func=banorte_index,
-        methods=["GET"],
-    )
+    bp.add_url_rule("/exportaciones/banorte", endpoint="banorte_index", view_func=banorte_index, methods=["GET"])
     bp.add_url_rule(
         "/exportaciones/banorte/import/altas",
         endpoint="banorte_import_altas",
@@ -317,23 +601,87 @@ def register_banorte_routes(bp) -> None:
         view_func=banorte_import_reporte,
         methods=["POST"],
     )
+    bp.add_url_rule("/exportaciones/banorte/paste", endpoint="banorte_paste", view_func=banorte_paste, methods=["POST"])
     bp.add_url_rule(
-        "/exportaciones/banorte/paste",
-        endpoint="banorte_paste",
-        view_func=banorte_paste,
-        methods=["POST"],
-    )
-    bp.add_url_rule(
-        "/exportaciones/banorte/aliases",
-        endpoint="banorte_alias",
-        view_func=banorte_alias,
-        methods=["POST"],
+        "/exportaciones/banorte/aliases", endpoint="banorte_alias", view_func=banorte_alias, methods=["POST"]
     )
     bp.add_url_rule(
         "/exportaciones/banorte/export/generate",
         endpoint="banorte_export_generate",
         view_func=banorte_export_generate,
         methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/from-calculo/<int:calculo_id>",
+        endpoint="banorte_draft_from_calculo",
+        view_func=banorte_draft_from_calculo,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>",
+        endpoint="banorte_draft_get",
+        view_func=banorte_draft_get,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/save",
+        endpoint="banorte_draft_save",
+        view_func=banorte_draft_save,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/reorder",
+        endpoint="banorte_draft_reorder",
+        view_func=banorte_draft_reorder,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/abandon",
+        endpoint="banorte_draft_abandon",
+        view_func=banorte_draft_abandon,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/generate",
+        endpoint="banorte_draft_generate",
+        view_func=banorte_draft_generate,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/manual",
+        endpoint="banorte_draft_manual",
+        view_func=banorte_draft_manual,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios",
+        endpoint="banorte_beneficiarios_page",
+        view_func=banorte_beneficiarios_page,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/search-account",
+        endpoint="banorte_beneficiarios_search_account",
+        view_func=banorte_beneficiarios_search_account,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/create",
+        endpoint="banorte_beneficiarios_create",
+        view_func=banorte_beneficiarios_create,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/<int:beneficiary_id>/replace",
+        endpoint="banorte_beneficiarios_replace",
+        view_func=banorte_beneficiarios_replace,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/<int:beneficiary_id>/history",
+        endpoint="banorte_beneficiarios_history",
+        view_func=banorte_beneficiarios_history,
+        methods=["GET"],
     )
     bp.add_url_rule(
         "/exportaciones/banorte/historial",

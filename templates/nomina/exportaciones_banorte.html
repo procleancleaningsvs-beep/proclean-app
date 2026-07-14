@@ -1,184 +1,124 @@
 {% extends "base.html" %}
-{% block title %}Exportaciones Banorte — ProClean{% endblock %}
-{% block head %}
+{% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
 {% endblock %}
 {% block content %}
-<div class="pc-safe-zone banorte-wrap" data-csrf="{{ csrf_token }}">
-  <header class="page-head">
-    <p class="eyebrow">Nóminas · Exportaciones</p>
-    <h1>Banorte</h1>
-    <p class="lede">Beneficiarios, importación, captura por listas y generación .pag.</p>
-    <p><a href="{{ url_for('nomina.banorte_historial') }}">Historial de exportaciones</a></p>
-  </header>
+<section class="page-head pc-hub-hero pc-form-hero banorte-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas · Exportaciones</span>
+    <h2 class="pc-page-title">Banorte</h2>
+    <p class="pc-page-subtitle">Nóminas listas para exportar a Banorte</p>
+  </div>
+  <div class="page-head-actions pc-hub-hero__actions banorte-actions">
+    <button type="button" class="btn btn-secondary" data-banorte-drawer="import-altas">Importar base Banorte</button>
+    <button type="button" class="btn btn-secondary" data-banorte-drawer="import-benef">Importar beneficiarios</button>
+    <button type="button" class="btn btn-secondary" data-banorte-drawer="alta-benef">Agregar beneficiario</button>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_beneficiarios_page') }}">Beneficiarios</a>
+    <button type="button" class="btn btn-secondary" data-banorte-drawer="manual">Captura manual</button>
+    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_historial') }}">Historial</a>
+  </div>
+</section>
 
-  <section class="banorte-panel">
-    <h2>Importar</h2>
-    <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data" class="banorte-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>NOMINA BANORTE.xlsx (ALTAS)
-        <input type="file" name="file" accept=".xlsx" required>
-      </label>
-      <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-      <button type="submit" class="btn-primary">Importar ALTAS</button>
-    </form>
-    <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data" class="banorte-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Reporte Detallado
-        <input type="file" name="file" accept=".xlsx" required>
-      </label>
-      <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-      <button type="submit" class="btn-primary">Importar reporte</button>
-    </form>
-  </section>
-
-  <section class="banorte-panel">
-    <h2>Captura (nombres + importes)</h2>
-    <p class="banorte-hint">El editor vive en memoria de la página. Se avisará si recargas con cambios sin exportar.</p>
-    <div class="banorte-grid2">
-      <label>Nombres
-        <textarea id="banorte-names" rows="10" placeholder="Uno por línea"></textarea>
-      </label>
-      <label>Importes
-        <textarea id="banorte-amounts" rows="10" placeholder="Uno por línea"></textarea>
-      </label>
-    </div>
-    <button type="button" class="btn-primary" id="banorte-parse">Preparar editor</button>
-    <p id="banorte-paste-warn" class="banorte-warn" hidden></p>
-    <div id="banorte-editor-wrap" hidden>
-      <table class="banorte-table" id="banorte-editor">
+<div class="pc-safe-zone banorte-wrap" id="banorte-root" data-csrf="{{ csrf_token }}">
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Nóminas listas para exportar a Banorte</h3>
+    <div class="pc-table-shell banorte-runs-shell">
+      <table class="banorte-table banorte-runs-table">
         <thead>
           <tr>
-            <th>#</th><th>Nombre</th><th>Beneficiario</th><th>Emp.</th><th>Cuenta</th><th>Importe</th><th>Match</th><th>Validación</th>
+            <th>ID</th><th>Periodo</th><th>Cliente</th><th>Trab.</th>
+            <th>Total exportable</th><th>Estado</th><th>Actualizado</th><th>Exports</th><th></th>
           </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-      <div class="banorte-export-bar">
-        <label>Consecutivo <input id="banorte-consec" maxlength="2" value="01"></label>
-        <label>Fecha layout <input id="banorte-date" placeholder="YYYYMMDD"></label>
-        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
-        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
-        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-date"> Confirmar fecha manual</label>
-        <button type="button" class="btn-primary" id="banorte-generate">Generar .pag</button>
-      </div>
-      <p id="banorte-export-msg" class="banorte-warn" hidden></p>
-    </div>
-  </section>
-
-  <section class="banorte-panel">
-    <h2>Beneficiarios recientes</h2>
-    <div class="pc-table-shell">
-      <table class="banorte-table">
-        <thead>
-          <tr><th>ID</th><th>Nombre</th><th>Emp. efectivo</th><th>Cuenta</th><th>Validación</th><th>Ciclo</th></tr>
         </thead>
         <tbody>
-          {% for b in beneficiaries %}
+          {% for r in runs %}
           <tr>
-            <td>{{ b['id'] }}</td>
-            <td>{{ b['nombre_original'] }}</td>
-            <td>{{ b['employee_number_effective'] }}</td>
-            <td>{{ b['account_number'] }}</td>
-            <td><span class="banorte-badge">{{ b['validation_status'] }}</span></td>
-            <td><span class="banorte-badge">{{ b['record_status'] }}</span></td>
+            <td>#{{ r.id }}</td>
+            <td>{{ r.fecha_inicio }} – {{ r.fecha_fin }}</td>
+            <td>{{ r.cliente }}</td>
+            <td>{{ r.worker_count }}</td>
+            <td>${{ '%.2f'|format(r.total_exportable_cents / 100) }}</td>
+            <td><span class="banorte-status" title="Estado real del cálculo">{{ r.status }}</span></td>
+            <td>{{ r.updated_at }}</td>
+            <td>{{ r.prior_export_count }}</td>
+            <td><button type="button" class="btn btn-primary btn-sm" data-prepare-calculo="{{ r.id }}">Preparar exportación</button></td>
           </tr>
           {% else %}
-          <tr><td colspan="6">Sin beneficiarios.</td></tr>
+          <tr><td colspan="9" class="banorte-empty">No hay nóminas con neto positivo exportable.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
   </section>
+
+  <section class="banorte-panel pc-card" id="banorte-editor-panel" hidden>
+    <div class="banorte-editor-head">
+      <h3 class="pc-panel-title">Editor de pagos</h3>
+      <button type="button" class="btn btn-secondary btn-sm" id="banorte-toggle-origin">Colapsar origen</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="banorte-abandon-draft">Abandonar borrador</button>
+    </div>
+    <div id="banorte-origin-box" class="banorte-origin"></div>
+    <div id="banorte-recon" class="banorte-recon"></div>
+    <div class="banorte-editor-scroll">
+      <table class="banorte-table banorte-editor-table" id="banorte-editor">
+        <thead>
+          <tr>
+            <th>#</th><th>Trabajador</th><th>Benef. ID</th><th>Emp.</th><th>Cuenta</th>
+            <th>Orig.</th><th>Final</th><th>Estado</th><th>Adv.</th><th>Incl.</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="banorte-export-bar">
+      <label>Consecutivo <input id="banorte-consec" maxlength="2" value="01"></label>
+      <label>Fecha <input id="banorte-date" placeholder="YYYYMMDD"></label>
+      <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
+      <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
+      <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
+      <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
+    </div>
+    <p id="banorte-export-msg" class="banorte-warn" hidden></p>
+  </section>
 </div>
-<script>
-(function () {
-  const root = document.querySelector('.banorte-wrap');
-  let csrf = root.dataset.csrf;
-  let dirty = false;
-  let editorRows = [];
-  window.addEventListener('beforeunload', function (e) {
-    if (!dirty) return;
-    e.preventDefault();
-    e.returnValue = '';
-  });
-  function setCsrf(token) { if (token) csrf = token; }
-  document.getElementById('banorte-parse').addEventListener('click', async function () {
-    const res = await fetch("{{ url_for('nomina.banorte_paste') }}", {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
-      body: JSON.stringify({
-        csrf_token: csrf,
-        names: document.getElementById('banorte-names').value,
-        amounts: document.getElementById('banorte-amounts').value
-      })
-    });
-    const data = await res.json();
-    setCsrf(data.csrf_token);
-    const warn = document.getElementById('banorte-paste-warn');
-    if (data.warning) { warn.hidden = false; warn.textContent = data.warning; } else { warn.hidden = true; }
-    const tbody = document.querySelector('#banorte-editor tbody');
-    tbody.innerHTML = '';
-    editorRows = [];
-    (data.rows || []).forEach(function (row, idx) {
-      const m = (data.matches || [])[idx] || {};
-      const cand = (m.candidates || [])[0];
-      const tr = document.createElement('tr');
-      const emp = cand ? cand.employee_number_effective : '';
-      const acct = cand ? cand.account_number : '';
-      const benId = m.selected_id || (cand ? cand.beneficiary_id : '');
-      const val = cand ? cand.validation_status : '';
-      tr.innerHTML = '<td>' + row.position + '</td><td>' + (row.raw_name || '') + '</td><td>' + (benId || '—') +
-        '</td><td>' + emp + '</td><td>' + acct + '</td><td>' + (row.amount || row.raw_amount || '') +
-        '</td><td>' + (m.kind || '') + '</td><td>' + val + '</td>';
-      tbody.appendChild(tr);
-      editorRows.push({
-        position: row.position,
-        nombre_recibido: row.raw_name || '',
-        beneficiary_id: benId || null,
-        amount_raw: row.raw_amount || '',
-        match_kind: m.kind === 'EXACT' ? 'EXACT' : (m.kind === 'ALIAS' ? 'ALIAS' : 'MANUAL_SELECT'),
-        client_employee_number: emp || null,
-        client_account_number: acct || null
-      });
-    });
-    document.getElementById('banorte-editor-wrap').hidden = false;
-    dirty = true;
-  });
-  document.getElementById('banorte-generate').addEventListener('click', async function () {
-    const incomplete = editorRows.some(r => !r.beneficiary_id || !r.amount_raw);
-    const msg = document.getElementById('banorte-export-msg');
-    if (incomplete) {
-      msg.hidden = false;
-      msg.textContent = 'Hay filas incompletas; no se puede exportar.';
-      return;
-    }
-    const payload = {
-      csrf_token: csrf,
-      consecutive: document.getElementById('banorte-consec').value,
-      layout_date: document.getElementById('banorte-date').value || null,
-      confirm_manuals: document.getElementById('banorte-confirm-manual').checked,
-      confirm_duplicate_consecutive: document.getElementById('banorte-confirm-dup').checked,
-      confirm_date_override: document.getElementById('banorte-confirm-date').checked,
-      rows: editorRows
-    };
-    const res = await fetch("{{ url_for('nomina.banorte_export_generate') }}", {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
-      body: JSON.stringify(payload)
-    });
-    const data = await res.json();
-    setCsrf(data.csrf_token);
-    if (!data.ok) {
-      msg.hidden = false;
-      msg.textContent = 'Bloqueado: ' + (data.code || res.status);
-      return;
-    }
-    dirty = false;
-    msg.hidden = false;
-    msg.textContent = 'Generado ' + data.filename + ' SHA ' + data.sha256;
-    window.location.href = "{{ url_for('nomina.banorte_download', export_id=0) }}".replace('/0/', '/' + data.export_id + '/');
-  });
-})();
-</script>
+
+{# Drawers: file inputs only here #}
+<div class="banorte-drawer-backdrop" id="banorte-drawer-backdrop" hidden></div>
+<aside class="banorte-drawer" id="drawer-import-altas" hidden>
+  <header><h3>Importar base Banorte</h3><button type="button" data-close-drawer>×</button></header>
+  <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" accept=".xlsx" required></label>
+    <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
+    <button type="submit" class="btn btn-primary">Importar ALTAS</button>
+  </form>
+</aside>
+<aside class="banorte-drawer" id="drawer-import-benef" hidden>
+  <header><h3>Importar beneficiarios</h3><button type="button" data-close-drawer>×</button></header>
+  <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
+    <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
+    <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
+  </form>
+</aside>
+<aside class="banorte-drawer" id="drawer-alta-benef" hidden>
+  <header><h3>Agregar beneficiario</h3><button type="button" data-close-drawer>×</button></header>
+  <form id="banorte-alta-form">
+    <label>Nombre completo<input name="nombre" required></label>
+    <label>Cuenta<input name="account" required autocomplete="off"></label>
+    <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" value="1"> Confirmo usar la cuenta como número de empleado efectivo (1–10 dígitos). No es validación Banorte.</label>
+    <button type="submit" class="btn btn-primary">Crear</button>
+    <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
+  </form>
+</aside>
+<aside class="banorte-drawer" id="drawer-manual" hidden>
+  <header><h3>Captura manual</h3><button type="button" data-close-drawer>×</button></header>
+  <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
+  <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
+  <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
+  <p id="manual-choice" class="banorte-warn" hidden></p>
+</aside>
+
+<script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
 {% endblock %}

@@ -1,38 +1,58 @@
 {% extends "base.html" %}
-{% block title %}Historial Banorte — ProClean{% endblock %}
-{% block head %}
+{% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
 {% endblock %}
 {% block content %}
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas · Exportaciones · Banorte</span>
+    <h2 class="pc-page-title">Historial</h2>
+    <p class="pc-page-subtitle">Exportaciones .pag con origen trazable</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_index') }}">Volver</a>
+  </div>
+</section>
 <div class="pc-safe-zone banorte-wrap">
-  <header class="page-head">
-    <p class="eyebrow">Nóminas · Exportaciones · Banorte</p>
-    <h1>Historial</h1>
-    <p><a href="{{ url_for('nomina.banorte_index') }}">Volver</a></p>
-  </header>
   <section class="banorte-panel">
-    <table class="banorte-table">
-      <thead>
-        <tr><th>ID</th><th>Archivo</th><th>Fecha</th><th>Consec.</th><th>Pagos</th><th>Total centavos</th><th>Usuario</th><th>SHA-256</th><th></th></tr>
-      </thead>
-      <tbody>
-        {% for e in exports %}
-        <tr>
-          <td>{{ e['id'] }}</td>
-          <td>{{ e['filename'] }}</td>
-          <td>{{ e['layout_date'] }}</td>
-          <td>{{ e['consecutive'] }}</td>
-          <td>{{ e['payment_count'] }}</td>
-          <td>{{ e['total_cents'] }}</td>
-          <td>{{ e['created_by'] }}</td>
-          <td class="banorte-mono">{{ e['file_sha256'][:16] }}…</td>
-          <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}">Descargar</a></td>
-        </tr>
-        {% else %}
-        <tr><td colspan="9">Sin exportaciones.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="pc-table-shell">
+      <table class="banorte-table">
+        <thead>
+          <tr>
+            <th>ID</th><th>Archivo</th><th>Origen</th><th>Cálculo</th><th>Periodo / ref.</th>
+            <th>Fecha</th><th>Consec.</th><th>Pagos</th><th>Total ¢</th>
+            <th>Usuario</th><th>SHA</th><th>Mismo cálculo</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in exports %}
+          <tr>
+            <td>{{ e['id'] }}</td>
+            <td>{{ e['filename'] }}</td>
+            <td>{{ e['capture_origin'] or 'Origen no registrado' }}</td>
+            <td>{% if e['calculo_id'] %}#{{ e['calculo_id'] }}{% else %}—{% endif %}</td>
+            <td>
+              {% if e['fecha_inicio'] %}
+                {{ e['fecha_inicio'] }} – {{ e['fecha_fin'] }} · {{ e['calculo_cliente'] or '' }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ e['layout_date'] }}</td>
+            <td>{{ e['consecutive'] }}</td>
+            <td>{{ e['payment_count'] }}</td>
+            <td>{{ e['total_cents'] }}</td>
+            <td>{{ e['created_by'] }}</td>
+            <td class="banorte-mono">{{ e['file_sha256'][:16] }}…</td>
+            <td>{{ e['same_calculo_export_count'] }}</td>
+            <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}">Descargar</a></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="13" class="banorte-empty">Sin exportaciones.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
 </div>
 {% endblock %}

@@ -1,34 +1,93 @@
-.banorte-wrap { max-width: 1100px; margin: 0 auto; }
+.banorte-wrap { max-width: 1200px; margin: 0 auto; padding-bottom: 2rem; }
+.banorte-hero { margin-bottom: 1rem; }
+.banorte-actions { flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
 .banorte-panel {
   background: #fff;
   border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 1rem 1.1rem;
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
   margin: 1rem 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
 }
-.banorte-form { display: grid; gap: .6rem; margin-bottom: 1rem; }
-.banorte-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-.banorte-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.banorte-table { width: 100%; border-collapse: collapse; font-size: .9rem; }
 .banorte-table th, .banorte-table td {
   border-bottom: 1px solid #eee;
-  padding: .45rem .4rem;
+  padding: .4rem .35rem;
   text-align: left;
-  vertical-align: top;
+  vertical-align: middle;
 }
-.banorte-badge {
-  display: inline-block;
+.banorte-runs-shell { overflow-x: auto; }
+.banorte-editor-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.banorte-editor-table { min-width: 960px; font-size: .85rem; }
+.banorte-editor-table input[type="text"],
+.banorte-editor-table input[type="number"] {
+  width: 100%;
+  min-width: 4.5rem;
   border: 1px solid #cbd5e1;
   border-radius: 4px;
-  padding: .1rem .35rem;
-  font-size: .78rem;
+  padding: .2rem .35rem;
+  font: inherit;
 }
+.banorte-status, .banorte-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .25rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: .1rem .45rem;
+  font-size: .78rem;
+  background: #f8fafc;
+}
+.banorte-status--ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
+.banorte-status--warn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.banorte-status--bad { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.banorte-status--muted { border-color: #e2e8f0; background: #f1f5f9; color: #64748b; }
 .banorte-warn { color: #92400e; margin-top: .5rem; }
-.banorte-hint { color: #64748b; font-size: .9rem; }
-.banorte-check { display: flex; gap: .4rem; align-items: center; }
+.banorte-hint { color: #64748b; font-size: .88rem; }
+.banorte-empty { color: #64748b; text-align: center; padding: 1.2rem !important; }
+.banorte-check { display: flex; gap: .4rem; align-items: center; margin: .5rem 0; }
 .banorte-export-bar {
   display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-top: .85rem;
 }
+.banorte-recon {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: .5rem;
+  margin: .75rem 0;
+  font-size: .85rem;
+}
+.banorte-recon div {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: .45rem .55rem;
+}
+.banorte-origin {
+  font-size: .88rem;
+  color: #475569;
+  margin-bottom: .5rem;
+}
+.banorte-drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 40;
+}
+.banorte-drawer {
+  position: fixed; top: 0; right: 0; width: min(420px, 100%); height: 100%;
+  background: #fff; z-index: 50; padding: 1rem 1.1rem; overflow: auto;
+  box-shadow: -8px 0 24px rgba(15,23,42,.12);
+  display: grid; gap: .75rem; align-content: start;
+}
+.banorte-drawer header {
+  display: flex; justify-content: space-between; align-items: center;
+}
+.banorte-drawer header button {
+  border: 0; background: transparent; font-size: 1.4rem; cursor: pointer;
+}
 .banorte-mono { font-family: ui-monospace, monospace; font-size: .8rem; }
-@media (max-width: 800px) {
-  .banorte-grid2 { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .banorte-actions { justify-content: stretch; }
 }
