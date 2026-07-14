@@ -296,12 +296,25 @@ def save_draft_rows(
     user: str,
     expected_revision: int,
     rows: list[dict[str, Any]],
+    *,
+    consecutive_pref: str | None = None,
 ) -> dict[str, Any]:
     conn = connect(db_path)
     try:
         ensure_banorte_tables(conn)
         conn.execute("BEGIN IMMEDIATE")
         _bump_or_stale(conn, draft_id, expected_revision, user)
+        if consecutive_pref is not None:
+            try:
+                from modules.nomina.banorte.export_service import normalize_consecutive
+
+                pref = normalize_consecutive(consecutive_pref)
+            except Exception:
+                pref = consecutive_pref
+            conn.execute(
+                "UPDATE nomina_banorte_export_drafts SET consecutive_pref=? WHERE id=?",
+                (pref, int(draft_id)),
+            )
         conn.execute("DELETE FROM nomina_banorte_export_draft_rows WHERE draft_id=?", (int(draft_id),))
         for i, r in enumerate(rows, start=1):
             included = int(r.get("included") or 0)
@@ -314,8 +327,8 @@ def save_draft_rows(
                     draft_id, position, calculo_row_id, nombre_recibido, nss_snapshot, banco_snapshot,
                     beneficiary_id, employee_number_snapshot, account_number_snapshot,
                     amount_original_cents, amount_final_cents, included, match_kind, alias_id,
-                    row_state, warnings_json, user_decision_json
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    row_state, warnings_json, user_decision_json, excluded_at, excluded_by
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     int(draft_id),
@@ -335,6 +348,8 @@ def save_draft_rows(
                     str(r.get("row_state") or ("OK" if included else "EXCLUDED")),
                     json.dumps(r.get("warnings") or [], ensure_ascii=False),
                     json.dumps(r.get("user_decision") or {}, ensure_ascii=False),
+                    r.get("excluded_at"),
+                    r.get("excluded_by"),
                 ),
             )
         conn.commit()
@@ -410,12 +425,82 @@ def abandon_draft(
             """,
             (user, now, int(draft_id), int(expected_revision)),
         )
+    finally:
+        conn.close()
+    return get_draft(db_path, draft_id)  # type: ignore[return-value]
+
+
+def exclude_draft_row(
+    db_path: str,
+    draft_id: int,
+    row_id: int,
+    user: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _bump_or_stale(conn, draft_id, expected_revision, user)
+        now = _now()
+        cur = conn.execute(
+            """
+            UPDATE nomina_banorte_export_draft_rows
+            SET included=0, row_state='EXCLUDED', excluded_at=?, excluded_by=?
+            WHERE id=? AND draft_id=?
+            """,
+            (now, user, int(row_id), int(draft_id)),
+        )
         if cur.rowcount != 1:
-            row = conn.execute(
-                "SELECT revision FROM nomina_banorte_export_drafts WHERE id=?",
-                (int(draft_id),),
-            ).fetchone()
-            raise DraftStaleError(int(draft_id), int(row["revision"]) if row else expected_revision)
+            raise ValueError("row_not_found")
+        conn.commit()
+    except DraftStaleError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return get_draft(db_path, draft_id)  # type: ignore[return-value]
+
+
+def restore_last_excluded(
+    db_path: str,
+    draft_id: int,
+    user: str,
+    expected_revision: int,
+) -> dict[str, Any]:
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _bump_or_stale(conn, draft_id, expected_revision, user)
+        row = conn.execute(
+            """
+            SELECT id, beneficiary_id, amount_final_cents
+            FROM nomina_banorte_export_draft_rows
+            WHERE draft_id=? AND excluded_at IS NOT NULL
+            ORDER BY excluded_at DESC LIMIT 1
+            """,
+            (int(draft_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError("nothing_to_restore")
+        can_include = int(row["amount_final_cents"] or 0) > 0 and row["beneficiary_id"] is not None
+        conn.execute(
+            """
+            UPDATE nomina_banorte_export_draft_rows
+            SET included=?, row_state=?, excluded_at=NULL, excluded_by=NULL
+            WHERE id=? AND draft_id=?
+            """,
+            (
+                1 if can_include else 0,
+                "OK" if can_include else "BLOCKED",
+                int(row["id"]),
+                int(draft_id),
+            ),
+        )
         conn.commit()
     except DraftStaleError:
         conn.rollback()

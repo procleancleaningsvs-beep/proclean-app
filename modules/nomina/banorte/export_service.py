@@ -42,6 +42,8 @@ class ExportResult:
     file_sha256: str
     total_cents: int
     payment_count: int
+    layout_date: str | None = None
+    layout_date_display: str | None = None
 
 
 class ExportBlockedError(ValueError):
@@ -49,6 +51,29 @@ class ExportBlockedError(ValueError):
         super().__init__(code)
         self.code = code
         self.rows = rows or []
+
+
+def normalize_consecutive(raw: str) -> str:
+    """Validate and normalize consecutive to exactly two digits (01-99, not 00)."""
+    value = str(raw or "").strip()
+    if not value.isdigit():
+        raise ExportBlockedError("invalid_consecutive")
+    if len(value) > 2:
+        raise ExportBlockedError("invalid_consecutive")
+    normalized = value.zfill(2) if len(value) == 1 else value
+    if len(normalized) != 2 or not normalized.isdigit():
+        raise ExportBlockedError("invalid_consecutive")
+    num = int(normalized)
+    if num < 1 or num > 99:
+        raise ExportBlockedError("invalid_consecutive")
+    return normalized
+
+
+def resolve_layout_date_monterrey(*, client_layout_date: str | None = None) -> tuple[str, str]:
+    """Authoritative layout date from America/Monterrey; ignores client input."""
+    _ = client_layout_date
+    now = datetime.now(TZ)
+    return now.strftime("%Y%m%d"), now.strftime("%d/%m/%Y")
 
 
 def _now() -> str:
@@ -266,10 +291,9 @@ def generate_export(
     draft+export workflows.
     """
     now = _now()
-    auto_date = datetime.now(TZ).strftime("%Y%m%d")
-    used_date = layout_date or auto_date
-    if layout_date and layout_date != auto_date and not confirm_date_override:
-        raise ExportBlockedError("date_override_confirmation_required")
+    auto_date, _display = resolve_layout_date_monterrey(client_layout_date=layout_date)
+    used_date = auto_date
+    consecutive = normalize_consecutive(consecutive)
 
     owns_conn = conn is None
     if owns_conn:
@@ -439,22 +463,32 @@ def generate_from_persistent_draft(
             raise ExportBlockedError("reconciliation_mismatch")
 
         origin = str(row["origin_kind"])
-        capture_origin = "CALCULO_RUN" if origin == "CALCULO_RUN" else "MANUAL_CAPTURE"
+        capture_origin = (
+            "CALCULO_RUN"
+            if origin == "CALCULO_RUN"
+            else "EXCEL_NOMINA"
+            if origin == "EXCEL_NOMINA"
+            else "MANUAL_CAPTURE"
+        )
+        layout_date, layout_date_display = resolve_layout_date_monterrey(client_layout_date=layout_date)
+        consecutive_norm = normalize_consecutive(consecutive)
         result = generate_export(
             db_path,
             user,
             payment_rows,
-            consecutive=consecutive,
+            consecutive=consecutive_norm,
             layout_date=layout_date,
             confirm_duplicate_consecutive=confirm_duplicate_consecutive,
             confirm_manuals=confirm_manuals,
-            confirm_date_override=confirm_date_override,
+            confirm_date_override=False,
             capture_origin=capture_origin,
             calculo_id=int(row["calculo_id"]) if row["calculo_id"] is not None else None,
             draft_id=int(draft_id),
             conn=conn,
             commit=False,
         )
+        result.layout_date = layout_date
+        result.layout_date_display = layout_date_display
         if result.total_cents != rec.total_final_cents:
             raise ExportBlockedError("pag_total_mismatch")
 

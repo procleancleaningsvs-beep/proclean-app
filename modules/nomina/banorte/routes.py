@@ -26,6 +26,7 @@ from modules.nomina.banorte.beneficiary_service import (
     replace_beneficiary,
     replacement_history,
     search_by_account,
+    search_by_name,
 )
 from modules.nomina.banorte.calculo_adapter import build_draft_rows_from_calculo, origin_hash_for_manual_capture
 from modules.nomina.banorte.calculo_queries import get_calculo_run_readonly, list_exportable_calculo_runs
@@ -36,9 +37,11 @@ from modules.nomina.banorte.draft_repository import (
     abandon_draft,
     create_draft_from_adapter,
     create_manual_draft_shell,
+    exclude_draft_row,
     find_open_manual_draft,
     get_draft,
     reorder_draft_rows,
+    restore_last_excluded,
     save_draft_rows,
 )
 from modules.nomina.banorte.export_service import (
@@ -47,6 +50,8 @@ from modules.nomina.banorte.export_service import (
     generate_export,
     generate_from_persistent_draft,
     get_export_blob,
+    normalize_consecutive,
+    resolve_layout_date_monterrey,
 )
 from modules.nomina.banorte.import_service import (
     import_nomina_banorte_xlsx,
@@ -137,13 +142,17 @@ def register_banorte_routes(bp) -> None:
                 """
             ).fetchall()
             historial = [dict(e) for e in exports]
+            benef_listing = list_beneficiaries(_db_path(), page=1, page_size=50)
         finally:
             conn.close()
+        _, application_date_display = resolve_layout_date_monterrey()
         resp = Response(
             render_template(
                 "nomina/exportaciones_banorte.html",
                 runs=runs,
                 historial=historial,
+                benef_listing=benef_listing,
+                application_date_display=application_date_display,
                 csrf_token=issue_csrf_token(),
             )
         )
@@ -335,6 +344,7 @@ def register_banorte_routes(bp) -> None:
                 _username(),
                 int(data.get("expected_revision")),
                 list(data.get("rows") or []),
+                consecutive_pref=data.get("consecutive_pref"),
             )
         except DraftStaleError as exc:
             return _stale_response(exc)
@@ -408,9 +418,48 @@ def register_banorte_routes(bp) -> None:
                 "export_id": result.export_id,
                 "filename": result.filename,
                 "sha256": result.file_sha256,
+                "layout_date": result.layout_date,
+                "layout_date_display": result.layout_date_display,
                 "csrf_token": issue_csrf_token(),
             }
         )
+
+    @_banorte_access_required
+    def banorte_draft_exclude_row(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = exclude_draft_row(
+                _db_path(),
+                int(draft_id),
+                int(data.get("row_id")),
+                _username(),
+                int(data.get("expected_revision")),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_restore_last(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = restore_last_excluded(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_draft_manual():
@@ -475,6 +524,30 @@ def register_banorte_routes(bp) -> None:
         prepared = prepare_draft_rows(_db_path(), rows, origin_kind="MANUAL_CAPTURE")
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_search_name():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            rows = search_by_name(_db_path(), str(data.get("q") or ""), limit=int(data.get("limit") or 20))
+        except BeneficiaryError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, "rows": rows, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_list_json():
+        page = int(request.args.get("page") or 1)
+        data = list_beneficiaries(
+            _db_path(),
+            page=page,
+            q_name="",
+            q_emp="",
+            validation_status=str(request.args.get("validation_status") or ""),
+            record_status=str(request.args.get("record_status") or ""),
+        )
+        return _json_no_store({"ok": True, "listing": data, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_beneficiarios_page():
@@ -665,9 +738,33 @@ def register_banorte_routes(bp) -> None:
         methods=["POST"],
     )
     bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/exclude-row",
+        endpoint="banorte_draft_exclude_row",
+        view_func=banorte_draft_exclude_row,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/restore-last",
+        endpoint="banorte_draft_restore_last",
+        view_func=banorte_draft_restore_last,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
         "/exportaciones/banorte/drafts/manual",
         endpoint="banorte_draft_manual",
         view_func=banorte_draft_manual,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/list",
+        endpoint="banorte_beneficiarios_list_json",
+        view_func=banorte_beneficiarios_list_json,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/search-name",
+        endpoint="banorte_beneficiarios_search_name",
+        view_func=banorte_beneficiarios_search_name,
         methods=["POST"],
     )
     bp.add_url_rule(

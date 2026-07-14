@@ -25,7 +25,31 @@
   border: 1px solid #e5e7eb;
   border-radius: 8px;
 }
-.banorte-editor-table { min-width: 960px; font-size: .85rem; }
+.banorte-editor-table { min-width: 880px; font-size: .85rem; }
+.banorte-editor-table .banorte-col-worker,
+.banorte-editor-table td.c-worker { min-width: 14rem; white-space: normal; word-break: normal; }
+.banorte-editor-meta {
+  display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin: .5rem 0 .75rem;
+  font-size: .9rem;
+}
+.banorte-editor-head { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.banorte-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; cursor: pointer; padding: .15rem;
+  color: #64748b;
+}
+.banorte-icon-btn:hover:not(:disabled) { color: #dc2626; }
+.banorte-icon-btn:disabled { opacity: .35; cursor: not-allowed; }
+.banorte-ac-list {
+  position: absolute; z-index: 10; background: #fff; border: 1px solid #cbd5e1;
+  border-radius: 6px; box-shadow: 0 4px 12px rgba(15,23,42,.12); max-height: 12rem; overflow: auto;
+  min-width: 16rem;
+}
+.banorte-ac-list button {
+  display: block; width: 100%; text-align: left; border: 0; background: transparent;
+  padding: .35rem .5rem; cursor: pointer; font: inherit;
+}
+.banorte-ac-list button:hover { background: #f1f5f9; }
 .banorte-editor-table input[type="text"],
 .banorte-editor-table input[type="number"] {
   width: 100%;

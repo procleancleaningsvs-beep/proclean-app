@@ -455,3 +455,12 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
             ON nomina_banorte_export_draft_rows(draft_id)
         """
     )
+
+    _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "excluded_at", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "excluded_by", "TEXT")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_draft_rows_excluded
+            ON nomina_banorte_export_draft_rows(draft_id, excluded_at)
+        """
+    )

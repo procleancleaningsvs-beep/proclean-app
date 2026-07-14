@@ -57,8 +57,23 @@
     <section class="banorte-panel pc-card" id="banorte-editor-panel" hidden>
       <div class="banorte-editor-head">
         <h3 class="pc-panel-title">Editor de pagos</h3>
+        <button type="button" class="btn btn-secondary btn-sm" id="banorte-restore-last" title="Deshacer última exclusión" disabled aria-label="Deshacer">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>
+        </button>
         <button type="button" class="btn btn-secondary btn-sm" id="banorte-toggle-origin">Colapsar origen</button>
         <button type="button" class="btn btn-secondary btn-sm" id="banorte-abandon-draft">Abandonar borrador</button>
+      </div>
+      <div class="banorte-editor-meta">
+        <span class="banorte-app-date">Fecha de aplicación: <strong id="banorte-app-date">{{ application_date_display }}</strong></span>
+        <label>Consecutivo
+          <select id="banorte-consec-select">
+            {% for n in range(1, 11) %}
+            <option value="{{ '%02d'|format(n) }}">{{ '%02d'|format(n) }}</option>
+            {% endfor %}
+            <option value="other">Otro</option>
+          </select>
+          <input id="banorte-consec-other" type="text" inputmode="numeric" maxlength="2" placeholder="11-99" hidden>
+        </label>
       </div>
       <div id="banorte-origin-box" class="banorte-origin"></div>
       <div id="banorte-recon" class="banorte-recon"></div>
@@ -66,16 +81,14 @@
         <table class="banorte-table banorte-editor-table" id="banorte-editor">
           <thead>
             <tr>
-              <th>#</th><th>Trabajador</th><th>Benef. ID</th><th>Emp.</th><th>Cuenta</th>
-              <th>Orig.</th><th>Final</th><th>Estado</th><th>Adv.</th><th>Incl.</th>
+              <th>#</th><th class="banorte-col-worker">Trabajador</th><th>Número de empleado</th><th>Cuenta</th>
+              <th>Monto</th><th>Estado</th><th>Acción</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
       <div class="banorte-export-bar">
-        <label>Consecutivo <input id="banorte-consec" maxlength="2" value="01"></label>
-        <label>Fecha <input id="banorte-date" placeholder="YYYYMMDD"></label>
         <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
         <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
         <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
@@ -86,8 +99,59 @@
 
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
       <h3 class="pc-panel-title">Beneficiarios Banorte</h3>
-      <p class="banorte-hint">Administración embebida — use los filtros para buscar (máx. 50 por página).</p>
-      <div id="banorte-ben-list-host"></div>
+      <div class="banorte-export-bar" id="banorte-ben-filters">
+        <label>Búsqueda por nombre
+          <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Mín. 3 caracteres">
+        </label>
+        <label>Validación
+          <select id="banorte-ben-val">
+            <option value="">Todas</option>
+            <option value="IMPORTADO_EXITOSO">Validado Banorte</option>
+            <option value="MANUAL_PENDIENTE_VALIDACION">Pendiente</option>
+          </select>
+        </label>
+        <label>Ciclo
+          <select id="banorte-ben-rec">
+            <option value="">Todos</option>
+            <option value="ACTIVO">Activo</option>
+            <option value="INACTIVO_REEMPLAZADO">Reemplazado</option>
+            <option value="CONFLICTO_CRITICO">Conflicto</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-primary btn-sm" id="banorte-ben-search">Buscar</button>
+      </div>
+      <p class="banorte-hint" id="banorte-ben-meta">Total {{ benef_listing.total }} · página {{ benef_listing.page }}</p>
+      <div class="pc-table-shell">
+        <table class="banorte-table" id="banorte-ben-table">
+          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th></tr></thead>
+          <tbody>
+            {% for b in benef_listing.rows %}
+            <tr>
+              <td>{{ b.id }}</td>
+              <td>{{ b.nombre_original }}</td>
+              <td>{{ b.employee_number_effective }}</td>
+              <td class="banorte-mono">{{ b.account_number }}</td>
+              <td>
+                {% if b.validation_status == 'IMPORTADO_EXITOSO' and b.record_status == 'ACTIVO' %}
+                <span class="banorte-status banorte-status--ok">Validado Banorte</span>
+                {% elif b.manual_effective_from_account and b.record_status == 'ACTIVO' %}
+                <span class="banorte-status banorte-status--ok">Usizable (manual)</span>
+                {% elif b.record_status == 'CONFLICTO_CRITICO' %}
+                <span class="banorte-status banorte-status--bad">Conflicto</span>
+                {% elif b.record_status == 'INACTIVO_REEMPLAZADO' %}
+                <span class="banorte-status banorte-status--muted">Reemplazado</span>
+                {% else %}
+                <span class="banorte-status banorte-status--warn">Pendiente</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="banorte-empty">Sin beneficiarios.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="banorte-export-bar" id="banorte-ben-pager"></div>
     </section>
   </section>
 

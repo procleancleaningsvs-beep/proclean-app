@@ -109,6 +109,30 @@ def search_by_account(db_path: str, account_query: str) -> list[dict[str, Any]]:
         conn.close()
 
 
+def search_by_name(db_path: str, name_query: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    """POST-only name search for autocomplete; never log full query."""
+    q = normalize_name(name_query)
+    if len(q) < 3:
+        raise BeneficiaryError("name_query_too_short")
+    lim = min(50, max(1, int(limit)))
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        rows = conn.execute(
+            """
+            SELECT id, nombre_original, employee_number_effective, account_number,
+                   validation_status, record_status
+            FROM nomina_banorte_beneficiaries
+            WHERE record_status='ACTIVO' AND nombre_normalizado LIKE ?
+            ORDER BY id DESC LIMIT ?
+            """,
+            (f"%{q}%", lim),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def create_manual_beneficiary(
     db_path: str,
     user: str,
