@@ -154,13 +154,30 @@ def resolve_row_match(db_path: str, row: dict[str, Any]) -> MatchResult:
     return nm if nm.kind != "NONE" else MatchResult(kind="NONE")
 
 
-def apply_bank_rules(row: dict[str, Any], match: MatchResult) -> dict[str, Any]:
+def _valid_employee_number(value: Any) -> bool:
+    digits = _digits(value)
+    return 1 <= len(digits) <= 10
+
+
+def _valid_account(value: Any) -> bool:
+    digits = _digits(value)
+    return len(digits) >= 10
+
+
+def _banco_normalized(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def apply_bank_rules(
+    row: dict[str, Any],
+    match: MatchResult,
+    *,
+    origin_kind: str = "CALCULO_RUN",
+) -> dict[str, Any]:
     """Mutates a copy of row fields for inclusion / warnings / state."""
     out = dict(row)
     warnings = list(out.get("warnings") or [])
-    banco = normalize_name(out.get("banco_snapshot") or "").replace(" ", "")
-    # normalize_name uppercases; BANORTE stays
-    banco_raw = str(out.get("banco_snapshot") or "").strip().upper()
+    banco_norm = _banco_normalized(out.get("banco_snapshot"))
     positive = int(out.get("amount_final_cents") or 0) > 0
 
     if match.auto_selected and match.selected_id:
@@ -180,7 +197,35 @@ def apply_bank_rules(row: dict[str, Any], match: MatchResult) -> dict[str, Any]:
         out["amount_final_cents"] = 0
         return out
 
-    if banco_raw == "BANORTE":
+    if origin_kind == "MANUAL_CAPTURE":
+        if match.auto_selected and match.selected_id:
+            emp_ok = _valid_employee_number(out.get("employee_number_snapshot"))
+            acct_ok = _valid_account(out.get("account_number_snapshot"))
+            if emp_ok and acct_ok:
+                out["included"] = 1
+                out["row_state"] = "OK"
+            else:
+                out["included"] = 0
+                out["row_state"] = "BLOCKED"
+                warnings.append("manual_beneficiary_incomplete")
+        elif match.kind in {"FUZZY_RECOMMENDATION", "EMPLOYEE_SECONDARY", "AMBIGUOUS"}:
+            out["included"] = 0
+            out["row_state"] = "BLOCKED"
+            warnings.append(f"match_{match.kind.lower()}")
+        else:
+            out["included"] = 0
+            out["row_state"] = "BLOCKED"
+            warnings.append("manual_unresolved")
+        out["warnings"] = warnings
+        out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
+        out["user_decision"] = {
+            **(out.get("user_decision") or {}),
+            "candidate_ids": [c.beneficiary_id for c in match.candidates[:5]],
+            "match_message": match.message,
+        }
+        return out
+
+    if banco_norm == "banorte":
         if match.auto_selected and match.selected_id:
             out["included"] = 1
             out["row_state"] = "OK"
@@ -188,10 +233,14 @@ def apply_bank_rules(row: dict[str, Any], match: MatchResult) -> dict[str, Any]:
             out["included"] = 0
             out["row_state"] = "NEEDS_REVIEW"
             warnings.append("banorte_sin_match")
-    elif banco_raw == "":
+    elif banco_norm == "":
         out["included"] = 0
         out["row_state"] = "NEEDS_REVIEW"
         warnings.append("banco_vacio")
+    elif banco_norm in {"banorte2", "banorte 2"}:
+        out["included"] = 0
+        out["row_state"] = "EXCLUDED"
+        warnings.append("banco_no_banorte")
     else:
         if match.auto_selected and match.selected_id:
             out["included"] = 1
@@ -220,9 +269,15 @@ def apply_bank_rules(row: dict[str, Any], match: MatchResult) -> dict[str, Any]:
     return out
 
 
-def prepare_draft_rows(db_path: str, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def prepare_draft_rows(
+    db_path: str,
+    rows: list[dict[str, Any]],
+    *,
+    origin_kind: str = "CALCULO_RUN",
+) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
     for row in rows:
         m = resolve_row_match(db_path, row)
-        prepared.append(apply_bank_rules(row, m))
+        kind = str(row.get("origin_kind") or origin_kind)
+        prepared.append(apply_bank_rules(row, m, origin_kind=kind))
     return prepared

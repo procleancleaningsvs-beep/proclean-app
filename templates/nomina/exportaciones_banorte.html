@@ -10,115 +10,198 @@
     <p class="pc-page-subtitle">Nóminas listas para exportar a Banorte</p>
   </div>
   <div class="page-head-actions pc-hub-hero__actions banorte-actions">
-    <button type="button" class="btn btn-secondary" data-banorte-drawer="import-altas">Importar base Banorte</button>
-    <button type="button" class="btn btn-secondary" data-banorte-drawer="import-benef">Importar beneficiarios</button>
-    <button type="button" class="btn btn-secondary" data-banorte-drawer="alta-benef">Agregar beneficiario</button>
-    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_beneficiarios_page') }}">Beneficiarios</a>
-    <button type="button" class="btn btn-secondary" data-banorte-drawer="manual">Captura manual</button>
-    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_historial') }}">Historial</a>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="import-altas">Importar base Banorte</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="import-benef">Importar beneficiarios</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="excel">Importar nómina Excel</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="alta-benef">Agregar beneficiario</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="manual">Captura manual</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="historial">Historial</button>
   </div>
 </section>
 
 <div class="pc-safe-zone banorte-wrap" id="banorte-root" data-csrf="{{ csrf_token }}">
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Nóminas listas para exportar a Banorte</h3>
-    <div class="pc-table-shell banorte-runs-shell">
-      <table class="banorte-table banorte-runs-table">
-        <thead>
-          <tr>
-            <th>ID</th><th>Periodo</th><th>Cliente</th><th>Trab.</th>
-            <th>Total exportable</th><th>Estado</th><th>Actualizado</th><th>Exports</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for r in runs %}
-          <tr>
-            <td>#{{ r.id }}</td>
-            <td>{{ r.fecha_inicio }} – {{ r.fecha_fin }}</td>
-            <td>{{ r.cliente }}</td>
-            <td>{{ r.worker_count }}</td>
-            <td>${{ '%.2f'|format(r.total_exportable_cents / 100) }}</td>
-            <td><span class="banorte-status" title="Estado real del cálculo">{{ r.status }}</span></td>
-            <td>{{ r.updated_at }}</td>
-            <td>{{ r.prior_export_count }}</td>
-            <td><button type="button" class="btn btn-primary btn-sm" data-prepare-calculo="{{ r.id }}">Preparar exportación</button></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="9" class="banorte-empty">No hay nóminas con neto positivo exportable.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+
+  {# —— Hub: Exportar pagos (default) —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-hub" data-banorte-panel="hub">
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Nóminas listas para exportar a Banorte</h3>
+      <div class="pc-table-shell banorte-runs-shell">
+        <table class="banorte-table banorte-runs-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Periodo</th><th>Cliente</th><th>Trab.</th>
+              <th>Total exportable</th><th>Estado</th><th>Actualizado</th><th>Exports</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in runs %}
+            <tr>
+              <td>#{{ r.id }}</td>
+              <td>{{ r.fecha_inicio }} – {{ r.fecha_fin }}</td>
+              <td>{{ r.cliente }}</td>
+              <td>{{ r.worker_count }}</td>
+              <td>${{ '%.2f'|format(r.total_exportable_cents / 100) }}</td>
+              <td><span class="banorte-status" title="Estado real del cálculo">{{ r.status }}</span></td>
+              <td>{{ r.updated_at }}</td>
+              <td>{{ r.prior_export_count }}</td>
+              <td><button type="button" class="btn btn-primary btn-sm" data-prepare-calculo="{{ r.id }}">Preparar exportación</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="banorte-empty">No hay nóminas con neto positivo exportable.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="banorte-panel pc-card" id="banorte-editor-panel" hidden>
+      <div class="banorte-editor-head">
+        <h3 class="pc-panel-title">Editor de pagos</h3>
+        <button type="button" class="btn btn-secondary btn-sm" id="banorte-toggle-origin">Colapsar origen</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="banorte-abandon-draft">Abandonar borrador</button>
+      </div>
+      <div id="banorte-origin-box" class="banorte-origin"></div>
+      <div id="banorte-recon" class="banorte-recon"></div>
+      <div class="banorte-editor-scroll">
+        <table class="banorte-table banorte-editor-table" id="banorte-editor">
+          <thead>
+            <tr>
+              <th>#</th><th>Trabajador</th><th>Benef. ID</th><th>Emp.</th><th>Cuenta</th>
+              <th>Orig.</th><th>Final</th><th>Estado</th><th>Adv.</th><th>Incl.</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="banorte-export-bar">
+        <label>Consecutivo <input id="banorte-consec" maxlength="2" value="01"></label>
+        <label>Fecha <input id="banorte-date" placeholder="YYYYMMDD"></label>
+        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
+        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
+        <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
+        <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
+      </div>
+      <p id="banorte-export-msg" class="banorte-warn" hidden></p>
+    </section>
+
+    <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
+      <h3 class="pc-panel-title">Beneficiarios Banorte</h3>
+      <p class="banorte-hint">Administración embebida — use los filtros para buscar (máx. 50 por página).</p>
+      <div id="banorte-ben-list-host"></div>
+    </section>
   </section>
 
-  <section class="banorte-panel pc-card" id="banorte-editor-panel" hidden>
-    <div class="banorte-editor-head">
-      <h3 class="pc-panel-title">Editor de pagos</h3>
-      <button type="button" class="btn btn-secondary btn-sm" id="banorte-toggle-origin">Colapsar origen</button>
-      <button type="button" class="btn btn-secondary btn-sm" id="banorte-abandon-draft">Abandonar borrador</button>
+  {# —— Importar base Banorte —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-import-altas" data-banorte-panel="import-altas" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
-    <div id="banorte-origin-box" class="banorte-origin"></div>
-    <div id="banorte-recon" class="banorte-recon"></div>
-    <div class="banorte-editor-scroll">
-      <table class="banorte-table banorte-editor-table" id="banorte-editor">
-        <thead>
-          <tr>
-            <th>#</th><th>Trabajador</th><th>Benef. ID</th><th>Emp.</th><th>Cuenta</th>
-            <th>Orig.</th><th>Final</th><th>Estado</th><th>Adv.</th><th>Incl.</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Importar base Banorte</h3>
+      <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" accept=".xlsx" required></label>
+        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
+        <button type="submit" class="btn btn-primary">Importar ALTAS</button>
+      </form>
+    </section>
+  </section>
+
+  {# —— Importar beneficiarios —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-import-benef" data-banorte-panel="import-benef" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
-    <div class="banorte-export-bar">
-      <label>Consecutivo <input id="banorte-consec" maxlength="2" value="01"></label>
-      <label>Fecha <input id="banorte-date" placeholder="YYYYMMDD"></label>
-      <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
-      <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
-      <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
-      <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Importar beneficiarios</h3>
+      <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
+        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
+        <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
+      </form>
+    </section>
+  </section>
+
+  {# —— Importar nómina Excel (2.1C) —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-excel" data-banorte-panel="excel" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
-    <p id="banorte-export-msg" class="banorte-warn" hidden></p>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Importar nómina Excel</h3>
+      <p class="banorte-hint">Seleccione un archivo .xlsx o .xlsm, elija la hoja y prepare el borrador.</p>
+      <div id="banorte-excel-host"></div>
+    </section>
+  </section>
+
+  {# —— Agregar beneficiario —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-alta-benef" data-banorte-panel="alta-benef" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
+    </div>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Agregar beneficiario</h3>
+      <form id="banorte-alta-form">
+        <label>Nombre completo<input name="nombre" required></label>
+        <label>Cuenta<input name="account" required autocomplete="off"></label>
+        <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" value="1"> Confirmo usar la cuenta como número de empleado efectivo (1–10 dígitos). No es validación Banorte.</label>
+        <button type="submit" class="btn btn-primary">Crear</button>
+        <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
+      </form>
+    </section>
+  </section>
+
+  {# —— Captura manual —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-manual" data-banorte-panel="manual" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
+    </div>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Captura manual</h3>
+      <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
+      <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
+      <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
+      <p id="manual-choice" class="banorte-warn" hidden></p>
+    </section>
+  </section>
+
+  {# —— Historial —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-historial" data-banorte-panel="historial" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
+    </div>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Historial de exportaciones</h3>
+      <div class="pc-table-shell">
+        <table class="banorte-table">
+          <thead>
+            <tr>
+              <th>ID</th><th>Archivo</th><th>Fecha</th><th>Consec.</th><th>Pagos</th><th>Total</th><th>Origen</th><th>Creado</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in historial %}
+            <tr>
+              <td>#{{ e.id }}</td>
+              <td class="banorte-mono">{{ e.filename }}</td>
+              <td>{{ e.layout_date }}</td>
+              <td>{{ e.consecutive }}</td>
+              <td>{{ e.payment_count }}</td>
+              <td>${{ '%.2f'|format(e.total_cents / 100) }}</td>
+              <td>{{ e.capture_origin }}{% if e.calculo_id %} #{{ e.calculo_id }}{% endif %}</td>
+              <td>{{ e.created_at }}</td>
+              <td><a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e.id) }}">Descargar</a></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="banorte-empty">Sin exportaciones.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </section>
 </div>
-
-{# Drawers: file inputs only here #}
-<div class="banorte-drawer-backdrop" id="banorte-drawer-backdrop" hidden></div>
-<aside class="banorte-drawer" id="drawer-import-altas" hidden>
-  <header><h3>Importar base Banorte</h3><button type="button" data-close-drawer>×</button></header>
-  <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" accept=".xlsx" required></label>
-    <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-    <button type="submit" class="btn btn-primary">Importar ALTAS</button>
-  </form>
-</aside>
-<aside class="banorte-drawer" id="drawer-import-benef" hidden>
-  <header><h3>Importar beneficiarios</h3><button type="button" data-close-drawer>×</button></header>
-  <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
-    <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-    <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
-  </form>
-</aside>
-<aside class="banorte-drawer" id="drawer-alta-benef" hidden>
-  <header><h3>Agregar beneficiario</h3><button type="button" data-close-drawer>×</button></header>
-  <form id="banorte-alta-form">
-    <label>Nombre completo<input name="nombre" required></label>
-    <label>Cuenta<input name="account" required autocomplete="off"></label>
-    <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" value="1"> Confirmo usar la cuenta como número de empleado efectivo (1–10 dígitos). No es validación Banorte.</label>
-    <button type="submit" class="btn btn-primary">Crear</button>
-    <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
-  </form>
-</aside>
-<aside class="banorte-drawer" id="drawer-manual" hidden>
-  <header><h3>Captura manual</h3><button type="button" data-close-drawer>×</button></header>
-  <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
-  <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
-  <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
-  <p id="manual-choice" class="banorte-warn" hidden></p>
-</aside>
 
 <script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
 {% endblock %}

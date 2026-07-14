@@ -117,9 +117,8 @@ def test_index_extra_head_and_no_store(tmp_path):
     html = res.data.decode("utf-8")
     assert "exportaciones_banorte.css" in html
     assert "Nóminas listas para exportar a Banorte" in html
-    # file inputs only inside drawers
-    assert 'id="drawer-import-altas"' in html
-    assert "data-banorte-drawer" in html
+    assert "data-banorte-tab" in html
+    assert "banorte-drawer" not in html
 
 
 def test_historial_no_store(tmp_path):

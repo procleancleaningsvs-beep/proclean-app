@@ -123,10 +123,27 @@ def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_index():
         runs = list_exportable_calculo_runs(_db_path(), limit=20, offset=0)
+        conn = connect(_db_path())
+        try:
+            ensure_banorte_tables(conn)
+            exports = conn.execute(
+                """
+                SELECT e.id, e.filename, e.layout_date, e.consecutive, e.payment_count, e.total_cents,
+                       e.created_at, e.created_by, e.capture_origin, e.calculo_id, e.draft_id,
+                       r.fecha_inicio, r.fecha_fin, r.cliente AS calculo_cliente
+                FROM nomina_banorte_exports e
+                LEFT JOIN nomina_calculo_runs r ON r.id = e.calculo_id
+                ORDER BY e.id DESC LIMIT 100
+                """
+            ).fetchall()
+            historial = [dict(e) for e in exports]
+        finally:
+            conn.close()
         resp = Response(
             render_template(
                 "nomina/exportaciones_banorte.html",
                 runs=runs,
+                historial=historial,
                 csrf_token=issue_csrf_token(),
             )
         )
@@ -292,7 +309,7 @@ def register_banorte_routes(bp) -> None:
         except ValueError as exc:
             return _json_no_store({"ok": False, "code": str(exc)}, 400)
         draft = create_draft_from_adapter(_db_path(), _username(), adapted)
-        prepared = prepare_draft_rows(_db_path(), draft["rows"])
+        prepared = prepare_draft_rows(_db_path(), draft["rows"], origin_kind="CALCULO_RUN")
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
@@ -455,7 +472,7 @@ def register_banorte_routes(bp) -> None:
                     "user_decision": {},
                 }
             )
-        prepared = prepare_draft_rows(_db_path(), rows)
+        prepared = prepare_draft_rows(_db_path(), rows, origin_kind="MANUAL_CAPTURE")
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 

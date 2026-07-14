@@ -113,21 +113,19 @@
     });
   }
 
-  document.querySelectorAll("[data-banorte-drawer]").forEach(function (btn) {
+  document.querySelectorAll("[data-banorte-tab]").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      const id = "drawer-" + btn.getAttribute("data-banorte-drawer");
-      document.getElementById("banorte-drawer-backdrop").hidden = false;
-      document.getElementById(id).hidden = false;
+      const tab = btn.getAttribute("data-banorte-tab");
+      document.querySelectorAll("[data-banorte-panel]").forEach(function (panel) {
+        panel.hidden = panel.getAttribute("data-banorte-panel") !== tab;
+      });
     });
   });
-  function closeDrawers() {
-    document.getElementById("banorte-drawer-backdrop").hidden = true;
-    document.querySelectorAll(".banorte-drawer").forEach(function (d) { d.hidden = true; });
+  function showHub() {
+    document.querySelectorAll("[data-banorte-panel]").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-banorte-panel") !== "hub";
+    });
   }
-  document.getElementById("banorte-drawer-backdrop").addEventListener("click", closeDrawers);
-  document.querySelectorAll("[data-close-drawer]").forEach(function (b) {
-    b.addEventListener("click", closeDrawers);
-  });
 
   document.querySelectorAll("[data-prepare-calculo]").forEach(function (btn) {
     btn.addEventListener("click", async function () {
@@ -139,7 +137,7 @@
         alert("No se pudo preparar: " + (out.data.code || out.res.status));
         return;
       }
-      closeDrawers();
+      showHub();
       renderEditor(out.data.draft);
     });
   });
@@ -219,7 +217,7 @@
       return;
     }
     alert("Beneficiario creado #" + out.data.beneficiary.id);
-    closeDrawers();
+    showHub();
   });
 
   document.getElementById("manual-prepare").addEventListener("click", async function () {
@@ -238,7 +236,7 @@
         const g = await fetch("/nomina/exportaciones/banorte/drafts/" + out.data.existing_draft_id);
         const data = await g.json();
         setCsrf(data.csrf_token);
-        closeDrawers();
+        showHub();
         renderEditor(data.draft);
       };
       document.getElementById("manual-abandon-then").onclick = async function () {
@@ -252,7 +250,7 @@
           names: document.getElementById("manual-names").value,
           amounts: document.getElementById("manual-amounts").value,
         });
-        if (again.data.ok) { closeDrawers(); renderEditor(again.data.draft); }
+        if (again.data.ok) { showHub(); renderEditor(again.data.draft); }
         else alert(again.data.code || "error");
       };
       return;
@@ -261,7 +259,7 @@
       alert(out.data.code || "error");
       return;
     }
-    closeDrawers();
+    showHub();
     renderEditor(out.data.draft);
   });
 })();

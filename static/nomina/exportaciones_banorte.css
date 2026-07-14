@@ -1,6 +1,8 @@
-.banorte-wrap { max-width: 1200px; margin: 0 auto; padding-bottom: 2rem; }
+.banorte-wrap { max-width: 1400px; margin: 0 auto; padding-bottom: 2rem; }
 .banorte-hero { margin-bottom: 1rem; }
 .banorte-actions { flex-wrap: wrap; gap: .5rem; justify-content: flex-end; }
+.banorte-tab-panel[hidden] { display: none !important; }
+.banorte-tab-back { margin-bottom: .75rem; }
 .banorte-panel {
   background: #fff;
   border: 1px solid #e5e7eb;
@@ -71,21 +73,6 @@
   font-size: .88rem;
   color: #475569;
   margin-bottom: .5rem;
-}
-.banorte-drawer-backdrop {
-  position: fixed; inset: 0; background: rgba(15,23,42,.35); z-index: 40;
-}
-.banorte-drawer {
-  position: fixed; top: 0; right: 0; width: min(420px, 100%); height: 100%;
-  background: #fff; z-index: 50; padding: 1rem 1.1rem; overflow: auto;
-  box-shadow: -8px 0 24px rgba(15,23,42,.12);
-  display: grid; gap: .75rem; align-content: start;
-}
-.banorte-drawer header {
-  display: flex; justify-content: space-between; align-items: center;
-}
-.banorte-drawer header button {
-  border: 0; background: transparent; font-size: 1.4rem; cursor: pointer;
 }
 .banorte-mono { font-family: ui-monospace, monospace; font-size: .8rem; }
 @media (max-width: 900px) {
