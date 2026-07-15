@@ -481,16 +481,71 @@ def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
     return "INACTIVO_MANUAL" in str(row[0])
 
 
+def _pragma_foreign_keys(conn: sqlite3.Connection) -> int:
+    return int(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+
+
+def _beneficiary_migration_failpoint(name: str) -> None:
+    """No-op hook for tests to inject failures without patching sqlite3.Connection."""
+    return None
+
+
 def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
-    """Rebuild beneficiaries CHECK to include INACTIVO_MANUAL (idempotent)."""
+    """Rebuild beneficiaries CHECK to include INACTIVO_MANUAL (idempotent, FK-safe).
+
+    SQLite ignores ``PRAGMA foreign_keys=OFF`` inside an open transaction. The parent
+    rebuild must disable FK enforcement *outside* any transaction before DROP.
+    """
     if not _table_cols(conn, "nomina_banorte_beneficiaries"):
         return
     if _beneficiaries_sql_allows_inactivo_manual(conn):
         return
-    before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries").fetchone()[0])
-    cols = _table_cols(conn, "nomina_banorte_beneficiaries")
-    conn.execute("BEGIN IMMEDIATE")
+
+    # Leave any ambient transaction so PRAGMA foreign_keys can take effect.
+    if conn.in_transaction:
+        conn.commit()
+
+    original_fk = _pragma_foreign_keys(conn)
+    began = False
     try:
+        conn.execute("PRAGMA foreign_keys = OFF")
+        if _pragma_foreign_keys(conn) != 0:
+            raise RuntimeError("foreign_keys_disable_failed")
+
+        # Leftover temp from a prior crashed attempt — never use as source.
+        temp = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_beneficiaries__new'"
+        ).fetchone()
+        if temp is not None:
+            live = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_beneficiaries'"
+            ).fetchone()
+            if live is None:
+                raise RuntimeError("beneficiary_migration_orphan_temp")
+            conn.execute("DROP TABLE nomina_banorte_beneficiaries__new")
+
+        cols = _table_cols(conn, "nomina_banorte_beneficiaries")
+        before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries").fetchone()[0])
+        before_ids = [
+            int(r[0])
+            for r in conn.execute("SELECT id FROM nomina_banorte_beneficiaries ORDER BY id")
+        ]
+        before_by_record = {
+            str(r["record_status"]): int(r["c"])
+            for r in conn.execute(
+                "SELECT record_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries GROUP BY record_status"
+            )
+        }
+        before_by_validation = {
+            str(r["validation_status"]): int(r["c"])
+            for r in conn.execute(
+                "SELECT validation_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries GROUP BY validation_status"
+            )
+        }
+
+        conn.execute("BEGIN IMMEDIATE")
+        began = True
+        _beneficiary_migration_failpoint("before_create_new")
         conn.execute(
             """
             CREATE TABLE nomina_banorte_beneficiaries__new (
@@ -575,6 +630,7 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
                 select_expr.append(col)
             else:
                 select_expr.append(default)
+        _beneficiary_migration_failpoint("before_copy")
         conn.execute(
             f"""
             INSERT INTO nomina_banorte_beneficiaries__new ({", ".join(insert_cols)})
@@ -582,10 +638,36 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
             FROM nomina_banorte_beneficiaries
             """
         )
+        _beneficiary_migration_failpoint("after_copy")
         after = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries__new").fetchone()[0])
         if after != before:
             raise RuntimeError("beneficiary_migration_count_mismatch")
-        conn.execute("PRAGMA foreign_keys = OFF")
+        after_ids = [
+            int(r[0])
+            for r in conn.execute("SELECT id FROM nomina_banorte_beneficiaries__new ORDER BY id")
+        ]
+        if after_ids != before_ids:
+            raise RuntimeError("beneficiary_migration_id_mismatch")
+        if len(set(after_ids)) != len(after_ids):
+            raise RuntimeError("beneficiary_migration_duplicate_ids")
+        after_by_record = {
+            str(r["record_status"]): int(r["c"])
+            for r in conn.execute(
+                "SELECT record_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries__new GROUP BY record_status"
+            )
+        }
+        after_by_validation = {
+            str(r["validation_status"]): int(r["c"])
+            for r in conn.execute(
+                "SELECT validation_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries__new GROUP BY validation_status"
+            )
+        }
+        if after_by_record != before_by_record:
+            raise RuntimeError("beneficiary_migration_record_status_mismatch")
+        if after_by_validation != before_by_validation:
+            raise RuntimeError("beneficiary_migration_validation_status_mismatch")
+
+        _beneficiary_migration_failpoint("before_drop")
         conn.execute("DROP TABLE nomina_banorte_beneficiaries")
         conn.execute(
             "ALTER TABLE nomina_banorte_beneficiaries__new RENAME TO nomina_banorte_beneficiaries"
@@ -629,15 +711,49 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
                 WHERE replaces_id IS NOT NULL
             """
         )
-        bad = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if bad:
-            raise RuntimeError(f"beneficiary_migration_fk_check:{bad}")
-        conn.execute("PRAGMA foreign_keys = ON")
+        if not _beneficiaries_sql_allows_inactivo_manual(conn):
+            raise RuntimeError("beneficiary_migration_ddl_missing_inactivo_manual")
         conn.commit()
+        began = False
     except Exception:
-        conn.rollback()
-        conn.execute("PRAGMA foreign_keys = ON")
+        if began and conn.in_transaction:
+            conn.rollback()
+        # Drop leftover temp if rollback left it (DDL edge cases)
+        if conn.in_transaction:
+            conn.rollback()
+        try:
+            if (
+                conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_beneficiaries__new'"
+                ).fetchone()
+                is not None
+                and conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_beneficiaries'"
+                ).fetchone()
+                is not None
+            ):
+                # Only drop temp when live table still present (failed before DROP)
+                if not conn.in_transaction:
+                    conn.execute("DROP TABLE IF EXISTS nomina_banorte_beneficiaries__new")
+        except Exception:
+            pass
         raise
+    finally:
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+        except Exception:
+            pass
+        conn.execute(f"PRAGMA foreign_keys = {1 if original_fk else 0}")
+        if _pragma_foreign_keys(conn) != (1 if original_fk else 0):
+            raise RuntimeError("foreign_keys_restore_failed")
+
+    bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+    if bad:
+        raise RuntimeError(f"beneficiary_migration_fk_check:{len(bad)}")
+    integrity = conn.execute("PRAGMA integrity_check").fetchone()
+    if integrity is None or str(integrity[0]).lower() != "ok":
+        raise RuntimeError(f"beneficiary_migration_integrity:{integrity}")
 
 
 def _ensure_beneficiary_events(conn: sqlite3.Connection) -> None:
