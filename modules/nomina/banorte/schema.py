@@ -11,6 +11,7 @@ BANORTE_TABLES: tuple[str, ...] = (
     "nomina_banorte_export_items",
     "nomina_banorte_export_drafts",
     "nomina_banorte_export_draft_rows",
+    "nomina_banorte_beneficiary_events",
 )
 
 
@@ -41,6 +42,7 @@ def ensure_banorte_tables(conn: sqlite3.Connection) -> None:
                 CHECK (record_status IN (
                     'ACTIVO',
                     'INACTIVO_REEMPLAZADO',
+                    'INACTIVO_MANUAL',
                     'CONFLICTO_CRITICO'
                 )),
             banorte_employee_substituted INTEGER NOT NULL DEFAULT 0
@@ -466,6 +468,220 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     )
 
     _migrate_drafts_excel_nomina(conn)
+    _migrate_beneficiaries_inactivo_manual(conn)
+    _ensure_beneficiary_events(conn)
+
+
+def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='nomina_banorte_beneficiaries'"
+    ).fetchone()
+    if row is None or not row[0]:
+        return False
+    return "INACTIVO_MANUAL" in str(row[0])
+
+
+def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
+    """Rebuild beneficiaries CHECK to include INACTIVO_MANUAL (idempotent)."""
+    if not _table_cols(conn, "nomina_banorte_beneficiaries"):
+        return
+    if _beneficiaries_sql_allows_inactivo_manual(conn):
+        return
+    before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries").fetchone()[0])
+    cols = _table_cols(conn, "nomina_banorte_beneficiaries")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            """
+            CREATE TABLE nomina_banorte_beneficiaries__new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre_original TEXT NOT NULL,
+                nombre_normalizado TEXT NOT NULL,
+                curp TEXT,
+                employee_number_requested TEXT,
+                employee_number_effective TEXT NOT NULL,
+                account_number TEXT NOT NULL,
+                source_kind TEXT NOT NULL
+                    CHECK (source_kind IN (
+                        'ALTAS_NOMINA_BANORTE',
+                        'REPORTE_DETALLADO',
+                        'ALTA_MANUAL'
+                    )),
+                validation_status TEXT NOT NULL
+                    CHECK (validation_status IN (
+                        'IMPORTADO_EXITOSO',
+                        'MANUAL_PENDIENTE_VALIDACION'
+                    )),
+                record_status TEXT NOT NULL
+                    CHECK (record_status IN (
+                        'ACTIVO',
+                        'INACTIVO_REEMPLAZADO',
+                        'INACTIVO_MANUAL',
+                        'CONFLICTO_CRITICO'
+                    )),
+                banorte_employee_substituted INTEGER NOT NULL DEFAULT 0
+                    CHECK (banorte_employee_substituted IN (0, 1)),
+                banorte_comment TEXT,
+                source_filename TEXT,
+                source_sheet TEXT,
+                source_row INTEGER,
+                report_date TEXT,
+                imported_at TEXT NOT NULL,
+                imported_by TEXT NOT NULL,
+                replaces_id INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                replace_reason TEXT,
+                replaced_by TEXT,
+                replaced_at TEXT,
+                manual_effective_from_account INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        select_cols = [
+            "id",
+            "nombre_original",
+            "nombre_normalizado",
+            "curp",
+            "employee_number_requested",
+            "employee_number_effective",
+            "account_number",
+            "source_kind",
+            "validation_status",
+            "record_status",
+            "banorte_employee_substituted",
+            "banorte_comment",
+            "source_filename",
+            "source_sheet",
+            "source_row",
+            "report_date",
+            "imported_at",
+            "imported_by",
+            "replaces_id",
+            "created_at",
+            "updated_at",
+        ]
+        optional = [
+            ("replace_reason", "NULL"),
+            ("replaced_by", "NULL"),
+            ("replaced_at", "NULL"),
+            ("manual_effective_from_account", "0"),
+        ]
+        insert_cols = list(select_cols)
+        select_expr = list(select_cols)
+        for col, default in optional:
+            insert_cols.append(col)
+            if col in cols:
+                select_expr.append(col)
+            else:
+                select_expr.append(default)
+        conn.execute(
+            f"""
+            INSERT INTO nomina_banorte_beneficiaries__new ({", ".join(insert_cols)})
+            SELECT {", ".join(select_expr)}
+            FROM nomina_banorte_beneficiaries
+            """
+        )
+        after = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries__new").fetchone()[0])
+        if after != before:
+            raise RuntimeError("beneficiary_migration_count_mismatch")
+        conn.execute("PRAGMA foreign_keys = OFF")
+        conn.execute("DROP TABLE nomina_banorte_beneficiaries")
+        conn.execute(
+            "ALTER TABLE nomina_banorte_beneficiaries__new RENAME TO nomina_banorte_beneficiaries"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_nombre_norm ON nomina_banorte_beneficiaries(nombre_normalizado)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_emp_eff ON nomina_banorte_beneficiaries(employee_number_effective)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_account ON nomina_banorte_beneficiaries(account_number)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_curp ON nomina_banorte_beneficiaries(curp)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_record_status ON nomina_banorte_beneficiaries(record_status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_banorte_ben_validation_status ON nomina_banorte_beneficiaries(validation_status)"
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_active_emp
+                ON nomina_banorte_beneficiaries(employee_number_effective)
+                WHERE record_status = 'ACTIVO'
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_active_account
+                ON nomina_banorte_beneficiaries(account_number)
+                WHERE record_status = 'ACTIVO'
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_replaces_id
+                ON nomina_banorte_beneficiaries(replaces_id)
+                WHERE replaces_id IS NOT NULL
+            """
+        )
+        bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if bad:
+            raise RuntimeError(f"beneficiary_migration_fk_check:{bad}")
+        conn.execute("PRAGMA foreign_keys = ON")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.execute("PRAGMA foreign_keys = ON")
+        raise
+
+
+def _ensure_beneficiary_events(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_beneficiary_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            beneficiary_id INTEGER NOT NULL,
+            action TEXT NOT NULL
+                CHECK (action IN (
+                    'mark_usable_manual',
+                    'keep_pending',
+                    'deactivate',
+                    'replace',
+                    'resolve_duplicate'
+                )),
+            reason TEXT NOT NULL
+                CHECK (length(trim(reason)) > 0),
+            previous_validation_status TEXT,
+            new_validation_status TEXT,
+            previous_record_status TEXT,
+            new_record_status TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            replacement_beneficiary_id INTEGER,
+            FOREIGN KEY (beneficiary_id)
+                REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
+            FOREIGN KEY (replacement_beneficiary_id)
+                REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_ben_events_ben_created
+            ON nomina_banorte_beneficiary_events(beneficiary_id, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_ben_events_created
+            ON nomina_banorte_beneficiary_events(created_at)
+        """
+    )
 
 
 def _drafts_sql_allows_excel_nomina(conn: sqlite3.Connection) -> bool:

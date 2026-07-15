@@ -31,14 +31,14 @@ def list_beneficiaries(
     db_path: str,
     *,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 15,
     q_name: str = "",
     q_emp: str = "",
     validation_status: str = "",
     record_status: str = "",
 ) -> dict[str, Any]:
     page = max(1, int(page))
-    page_size = min(50, max(1, int(page_size)))
+    page_size = 15  # Fase 2.2B contract: exactly 15 per page
     offset = (page - 1) * page_size
     clauses = ["1=1"]
     params: list[Any] = []
@@ -68,7 +68,7 @@ def list_beneficiaries(
             f"""
             SELECT id, nombre_original, employee_number_effective, account_number,
                    validation_status, record_status, manual_effective_from_account,
-                   banorte_employee_substituted, replaces_id, updated_at
+                   banorte_employee_substituted, replaces_id, updated_at, banorte_comment
             FROM nomina_banorte_beneficiaries
             WHERE {where}
             ORDER BY id DESC
@@ -76,11 +76,24 @@ def list_beneficiaries(
             """,
             [*params, page_size, offset],
         ).fetchall()
+        out_rows = []
+        for r in rows:
+            item = dict(r)
+            last = conn.execute(
+                """
+                SELECT reason, action, created_at FROM nomina_banorte_beneficiary_events
+                WHERE beneficiary_id=? ORDER BY id DESC LIMIT 1
+                """,
+                (int(item["id"]),),
+            ).fetchone()
+            item["last_event_reason"] = last["reason"] if last else None
+            item["last_event_action"] = last["action"] if last else None
+            out_rows.append(item)
         return {
             "page": page,
             "page_size": page_size,
             "total": total,
-            "rows": [dict(r) for r in rows],
+            "rows": out_rows,
         }
     finally:
         conn.close()
@@ -335,3 +348,272 @@ def replacement_history(db_path: str, beneficiary_id: int) -> list[dict[str, Any
         return chain
     finally:
         conn.close()
+
+
+def _insert_event(
+    conn,
+    *,
+    beneficiary_id: int,
+    action: str,
+    reason: str,
+    user: str,
+    previous_validation_status: str | None,
+    new_validation_status: str | None,
+    previous_record_status: str | None,
+    new_record_status: str | None,
+    replacement_beneficiary_id: int | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO nomina_banorte_beneficiary_events (
+            beneficiary_id, action, reason,
+            previous_validation_status, new_validation_status,
+            previous_record_status, new_record_status,
+            created_by, created_at, replacement_beneficiary_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            int(beneficiary_id),
+            action,
+            reason.strip(),
+            previous_validation_status,
+            new_validation_status,
+            previous_record_status,
+            new_record_status,
+            user,
+            _now(),
+            replacement_beneficiary_id,
+        ),
+    )
+
+
+def apply_beneficiary_action(
+    db_path: str,
+    user: str,
+    beneficiary_id: int,
+    *,
+    action: str,
+    reason: str,
+    nombre: str | None = None,
+    account: str | None = None,
+    employee_number_effective: str | None = None,
+    winner_id: int | None = None,
+    loser_mode: str | None = None,
+) -> dict[str, Any]:
+    if not (reason or "").strip():
+        raise BeneficiaryError("reason_required")
+    action = str(action or "").strip()
+    allowed = {
+        "mark_usable_manual",
+        "keep_pending",
+        "deactivate",
+        "replace",
+        "resolve_duplicate",
+    }
+    if action not in allowed:
+        raise BeneficiaryError("invalid_action")
+
+    now = _now()
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(beneficiary_id),),
+        ).fetchone()
+        if row is None:
+            raise BeneficiaryError("not_found")
+        prev_val = row["validation_status"]
+        prev_rec = row["record_status"]
+
+        if action == "mark_usable_manual":
+            if prev_rec != "ACTIVO":
+                raise BeneficiaryError("not_active")
+            conn.execute(
+                """
+                UPDATE nomina_banorte_beneficiaries
+                SET validation_status='MANUAL_PENDIENTE_VALIDACION',
+                    manual_effective_from_account=1,
+                    updated_at=?
+                WHERE id=?
+                """,
+                (now, int(beneficiary_id)),
+            )
+            _insert_event(
+                conn,
+                beneficiary_id=int(beneficiary_id),
+                action=action,
+                reason=reason,
+                user=user,
+                previous_validation_status=prev_val,
+                new_validation_status="MANUAL_PENDIENTE_VALIDACION",
+                previous_record_status=prev_rec,
+                new_record_status="ACTIVO",
+            )
+            conn.commit()
+            return {
+                "id": int(beneficiary_id),
+                "validation_status": "MANUAL_PENDIENTE_VALIDACION",
+                "record_status": "ACTIVO",
+                "manual_effective_from_account": 1,
+            }
+
+        if action == "keep_pending":
+            if prev_rec != "ACTIVO":
+                raise BeneficiaryError("not_active")
+            conn.execute(
+                """
+                UPDATE nomina_banorte_beneficiaries
+                SET validation_status='MANUAL_PENDIENTE_VALIDACION', updated_at=?
+                WHERE id=?
+                """,
+                (now, int(beneficiary_id)),
+            )
+            _insert_event(
+                conn,
+                beneficiary_id=int(beneficiary_id),
+                action=action,
+                reason=reason,
+                user=user,
+                previous_validation_status=prev_val,
+                new_validation_status="MANUAL_PENDIENTE_VALIDACION",
+                previous_record_status=prev_rec,
+                new_record_status="ACTIVO",
+            )
+            conn.commit()
+            return {
+                "id": int(beneficiary_id),
+                "validation_status": "MANUAL_PENDIENTE_VALIDACION",
+                "record_status": "ACTIVO",
+            }
+
+        if action == "deactivate":
+            if prev_rec != "ACTIVO":
+                raise BeneficiaryError("not_active")
+            conn.execute(
+                """
+                UPDATE nomina_banorte_beneficiaries
+                SET record_status='INACTIVO_MANUAL', updated_at=?
+                WHERE id=?
+                """,
+                (now, int(beneficiary_id)),
+            )
+            _insert_event(
+                conn,
+                beneficiary_id=int(beneficiary_id),
+                action=action,
+                reason=reason,
+                user=user,
+                previous_validation_status=prev_val,
+                new_validation_status=prev_val,
+                previous_record_status=prev_rec,
+                new_record_status="INACTIVO_MANUAL",
+            )
+            conn.commit()
+            return {"id": int(beneficiary_id), "record_status": "INACTIVO_MANUAL"}
+
+        if action == "replace":
+            conn.rollback()
+            conn.close()
+            created = replace_beneficiary(
+                db_path,
+                user,
+                int(beneficiary_id),
+                nombre=nombre,
+                account=account,
+                employee_number_effective=employee_number_effective,
+                reason=reason,
+            )
+            conn = connect(db_path)
+            ensure_banorte_tables(conn)
+            _insert_event(
+                conn,
+                beneficiary_id=int(beneficiary_id),
+                action=action,
+                reason=reason,
+                user=user,
+                previous_validation_status=prev_val,
+                new_validation_status=prev_val,
+                previous_record_status=prev_rec,
+                new_record_status="INACTIVO_REEMPLAZADO",
+                replacement_beneficiary_id=int(created["id"]),
+            )
+            conn.commit()
+            return {
+                "id": int(created["id"]),
+                "replaces_id": int(beneficiary_id),
+                "previous_record_status": "INACTIVO_REEMPLAZADO",
+                "record_status": "ACTIVO",
+            }
+
+        # resolve_duplicate
+        if winner_id is None:
+            raise BeneficiaryError("winner_id_required")
+        mode = (loser_mode or "discard").strip()
+        if mode not in {"discard", "link_winner"}:
+            raise BeneficiaryError("invalid_loser_mode")
+        if prev_rec != "ACTIVO":
+            raise BeneficiaryError("not_active")
+        winner = conn.execute(
+            "SELECT id, record_status FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(winner_id),),
+        ).fetchone()
+        if winner is None or winner["record_status"] != "ACTIVO":
+            raise BeneficiaryError("winner_not_active")
+        if int(winner_id) == int(beneficiary_id):
+            raise BeneficiaryError("winner_same_as_loser")
+        if mode == "discard":
+            new_rec = "INACTIVO_MANUAL"
+            conn.execute(
+                """
+                UPDATE nomina_banorte_beneficiaries
+                SET record_status='INACTIVO_MANUAL', updated_at=?
+                WHERE id=?
+                """,
+                (now, int(beneficiary_id)),
+            )
+            repl_id = None
+        else:
+            new_rec = "INACTIVO_REEMPLAZADO"
+            conn.execute(
+                """
+                UPDATE nomina_banorte_beneficiaries
+                SET record_status='INACTIVO_REEMPLAZADO', replace_reason=?, replaced_by=?,
+                    replaced_at=?, updated_at=?
+                WHERE id=?
+                """,
+                (reason.strip(), user, now, now, int(beneficiary_id)),
+            )
+            repl_id = int(winner_id)
+        _insert_event(
+            conn,
+            beneficiary_id=int(beneficiary_id),
+            action=action,
+            reason=reason,
+            user=user,
+            previous_validation_status=prev_val,
+            new_validation_status=prev_val,
+            previous_record_status=prev_rec,
+            new_record_status=new_rec,
+            replacement_beneficiary_id=repl_id,
+        )
+        conn.commit()
+        return {"id": int(beneficiary_id), "record_status": new_rec, "winner_id": int(winner_id)}
+    except BeneficiaryError:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass

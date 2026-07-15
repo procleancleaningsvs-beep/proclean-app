@@ -14,11 +14,11 @@ from pathlib import Path
 import pytest
 
 
-def test_list_page_size_max_50(tmp_path):
+def test_list_page_size_is_15(tmp_path):
     db = str(tmp_path / "b.db")
     conn = connect(db)
     ensure_nomina_tables(conn)
-    for i in range(55):
+    for i in range(20):
         conn.execute(
             """
             INSERT INTO nomina_banorte_beneficiaries (
@@ -32,10 +32,9 @@ def test_list_page_size_max_50(tmp_path):
     conn.commit()
     conn.close()
     page1 = list_beneficiaries(db, page=1, page_size=50)
-    assert page1["page_size"] == 50
-    assert len(page1["rows"]) == 50
-    assert page1["total"] == 55
-
+    assert page1["page_size"] == 15
+    assert len(page1["rows"]) == 15
+    assert page1["total"] == 20
 
 def test_alta_account_as_emp_requires_confirm(tmp_path):
     db = str(tmp_path / "c.db")

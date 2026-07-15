@@ -403,6 +403,7 @@
         xtbody.appendChild(tr);
       });
     }
+    applyViewFilters();
   }
 
   document.querySelectorAll("[data-banorte-tab]").forEach(function (btn) {
@@ -636,39 +637,80 @@
         st = '<span class="banorte-status banorte-status--ok">Utilizable (manual)</span>';
       } else if (b.record_status === "INACTIVO_MANUAL") {
         st = '<span class="banorte-status banorte-status--muted">Inactivo manual</span>';
+      } else if (b.record_status === "INACTIVO_REEMPLAZADO") {
+        st = '<span class="banorte-status banorte-status--muted">Reemplazado</span>';
+      } else if (b.record_status === "CONFLICTO_CRITICO") {
+        st = '<span class="banorte-status banorte-status--bad">Conflicto</span>';
       }
+      const note = b.last_event_reason || b.banorte_comment || "";
       tr.innerHTML =
-        "<td>" + b.id + "</td><td>" + esc(b.nombre_original) + "</td>" +
+        "<td>" + b.id + "</td><td>" + esc(b.nombre_original) +
+        (note ? ('<div class="banorte-hint">' + esc(note) + "</div>") : "") +
+        "</td>" +
         "<td>" + esc(b.employee_number_effective) + "</td>" +
         '<td class="banorte-mono">' + esc(b.account_number) + "</td><td>" + st + "</td>";
       tbody.appendChild(tr);
     });
     document.getElementById("banorte-ben-meta").textContent =
-      "Total " + listing.total + " · página " + listing.page;
+      "Total " + listing.total + " · página " + listing.page + " · " + listing.page_size + "/pág";
   }
 
-  async function loadBenefListing(page, opts) {
-    const params = new URLSearchParams({ page: String(page || 1) });
-    if (opts.validation_status) params.set("validation_status", opts.validation_status);
-    if (opts.record_status) params.set("record_status", opts.record_status);
-    const res = await fetch("/nomina/exportaciones/banorte/beneficiarios/list?" + params.toString());
-    const data = await res.json().catch(function () { return {}; });
-    setCsrf(data.csrf_token);
-    if (data.ok) renderBenefRows(data.listing);
-  }
-
-  document.getElementById("banorte-ben-search").addEventListener("click", async function () {
-    const q = document.getElementById("banorte-ben-q").value.trim();
-    if (q.length >= 3) {
-      const out = await api("/nomina/exportaciones/banorte/beneficiarios/search-name", { q: q, limit: 50 });
-      if (out.data.ok) renderBenefRows({ rows: out.data.rows, total: out.data.rows.length, page: 1 });
-      return;
-    }
-    loadBenefListing(1, {
+  let benSearchSeq = 0;
+  let benSearchTimer = null;
+  async function loadBenefListing(page) {
+    const seq = ++benSearchSeq;
+    const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
+      page: page || 1,
+      q_name: (document.getElementById("banorte-ben-q").value || "").trim(),
+      q_emp: (document.getElementById("banorte-ben-emp") && document.getElementById("banorte-ben-emp").value || "").trim(),
       validation_status: document.getElementById("banorte-ben-val").value,
       record_status: document.getElementById("banorte-ben-rec").value,
     });
+    if (seq !== benSearchSeq) return;
+    if (out.data.ok) renderBenefRows(out.data.listing);
+  }
+
+  function scheduleBenefSearch() {
+    clearTimeout(benSearchTimer);
+    benSearchTimer = setTimeout(function () { loadBenefListing(1); }, 300);
+  }
+
+  ["banorte-ben-q", "banorte-ben-emp", "banorte-ben-val", "banorte-ben-rec"].forEach(function (id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(el.tagName === "SELECT" ? "change" : "input", scheduleBenefSearch);
   });
+
+  function applyViewFilters() {
+    const state = (document.getElementById("banorte-view-state") || {}).value || "all";
+    const q = ((document.getElementById("banorte-view-q") || {}).value || "").trim().toLowerCase();
+    document.querySelectorAll("#banorte-editor tbody tr").forEach(function (tr) {
+      const rs = tr.dataset.rowState || "";
+      const name = (tr.querySelector(".c-name") && tr.querySelector(".c-name").value || "").toLowerCase();
+      const emp = (tr.querySelector(".c-emp") && tr.querySelector(".c-emp").textContent || "").toLowerCase();
+      let ok = true;
+      if (state === "OK" && rs !== "OK") ok = false;
+      if (state === "NEEDS_REVIEW" && rs !== "NEEDS_REVIEW" && rs !== "BLOCKED") ok = false;
+      if (q && name.indexOf(q) < 0 && emp.indexOf(q) < 0) ok = false;
+      tr.hidden = !ok;
+    });
+  }
+  const viewState = document.getElementById("banorte-view-state");
+  const viewQ = document.getElementById("banorte-view-q");
+  if (viewState) viewState.addEventListener("change", applyViewFilters);
+  if (viewQ) viewQ.addEventListener("input", applyViewFilters);
+
+  async function loadAvailableNumbers() {
+    const box = document.getElementById("banorte-available-emps");
+    if (!box) return;
+    const out = await api("/nomina/exportaciones/banorte/beneficiarios/available-employee-numbers", {
+      limit: 15,
+    });
+    if (!out.data.ok) { box.textContent = "No disponibles"; return; }
+    box.textContent = (out.data.numbers || []).join(" · ");
+  }
+  const altaTabBtn = document.querySelector('[data-banorte-tab="alta-benef"]');
+  if (altaTabBtn) altaTabBtn.addEventListener("click", loadAvailableNumbers);
 
   let excelToken = null;
   async function excelMultipart(url, extra) {

@@ -13,6 +13,7 @@ class ValidationStatus(str, Enum):
 class RecordStatus(str, Enum):
     ACTIVO = "ACTIVO"
     INACTIVO_REEMPLAZADO = "INACTIVO_REEMPLAZADO"
+    INACTIVO_MANUAL = "INACTIVO_MANUAL"
     CONFLICTO_CRITICO = "CONFLICTO_CRITICO"
 
 

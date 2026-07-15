@@ -77,6 +77,18 @@
       </div>
       <div id="banorte-origin-box" class="banorte-origin"></div>
       <div id="banorte-recon" class="banorte-recon"></div>
+      <div class="banorte-export-bar" id="banorte-view-filters">
+        <label>Vista
+          <select id="banorte-view-state">
+            <option value="all">Todas</option>
+            <option value="OK">Listo</option>
+            <option value="NEEDS_REVIEW">Requiere corrección</option>
+          </select>
+        </label>
+        <label>Buscar en editor
+          <input type="search" id="banorte-view-q" autocomplete="off" placeholder="Nombre o número">
+        </label>
+      </div>
       <div class="banorte-editor-scroll">
         <table class="banorte-table banorte-editor-table" id="banorte-editor">
           <thead>
@@ -122,7 +134,10 @@
       <h3 class="pc-panel-title">Beneficiarios Banorte</h3>
       <div class="banorte-export-bar" id="banorte-ben-filters">
         <label>Búsqueda por nombre
-          <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Mín. 3 caracteres">
+          <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Desde 1 carácter">
+        </label>
+        <label>Número de empleado
+          <input type="search" id="banorte-ben-emp" autocomplete="off" placeholder="Opcional">
         </label>
         <label>Validación
           <select id="banorte-ben-val">
@@ -135,11 +150,11 @@
           <select id="banorte-ben-rec">
             <option value="">Todos</option>
             <option value="ACTIVO">Activo</option>
+            <option value="INACTIVO_MANUAL">Inactivo manual</option>
             <option value="INACTIVO_REEMPLAZADO">Reemplazado</option>
             <option value="CONFLICTO_CRITICO">Conflicto</option>
           </select>
         </label>
-        <button type="button" class="btn btn-primary btn-sm" id="banorte-ben-search">Buscar</button>
       </div>
       <p class="banorte-hint" id="banorte-ben-meta">Total {{ benef_listing.total }} · página {{ benef_listing.page }}</p>
       <div class="pc-table-shell">
@@ -159,6 +174,8 @@
                 <span class="banorte-status banorte-status--ok">Usizable (manual)</span>
                 {% elif b.record_status == 'CONFLICTO_CRITICO' %}
                 <span class="banorte-status banorte-status--bad">Conflicto</span>
+                {% elif b.record_status == 'INACTIVO_MANUAL' %}
+                <span class="banorte-status banorte-status--muted">Inactivo manual</span>
                 {% elif b.record_status == 'INACTIVO_REEMPLAZADO' %}
                 <span class="banorte-status banorte-status--muted">Reemplazado</span>
                 {% else %}
@@ -238,6 +255,7 @@
         <label>Nombre completo<input name="nombre" required></label>
         <label>Cuenta<input name="account" required autocomplete="off"></label>
         <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" value="1"> Confirmo usar la cuenta como número de empleado efectivo (1–10 dígitos). No es validación Banorte.</label>
+        <p class="banorte-hint">Números de empleado disponibles (sugeridos): <span id="banorte-available-emps" class="banorte-mono">—</span></p>
         <button type="submit" class="btn btn-primary">Crear</button>
         <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
       </form>

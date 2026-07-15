@@ -21,6 +21,7 @@ from flask import (
 
 from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
+    apply_beneficiary_action,
     create_manual_beneficiary,
     list_beneficiaries,
     replace_beneficiary,
@@ -28,6 +29,7 @@ from modules.nomina.banorte.beneficiary_service import (
     search_by_account,
     search_by_name,
 )
+from modules.nomina.banorte.employee_number_service import list_available_employee_numbers
 from modules.nomina.banorte.calculo_adapter import build_draft_rows_from_calculo, origin_hash_for_manual_capture
 from modules.nomina.banorte.calculo_queries import get_calculo_run_readonly, list_exportable_calculo_runs
 from modules.nomina.banorte.csrf import issue_csrf_token, require_csrf
@@ -652,12 +654,63 @@ def register_banorte_routes(bp) -> None:
         data = list_beneficiaries(
             _db_path(),
             page=page,
+            page_size=15,
             q_name="",
             q_emp="",
             validation_status=str(request.args.get("validation_status") or ""),
             record_status=str(request.args.get("record_status") or ""),
         )
         return _json_no_store({"ok": True, "listing": data, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_search():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        listing = list_beneficiaries(
+            _db_path(),
+            page=int(data.get("page") or 1),
+            page_size=15,
+            q_name=str(data.get("q_name") or ""),
+            q_emp=str(data.get("q_emp") or ""),
+            validation_status=str(data.get("validation_status") or ""),
+            record_status=str(data.get("record_status") or ""),
+        )
+        return _json_no_store({"ok": True, "listing": listing, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_available_numbers():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        out = list_available_employee_numbers(
+            _db_path(),
+            limit=int(data.get("limit") or 20),
+            after=data.get("after"),
+        )
+        return _json_no_store({"ok": True, **out, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_beneficiarios_actions(beneficiary_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            out = apply_beneficiary_action(
+                _db_path(),
+                _username(),
+                int(beneficiary_id),
+                action=str(data.get("action") or ""),
+                reason=str(data.get("reason") or ""),
+                nombre=data.get("nombre"),
+                account=data.get("account"),
+                employee_number_effective=data.get("employee_number_effective"),
+                winner_id=int(data["winner_id"]) if data.get("winner_id") is not None else None,
+                loser_mode=data.get("loser_mode"),
+            )
+        except BeneficiaryError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        return _json_no_store({"ok": True, "beneficiary": out, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_beneficiarios_page():
@@ -896,6 +949,18 @@ def register_banorte_routes(bp) -> None:
         methods=["GET"],
     )
     bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/search",
+        endpoint="banorte_beneficiarios_search",
+        view_func=banorte_beneficiarios_search,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/available-employee-numbers",
+        endpoint="banorte_beneficiarios_available_numbers",
+        view_func=banorte_beneficiarios_available_numbers,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
         "/exportaciones/banorte/beneficiarios/search-name",
         endpoint="banorte_beneficiarios_search_name",
         view_func=banorte_beneficiarios_search_name,
@@ -917,6 +982,12 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/beneficiarios/create",
         endpoint="banorte_beneficiarios_create",
         view_func=banorte_beneficiarios_create,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/<int:beneficiary_id>/actions",
+        endpoint="banorte_beneficiarios_actions",
+        view_func=banorte_beneficiarios_actions,
         methods=["POST"],
     )
     bp.add_url_rule(
