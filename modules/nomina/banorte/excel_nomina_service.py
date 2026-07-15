@@ -156,15 +156,30 @@ def _parse_sheet_rows(file_bytes: bytes, sheet: str) -> tuple[list[ParsedExcelRo
                 )
                 continue
             money = parse_money(str(net_raw) if net_raw is not None else "")
+            if money.error == "zero":
+                parsed.append(
+                    ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "amount_zero")
+                )
+                continue
+            if money.error == "negative":
+                parsed.append(
+                    ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "amount_negative")
+                )
+                continue
             if not money.ok or money.amount is None:
                 parsed.append(
                     ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "invalid_amount")
                 )
                 continue
             cents = to_cents(money.amount)
-            if cents <= 0:
+            if cents < 0:
                 parsed.append(
-                    ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "non_positive")
+                    ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "amount_negative")
+                )
+                continue
+            if cents == 0:
+                parsed.append(
+                    ParsedExcelRow(row_idx, nombre, banco, net_raw, 0, False, "amount_zero")
                 )
                 continue
             banorte_count += 1
@@ -261,8 +276,49 @@ def prepare_excel_draft(
         conn.close()
     draft_shell = {"id": draft_id, "revision": 1}
     rows = []
+    amount_errors: list[dict[str, Any]] = []
+    omitted: list[dict[str, Any]] = []
+    omit_agg: dict[str, dict[str, Any]] = {}
     pos = 0
     for item in parsed:
+        if item.reason in {"other_bank"}:
+            key = f"banco_no_banorte|{_norm_banco(item.banco)}"
+            bucket = omit_agg.setdefault(
+                key, {"causa": "banco_no_banorte", "banco": item.banco, "count": 0, "total_cents": 0}
+            )
+            bucket["count"] += 1
+            continue
+        if item.reason in {"invalid_amount", "amount_negative", "formula_without_cache", "empty_net"}:
+            amount_errors.append(
+                {
+                    "excel_row": item.excel_row,
+                    "causa": item.reason,
+                    "nombre": item.nombre,
+                }
+            )
+            continue
+        if item.reason == "amount_zero":
+            pos += 1
+            rows.append(
+                {
+                    "position": pos,
+                    "nombre_recibido": item.nombre,
+                    "banco_snapshot": item.banco,
+                    "amount_original_cents": 0,
+                    "amount_final_cents": 0,
+                    "included": 0,
+                    "match_kind": "NONE",
+                    "row_state": "EXCLUDED",
+                    "warnings": ["amount_zero"],
+                    "user_decision": {
+                        "excel_row": item.excel_row,
+                        "source_sheet": sheet,
+                        "source_sha256": digest,
+                        "source_filename": filename,
+                    },
+                }
+            )
+            continue
         if not item.included:
             continue
         pos += 1
@@ -285,7 +341,10 @@ def prepare_excel_draft(
                 },
             }
         )
+    omitted = list(omit_agg.values())
     prepared = prepare_draft_rows(db_path, rows, origin_kind="EXCEL_NOMINA")
     draft = save_draft_rows(db_path, draft_id, user, int(draft_shell["revision"]), prepared)
-    draft["excel_preview"] = preview.__dict__
+    draft["amount_errors"] = amount_errors
+    draft["omitted"] = omitted
+    draft["preview"] = preview.__dict__
     return draft

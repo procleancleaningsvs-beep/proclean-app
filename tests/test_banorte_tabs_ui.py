@@ -51,14 +51,14 @@ def test_hub_uses_tabs_not_drawers(tmp_path):
     assert "banorte-drawer" not in html
     assert "data-banorte-drawer" not in html
     assert 'data-banorte-panel="hub"' in html or 'id="banorte-tab-hub"' in html
-    assert 'data-banorte-panel="manual"' in html or 'id="banorte-tab-manual"' in html
+    assert 'data-banorte-panel="cargar-pagos"' in html
 
 
 def test_secondary_tabs_hidden_on_load(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()
     html = client.get("/nomina/exportaciones/banorte").data.decode("utf-8")
-    for panel in ("import-altas", "import-benef", "alta-benef", "manual", "excel", "historial"):
+    for panel in ("import-base", "agregar-benef", "cargar-pagos", "historial"):
         assert f'data-banorte-panel="{panel}" hidden' in html or f'id="banorte-tab-{panel}" hidden' in html
 
 

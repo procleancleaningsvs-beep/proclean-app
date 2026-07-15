@@ -10,11 +10,9 @@
     <p class="pc-page-subtitle">Nóminas listas para exportar a Banorte</p>
   </div>
   <div class="page-head-actions pc-hub-hero__actions banorte-actions">
-    <button type="button" class="btn btn-secondary" data-banorte-tab="import-altas">Importar base Banorte</button>
-    <button type="button" class="btn btn-secondary" data-banorte-tab="import-benef">Importar beneficiarios</button>
-    <button type="button" class="btn btn-secondary" data-banorte-tab="excel">Importar nómina Excel</button>
-    <button type="button" class="btn btn-secondary" data-banorte-tab="alta-benef">Agregar beneficiario</button>
-    <button type="button" class="btn btn-secondary" data-banorte-tab="manual">Captura manual</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="import-base">Importar base</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="agregar-benef">Agregar beneficiarios</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="cargar-pagos">Cargar pagos</button>
     <button type="button" class="btn btn-secondary" data-banorte-tab="historial">Historial</button>
   </div>
 </section>
@@ -193,8 +191,8 @@
     </section>
   </section>
 
-  {# —— Importar base Banorte —— #}
-  <section class="banorte-tab-panel" id="banorte-tab-import-altas" data-banorte-panel="import-altas" hidden>
+  {# —— Importar base (ALTAS) —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-import-base" data-banorte-panel="import-base" hidden>
     <div class="banorte-tab-back">
       <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
@@ -209,43 +207,8 @@
     </section>
   </section>
 
-  {# —— Importar beneficiarios —— #}
-  <section class="banorte-tab-panel" id="banorte-tab-import-benef" data-banorte-panel="import-benef" hidden>
-    <div class="banorte-tab-back">
-      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
-    </div>
-    <section class="banorte-panel pc-card">
-      <h3 class="pc-panel-title">Importar beneficiarios</h3>
-      <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
-        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-        <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
-      </form>
-    </section>
-  </section>
-
-  {# —— Importar nómina Excel (2.1C) —— #}
-  <section class="banorte-tab-panel" id="banorte-tab-excel" data-banorte-panel="excel" hidden>
-    <div class="banorte-tab-back">
-      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
-    </div>
-    <section class="banorte-panel pc-card">
-      <h3 class="pc-panel-title">Importar nómina Excel</h3>
-      <p class="banorte-hint">Seleccione un archivo .xlsx o .xlsm, elija la hoja y prepare el borrador.</p>
-      <form id="banorte-excel-form">
-        <label>Archivo<input type="file" id="banorte-excel-file" accept=".xlsx,.xlsm" required></label>
-        <button type="button" class="btn btn-secondary" id="banorte-excel-inspect">Inspeccionar hojas</button>
-        <label>Hoja<select id="banorte-excel-sheet" disabled><option value="">—</option></select></label>
-        <button type="button" class="btn btn-secondary" id="banorte-excel-preview" disabled>Vista previa</button>
-        <button type="button" class="btn btn-primary" id="banorte-excel-prepare" disabled>Preparar editor</button>
-      </form>
-      <pre id="banorte-excel-preview-out" class="banorte-hint" hidden></pre>
-    </section>
-  </section>
-
-  {# —— Agregar beneficiario —— #}
-  <section class="banorte-tab-panel" id="banorte-tab-alta-benef" data-banorte-panel="alta-benef" hidden>
+  {# —— Agregar beneficiarios (alta + reporte) —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-agregar-benef" data-banorte-panel="agregar-benef" hidden>
     <div class="banorte-tab-back">
       <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
@@ -260,13 +223,34 @@
         <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
       </form>
     </section>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Importar reporte detallado</h3>
+      <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
+        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
+        <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
+      </form>
+    </section>
   </section>
 
-  {# —— Captura manual —— #}
-  <section class="banorte-tab-panel" id="banorte-tab-manual" data-banorte-panel="manual" hidden>
+  {# —— Cargar pagos (Excel + captura manual) —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-cargar-pagos" data-banorte-panel="cargar-pagos" hidden>
     <div class="banorte-tab-back">
       <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Importar nómina Excel</h3>
+      <p class="banorte-hint">Seleccione un archivo .xlsx o .xlsm, elija la hoja y prepare el borrador.</p>
+      <form id="banorte-excel-form">
+        <label>Archivo<input type="file" id="banorte-excel-file" accept=".xlsx,.xlsm" required></label>
+        <button type="button" class="btn btn-secondary" id="banorte-excel-inspect">Inspeccionar hojas</button>
+        <label>Hoja<select id="banorte-excel-sheet" disabled><option value="">—</option></select></label>
+        <button type="button" class="btn btn-secondary" id="banorte-excel-preview" disabled>Vista previa</button>
+        <button type="button" class="btn btn-primary" id="banorte-excel-prepare" disabled>Preparar editor</button>
+      </form>
+      <div id="banorte-excel-preview-out" class="banorte-hint" hidden></div>
+    </section>
     <section class="banorte-panel pc-card">
       <h3 class="pc-panel-title">Captura manual</h3>
       <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>

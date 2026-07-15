@@ -121,6 +121,47 @@ def _json_no_store(payload: dict[str, Any], status: int = 200) -> Response:
     return resp
 
 
+def _excel_human_message(code: str | None) -> str:
+    mapping = {
+        None: "Operación completada.",
+        "file_required": "Seleccione un archivo Excel (.xlsx o .xlsm).",
+        "missing_fields": "Faltan la hoja o el token de validación. Vuelva a inspeccionar el archivo.",
+        "file_too_large": "El archivo supera el tamaño máximo permitido.",
+        "unsupported_extension": "Solo se admiten archivos .xlsx o .xlsm.",
+        "header_not_found": "No se encontró el encabezado esperado (Nombre, Banco, Neto a pagar).",
+        "excel_token_expired": "La validación del archivo expiró. Inspeccione de nuevo el Excel.",
+        "excel_token_sha_mismatch": "El archivo cambió después de inspeccionarlo. Vuelva a inspeccionar.",
+        "excel_token_invalid": "No se pudo validar el archivo. Inspeccione de nuevo.",
+    }
+    return mapping.get(code or "", f"No se pudo completar la operación ({code}).")
+
+
+def _excel_envelope(
+    *,
+    success: bool,
+    data: dict[str, Any] | None = None,
+    error_code: str | None = None,
+    message: str | None = None,
+    status: int = 200,
+) -> Response:
+    payload: dict[str, Any] = {
+        "success": success,
+        "ok": success,
+        "data": data or {},
+        "error_code": error_code,
+        "message": message or _excel_human_message(error_code if not success else None),
+        "csrf_token": issue_csrf_token(),
+    }
+    if data:
+        # Legacy top-level keys for older clients
+        for key, value in data.items():
+            if key not in payload:
+                payload[key] = value
+    if error_code:
+        payload["code"] = error_code
+    return _json_no_store(payload, status)
+
+
 def _stale_response(exc: DraftStaleError) -> Response:
     return _json_no_store(
         {
@@ -575,7 +616,7 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         f = request.files.get("file")
         if f is None:
-            return _json_no_store({"ok": False, "code": "file_required"}, 400)
+            return _excel_envelope(success=False, error_code="file_required", status=400)
         raw = f.read()
         try:
             out = inspect_excel(
@@ -585,8 +626,12 @@ def register_banorte_routes(bp) -> None:
                 user=_username(),
             )
         except ExcelNominaError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
-        return _json_no_store({"ok": True, **out, "csrf_token": issue_csrf_token()})
+            return _excel_envelope(success=False, error_code=exc.code, status=400)
+        return _excel_envelope(
+            success=True,
+            data=out,
+            message="Archivo inspeccionado. Seleccione la hoja a importar.",
+        )
 
     @_banorte_access_required
     def banorte_excel_preview():
@@ -595,7 +640,7 @@ def register_banorte_routes(bp) -> None:
         sheet = str(request.form.get("sheet") or "")
         token = str(request.form.get("token") or "")
         if f is None or not sheet or not token:
-            return _json_no_store({"ok": False, "code": "missing_fields"}, 400)
+            return _excel_envelope(success=False, error_code="missing_fields", status=400)
         raw = f.read()
         try:
             prev = preview_excel(
@@ -607,10 +652,17 @@ def register_banorte_routes(bp) -> None:
                 user=_username(),
             )
         except ExcelNominaError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
+            return _excel_envelope(success=False, error_code=exc.code, status=400)
         except ValueError as exc:
-            return _json_no_store({"ok": False, "code": str(exc)}, 400)
-        return _json_no_store({"ok": True, "preview": prev.__dict__, "csrf_token": issue_csrf_token()})
+            return _excel_envelope(success=False, error_code=str(exc), status=400)
+        return _excel_envelope(
+            success=True,
+            data={"preview": prev.__dict__},
+            message=(
+                f"Vista previa: {prev.banorte_count} pagos Banorte, "
+                f"total ${prev.total_banorte_cents / 100:.2f}."
+            ),
+        )
 
     @_banorte_access_required
     def banorte_excel_prepare():
@@ -619,7 +671,7 @@ def register_banorte_routes(bp) -> None:
         sheet = str(request.form.get("sheet") or "")
         token = str(request.form.get("token") or "")
         if f is None or not sheet or not token:
-            return _json_no_store({"ok": False, "code": "missing_fields"}, 400)
+            return _excel_envelope(success=False, error_code="missing_fields", status=400)
         raw = f.read()
         try:
             draft = prepare_excel_draft(
@@ -632,11 +684,22 @@ def register_banorte_routes(bp) -> None:
                 secret_key=str(current_app.config["SECRET_KEY"]),
             )
         except ExcelNominaError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
+            return _excel_envelope(success=False, error_code=exc.code, status=400)
         except ValueError as exc:
-            return _json_no_store({"ok": False, "code": str(exc)}, 400)
-        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
-
+            return _excel_envelope(success=False, error_code=str(exc), status=400)
+        amount_errors = draft.pop("amount_errors", [])
+        omitted = draft.pop("omitted", [])
+        preview = draft.pop("preview", None)
+        return _excel_envelope(
+            success=True,
+            data={
+                "draft": draft,
+                "amount_errors": amount_errors,
+                "omitted": omitted,
+                "preview": preview,
+            },
+            message="Borrador preparado. Revise el editor de pagos.",
+        )
     @_banorte_access_required
     def banorte_beneficiarios_search_name():
         require_csrf()
