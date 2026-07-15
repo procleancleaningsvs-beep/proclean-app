@@ -113,10 +113,19 @@ def _seed_old_schema_with_children(path: str) -> dict[str, int]:
             updated_by TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            origin_kind TEXT NOT NULL,
+            origin_kind TEXT NOT NULL
+                CHECK (origin_kind IN ('CALCULO_RUN', 'MANUAL_CAPTURE')),
+            calculo_id INTEGER,
+            origin_updated_at TEXT,
             origin_hash TEXT NOT NULL,
             status TEXT NOT NULL,
-            revision INTEGER NOT NULL DEFAULT 1
+            revision INTEGER NOT NULL DEFAULT 1,
+            consecutive_pref TEXT,
+            layout_date_pref TEXT,
+            source_filename TEXT,
+            source_sha256 TEXT,
+            source_sheet TEXT,
+            source_file_size INTEGER
         )
         """
     )

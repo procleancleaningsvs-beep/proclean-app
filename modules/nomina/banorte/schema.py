@@ -485,6 +485,11 @@ def _pragma_foreign_keys(conn: sqlite3.Connection) -> int:
     return int(conn.execute("PRAGMA foreign_keys").fetchone()[0])
 
 
+def _sql_count_map(rows) -> dict[str, int]:
+    """Build {key: count} from 2-column rows (works with tuples and sqlite3.Row)."""
+    return {str(key): int(count) for key, count in rows}
+
+
 def _beneficiary_migration_failpoint(name: str) -> None:
     """No-op hook for tests to inject failures without patching sqlite3.Connection."""
     return None
@@ -530,18 +535,16 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
             int(r[0])
             for r in conn.execute("SELECT id FROM nomina_banorte_beneficiaries ORDER BY id")
         ]
-        before_by_record = {
-            str(r["record_status"]): int(r["c"])
-            for r in conn.execute(
+        before_by_record = _sql_count_map(
+            conn.execute(
                 "SELECT record_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries GROUP BY record_status"
             )
-        }
-        before_by_validation = {
-            str(r["validation_status"]): int(r["c"])
-            for r in conn.execute(
+        )
+        before_by_validation = _sql_count_map(
+            conn.execute(
                 "SELECT validation_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries GROUP BY validation_status"
             )
-        }
+        )
 
         conn.execute("BEGIN IMMEDIATE")
         began = True
@@ -650,18 +653,16 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
             raise RuntimeError("beneficiary_migration_id_mismatch")
         if len(set(after_ids)) != len(after_ids):
             raise RuntimeError("beneficiary_migration_duplicate_ids")
-        after_by_record = {
-            str(r["record_status"]): int(r["c"])
-            for r in conn.execute(
+        after_by_record = _sql_count_map(
+            conn.execute(
                 "SELECT record_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries__new GROUP BY record_status"
             )
-        }
-        after_by_validation = {
-            str(r["validation_status"]): int(r["c"])
-            for r in conn.execute(
+        )
+        after_by_validation = _sql_count_map(
+            conn.execute(
                 "SELECT validation_status, COUNT(*) AS c FROM nomina_banorte_beneficiaries__new GROUP BY validation_status"
             )
-        }
+        )
         if after_by_record != before_by_record:
             raise RuntimeError("beneficiary_migration_record_status_mismatch")
         if after_by_validation != before_by_validation:
