@@ -47,10 +47,17 @@ class ExportResult:
 
 
 class ExportBlockedError(ValueError):
-    def __init__(self, code: str, rows: list[dict[str, Any]] | None = None):
+    def __init__(
+        self,
+        code: str,
+        rows: list[dict[str, Any]] | None = None,
+        *,
+        prior_export_id: int | None = None,
+    ):
         super().__init__(code)
         self.code = code
         self.rows = rows or []
+        self.prior_export_id = prior_export_id
 
 
 def normalize_consecutive(raw: str) -> str:
@@ -309,7 +316,10 @@ def generate_export(
             (used_date, consecutive),
         ).fetchone()
         if prior is not None and not confirm_duplicate_consecutive:
-            raise ExportBlockedError("duplicate_consecutive_confirmation_required")
+            raise ExportBlockedError(
+                "duplicate_consecutive_confirmation_required",
+                prior_export_id=int(prior["id"]),
+            )
 
         file_bytes = build_pag_file(layout_date=used_date, consecutive=consecutive, payments=rebuilt)
         digest = sha256_hex(file_bytes)

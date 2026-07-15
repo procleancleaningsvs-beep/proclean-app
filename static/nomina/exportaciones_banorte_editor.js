@@ -3,6 +3,14 @@
   if (!root) return;
   let csrf = root.dataset.csrf || "";
   let draft = null;
+  const editorPanel = document.getElementById("banorte-editor-panel");
+
+  /** Serialized mutation queue per draft (coalesce amount; beneficiary immediate). */
+  const mutationQueue = {
+    active: false,
+    pendingByRow: Object.create(null),
+    amountTimers: Object.create(null),
+  };
 
   function setCsrf(token) { if (token) csrf = token; }
   function money(cents) {
@@ -13,16 +21,23 @@
   }
   function statusClass(state) {
     if (state === "OK") return "banorte-status--ok";
-    if (state === "NEEDS_REVIEW") return "banorte-status--warn";
-    if (state === "BLOCKED") return "banorte-status--bad";
+    if (state === "NEEDS_REVIEW" || state === "BLOCKED") return "banorte-status--warn";
+    if (state === "EXCLUDED") return "banorte-status--muted";
     return "banorte-status--muted";
   }
   function statusLabel(state) {
     if (state === "OK") return "Listo";
-    if (state === "NEEDS_REVIEW") return "Revisión";
-    if (state === "BLOCKED") return "Bloqueo";
-    if (state === "EXCLUDED") return "Excluido";
+    if (state === "NEEDS_REVIEW" || state === "BLOCKED") return "Requiere corrección";
+    if (state === "EXCLUDED") return "No incluido";
     return state || "—";
+  }
+  function warningLabel(warnings) {
+    const w = warnings || [];
+    if (w.indexOf("amount_zero") >= 0) return "Monto en cero";
+    if (w.indexOf("amount_invalid") >= 0) return "Monto inválido";
+    if (w.indexOf("banco_no_banorte") >= 0 || w.indexOf("banco_vacio") >= 0) return "Banco no Banorte";
+    if (w.length) return w[0];
+    return "Excluido";
   }
 
   async function api(url, body) {
@@ -34,6 +49,109 @@
     const data = await res.json().catch(function () { return {}; });
     setCsrf(data.csrf_token);
     return { res: res, data: data };
+  }
+
+  function setBusy(busy) {
+    if (!editorPanel) return;
+    editorPanel.classList.toggle("banorte-editor-busy", !!busy);
+  }
+
+  function clearMutationQueue() {
+    Object.keys(mutationQueue.amountTimers).forEach(function (k) {
+      clearTimeout(mutationQueue.amountTimers[k]);
+    });
+    mutationQueue.amountTimers = Object.create(null);
+    mutationQueue.pendingByRow = Object.create(null);
+    mutationQueue.active = false;
+    setBusy(false);
+  }
+
+  function enqueueApply(rowId, payload, opts) {
+    opts = opts || {};
+    const key = String(rowId);
+    const prev = mutationQueue.pendingByRow[key] || {};
+    const next = Object.assign({}, prev, payload, { rowId: Number(rowId) });
+    if (opts.beneficiary) next._priority = "beneficiary";
+    mutationQueue.pendingByRow[key] = next;
+    if (opts.immediate) {
+      if (mutationQueue.amountTimers[key]) {
+        clearTimeout(mutationQueue.amountTimers[key]);
+        delete mutationQueue.amountTimers[key];
+      }
+      drainMutationQueue();
+      return;
+    }
+    if (opts.debounceMs) {
+      if (mutationQueue.amountTimers[key]) clearTimeout(mutationQueue.amountTimers[key]);
+      mutationQueue.amountTimers[key] = setTimeout(function () {
+        delete mutationQueue.amountTimers[key];
+        drainMutationQueue();
+      }, opts.debounceMs);
+      return;
+    }
+    drainMutationQueue();
+  }
+
+  async function drainMutationQueue() {
+    if (mutationQueue.active || !draft) return;
+    const keys = Object.keys(mutationQueue.pendingByRow);
+    if (!keys.length) {
+      setBusy(false);
+      return;
+    }
+    keys.sort(function (a, b) {
+      const pa = mutationQueue.pendingByRow[a]._priority === "beneficiary" ? 0 : 1;
+      const pb = mutationQueue.pendingByRow[b]._priority === "beneficiary" ? 0 : 1;
+      return pa - pb;
+    });
+    const key = keys[0];
+    const job = mutationQueue.pendingByRow[key];
+    delete mutationQueue.pendingByRow[key];
+    mutationQueue.active = true;
+    setBusy(true);
+    try {
+      const body = {
+        expected_revision: draft.revision,
+        amount_final: job.amount_final,
+      };
+      if (job.beneficiary_id != null) body.beneficiary_id = job.beneficiary_id;
+      if (job.nombre_recibido != null) body.nombre_recibido = job.nombre_recibido;
+      const out = await api(
+        "/nomina/exportaciones/banorte/drafts/" + draft.id + "/rows/" + job.rowId + "/apply",
+        body
+      );
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        clearMutationQueue();
+        await reloadDraft("Borrador desactualizado. Se recargó el editor.");
+        return;
+      }
+      if (!out.data.ok) {
+        alert(out.data.code || "No se pudo aplicar el cambio");
+        return;
+      }
+      renderEditor(out.data.draft);
+    } finally {
+      mutationQueue.active = false;
+      setBusy(Object.keys(mutationQueue.pendingByRow).length > 0);
+      if (Object.keys(mutationQueue.pendingByRow).length) {
+        drainMutationQueue();
+      }
+    }
+  }
+
+  async function reloadDraft(message) {
+    if (!draft) return;
+    const res = await fetch("/nomina/exportaciones/banorte/drafts/" + draft.id);
+    const data = await res.json().catch(function () { return {}; });
+    setCsrf(data.csrf_token);
+    if (data.ok && data.draft) {
+      renderEditor(data.draft);
+      if (message) {
+        const msg = document.getElementById("banorte-export-msg");
+        msg.hidden = false;
+        msg.textContent = message;
+      }
+    }
   }
 
   function getConsecutiveValue() {
@@ -86,19 +204,29 @@
       "<div><span>Pagos</span><strong>" + rec.payment_count + "</strong></div>";
   }
 
+  function splitRows(d) {
+    const main = [];
+    const excluded = [];
+    (d.rows || []).forEach(function (row) {
+      if (row.row_state === "EXCLUDED") excluded.push(row);
+      else main.push(row);
+    });
+    return { main: main, excluded: excluded };
+  }
+
   function collectRows() {
     const rows = [];
-    document.querySelectorAll("#banorte-editor tbody tr").forEach(function (tr) {
+    document.querySelectorAll("#banorte-editor tbody tr, #banorte-excluded tbody tr").forEach(function (tr) {
       rows.push({
         id: Number(tr.dataset.rowId),
-        position: Number(tr.querySelector(".c-pos").textContent),
+        position: Number(tr.dataset.position || tr.querySelector(".c-pos").textContent),
         calculo_row_id: tr.dataset.calculoRowId ? Number(tr.dataset.calculoRowId) : null,
-        nombre_recibido: tr.querySelector(".c-name").value,
+        nombre_recibido: (tr.querySelector(".c-name") && tr.querySelector(".c-name").value) || tr.dataset.nombre || "",
         beneficiary_id: tr.dataset.beneficiaryId ? Number(tr.dataset.beneficiaryId) : null,
-        employee_number_snapshot: tr.querySelector(".c-emp").textContent.trim() || null,
-        account_number_snapshot: tr.querySelector(".c-acct").textContent.trim() || null,
+        employee_number_snapshot: (tr.querySelector(".c-emp") && tr.querySelector(".c-emp").textContent.trim()) || null,
+        account_number_snapshot: (tr.querySelector(".c-acct") && tr.querySelector(".c-acct").textContent.trim()) || null,
         amount_original_cents: Number(tr.dataset.originalCents || 0),
-        amount_final_cents: Math.round(Number(tr.querySelector(".c-final").value || 0) * 100),
+        amount_final_cents: Math.round(Number((tr.querySelector(".c-final") && tr.querySelector(".c-final").value) || tr.dataset.finalMoney || 0) * 100),
         included: Number(tr.dataset.included || 0),
         match_kind: tr.dataset.matchKind || "NONE",
         alias_id: tr.dataset.aliasId ? Number(tr.dataset.aliasId) : null,
@@ -121,7 +249,7 @@
       clearTimeout(timer);
       if (listEl) { listEl.remove(); listEl = null; }
       const q = input.value.trim();
-      if (q.length < 3) return;
+      if (q.length < 2) return;
       timer = setTimeout(async function () {
         const out = await api("/nomina/exportaciones/banorte/beneficiarios/search-name", { q: q, limit: 10 });
         if (!out.data.ok || !out.data.rows || !out.data.rows.length) return;
@@ -132,18 +260,43 @@
           btn.type = "button";
           btn.textContent = b.nombre_original;
           btn.addEventListener("click", function () {
-            tr.dataset.beneficiaryId = b.id;
-            tr.querySelector(".c-emp").textContent = b.employee_number_effective || "—";
-            tr.querySelector(".c-acct").textContent = b.account_number || "—";
             input.value = b.nombre_original;
-            listEl.remove();
-            listEl = null;
+            if (listEl) { listEl.remove(); listEl = null; }
+            enqueueApply(tr.dataset.rowId, {
+              beneficiary_id: b.id,
+              nombre_recibido: b.nombre_original,
+              amount_final: tr.querySelector(".c-final").value,
+            }, { immediate: true, beneficiary: true });
           });
           listEl.appendChild(btn);
         });
         input.parentElement.style.position = "relative";
         input.parentElement.appendChild(listEl);
       }, 250);
+    });
+  }
+
+  function bindAmount(input, tr) {
+    function flush() {
+      enqueueApply(tr.dataset.rowId, {
+        beneficiary_id: tr.dataset.beneficiaryId ? Number(tr.dataset.beneficiaryId) : null,
+        nombre_recibido: tr.querySelector(".c-name").value,
+        amount_final: input.value,
+      }, { immediate: true });
+    }
+    input.addEventListener("input", function () {
+      enqueueApply(tr.dataset.rowId, {
+        beneficiary_id: tr.dataset.beneficiaryId ? Number(tr.dataset.beneficiaryId) : null,
+        nombre_recibido: tr.querySelector(".c-name").value,
+        amount_final: input.value,
+      }, { debounceMs: 350 });
+    });
+    input.addEventListener("blur", flush);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        flush();
+      }
     });
   }
 
@@ -158,11 +311,13 @@
       " · rev " + d.revision;
     renderRecon(d.reconciliation);
     updateRestoreButton(d);
+    const parts = splitRows(d);
     const tbody = document.querySelector("#banorte-editor tbody");
     tbody.innerHTML = "";
-    (d.rows || []).forEach(function (row) {
+    parts.main.forEach(function (row) {
       const tr = document.createElement("tr");
       tr.dataset.rowId = row.id;
+      tr.dataset.position = row.position;
       tr.dataset.calculoRowId = row.calculo_row_id || "";
       tr.dataset.matchKind = row.match_kind || "NONE";
       tr.dataset.aliasId = row.alias_id || "";
@@ -187,17 +342,67 @@
         '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></button></td>';
       tbody.appendChild(tr);
       bindAutocomplete(tr.querySelector(".c-name"), tr);
+      bindAmount(tr.querySelector(".c-final"), tr);
       tr.querySelector(".c-trash").addEventListener("click", async function () {
-        if (!draft) return;
-        const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/exclude-row", {
-          expected_revision: draft.revision,
-          row_id: Number(tr.dataset.rowId),
-        });
-        if (out.res.status === 409) { alert("Borrador desactualizado."); return; }
-        if (!out.data.ok) { alert(out.data.code || "error"); return; }
-        renderEditor(out.data.draft);
+        if (!draft || mutationQueue.active) return;
+        if (!confirm("¿Excluir esta fila del archivo .pag?")) return;
+        setBusy(true);
+        try {
+          const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/exclude-row", {
+            expected_revision: draft.revision,
+            row_id: Number(tr.dataset.rowId),
+            confirm: true,
+          });
+          if (out.res.status === 409) {
+            clearMutationQueue();
+            await reloadDraft("Borrador desactualizado. Se recargó el editor.");
+            return;
+          }
+          if (!out.data.ok) { alert(out.data.code || "error"); return; }
+          renderEditor(out.data.draft);
+        } finally {
+          setBusy(false);
+        }
       });
     });
+
+    const wrap = document.getElementById("banorte-excluded-wrap");
+    const summary = document.getElementById("banorte-excluded-summary");
+    const xtbody = document.querySelector("#banorte-excluded tbody");
+    xtbody.innerHTML = "";
+    if (!parts.excluded.length) {
+      wrap.hidden = true;
+    } else {
+      wrap.hidden = false;
+      summary.textContent = "No incluidos (" + parts.excluded.length + ")";
+      parts.excluded.forEach(function (row) {
+        const warnings = row.warnings || JSON.parse(row.warnings_json || "[]");
+        const tr = document.createElement("tr");
+        tr.dataset.rowId = row.id;
+        tr.dataset.position = row.position;
+        tr.dataset.rowState = row.row_state || "EXCLUDED";
+        tr.dataset.included = "0";
+        tr.dataset.beneficiaryId = row.beneficiary_id || "";
+        tr.dataset.excludedAt = row.excluded_at || "";
+        tr.dataset.excludedBy = row.excluded_by || "";
+        tr.dataset.warnings = JSON.stringify(warnings);
+        tr.dataset.userDecision = JSON.stringify(row.user_decision || {});
+        tr.dataset.originalCents = row.amount_original_cents;
+        tr.dataset.nombre = row.nombre_recibido || "";
+        tr.dataset.finalMoney = money(row.amount_final_cents);
+        tr.dataset.nss = row.nss_snapshot || "";
+        tr.dataset.banco = row.banco_snapshot || "";
+        tr.innerHTML =
+          '<td class="c-pos">' + row.position + "</td>" +
+          "<td>" + esc(row.nombre_recibido) + "</td>" +
+          '<td class="c-emp banorte-mono">' + esc(row.employee_number_snapshot || "—") + "</td>" +
+          '<td class="c-acct banorte-mono">' + esc(row.account_number_snapshot || "—") + "</td>" +
+          "<td>$" + money(row.amount_final_cents) + "</td>" +
+          '<td><span class="banorte-status ' + statusClass("EXCLUDED") + '">No incluido</span></td>' +
+          "<td>" + esc(warningLabel(warnings)) + "</td>";
+        xtbody.appendChild(tr);
+      });
+    }
   }
 
   document.querySelectorAll("[data-banorte-tab]").forEach(function (btn) {
@@ -215,13 +420,22 @@
   }
 
   document.getElementById("banorte-restore-last").addEventListener("click", async function () {
-    if (!draft) return;
-    const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/restore-last", {
-      expected_revision: draft.revision,
-    });
-    if (out.res.status === 409) { alert("Borrador desactualizado."); return; }
-    if (!out.data.ok) { alert(out.data.code || "error"); return; }
-    renderEditor(out.data.draft);
+    if (!draft || mutationQueue.active) return;
+    setBusy(true);
+    try {
+      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/restore-last", {
+        expected_revision: draft.revision,
+      });
+      if (out.res.status === 409) {
+        clearMutationQueue();
+        await reloadDraft("Borrador desactualizado. Se recargó el editor.");
+        return;
+      }
+      if (!out.data.ok) { alert(out.data.code || "error"); return; }
+      renderEditor(out.data.draft);
+    } finally {
+      setBusy(false);
+    }
   });
 
   document.querySelectorAll("[data-prepare-calculo]").forEach(function (btn) {
@@ -236,6 +450,18 @@
       }
       showHub();
       renderEditor(out.data.draft);
+      if ((out.data.omitted && out.data.omitted.length) || (out.data.amount_errors && out.data.amount_errors.length)) {
+        const msg = document.getElementById("banorte-export-msg");
+        msg.hidden = false;
+        const bits = [];
+        (out.data.omitted || []).forEach(function (o) {
+          bits.push((o.causa || "omitido") + ": " + o.count + " filas");
+        });
+        (out.data.amount_errors || []).forEach(function (e) {
+          bits.push((e.causa || "monto") + " en " + (e.nombre || ("#" + e.calculo_row_id)));
+        });
+        msg.textContent = "Resumen de origen — " + bits.join("; ");
+      }
     });
   });
 
@@ -247,7 +473,8 @@
       consecutive_pref: getConsecutiveValue(),
     });
     if (out.res.status === 409) {
-      alert("Borrador desactualizado. Recargue el editor.");
+      clearMutationQueue();
+      await reloadDraft("Borrador desactualizado. Se recargó el editor.");
       return;
     }
     if (!out.data.ok) {
@@ -257,21 +484,48 @@
     renderEditor(out.data.draft);
   });
 
-  document.getElementById("banorte-generate").addEventListener("click", async function () {
-    if (!draft) return;
+  function showModal(text) {
+    return new Promise(function (resolve) {
+      const modal = document.getElementById("banorte-modal");
+      document.getElementById("banorte-modal-text").textContent = text;
+      modal.hidden = false;
+      function done(ok) {
+        modal.hidden = true;
+        document.getElementById("banorte-modal-ok").onclick = null;
+        document.getElementById("banorte-modal-cancel").onclick = null;
+        resolve(ok);
+      }
+      document.getElementById("banorte-modal-ok").onclick = function () { done(true); };
+      document.getElementById("banorte-modal-cancel").onclick = function () { done(false); };
+    });
+  }
+
+  async function runGenerate(flags) {
+    flags = flags || {};
     const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/generate", {
       expected_revision: draft.revision,
       consecutive: getConsecutiveValue(),
-      confirm_manuals: document.getElementById("banorte-confirm-manual").checked,
-      confirm_duplicate_consecutive: document.getElementById("banorte-confirm-dup").checked,
+      confirm_manuals: !!flags.confirm_manuals,
+      confirm_duplicate_consecutive: !!flags.confirm_duplicate_consecutive,
     });
     const msg = document.getElementById("banorte-export-msg");
     if (out.res.status === 409) {
-      msg.hidden = false;
-      msg.textContent = "Revisión obsoleta — recargue.";
+      clearMutationQueue();
+      await reloadDraft("Revisión obsoleta — se recargó el editor.");
       return;
     }
     if (!out.data.ok) {
+      if (out.data.code === "manual_beneficiaries_confirmation_required") {
+        const ok = await showModal("Hay beneficiarios de alta manual. ¿Confirma incluirlos en el archivo .pag?");
+        if (ok) return runGenerate({ confirm_manuals: true, confirm_duplicate_consecutive: flags.confirm_duplicate_consecutive });
+        return;
+      }
+      if (out.data.code === "duplicate_consecutive_confirmation_required") {
+        const prior = out.data.prior_export_id ? (" (exportación #" + out.data.prior_export_id + ")") : "";
+        const ok = await showModal("El consecutivo ya existe para hoy" + prior + ". ¿Confirma generar de todos modos?");
+        if (ok) return runGenerate({ confirm_manuals: flags.confirm_manuals, confirm_duplicate_consecutive: true });
+        return;
+      }
       msg.hidden = false;
       msg.textContent = "Bloqueado: " + (out.data.code || out.res.status);
       return;
@@ -282,6 +536,11 @@
     msg.hidden = false;
     msg.textContent = "Generado " + out.data.filename;
     window.location.href = "/nomina/exportaciones/banorte/historial/" + out.data.export_id + "/download";
+  }
+
+  document.getElementById("banorte-generate").addEventListener("click", async function () {
+    if (!draft || mutationQueue.active) return;
+    await runGenerate({});
   });
 
   document.getElementById("banorte-abandon-draft").addEventListener("click", async function () {
@@ -292,6 +551,7 @@
       confirm: true,
     });
     if (out.data.ok) {
+      clearMutationQueue();
       draft = null;
       document.getElementById("banorte-editor-panel").hidden = true;
     } else {
@@ -373,7 +633,9 @@
       if (b.validation_status === "IMPORTADO_EXITOSO" && b.record_status === "ACTIVO") {
         st = '<span class="banorte-status banorte-status--ok">Validado Banorte</span>';
       } else if (b.manual_effective_from_account && b.record_status === "ACTIVO") {
-        st = '<span class="banorte-status banorte-status--ok">Usizable (manual)</span>';
+        st = '<span class="banorte-status banorte-status--ok">Utilizable (manual)</span>';
+      } else if (b.record_status === "INACTIVO_MANUAL") {
+        st = '<span class="banorte-status banorte-status--muted">Inactivo manual</span>';
       }
       tr.innerHTML =
         "<td>" + b.id + "</td><td>" + esc(b.nombre_original) + "</td>" +
@@ -390,7 +652,7 @@
     if (opts.validation_status) params.set("validation_status", opts.validation_status);
     if (opts.record_status) params.set("record_status", opts.record_status);
     const res = await fetch("/nomina/exportaciones/banorte/beneficiarios/list?" + params.toString());
-    const data = await res.json();
+    const data = await res.json().catch(function () { return {}; });
     setCsrf(data.csrf_token);
     if (data.ok) renderBenefRows(data.listing);
   }

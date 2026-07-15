@@ -88,13 +88,34 @@
           <tbody></tbody>
         </table>
       </div>
+      <details class="banorte-excluded-wrap" id="banorte-excluded-wrap" hidden>
+        <summary id="banorte-excluded-summary">No incluidos (0)</summary>
+        <div class="banorte-editor-scroll">
+          <table class="banorte-table banorte-editor-table" id="banorte-excluded">
+            <thead>
+              <tr>
+                <th>#</th><th class="banorte-col-worker">Trabajador</th><th>Número de empleado</th><th>Cuenta</th>
+                <th>Monto</th><th>Estado</th><th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
       <div class="banorte-export-bar">
-        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-manual"> Confirmar manuales</label>
-        <label class="banorte-check"><input type="checkbox" id="banorte-confirm-dup"> Confirmar consecutivo duplicado</label>
         <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
         <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
       </div>
       <p id="banorte-export-msg" class="banorte-warn" hidden></p>
+      <div id="banorte-modal" class="banorte-modal" hidden>
+        <div class="banorte-modal-card">
+          <p id="banorte-modal-text"></p>
+          <div class="banorte-export-bar">
+            <button type="button" class="btn btn-secondary" id="banorte-modal-cancel">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="banorte-modal-ok">Confirmar</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">

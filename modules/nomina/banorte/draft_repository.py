@@ -478,6 +478,124 @@ def exclude_draft_row(
     return get_draft(db_path, draft_id)  # type: ignore[return-value]
 
 
+def apply_draft_row(
+    db_path: str,
+    draft_id: int,
+    row_id: int,
+    user: str,
+    expected_revision: int,
+    *,
+    beneficiary_id: int | None = None,
+    nombre_recibido: str | None = None,
+    amount_final: str | None = None,
+) -> dict[str, Any]:
+    """Authoritative per-row mutation: reload beneficiary from SQLite; bump revision."""
+    from modules.nomina.banorte.money import parse_money, to_cents
+    from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
+
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _bump_or_stale(conn, draft_id, expected_revision, user)
+        draft_meta = conn.execute(
+            "SELECT origin_kind FROM nomina_banorte_export_drafts WHERE id=?",
+            (int(draft_id),),
+        ).fetchone()
+        if draft_meta is None:
+            raise ValueError("draft_not_found")
+        origin_kind = str(draft_meta["origin_kind"])
+        row = conn.execute(
+            "SELECT * FROM nomina_banorte_export_draft_rows WHERE id=? AND draft_id=?",
+            (int(row_id), int(draft_id)),
+        ).fetchone()
+        if row is None:
+            raise ValueError("row_not_found")
+
+        cents = int(row["amount_final_cents"] or 0)
+        if amount_final is not None:
+            money = parse_money(str(amount_final))
+            if money.error == "zero":
+                cents = 0
+            elif money.ok and money.amount is not None:
+                cents = to_cents(money.amount)
+                if cents < 0:
+                    raise ValueError("amount_invalid")
+            else:
+                raise ValueError("amount_invalid")
+
+        bid = int(beneficiary_id) if beneficiary_id is not None else (
+            int(row["beneficiary_id"]) if row["beneficiary_id"] is not None else None
+        )
+        ben = None
+        if bid is not None:
+            ben_row = conn.execute(
+                "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+                (bid,),
+            ).fetchone()
+            if ben_row is None:
+                raise ValueError("beneficiary_not_found")
+            ben = dict(ben_row)
+
+        state = compute_row_state_from_beneficiary(
+            amount_final_cents=cents,
+            beneficiary=ben,
+            origin_kind=origin_kind,
+            banco_snapshot=row["banco_snapshot"],
+        )
+        nombre = (
+            str(nombre_recibido)
+            if nombre_recibido is not None
+            else (str(ben["nombre_original"]) if ben else str(row["nombre_recibido"] or ""))
+        )
+        warnings = list(state.get("warnings") or [])
+        emp = state.get("employee_number_snapshot") or row["employee_number_snapshot"]
+        acct = state.get("account_number_snapshot") or row["account_number_snapshot"]
+        if ben:
+            emp = ben["employee_number_effective"]
+            acct = ben["account_number"]
+        conn.execute(
+            """
+            UPDATE nomina_banorte_export_draft_rows
+            SET nombre_recibido=?,
+                beneficiary_id=?,
+                employee_number_snapshot=?,
+                account_number_snapshot=?,
+                amount_final_cents=?,
+                included=?,
+                row_state=?,
+                warnings_json=?,
+                match_kind=?,
+                excluded_at=NULL,
+                excluded_by=NULL
+            WHERE id=? AND draft_id=?
+            """,
+            (
+                nombre,
+                bid,
+                emp,
+                acct,
+                int(state["amount_final_cents"]),
+                int(state["included"]),
+                str(state["row_state"]),
+                json.dumps(warnings, ensure_ascii=False),
+                "EXACT" if bid and int(state["included"]) == 1 else (row["match_kind"] or "NONE"),
+                int(row_id),
+                int(draft_id),
+            ),
+        )
+        conn.commit()
+    except DraftStaleError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return get_draft(db_path, draft_id)  # type: ignore[return-value]
+
+
 def restore_last_excluded(
     db_path: str,
     draft_id: int,
@@ -500,16 +618,42 @@ def restore_last_excluded(
         ).fetchone()
         if row is None:
             raise ValueError("nothing_to_restore")
-        can_include = int(row["amount_final_cents"] or 0) > 0 and row["beneficiary_id"] is not None
+        ben = None
+        if row["beneficiary_id"] is not None:
+            ben_row = conn.execute(
+                "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+                (int(row["beneficiary_id"]),),
+            ).fetchone()
+            if ben_row is not None:
+                ben = dict(ben_row)
+        draft_meta = conn.execute(
+            "SELECT origin_kind FROM nomina_banorte_export_drafts WHERE id=?",
+            (int(draft_id),),
+        ).fetchone()
+        origin_kind = str(draft_meta["origin_kind"]) if draft_meta else "MANUAL_CAPTURE"
+        from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
+
+        state = compute_row_state_from_beneficiary(
+            amount_final_cents=int(row["amount_final_cents"] or 0),
+            beneficiary=ben,
+            origin_kind=origin_kind,
+            banco_snapshot=None,
+        )
         conn.execute(
             """
             UPDATE nomina_banorte_export_draft_rows
-            SET included=?, row_state=?, excluded_at=NULL, excluded_by=NULL
+            SET included=?, row_state=?, warnings_json=?,
+                employee_number_snapshot=COALESCE(?, employee_number_snapshot),
+                account_number_snapshot=COALESCE(?, account_number_snapshot),
+                excluded_at=NULL, excluded_by=NULL
             WHERE id=? AND draft_id=?
             """,
             (
-                1 if can_include else 0,
-                "OK" if can_include else "BLOCKED",
+                int(state["included"]),
+                str(state["row_state"]),
+                json.dumps(state.get("warnings") or [], ensure_ascii=False),
+                state.get("employee_number_snapshot"),
+                state.get("account_number_snapshot"),
                 int(row["id"]),
                 int(draft_id),
             ),

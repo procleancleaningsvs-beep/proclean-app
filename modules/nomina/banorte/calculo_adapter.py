@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from modules.nomina.banorte.calculo_queries import (
@@ -13,6 +13,7 @@ from modules.nomina.banorte.calculo_queries import (
     neto_final_to_decimal,
     neto_to_cents,
 )
+from modules.nomina.banorte.validators import is_exact_banorte_bank, normalize_banco
 
 
 @dataclass
@@ -37,6 +38,8 @@ class AdapterResult:
     origin_updated_at: str
     origin_hash: str
     rows: list[AdapterRow]
+    omitted: list[dict[str, Any]] = field(default_factory=list)
+    amount_errors: list[dict[str, Any]] = field(default_factory=list)
 
 
 def origin_hash_for_run(run: dict[str, Any], rows: list[dict[str, Any]]) -> str:
@@ -78,7 +81,6 @@ def origin_hash_for_manual_capture(names_text: str, amounts_text: str) -> str:
 
 
 def build_draft_rows_from_calculo(db_path: str, calculo_id: int) -> AdapterResult:
-    # Guard: never import calc engine
     run = get_calculo_run_readonly(db_path, calculo_id)
     if run is None:
         raise KeyError("calculo_not_found")
@@ -87,44 +89,93 @@ def build_draft_rows_from_calculo(db_path: str, calculo_id: int) -> AdapterResul
         raise ValueError("calculo_empty")
     oh = origin_hash_for_run(run, rows)
     out_rows: list[AdapterRow] = []
+    amount_errors: list[dict[str, Any]] = []
+    omit_agg: dict[str, dict[str, Any]] = {}
+
+    def _omit(causa: str, banco: str, cents: int) -> None:
+        key = f"{causa}|{normalize_banco(banco)}"
+        bucket = omit_agg.setdefault(
+            key, {"causa": causa, "banco": banco or "", "count": 0, "total_cents": 0}
+        )
+        bucket["count"] += 1
+        bucket["total_cents"] += max(0, cents)
+
     for r in rows:
-        warnings: list[str] = []
+        row_id = int(r["id"])
         try:
             cents = neto_to_cents(r.get("neto_a_pagar_final"))
         except ValueError:
-            raise ValueError(f"neto_invalid_row:{r.get('id')}") from None
+            amount_errors.append(
+                {
+                    "calculo_row_id": row_id,
+                    "causa": "amount_invalid",
+                    "nombre": str(r.get("nombre_empleado") or ""),
+                }
+            )
+            continue
         if cents < 0:
-            raise ValueError(f"neto_negative_row:{r.get('id')}")
-        included = 1 if cents > 0 else 0
-        row_state = "OK" if included else "EXCLUDED"
-        banco = str(r.get("banco") or "").strip().upper()
-        if included and not banco:
-            row_state = "NEEDS_REVIEW"
-            warnings.append("banco_vacio")
-        elif included and banco and banco != "BANORTE":
-            # inclusion refined in prepare_service after matching
-            warnings.append("banco_no_banorte")
+            amount_errors.append(
+                {
+                    "calculo_row_id": row_id,
+                    "causa": "amount_negative",
+                    "nombre": str(r.get("nombre_empleado") or ""),
+                }
+            )
+            continue
+
+        banco_raw = str(r.get("banco") or "")
+        if not is_exact_banorte_bank(banco_raw):
+            causa = "banco_vacio" if normalize_banco(banco_raw) == "" else "banco_no_banorte"
+            _omit(causa, banco_raw, cents)
+            continue
+
+        warnings: list[str] = []
+        if cents == 0:
+            warnings.append("amount_zero")
+            out_rows.append(
+                AdapterRow(
+                    calculo_row_id=row_id,
+                    nombre_recibido=str(r.get("nombre_empleado") or ""),
+                    nss_snapshot=str(r["nss"]) if r.get("nss") else None,
+                    banco_snapshot=banco_raw or None,
+                    employee_number_snapshot=str(r["numero_empleado"]) if r.get("numero_empleado") else None,
+                    account_number_snapshot=str(r["cuenta"]) if r.get("cuenta") else None,
+                    amount_original_cents=0,
+                    amount_final_cents=0,
+                    included=0,
+                    row_state="EXCLUDED",
+                    match_kind="NONE",
+                    warnings=warnings,
+                )
+            )
+            continue
+
         out_rows.append(
             AdapterRow(
-                calculo_row_id=int(r["id"]),
+                calculo_row_id=row_id,
                 nombre_recibido=str(r.get("nombre_empleado") or ""),
                 nss_snapshot=str(r["nss"]) if r.get("nss") else None,
-                banco_snapshot=str(r["banco"]) if r.get("banco") else None,
+                banco_snapshot=banco_raw or None,
                 employee_number_snapshot=str(r["numero_empleado"]) if r.get("numero_empleado") else None,
                 account_number_snapshot=str(r["cuenta"]) if r.get("cuenta") else None,
-                amount_original_cents=cents if cents > 0 else 0,
-                amount_final_cents=cents if cents > 0 else 0,
-                included=included,
-                row_state=row_state if included else "EXCLUDED",
+                amount_original_cents=cents,
+                amount_final_cents=cents,
+                included=1,
+                row_state="OK",
                 match_kind="NONE",
                 warnings=warnings,
             )
         )
-    if not any(x.included for x in out_rows):
-        raise ValueError("calculo_no_positive_neto")
+
+    omitted = list(omit_agg.values())
+    if not out_rows and not omitted and not amount_errors:
+        raise ValueError("calculo_no_banorte_rows")
+
     return AdapterResult(
         calculo_id=int(calculo_id),
         origin_updated_at=str(run.get("updated_at") or ""),
         origin_hash=oh,
         rows=out_rows,
+        omitted=omitted,
+        amount_errors=amount_errors,
     )

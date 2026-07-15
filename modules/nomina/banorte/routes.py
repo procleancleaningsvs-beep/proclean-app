@@ -35,6 +35,7 @@ from modules.nomina.banorte.draft_repository import (
     DraftConflictError,
     DraftStaleError,
     abandon_draft,
+    apply_draft_row,
     create_draft_from_adapter,
     create_manual_draft_shell,
     exclude_draft_row,
@@ -326,7 +327,15 @@ def register_banorte_routes(bp) -> None:
         draft = create_draft_from_adapter(_db_path(), _username(), adapted)
         prepared = prepare_draft_rows(_db_path(), draft["rows"], origin_kind="CALCULO_RUN")
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
-        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+        return _json_no_store(
+            {
+                "ok": True,
+                "draft": draft,
+                "omitted": list(getattr(adapted, "omitted", []) or []),
+                "amount_errors": list(getattr(adapted, "amount_errors", []) or []),
+                "csrf_token": issue_csrf_token(),
+            }
+        )
 
     @_banorte_access_required
     def banorte_draft_get(draft_id: int):
@@ -415,7 +424,10 @@ def register_banorte_routes(bp) -> None:
         except DraftStaleError as exc:
             return _stale_response(exc)
         except ExportBlockedError as exc:
-            return _json_no_store({"ok": False, "code": exc.code, "rows": exc.rows}, 400)
+            payload: dict[str, Any] = {"ok": False, "code": exc.code, "rows": exc.rows}
+            if exc.prior_export_id is not None:
+                payload["prior_export_id"] = exc.prior_export_id
+            return _json_no_store(payload, 400)
         except KeyError:
             return _json_no_store({"ok": False, "code": "draft_not_found"}, 404)
         return _json_no_store(
@@ -431,10 +443,35 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
+    def banorte_draft_row_apply(draft_id: int, row_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            bid = data.get("beneficiary_id")
+            draft = apply_draft_row(
+                _db_path(),
+                int(draft_id),
+                int(row_id),
+                _username(),
+                int(data.get("expected_revision")),
+                beneficiary_id=int(bid) if bid is not None and bid != "" else None,
+                nombre_recibido=data.get("nombre_recibido"),
+                amount_final=data.get("amount_final"),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
     def banorte_draft_exclude_row(draft_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        if not data.get("confirm"):
+            return _json_no_store({"ok": False, "code": "confirm_required"}, 400)
         try:
             draft = exclude_draft_row(
                 _db_path(),
@@ -808,6 +845,12 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/drafts/<int:draft_id>/generate",
         endpoint="banorte_draft_generate",
         view_func=banorte_draft_generate,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/rows/<int:row_id>/apply",
+        endpoint="banorte_draft_row_apply",
+        view_func=banorte_draft_row_apply,
         methods=["POST"],
     )
     bp.add_url_rule(

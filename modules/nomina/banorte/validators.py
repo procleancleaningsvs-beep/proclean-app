@@ -97,3 +97,27 @@ def safe_upload_filename(filename: str) -> str:
     if ".." in name:
         raise ValueError("path_traversal")
     return name
+
+
+def digits_only(value: Any) -> str:
+    return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+def is_valid_employee_number(value: Any) -> bool:
+    """Canonical: digits only, 1–10 positions (matches pag_layout / alta)."""
+    digits = digits_only(value)
+    return 1 <= len(digits) <= 10
+
+
+def is_valid_account_number(value: Any) -> bool:
+    """Canonical: digits only, 1–18 positions (matches pag_layout / alta)."""
+    digits = digits_only(value)
+    return 1 <= len(digits) <= 18
+
+
+def normalize_banco(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def is_exact_banorte_bank(value: Any) -> bool:
+    return normalize_banco(value) == "banorte"

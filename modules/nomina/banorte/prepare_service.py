@@ -15,7 +15,13 @@ from typing import Any
 
 from modules.nomina.banorte.matching_service import MatchResult, match_name
 from modules.nomina.banorte.repository import connect
-from modules.nomina.banorte.validators import normalize_name
+from modules.nomina.banorte.validators import (
+    is_exact_banorte_bank,
+    is_valid_account_number,
+    is_valid_employee_number,
+    normalize_banco,
+    normalize_name,
+)
 
 
 # Documented preflight conclusion for Gate A / reviewers.
@@ -154,20 +160,6 @@ def resolve_row_match(db_path: str, row: dict[str, Any]) -> MatchResult:
     return nm if nm.kind != "NONE" else MatchResult(kind="NONE")
 
 
-def _valid_employee_number(value: Any) -> bool:
-    digits = _digits(value)
-    return 1 <= len(digits) <= 10
-
-
-def _valid_account(value: Any) -> bool:
-    digits = _digits(value)
-    return len(digits) >= 10
-
-
-def _banco_normalized(value: Any) -> str:
-    return str(value or "").strip().casefold()
-
-
 def apply_bank_rules(
     row: dict[str, Any],
     match: MatchResult,
@@ -177,8 +169,8 @@ def apply_bank_rules(
     """Mutates a copy of row fields for inclusion / warnings / state."""
     out = dict(row)
     warnings = list(out.get("warnings") or [])
-    banco_norm = _banco_normalized(out.get("banco_snapshot"))
-    positive = int(out.get("amount_final_cents") or 0) > 0
+    banco_norm = normalize_banco(out.get("banco_snapshot"))
+    cents = int(out.get("amount_final_cents") or 0)
 
     if match.auto_selected and match.selected_id:
         out["beneficiary_id"] = match.selected_id
@@ -191,30 +183,43 @@ def apply_bank_rules(
         out["account_number_snapshot"] = match.candidates[0].account_number
         out["alias_id"] = match.alias_id
 
-    if not positive:
+    if cents < 0:
         out["included"] = 0
         out["row_state"] = "EXCLUDED"
         out["amount_final_cents"] = 0
+        warnings.append("amount_invalid")
+        out["warnings"] = warnings
+        out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
+        return out
+
+    if cents == 0:
+        out["included"] = 0
+        out["row_state"] = "EXCLUDED"
+        out["amount_final_cents"] = 0
+        if "amount_zero" not in warnings:
+            warnings.append("amount_zero")
+        out["warnings"] = warnings
+        out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
         return out
 
     if origin_kind == "MANUAL_CAPTURE":
         if match.auto_selected and match.selected_id:
-            emp_ok = _valid_employee_number(out.get("employee_number_snapshot"))
-            acct_ok = _valid_account(out.get("account_number_snapshot"))
+            emp_ok = is_valid_employee_number(out.get("employee_number_snapshot"))
+            acct_ok = is_valid_account_number(out.get("account_number_snapshot"))
             if emp_ok and acct_ok:
                 out["included"] = 1
                 out["row_state"] = "OK"
             else:
                 out["included"] = 0
-                out["row_state"] = "BLOCKED"
+                out["row_state"] = "NEEDS_REVIEW"
                 warnings.append("manual_beneficiary_incomplete")
         elif match.kind in {"FUZZY_RECOMMENDATION", "EMPLOYEE_SECONDARY", "AMBIGUOUS"}:
             out["included"] = 0
-            out["row_state"] = "BLOCKED"
+            out["row_state"] = "NEEDS_REVIEW"
             warnings.append(f"match_{match.kind.lower()}")
         else:
             out["included"] = 0
-            out["row_state"] = "BLOCKED"
+            out["row_state"] = "NEEDS_REVIEW"
             warnings.append("manual_unresolved")
         out["warnings"] = warnings
         out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
@@ -225,42 +230,39 @@ def apply_bank_rules(
         }
         return out
 
-    if banco_norm == "banorte":
-        if match.auto_selected and match.selected_id:
+    # CALCULO_RUN / EXCEL_NOMINA — defense in depth (adapter should already filter)
+    if not is_exact_banorte_bank(out.get("banco_snapshot")):
+        out["included"] = 0
+        out["row_state"] = "EXCLUDED"
+        warnings.append("banco_no_banorte" if banco_norm else "banco_vacio")
+        out["warnings"] = warnings
+        out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
+        return out
+
+    if match.auto_selected and match.selected_id:
+        emp_ok = is_valid_employee_number(out.get("employee_number_snapshot"))
+        acct_ok = is_valid_account_number(out.get("account_number_snapshot"))
+        if emp_ok and acct_ok:
             out["included"] = 1
             out["row_state"] = "OK"
         else:
             out["included"] = 0
             out["row_state"] = "NEEDS_REVIEW"
-            warnings.append("banorte_sin_match")
-    elif banco_norm == "":
+            warnings.append("beneficiary_incomplete")
+    else:
         out["included"] = 0
         out["row_state"] = "NEEDS_REVIEW"
-        warnings.append("banco_vacio")
-    elif banco_norm in {"banorte2", "banorte 2"}:
-        out["included"] = 0
-        out["row_state"] = "EXCLUDED"
-        warnings.append("banco_no_banorte")
-    else:
-        if match.auto_selected and match.selected_id:
-            out["included"] = 1
-            out["row_state"] = "OK"
-            warnings.append("otro_banco_con_match_banorte")
+        if match.kind in {"FUZZY_RECOMMENDATION", "EMPLOYEE_SECONDARY", "AMBIGUOUS"}:
+            warnings.append(f"match_{match.kind.lower()}")
         else:
-            out["included"] = 0
-            out["row_state"] = "EXCLUDED"
-            warnings.append("otro_banco_sin_match")
+            warnings.append("banorte_sin_match")
 
     if match.kind in {"FUZZY_RECOMMENDATION", "EMPLOYEE_SECONDARY", "AMBIGUOUS"} and not match.auto_selected:
         out["row_state"] = "NEEDS_REVIEW"
-        if out.get("included") == 1:
-            out["included"] = 0
-            out["amount_final_cents"] = int(out.get("amount_original_cents") or 0)
-        warnings.append(f"match_{match.kind.lower()}")
+        out["included"] = 0
 
     out["warnings"] = warnings
     out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
-    # store candidate ids for UI without accounts in logs
     out["user_decision"] = {
         **(out.get("user_decision") or {}),
         "candidate_ids": [c.beneficiary_id for c in match.candidates[:5]],
@@ -281,3 +283,69 @@ def prepare_draft_rows(
         kind = str(row.get("origin_kind") or origin_kind)
         prepared.append(apply_bank_rules(row, m, origin_kind=kind))
     return prepared
+
+
+def compute_row_state_from_beneficiary(
+    *,
+    amount_final_cents: int,
+    beneficiary: dict[str, Any] | None,
+    origin_kind: str = "MANUAL_CAPTURE",
+    banco_snapshot: str | None = None,
+) -> dict[str, Any]:
+    """Authoritative state for apply/restore using canonical validators."""
+    warnings: list[str] = []
+    if amount_final_cents < 0:
+        return {
+            "included": 0,
+            "row_state": "EXCLUDED",
+            "amount_final_cents": 0,
+            "warnings": ["amount_invalid"],
+        }
+    if amount_final_cents == 0:
+        return {
+            "included": 0,
+            "row_state": "EXCLUDED",
+            "amount_final_cents": 0,
+            "warnings": ["amount_zero"],
+        }
+    if origin_kind in {"CALCULO_RUN", "EXCEL_NOMINA"} and not is_exact_banorte_bank(banco_snapshot):
+        return {
+            "included": 0,
+            "row_state": "EXCLUDED",
+            "amount_final_cents": amount_final_cents,
+            "warnings": ["banco_no_banorte"],
+        }
+    if beneficiary is None:
+        return {
+            "included": 0,
+            "row_state": "NEEDS_REVIEW",
+            "amount_final_cents": amount_final_cents,
+            "warnings": ["manual_unresolved"],
+        }
+    if beneficiary.get("record_status") != "ACTIVO":
+        return {
+            "included": 0,
+            "row_state": "NEEDS_REVIEW",
+            "amount_final_cents": amount_final_cents,
+            "warnings": ["beneficiary_not_active"],
+        }
+    emp_ok = is_valid_employee_number(beneficiary.get("employee_number_effective"))
+    acct_ok = is_valid_account_number(beneficiary.get("account_number"))
+    if not emp_ok or not acct_ok:
+        return {
+            "included": 0,
+            "row_state": "NEEDS_REVIEW",
+            "amount_final_cents": amount_final_cents,
+            "warnings": ["beneficiary_incomplete"],
+        }
+    if beneficiary.get("validation_status") == "MANUAL_PENDIENTE_VALIDACION":
+        # usable structurally if emp/acct ok — still LISTO for pag with confirm_manuals at generate
+        pass
+    return {
+        "included": 1,
+        "row_state": "OK",
+        "amount_final_cents": amount_final_cents,
+        "warnings": warnings,
+        "employee_number_snapshot": beneficiary.get("employee_number_effective"),
+        "account_number_snapshot": beneficiary.get("account_number"),
+    }

@@ -99,6 +99,39 @@
   margin-bottom: .5rem;
 }
 .banorte-mono { font-family: ui-monospace, monospace; font-size: .8rem; }
+.banorte-excluded-wrap {
+  margin-top: .85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: .35rem .65rem .65rem;
+  background: #f8fafc;
+}
+.banorte-excluded-wrap summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #475569;
+  padding: .25rem 0;
+}
+.banorte-modal {
+  position: fixed; inset: 0; z-index: 40;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(15, 23, 42, .45);
+}
+.banorte-modal[hidden] { display: none !important; }
+.banorte-modal-card {
+  background: #fff; border-radius: 12px; padding: 1.1rem 1.25rem;
+  max-width: 28rem; width: calc(100% - 2rem);
+  box-shadow: 0 12px 40px rgba(15,23,42,.2);
+}
+.banorte-editor-busy .c-name,
+.banorte-editor-busy .c-final,
+.banorte-editor-busy .c-trash,
+.banorte-editor-busy #banorte-generate,
+.banorte-editor-busy #banorte-save-draft,
+.banorte-editor-busy #banorte-restore-last {
+  pointer-events: none;
+  opacity: .65;
+}
 @media (max-width: 900px) {
   .banorte-actions { justify-content: stretch; }
 }
