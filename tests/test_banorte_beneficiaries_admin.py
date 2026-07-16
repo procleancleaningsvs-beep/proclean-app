@@ -60,7 +60,7 @@ def test_alta_account_too_long_blocked(tmp_path):
         create_manual_beneficiary(
             db, "u", nombre="ANA", account="123456789012345", confirm_effective_from_account=True
         )
-    assert ei.value.code == "account_cannot_serve_as_employee_number"
+    assert ei.value.code == "account_must_be_exactly_10_digits"
 
 
 def test_replace_versions(tmp_path):

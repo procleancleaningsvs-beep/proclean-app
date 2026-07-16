@@ -132,6 +132,73 @@
   pointer-events: none;
   opacity: .65;
 }
+.banorte-alta-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 16rem);
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: .75rem;
+}
+.banorte-alta-form-h {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: .65rem .85rem;
+  align-items: end;
+}
+.banorte-alta-form-h .banorte-check {
+  grid-column: 1 / -1;
+}
+.banorte-available-panel {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: .75rem;
+  background: #f8fafc;
+}
+.banorte-available-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  max-height: 12rem;
+  overflow: auto;
+  margin: .5rem 0;
+}
+.banorte-available-num {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  border-radius: 6px;
+  padding: .2rem .45rem;
+  cursor: pointer;
+  font: inherit;
+}
+.banorte-available-num.is-selected,
+.banorte-available-num:hover {
+  border-color: #0f766e;
+  color: #0f766e;
+}
+.banorte-ben-edit-panel {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: .85rem 1rem;
+  margin: .25rem 0 .75rem;
+}
+.banorte-ben-edit-panel label {
+  display: block;
+  margin-bottom: .5rem;
+}
+.banorte-ben-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin: .5rem 0;
+}
+.banorte-ben-history {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #475569;
+  font-size: .9rem;
+}
 @media (max-width: 900px) {
   .banorte-actions { justify-content: stretch; }
+  .banorte-alta-layout { grid-template-columns: 1fr; }
 }

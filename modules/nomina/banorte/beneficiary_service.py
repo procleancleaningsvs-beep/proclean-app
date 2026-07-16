@@ -27,6 +27,45 @@ def _digits(value: str) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
 
 
+_SORT_ALLOWLIST: dict[str, str] = {
+    "id_desc": "id DESC",
+    "name_asc": "nombre_normalizado ASC, id ASC",
+    "name_desc": "nombre_normalizado DESC, id DESC",
+    "emp_asc": (
+        "CASE WHEN employee_number_effective IS NULL "
+        "OR trim(employee_number_effective) = '' "
+        "OR employee_number_effective GLOB '*[^0-9]*' THEN 1 ELSE 0 END ASC, "
+        "CAST(employee_number_effective AS INTEGER) ASC, id ASC"
+    ),
+    "emp_desc": (
+        "CASE WHEN employee_number_effective IS NULL "
+        "OR trim(employee_number_effective) = '' "
+        "OR employee_number_effective GLOB '*[^0-9]*' THEN 1 ELSE 0 END ASC, "
+        "CAST(employee_number_effective AS INTEGER) DESC, id DESC"
+    ),
+}
+
+
+def _status_explanation(item: dict[str, Any]) -> str:
+    if item.get("last_event_reason"):
+        return str(item["last_event_reason"])
+    if item.get("replaces_id"):
+        return "Sucesor de un registro reemplazado."
+    if item.get("record_status") == "INACTIVO_REEMPLAZADO":
+        return "Reemplazado por otro registro."
+    if item.get("record_status") == "INACTIVO_MANUAL":
+        return "Desactivado manualmente."
+    if item.get("record_status") == "CONFLICTO_CRITICO":
+        return "Conflicto crítico pendiente."
+    if item.get("banorte_comment"):
+        return str(item["banorte_comment"])
+    if item.get("validation_status") == "IMPORTADO_EXITOSO" and item.get("record_status") == "ACTIVO":
+        return "Importado y validado por Banorte."
+    if item.get("manual_effective_from_account") and item.get("record_status") == "ACTIVO":
+        return "Alta manual utilizable, pendiente de validación Banorte."
+    return "Pendiente de validación."
+
+
 def list_beneficiaries(
     db_path: str,
     *,
@@ -36,10 +75,15 @@ def list_beneficiaries(
     q_emp: str = "",
     validation_status: str = "",
     record_status: str = "",
+    sort: str = "id_desc",
 ) -> dict[str, Any]:
     page = max(1, int(page))
-    page_size = 15  # Fase 2.2B contract: exactly 15 per page
+    page_size = 15  # contract: exactly 15 per page
     offset = (page - 1) * page_size
+    sort_key = str(sort or "id_desc").strip()
+    if sort_key not in _SORT_ALLOWLIST:
+        raise ValueError("invalid_sort")
+    order_sql = _SORT_ALLOWLIST[sort_key]
     clauses = ["1=1"]
     params: list[Any] = []
     if q_name.strip():
@@ -64,14 +108,22 @@ def list_beneficiaries(
                 params,
             ).fetchone()["c"]
         )
+        total_pages = max(1, (total + page_size - 1) // page_size) if total else 1
+        if total == 0:
+            page = 1
+            total_pages = 1
+        elif page > total_pages:
+            page = total_pages
+            offset = (page - 1) * page_size
         rows = conn.execute(
             f"""
             SELECT id, nombre_original, employee_number_effective, account_number,
-                   validation_status, record_status, manual_effective_from_account,
-                   banorte_employee_substituted, replaces_id, updated_at, banorte_comment
+                   employee_number_requested, validation_status, record_status,
+                   manual_effective_from_account, banorte_employee_substituted,
+                   replaces_id, updated_at, banorte_comment
             FROM nomina_banorte_beneficiaries
             WHERE {where}
-            ORDER BY id DESC
+            ORDER BY {order_sql}
             LIMIT ? OFFSET ?
             """,
             [*params, page_size, offset],
@@ -88,11 +140,20 @@ def list_beneficiaries(
             ).fetchone()
             item["last_event_reason"] = last["reason"] if last else None
             item["last_event_action"] = last["action"] if last else None
+            item["status_explanation"] = _status_explanation(item)
             out_rows.append(item)
+        start_index = 0 if total == 0 else offset + 1
+        end_index = 0 if total == 0 else offset + len(out_rows)
         return {
             "page": page,
             "page_size": page_size,
             "total": total,
+            "total_pages": total_pages,
+            "has_previous": page > 1 and total > 0,
+            "has_next": page < total_pages and total > 0,
+            "start_index": start_index,
+            "end_index": end_index,
+            "sort": sort_key,
             "rows": out_rows,
         }
     finally:
@@ -152,6 +213,7 @@ def create_manual_beneficiary(
     *,
     nombre: str,
     account: str,
+    employee_number: str | None = None,
     confirm_effective_from_account: bool = False,
 ) -> dict[str, Any]:
     name = (nombre or "").strip()
@@ -164,18 +226,18 @@ def create_manual_beneficiary(
         raise BeneficiaryError("account_too_long")
 
     now = _now()
-    usable_as_emp = 1 <= len(acct) <= 10
-    if usable_as_emp and not confirm_effective_from_account:
-        raise BeneficiaryError("confirm_effective_from_account_required")
-
-    if usable_as_emp:
+    if confirm_effective_from_account:
+        if len(acct) != 10:
+            raise BeneficiaryError("account_must_be_exactly_10_digits")
         emp = acct
-        validation = "MANUAL_PENDIENTE_VALIDACION"
         manual_eff = 1
-        record = "ACTIVO"
     else:
-        # cannot form valid employee_number_effective from account — pending blocked
-        raise BeneficiaryError("account_cannot_serve_as_employee_number")
+        emp = _digits(employee_number or "")
+        if len(emp) != 10 or emp == "0000000000":
+            raise BeneficiaryError("employee_number_must_be_exactly_10_digits")
+        manual_eff = 0
+    validation = "MANUAL_PENDIENTE_VALIDACION"
+    record = "ACTIVO"
 
     conn = connect(db_path)
     try:
@@ -346,6 +408,28 @@ def replacement_history(db_path: str, beneficiary_id: int) -> list[dict[str, Any
             ).fetchone()
             node = dict(row) if row else None
         return chain
+    finally:
+        conn.close()
+
+
+def list_beneficiary_events(db_path: str, beneficiary_id: int) -> list[dict[str, Any]]:
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        rows = conn.execute(
+            """
+            SELECT id, beneficiary_id, action, reason,
+                   previous_validation_status, new_validation_status,
+                   previous_record_status, new_record_status,
+                   created_by, created_at, replacement_beneficiary_id
+            FROM nomina_banorte_beneficiary_events
+            WHERE beneficiary_id=?
+            ORDER BY id DESC
+            LIMIT 50
+            """,
+            (int(beneficiary_id),),
+        ).fetchall()
+        return [dict(r) for r in rows]
     finally:
         conn.close()
 

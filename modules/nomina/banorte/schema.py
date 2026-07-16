@@ -545,6 +545,7 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     _migrate_beneficiaries_inactivo_manual(conn)
     _ensure_beneficiary_events(conn)
     _ensure_draft_events(conn)
+    _ensure_beneficiary_batches(conn)
 
 
 def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
@@ -832,6 +833,66 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
     integrity = conn.execute("PRAGMA integrity_check").fetchone()
     if integrity is None or str(integrity[0]).lower() != "ok":
         raise RuntimeError(f"beneficiary_migration_integrity:{integrity}")
+
+
+def _ensure_beneficiary_batches(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_beneficiary_batches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            origin_kind TEXT NOT NULL
+                CHECK (origin_kind IN ('MANUAL', 'REPORTE_DETALLADO')),
+            status TEXT NOT NULL
+                CHECK (status IN ('OPEN', 'CONFIRMED', 'ABANDONED', 'FAILED')),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+            source_filename TEXT,
+            source_sha256 TEXT,
+            prior_batch_id INTEGER,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            confirmed_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_batch_open_user_origin
+            ON nomina_banorte_beneficiary_batches(created_by, origin_kind)
+            WHERE status = 'OPEN'
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_beneficiary_batch_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER NOT NULL,
+            position INTEGER NOT NULL,
+            nombre TEXT,
+            cuenta TEXT,
+            employee_number TEXT,
+            use_account_as_employee_number INTEGER NOT NULL DEFAULT 0
+                CHECK (use_account_as_employee_number IN (0, 1)),
+            comment TEXT,
+            row_state TEXT NOT NULL
+                CHECK (row_state IN ('DRAFT', 'OK', 'ERROR', 'NEEDS_REVIEW')),
+            error_code TEXT,
+            error_message TEXT,
+            source_row INTEGER,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (batch_id)
+                REFERENCES nomina_banorte_beneficiary_batches(id) ON DELETE CASCADE,
+            UNIQUE (batch_id, position)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_batch_rows_batch
+            ON nomina_banorte_beneficiary_batch_rows(batch_id, position)
+        """
+    )
 
 
 def _ensure_draft_events(conn: sqlite3.Connection) -> None:

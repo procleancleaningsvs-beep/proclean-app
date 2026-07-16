@@ -19,11 +19,22 @@ from flask import (
     url_for,
 )
 
+from modules.nomina.banorte.batch_service import (
+    BatchStaleError,
+    abandon_batch,
+    add_batch_row,
+    confirm_batch,
+    create_batch,
+    delete_batch_row,
+    get_batch,
+    prepare_reporte_batch,
+)
 from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
     apply_beneficiary_action,
     create_manual_beneficiary,
     list_beneficiaries,
+    list_beneficiary_events,
     replace_beneficiary,
     replacement_history,
     search_by_account,
@@ -193,7 +204,7 @@ def register_banorte_routes(bp) -> None:
                 """
             ).fetchall()
             historial = [dict(e) for e in exports]
-            benef_listing = list_beneficiaries(_db_path(), page=1, page_size=50)
+            benef_listing = list_beneficiaries(_db_path(), page=1, page_size=15)
         finally:
             conn.close()
         _, application_date_display = resolve_layout_date_monterrey()
@@ -226,7 +237,11 @@ def register_banorte_routes(bp) -> None:
             reimport_confirmed=confirm,
         )
         if not result.mutated:
-            flash("Mismo archivo (SHA) ya importado. Confirme reimportación.", "warning")
+            flash(
+                "Este archivo de base ya fue procesado anteriormente. "
+                "Vuelva a enviar con confirmación si desea reimportarlo.",
+                "warning",
+            )
         else:
             flash(
                 f"Importación ALTAS OK. EXITOSO={result.count_exitosos} manuales={result.count_manuales}.",
@@ -236,24 +251,52 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     def banorte_import_reporte():
+        """Legacy form path — prefer JSON prepare-batch + confirm staging."""
         require_csrf()
         f = request.files.get("file")
         if f is None:
             flash("Archivo requerido.", "error")
             return redirect(url_for("nomina.banorte_index"))
         confirm = (request.form.get("reimport_confirmed") or "") == "1"
-        result = import_reporte_detallado_xlsx(
+        out = prepare_reporte_batch(
             _db_path(),
+            _username(),
             f.read(),
             f.filename or "reporte.xlsx",
-            _username(),
-            reimport_confirmed=confirm,
+            confirm_reimport=confirm,
         )
-        if not result.mutated:
-            flash("Mismo reporte (SHA) ya importado. Confirme reimportación.", "warning")
+        if not out.get("ok"):
+            flash(out.get("message") or "Confirme reimportación del archivo.", "warning")
         else:
-            flash(f"Reporte importado. EXITOSO={result.count_exitosos}.", "success")
+            flash(
+                f"Lote de reporte preparado ({len(out.get('batch', {}).get('rows') or [])} filas). Confirme en Agregar beneficiarios.",
+                "success",
+            )
         return redirect(url_for("nomina.banorte_index"))
+
+    @_banorte_access_required
+    def banorte_reporte_prepare_batch():
+        require_csrf()
+        f = request.files.get("file")
+        if f is None:
+            return _json_no_store(
+                {"ok": False, "code": "file_required", "message": "Seleccione un archivo."},
+                400,
+            )
+        confirm = (request.form.get("confirm_reimport") or "") in {"1", "true", "True"}
+        try:
+            out = prepare_reporte_batch(
+                _db_path(),
+                _username(),
+                f.read(),
+                f.filename or "reporte.xlsx",
+                confirm_reimport=confirm,
+            )
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc), "message": "No se pudo leer el reporte."}, 400)
+        if not out.get("ok"):
+            return _json_no_store({**out, "csrf_token": issue_csrf_token()}, 409)
+        return _json_no_store({**out, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_paste():
@@ -753,15 +796,19 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
-        listing = list_beneficiaries(
-            _db_path(),
-            page=int(data.get("page") or 1),
-            page_size=15,
-            q_name=str(data.get("q_name") or ""),
-            q_emp=str(data.get("q_emp") or ""),
-            validation_status=str(data.get("validation_status") or ""),
-            record_status=str(data.get("record_status") or ""),
-        )
+        try:
+            listing = list_beneficiaries(
+                _db_path(),
+                page=int(data.get("page") or 1),
+                page_size=15,
+                q_name=str(data.get("q_name") or ""),
+                q_emp=str(data.get("q_emp") or ""),
+                validation_status=str(data.get("validation_status") or ""),
+                record_status=str(data.get("record_status") or ""),
+                sort=str(data.get("sort") or "id_desc"),
+            )
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc), "message": "Orden no válido."}, 400)
         return _json_no_store({"ok": True, "listing": listing, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
@@ -845,11 +892,112 @@ def register_banorte_routes(bp) -> None:
                 _username(),
                 nombre=str(data.get("nombre") or ""),
                 account=str(data.get("account") or ""),
+                employee_number=data.get("employee_number"),
                 confirm_effective_from_account=bool(data.get("confirm_effective_from_account")),
             )
         except BeneficiaryError as exc:
             return _json_no_store({"ok": False, "code": exc.code}, 400)
         return _json_no_store({"ok": True, "beneficiary": created, "csrf_token": issue_csrf_token()})
+
+    def _batch_stale(exc: BatchStaleError) -> Response:
+        return _json_no_store(
+            {
+                "ok": False,
+                "code": "batch_stale",
+                "batch_id": exc.batch_id,
+                "current_revision": exc.current_revision,
+                "message": "El lote cambió. Se recargará la versión más reciente.",
+            },
+            409,
+        )
+
+    @_banorte_access_required
+    def banorte_batch_get_or_create():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        origin = str(data.get("origin_kind") or "MANUAL")
+        batch = create_batch(_db_path(), _username(), origin_kind=origin)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_batch_get(batch_id: int):
+        batch = get_batch(_db_path(), int(batch_id))
+        if batch is None:
+            return _json_no_store({"ok": False, "code": "batch_not_found"}, 404)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_batch_add_row(batch_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            batch = add_batch_row(
+                _db_path(),
+                int(batch_id),
+                _username(),
+                int(data.get("expected_revision")),
+                nombre=str(data.get("nombre") or ""),
+                cuenta=str(data.get("cuenta") or data.get("account") or ""),
+                employee_number=data.get("employee_number"),
+                use_account_as_employee_number=bool(data.get("use_account_as_employee_number")),
+                comment=data.get("comment"),
+            )
+        except BatchStaleError as exc:
+            return _batch_stale(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_batch_delete_row(batch_id: int, row_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            batch = delete_batch_row(
+                _db_path(),
+                int(batch_id),
+                int(row_id),
+                _username(),
+                int(data.get("expected_revision")),
+            )
+        except BatchStaleError as exc:
+            return _batch_stale(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_batch_confirm(batch_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            batch = confirm_batch(
+                _db_path(), int(batch_id), _username(), int(data.get("expected_revision"))
+            )
+        except BatchStaleError as exc:
+            return _batch_stale(exc)
+        except ValueError as exc:
+            return _json_no_store({"ok": False, "code": str(exc), "message": "Revise las filas del lote."}, 400)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_batch_abandon(batch_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        if not data.get("confirm"):
+            return _json_no_store({"ok": False, "code": "confirm_required"}, 400)
+        try:
+            batch = abandon_batch(
+                _db_path(), int(batch_id), _username(), int(data.get("expected_revision"))
+            )
+        except BatchStaleError as exc:
+            return _batch_stale(exc)
+        return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_beneficiarios_replace(beneficiary_id: int):
@@ -873,7 +1021,10 @@ def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_beneficiarios_history(beneficiary_id: int):
         chain = replacement_history(_db_path(), int(beneficiary_id))
-        return _json_no_store({"ok": True, "chain": chain, "csrf_token": issue_csrf_token()})
+        events = list_beneficiary_events(_db_path(), int(beneficiary_id))
+        return _json_no_store(
+            {"ok": True, "chain": chain, "events": events, "csrf_token": issue_csrf_token()}
+        )
 
     @_banorte_access_required
     def banorte_historial():
@@ -938,6 +1089,48 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/import/reporte",
         endpoint="banorte_import_reporte",
         view_func=banorte_import_reporte,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/import/reporte/prepare-batch",
+        endpoint="banorte_reporte_prepare_batch",
+        view_func=banorte_reporte_prepare_batch,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches",
+        endpoint="banorte_batch_get_or_create",
+        view_func=banorte_batch_get_or_create,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/<int:batch_id>",
+        endpoint="banorte_batch_get",
+        view_func=banorte_batch_get,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/<int:batch_id>/rows",
+        endpoint="banorte_batch_add_row",
+        view_func=banorte_batch_add_row,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/<int:batch_id>/rows/<int:row_id>/delete",
+        endpoint="banorte_batch_delete_row",
+        view_func=banorte_batch_delete_row,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/<int:batch_id>/confirm",
+        endpoint="banorte_batch_confirm",
+        view_func=banorte_batch_confirm,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/<int:batch_id>/abandon",
+        endpoint="banorte_batch_abandon",
+        view_func=banorte_batch_abandon,
         methods=["POST"],
     )
     bp.add_url_rule("/exportaciones/banorte/paste", endpoint="banorte_paste", view_func=banorte_paste, methods=["POST"])

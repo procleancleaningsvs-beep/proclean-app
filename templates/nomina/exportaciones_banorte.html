@@ -145,7 +145,16 @@
           <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Desde 1 carácter">
         </label>
         <label>Número de empleado
-          <input type="search" id="banorte-ben-emp" autocomplete="off" placeholder="Opcional">
+          <input type="search" id="banorte-ben-emp" autocomplete="off" placeholder="Desde 1 carácter">
+        </label>
+        <label>Orden
+          <select id="banorte-ben-sort">
+            <option value="id_desc">Recientes</option>
+            <option value="name_asc">Nombre A–Z</option>
+            <option value="name_desc">Nombre Z–A</option>
+            <option value="emp_asc">Número menor–mayor</option>
+            <option value="emp_desc">Número mayor–menor</option>
+          </select>
         </label>
         <label>Validación
           <select id="banorte-ben-val">
@@ -164,15 +173,15 @@
           </select>
         </label>
       </div>
-      <p class="banorte-hint" id="banorte-ben-meta">Total {{ benef_listing.total }} · página {{ benef_listing.page }}</p>
+      <p class="banorte-hint" id="banorte-ben-meta">Mostrando {{ benef_listing.start_index }}–{{ benef_listing.end_index }} de {{ benef_listing.total }}</p>
       <div class="pc-table-shell">
         <table class="banorte-table" id="banorte-ben-table">
-          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th></tr></thead>
+          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {% for b in benef_listing.rows %}
-            <tr>
+            <tr data-ben-id="{{ b.id }}">
               <td>{{ b.id }}</td>
-              <td>{{ b.nombre_original }}</td>
+              <td>{{ b.nombre_original }}{% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}</td>
               <td>{{ b.employee_number_effective }}</td>
               <td class="banorte-mono">{{ b.account_number }}</td>
               <td>
@@ -190,9 +199,10 @@
                 <span class="banorte-status banorte-status--warn">Pendiente</span>
                 {% endif %}
               </td>
+              <td><button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="{{ b.id }}">Editar</button></td>
             </tr>
             {% else %}
-            <tr><td colspan="5" class="banorte-empty">Sin beneficiarios.</td></tr>
+            <tr><td colspan="6" class="banorte-empty">Sin beneficiarios.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -211,7 +221,6 @@
       <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" accept=".xlsx" required></label>
-        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
         <button type="submit" class="btn btn-primary">Importar ALTAS</button>
       </form>
     </section>
@@ -223,23 +232,38 @@
       <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
     <section class="banorte-panel pc-card">
-      <h3 class="pc-panel-title">Agregar beneficiario</h3>
-      <form id="banorte-alta-form">
-        <label>Nombre completo<input name="nombre" required></label>
-        <label>Cuenta<input name="account" required autocomplete="off"></label>
-        <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" value="1"> Confirmo usar la cuenta como número de empleado efectivo (1–10 dígitos). No es validación Banorte.</label>
-        <p class="banorte-hint">Números de empleado disponibles (sugeridos): <span id="banorte-available-emps" class="banorte-mono">—</span></p>
-        <button type="submit" class="btn btn-primary">Crear</button>
-        <p class="banorte-hint">Verde estructural ≠ validado por Banorte.</p>
-      </form>
+      <h3 class="pc-panel-title">Agregar beneficiarios</h3>
+      <div class="banorte-alta-layout">
+        <form id="banorte-alta-form" class="banorte-alta-form-h">
+          <label>Nombre completo<input name="nombre" id="batch-nombre" required autocomplete="off"></label>
+          <label>Cuenta<input name="account" id="batch-cuenta" required autocomplete="off"></label>
+          <label>Número de empleado<input name="employee_number" id="batch-emp" required autocomplete="off" inputmode="numeric"></label>
+          <button type="submit" class="btn btn-primary">Agregar a lista</button>
+          <label class="banorte-check"><input type="checkbox" name="confirm_effective_from_account" id="batch-use-acct" value="1"> Usar esta cuenta como número de empleado</label>
+        </form>
+        <aside class="banorte-available-panel">
+          <h4 class="pc-panel-title">Números disponibles</h4>
+          <div id="banorte-available-emps" class="banorte-available-list banorte-mono">—</div>
+          <button type="button" class="btn btn-secondary btn-sm" id="banorte-available-more">Cargar más</button>
+        </aside>
+      </div>
+      <div class="pc-table-shell">
+        <table class="banorte-table" id="banorte-batch-table">
+          <thead><tr><th>Nombre</th><th>Cuenta</th><th>Número</th><th>Estado</th><th>Comentario</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="banorte-export-bar">
+        <button type="button" class="btn btn-primary" id="banorte-batch-confirm">Guardar beneficiarios</button>
+        <button type="button" class="btn btn-secondary" id="banorte-batch-abandon">Abandonar lista</button>
+      </div>
+      <p id="banorte-batch-msg" class="banorte-warn" hidden></p>
     </section>
     <section class="banorte-panel pc-card">
       <h3 class="pc-panel-title">Importar reporte detallado</h3>
-      <form method="post" action="{{ url_for('nomina.banorte_import_reporte') }}" enctype="multipart/form-data">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>Reporte Detallado<input type="file" name="file" accept=".xlsx" required></label>
-        <label class="banorte-check"><input type="checkbox" name="reimport_confirmed" value="1"> Confirmar reimportación mismo SHA</label>
-        <button type="submit" class="btn btn-primary">Importar beneficiarios</button>
+      <form id="banorte-reporte-form">
+        <label>Reporte Detallado<input type="file" id="banorte-reporte-file" accept=".xlsx" required></label>
+        <button type="submit" class="btn btn-primary">Preparar lote</button>
       </form>
     </section>
   </section>
