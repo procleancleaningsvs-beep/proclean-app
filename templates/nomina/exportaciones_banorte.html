@@ -55,10 +55,9 @@
     <section class="banorte-panel pc-card" id="banorte-editor-panel" hidden>
       <div class="banorte-editor-head">
         <h3 class="pc-panel-title">Editor de pagos</h3>
-        <button type="button" class="btn btn-secondary btn-sm" id="banorte-restore-last" title="Deshacer última exclusión" disabled aria-label="Deshacer">
+        <button type="button" class="btn btn-secondary btn-sm" id="banorte-restore-last" title="Deshacer último cambio" disabled aria-label="Deshacer último cambio">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6.69 3L3 13"/></svg>
         </button>
-        <button type="button" class="btn btn-secondary btn-sm" id="banorte-toggle-origin">Colapsar origen</button>
         <button type="button" class="btn btn-secondary btn-sm" id="banorte-abandon-draft">Abandonar borrador</button>
       </div>
       <div class="banorte-editor-meta">
@@ -76,15 +75,26 @@
       <div id="banorte-origin-box" class="banorte-origin"></div>
       <div id="banorte-recon" class="banorte-recon"></div>
       <div class="banorte-export-bar" id="banorte-view-filters">
-        <label>Vista
+        <label>Ordenar
+          <select id="banorte-view-sort">
+            <option value="position">Orden del archivo</option>
+            <option value="name_asc">Nombre A–Z</option>
+            <option value="name_desc">Nombre Z–A</option>
+            <option value="emp_asc">Número menor–mayor</option>
+            <option value="emp_desc">Número mayor–menor</option>
+            <option value="amount_asc">Monto menor–mayor</option>
+            <option value="amount_desc">Monto mayor–menor</option>
+          </select>
+        </label>
+        <label>Estado
           <select id="banorte-view-state">
-            <option value="all">Todas</option>
-            <option value="OK">Listo</option>
+            <option value="all">Todos</option>
+            <option value="OK">Listos</option>
             <option value="NEEDS_REVIEW">Requiere corrección</option>
           </select>
         </label>
-        <label>Buscar en editor
-          <input type="search" id="banorte-view-q" autocomplete="off" placeholder="Nombre o número">
+        <label>Buscar por nombre
+          <input type="search" id="banorte-view-q" autocomplete="off" placeholder="Nombre">
         </label>
       </div>
       <div class="banorte-editor-scroll">

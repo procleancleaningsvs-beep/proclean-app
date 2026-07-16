@@ -44,8 +44,8 @@ from modules.nomina.banorte.draft_repository import (
     find_open_manual_draft,
     get_draft,
     reorder_draft_rows,
-    restore_last_excluded,
     save_draft_rows,
+    undo_last_draft_mutation,
 )
 from modules.nomina.banorte.export_service import (
     DraftPaymentRow,
@@ -169,6 +169,7 @@ def _stale_response(exc: DraftStaleError) -> Response:
             "code": "draft_stale",
             "draft_id": exc.draft_id,
             "current_revision": exc.current_revision,
+            "message": "El borrador cambió en otra operación. Se actualizó con la versión más reciente.",
         },
         409,
     )
@@ -531,11 +532,12 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     def banorte_draft_restore_last(draft_id: int):
+        """Legacy alias — prefer /undo for broad persistent undo."""
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
         try:
-            draft = restore_last_excluded(
+            draft = undo_last_draft_mutation(
                 _db_path(),
                 int(draft_id),
                 _username(),
@@ -544,7 +546,28 @@ def register_banorte_routes(bp) -> None:
         except DraftStaleError as exc:
             return _stale_response(exc)
         except ValueError as exc:
-            return _json_no_store({"ok": False, "code": str(exc)}, 400)
+            return _json_no_store({"ok": False, "code": str(exc), "message": "No hay cambios para deshacer."}, 400)
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    def banorte_draft_undo(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = undo_last_draft_mutation(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except ValueError as exc:
+            return _json_no_store(
+                {"ok": False, "code": str(exc), "message": "No hay cambios para deshacer."},
+                400,
+            )
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
@@ -979,6 +1002,12 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/drafts/<int:draft_id>/restore-last",
         endpoint="banorte_draft_restore_last",
         view_func=banorte_draft_restore_last,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/undo",
+        endpoint="banorte_draft_undo",
+        view_func=banorte_draft_undo,
         methods=["POST"],
     )
     bp.add_url_rule(

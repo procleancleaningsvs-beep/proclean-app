@@ -5,14 +5,28 @@
   let draft = null;
   const editorPanel = document.getElementById("banorte-editor-panel");
 
-  /** Serialized mutation queue per draft (coalesce amount; beneficiary immediate). */
+  /** Serialized mutation queue per draft — ordinary + terminal actions. */
   const mutationQueue = {
     active: false,
+    closing: false,
     pendingByRow: Object.create(null),
     amountTimers: Object.create(null),
+    pendingTerminal: null,
+    latestConfirmedRevision: null,
   };
 
+  const STALE_MSG = "El borrador cambió en otra operación. Se actualizó con la versión más reciente.";
+
   function setCsrf(token) { if (token) csrf = token; }
+  function confirmedRevision() {
+    if (mutationQueue.latestConfirmedRevision != null) return mutationQueue.latestConfirmedRevision;
+    return draft ? draft.revision : null;
+  }
+  function noteConfirmedDraft(d) {
+    if (!d) return;
+    draft = d;
+    mutationQueue.latestConfirmedRevision = d.revision;
+  }
   function money(cents) {
     return (Number(cents || 0) / 100).toFixed(2);
   }
@@ -56,21 +70,28 @@
     editorPanel.classList.toggle("banorte-editor-busy", !!busy);
   }
 
-  function clearMutationQueue() {
+  function clearAmountTimers() {
     Object.keys(mutationQueue.amountTimers).forEach(function (k) {
       clearTimeout(mutationQueue.amountTimers[k]);
     });
     mutationQueue.amountTimers = Object.create(null);
+  }
+
+  function clearMutationQueue() {
+    clearAmountTimers();
     mutationQueue.pendingByRow = Object.create(null);
+    mutationQueue.pendingTerminal = null;
     mutationQueue.active = false;
+    mutationQueue.closing = false;
     setBusy(false);
   }
 
   function enqueueApply(rowId, payload, opts) {
     opts = opts || {};
+    if (!draft || mutationQueue.closing) return;
     const key = String(rowId);
     const prev = mutationQueue.pendingByRow[key] || {};
-    const next = Object.assign({}, prev, payload, { rowId: Number(rowId) });
+    const next = Object.assign({}, prev, payload, { rowId: Number(rowId), kind: "apply" });
     if (opts.beneficiary) next._priority = "beneficiary";
     mutationQueue.pendingByRow[key] = next;
     if (opts.immediate) {
@@ -92,59 +113,201 @@
     drainMutationQueue();
   }
 
+  function enqueueTerminal(job) {
+    if (!draft) return Promise.resolve({ ok: false });
+    return new Promise(function (resolve) {
+      mutationQueue.pendingTerminal = Object.assign({}, job, { _resolve: resolve });
+      if (job.type === "abandon" || job.type === "generate") {
+        mutationQueue.closing = true;
+        if (job.type === "abandon") {
+          clearAmountTimers();
+          mutationQueue.pendingByRow = Object.create(null);
+        }
+      }
+      drainMutationQueue();
+    });
+  }
+
+  async function handleStale() {
+    clearMutationQueue();
+    await reloadDraft(STALE_MSG);
+  }
+
+  async function runApplyJob(job) {
+    const body = {
+      expected_revision: confirmedRevision(),
+      amount_final: job.amount_final,
+    };
+    if (job.beneficiary_id != null) body.beneficiary_id = job.beneficiary_id;
+    if (job.nombre_recibido != null) body.nombre_recibido = job.nombre_recibido;
+    const out = await api(
+      "/nomina/exportaciones/banorte/drafts/" + draft.id + "/rows/" + job.rowId + "/apply",
+      body
+    );
+    if (out.res.status === 409 || out.data.code === "draft_stale") {
+      await handleStale();
+      return false;
+    }
+    if (!out.data.ok) {
+      alert(out.data.message || out.data.code || "No se pudo aplicar el cambio");
+      return false;
+    }
+    noteConfirmedDraft(out.data.draft);
+    patchEditorFromDraft(out.data.draft);
+    return true;
+  }
+
   async function drainMutationQueue() {
     if (mutationQueue.active || !draft) return;
-    const keys = Object.keys(mutationQueue.pendingByRow);
-    if (!keys.length) {
-      setBusy(false);
-      return;
-    }
-    keys.sort(function (a, b) {
-      const pa = mutationQueue.pendingByRow[a]._priority === "beneficiary" ? 0 : 1;
-      const pb = mutationQueue.pendingByRow[b]._priority === "beneficiary" ? 0 : 1;
-      return pa - pb;
-    });
-    const key = keys[0];
-    const job = mutationQueue.pendingByRow[key];
-    delete mutationQueue.pendingByRow[key];
     mutationQueue.active = true;
     setBusy(true);
     try {
-      const body = {
-        expected_revision: draft.revision,
-        amount_final: job.amount_final,
-      };
-      if (job.beneficiary_id != null) body.beneficiary_id = job.beneficiary_id;
-      if (job.nombre_recibido != null) body.nombre_recibido = job.nombre_recibido;
-      const out = await api(
-        "/nomina/exportaciones/banorte/drafts/" + draft.id + "/rows/" + job.rowId + "/apply",
-        body
-      );
-      if (out.res.status === 409 || out.data.code === "draft_stale") {
-        clearMutationQueue();
-        await reloadDraft("Borrador desactualizado. Se recargó el editor.");
-        return;
+      while (draft) {
+        const keys = Object.keys(mutationQueue.pendingByRow);
+        if (keys.length && !(mutationQueue.closing && mutationQueue.pendingTerminal && mutationQueue.pendingTerminal.type === "abandon")) {
+          keys.sort(function (a, b) {
+            const pa = mutationQueue.pendingByRow[a]._priority === "beneficiary" ? 0 : 1;
+            const pb = mutationQueue.pendingByRow[b]._priority === "beneficiary" ? 0 : 1;
+            return pa - pb;
+          });
+          const key = keys[0];
+          const job = mutationQueue.pendingByRow[key];
+          delete mutationQueue.pendingByRow[key];
+          const ok = await runApplyJob(job);
+          if (!ok) return;
+          continue;
+        }
+        const term = mutationQueue.pendingTerminal;
+        if (!term) break;
+        mutationQueue.pendingTerminal = null;
+        const result = await runTerminalJob(term);
+        if (term._resolve) term._resolve(result);
+        if (term.type === "abandon" || !result.ok) return;
       }
-      if (!out.data.ok) {
-        alert(out.data.code || "No se pudo aplicar el cambio");
-        return;
-      }
-      renderEditor(out.data.draft);
     } finally {
       mutationQueue.active = false;
-      setBusy(Object.keys(mutationQueue.pendingByRow).length > 0);
-      if (Object.keys(mutationQueue.pendingByRow).length) {
-        drainMutationQueue();
-      }
+      const pending =
+        Object.keys(mutationQueue.pendingByRow).length > 0 || !!mutationQueue.pendingTerminal;
+      setBusy(pending || mutationQueue.closing);
+      if (pending && draft) drainMutationQueue();
     }
+  }
+
+  async function runTerminalJob(term) {
+    const rev = confirmedRevision();
+    if (term.type === "exclude") {
+      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/exclude-row", {
+        expected_revision: rev,
+        row_id: term.row_id,
+        confirm: true,
+      });
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        await handleStale();
+        return { ok: false, stale: true };
+      }
+      if (!out.data.ok) {
+        alert(out.data.message || out.data.code || "error");
+        return { ok: false };
+      }
+      noteConfirmedDraft(out.data.draft);
+      patchEditorFromDraft(out.data.draft);
+      return { ok: true };
+    }
+    if (term.type === "undo") {
+      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/undo", {
+        expected_revision: rev,
+      });
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        await handleStale();
+        return { ok: false, stale: true };
+      }
+      if (!out.data.ok) {
+        alert(out.data.message || out.data.code || "error");
+        return { ok: false };
+      }
+      noteConfirmedDraft(out.data.draft);
+      patchEditorFromDraft(out.data.draft);
+      return { ok: true };
+    }
+    if (term.type === "save") {
+      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/save", {
+        expected_revision: rev,
+        rows: collectRows(),
+        consecutive_pref: getConsecutiveValue(),
+      });
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        await handleStale();
+        return { ok: false, stale: true };
+      }
+      if (!out.data.ok) {
+        alert("Error al guardar: " + (out.data.code || ""));
+        return { ok: false };
+      }
+      noteConfirmedDraft(out.data.draft);
+      patchEditorFromDraft(out.data.draft);
+      return { ok: true };
+    }
+    if (term.type === "abandon") {
+      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/abandon", {
+        expected_revision: rev,
+        confirm: true,
+      });
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        mutationQueue.closing = false;
+        await handleStale();
+        return { ok: false, stale: true };
+      }
+      if (!out.data.ok) {
+        mutationQueue.closing = false;
+        alert(out.data.message || out.data.code || "No se pudo abandonar");
+        return { ok: false };
+      }
+      clearEditorAfterAbandon();
+      return { ok: true };
+    }
+    if (term.type === "generate") {
+      return runGenerateQueued(term.flags || {});
+    }
+    return { ok: false };
+  }
+
+  function clearEditorAfterAbandon() {
+    clearMutationQueue();
+    draft = null;
+    mutationQueue.latestConfirmedRevision = null;
+    const tbody = document.querySelector("#banorte-editor tbody");
+    const xtbody = document.querySelector("#banorte-excluded tbody");
+    if (tbody) tbody.innerHTML = "";
+    if (xtbody) xtbody.innerHTML = "";
+    const wrap = document.getElementById("banorte-excluded-wrap");
+    if (wrap) wrap.hidden = true;
+    const recon = document.getElementById("banorte-recon");
+    if (recon) recon.innerHTML = "";
+    const origin = document.getElementById("banorte-origin-box");
+    if (origin) origin.textContent = "";
+    const viewQ = document.getElementById("banorte-view-q");
+    const viewState = document.getElementById("banorte-view-state");
+    const viewSort = document.getElementById("banorte-view-sort");
+    if (viewQ) viewQ.value = "";
+    if (viewState) viewState.value = "all";
+    if (viewSort) viewSort.value = "position";
+    const panel = document.getElementById("banorte-editor-panel");
+    if (panel) panel.hidden = true;
+    showHub();
+  }
+
+  function patchEditorFromDraft(d) {
+    renderEditor(d);
   }
 
   async function reloadDraft(message) {
     if (!draft) return;
-    const res = await fetch("/nomina/exportaciones/banorte/drafts/" + draft.id);
+    const id = draft.id;
+    const res = await fetch("/nomina/exportaciones/banorte/drafts/" + id);
     const data = await res.json().catch(function () { return {}; });
     setCsrf(data.csrf_token);
     if (data.ok && data.draft) {
+      noteConfirmedDraft(data.draft);
       renderEditor(data.draft);
       if (message) {
         const msg = document.getElementById("banorte-export-msg");
@@ -183,13 +346,9 @@
     other.hidden = this.value !== "other";
   });
 
-  function hasRestorableRows(d) {
-    return (d.rows || []).some(function (r) { return r.excluded_at; });
-  }
-
   function updateRestoreButton(d) {
     const btn = document.getElementById("banorte-restore-last");
-    btn.disabled = !hasRestorableRows(d);
+    btn.disabled = !d || !d.undo_available || mutationQueue.closing;
   }
 
   function renderRecon(rec) {
@@ -301,7 +460,8 @@
   }
 
   function renderEditor(d) {
-    draft = d;
+    noteConfirmedDraft(d);
+    mutationQueue.closing = false;
     const panel = document.getElementById("banorte-editor-panel");
     panel.hidden = false;
     applyConsecutivePref(d.consecutive_pref || "01");
@@ -344,25 +504,9 @@
       bindAutocomplete(tr.querySelector(".c-name"), tr);
       bindAmount(tr.querySelector(".c-final"), tr);
       tr.querySelector(".c-trash").addEventListener("click", async function () {
-        if (!draft || mutationQueue.active) return;
+        if (!draft || mutationQueue.closing) return;
         if (!confirm("¿Excluir esta fila del archivo .pag?")) return;
-        setBusy(true);
-        try {
-          const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/exclude-row", {
-            expected_revision: draft.revision,
-            row_id: Number(tr.dataset.rowId),
-            confirm: true,
-          });
-          if (out.res.status === 409) {
-            clearMutationQueue();
-            await reloadDraft("Borrador desactualizado. Se recargó el editor.");
-            return;
-          }
-          if (!out.data.ok) { alert(out.data.code || "error"); return; }
-          renderEditor(out.data.draft);
-        } finally {
-          setBusy(false);
-        }
+        await enqueueTerminal({ type: "exclude", row_id: Number(tr.dataset.rowId) });
       });
     });
 
@@ -421,22 +565,8 @@
   }
 
   document.getElementById("banorte-restore-last").addEventListener("click", async function () {
-    if (!draft || mutationQueue.active) return;
-    setBusy(true);
-    try {
-      const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/restore-last", {
-        expected_revision: draft.revision,
-      });
-      if (out.res.status === 409) {
-        clearMutationQueue();
-        await reloadDraft("Borrador desactualizado. Se recargó el editor.");
-        return;
-      }
-      if (!out.data.ok) { alert(out.data.code || "error"); return; }
-      renderEditor(out.data.draft);
-    } finally {
-      setBusy(false);
-    }
+    if (!draft || mutationQueue.closing) return;
+    await enqueueTerminal({ type: "undo" });
   });
 
   document.querySelectorAll("[data-prepare-calculo]").forEach(function (btn) {
@@ -467,22 +597,8 @@
   });
 
   document.getElementById("banorte-save-draft").addEventListener("click", async function () {
-    if (!draft) return;
-    const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/save", {
-      expected_revision: draft.revision,
-      rows: collectRows(),
-      consecutive_pref: getConsecutiveValue(),
-    });
-    if (out.res.status === 409) {
-      clearMutationQueue();
-      await reloadDraft("Borrador desactualizado. Se recargó el editor.");
-      return;
-    }
-    if (!out.data.ok) {
-      alert("Error al guardar: " + (out.data.code || ""));
-      return;
-    }
-    renderEditor(out.data.draft);
+    if (!draft || mutationQueue.closing) return;
+    await enqueueTerminal({ type: "save" });
   });
 
   function showModal(text) {
@@ -501,35 +617,42 @@
     });
   }
 
-  async function runGenerate(flags) {
+  async function runGenerateQueued(flags) {
     flags = flags || {};
     const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/generate", {
-      expected_revision: draft.revision,
+      expected_revision: confirmedRevision(),
       consecutive: getConsecutiveValue(),
       confirm_manuals: !!flags.confirm_manuals,
       confirm_duplicate_consecutive: !!flags.confirm_duplicate_consecutive,
     });
     const msg = document.getElementById("banorte-export-msg");
-    if (out.res.status === 409) {
-      clearMutationQueue();
-      await reloadDraft("Revisión obsoleta — se recargó el editor.");
-      return;
+    if (out.res.status === 409 || out.data.code === "draft_stale") {
+      mutationQueue.closing = false;
+      await handleStale();
+      return { ok: false, stale: true };
     }
     if (!out.data.ok) {
+      mutationQueue.closing = false;
       if (out.data.code === "manual_beneficiaries_confirmation_required") {
         const ok = await showModal("Hay beneficiarios de alta manual. ¿Confirma incluirlos en el archivo .pag?");
-        if (ok) return runGenerate({ confirm_manuals: true, confirm_duplicate_consecutive: flags.confirm_duplicate_consecutive });
-        return;
+        if (ok) {
+          mutationQueue.closing = true;
+          return runGenerateQueued({ confirm_manuals: true, confirm_duplicate_consecutive: flags.confirm_duplicate_consecutive });
+        }
+        return { ok: false };
       }
       if (out.data.code === "duplicate_consecutive_confirmation_required") {
         const prior = out.data.prior_export_id ? (" (exportación #" + out.data.prior_export_id + ")") : "";
         const ok = await showModal("El consecutivo ya existe para hoy" + prior + ". ¿Confirma generar de todos modos?");
-        if (ok) return runGenerate({ confirm_manuals: flags.confirm_manuals, confirm_duplicate_consecutive: true });
-        return;
+        if (ok) {
+          mutationQueue.closing = true;
+          return runGenerateQueued({ confirm_manuals: flags.confirm_manuals, confirm_duplicate_consecutive: true });
+        }
+        return { ok: false };
       }
       msg.hidden = false;
-      msg.textContent = "Bloqueado: " + (out.data.code || out.res.status);
-      return;
+      msg.textContent = "Bloqueado: " + (out.data.message || out.data.code || out.res.status);
+      return { ok: false };
     }
     if (out.data.layout_date_display) {
       document.getElementById("banorte-app-date").textContent = out.data.layout_date_display;
@@ -537,32 +660,18 @@
     msg.hidden = false;
     msg.textContent = "Generado " + out.data.filename;
     window.location.href = "/nomina/exportaciones/banorte/historial/" + out.data.export_id + "/download";
+    return { ok: true };
   }
 
   document.getElementById("banorte-generate").addEventListener("click", async function () {
-    if (!draft || mutationQueue.active) return;
-    await runGenerate({});
+    if (!draft || mutationQueue.closing) return;
+    await enqueueTerminal({ type: "generate", flags: {} });
   });
 
   document.getElementById("banorte-abandon-draft").addEventListener("click", async function () {
-    if (!draft) return;
+    if (!draft || mutationQueue.closing) return;
     if (!confirm("¿Abandonar este borrador? No se generará archivo.")) return;
-    const out = await api("/nomina/exportaciones/banorte/drafts/" + draft.id + "/abandon", {
-      expected_revision: draft.revision,
-      confirm: true,
-    });
-    if (out.data.ok) {
-      clearMutationQueue();
-      draft = null;
-      document.getElementById("banorte-editor-panel").hidden = true;
-    } else {
-      alert(out.data.code || "No se pudo abandonar");
-    }
-  });
-
-  document.getElementById("banorte-toggle-origin").addEventListener("click", function () {
-    const box = document.getElementById("banorte-origin-box");
-    box.hidden = !box.hidden;
+    await enqueueTerminal({ type: "abandon" });
   });
 
   document.getElementById("banorte-alta-form").addEventListener("submit", async function (e) {
@@ -681,24 +790,62 @@
     el.addEventListener(el.tagName === "SELECT" ? "change" : "input", scheduleBenefSearch);
   });
 
+  function empSortKey(text) {
+    const digits = String(text || "").replace(/\D/g, "");
+    if (!digits) return Number.POSITIVE_INFINITY;
+    const n = Number(digits);
+    return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  }
+
   function applyViewFilters() {
     const state = (document.getElementById("banorte-view-state") || {}).value || "all";
     const q = ((document.getElementById("banorte-view-q") || {}).value || "").trim().toLowerCase();
-    document.querySelectorAll("#banorte-editor tbody tr").forEach(function (tr) {
+    const sort = (document.getElementById("banorte-view-sort") || {}).value || "position";
+    const tbody = document.querySelector("#banorte-editor tbody");
+    if (!tbody) return;
+    const rows = Array.prototype.slice.call(tbody.querySelectorAll("tr"));
+    rows.forEach(function (tr) {
       const rs = tr.dataset.rowState || "";
       const name = (tr.querySelector(".c-name") && tr.querySelector(".c-name").value || "").toLowerCase();
-      const emp = (tr.querySelector(".c-emp") && tr.querySelector(".c-emp").textContent || "").toLowerCase();
       let ok = true;
       if (state === "OK" && rs !== "OK") ok = false;
       if (state === "NEEDS_REVIEW" && rs !== "NEEDS_REVIEW" && rs !== "BLOCKED") ok = false;
-      if (q && name.indexOf(q) < 0 && emp.indexOf(q) < 0) ok = false;
+      if (q && name.indexOf(q) < 0) ok = false;
       tr.hidden = !ok;
     });
+    if (sort === "position") {
+      rows.sort(function (a, b) {
+        return Number(a.dataset.position || 0) - Number(b.dataset.position || 0);
+      });
+    } else if (sort === "name_asc" || sort === "name_desc") {
+      rows.sort(function (a, b) {
+        const na = (a.querySelector(".c-name") && a.querySelector(".c-name").value || "").toLowerCase();
+        const nb = (b.querySelector(".c-name") && b.querySelector(".c-name").value || "").toLowerCase();
+        const cmp = na.localeCompare(nb, "es");
+        return sort === "name_asc" ? cmp : -cmp;
+      });
+    } else if (sort === "emp_asc" || sort === "emp_desc") {
+      rows.sort(function (a, b) {
+        const ea = empSortKey(a.querySelector(".c-emp") && a.querySelector(".c-emp").textContent);
+        const eb = empSortKey(b.querySelector(".c-emp") && b.querySelector(".c-emp").textContent);
+        if (ea !== eb) return sort === "emp_asc" ? ea - eb : eb - ea;
+        return Number(a.dataset.rowId || 0) - Number(b.dataset.rowId || 0);
+      });
+    } else if (sort === "amount_asc" || sort === "amount_desc") {
+      rows.sort(function (a, b) {
+        const aa = Number((a.querySelector(".c-final") && a.querySelector(".c-final").value) || 0);
+        const ab = Number((b.querySelector(".c-final") && b.querySelector(".c-final").value) || 0);
+        return sort === "amount_asc" ? aa - ab : ab - aa;
+      });
+    }
+    rows.forEach(function (tr) { tbody.appendChild(tr); });
   }
   const viewState = document.getElementById("banorte-view-state");
   const viewQ = document.getElementById("banorte-view-q");
+  const viewSort = document.getElementById("banorte-view-sort");
   if (viewState) viewState.addEventListener("change", applyViewFilters);
   if (viewQ) viewQ.addEventListener("input", applyViewFilters);
+  if (viewSort) viewSort.addEventListener("change", applyViewFilters);
 
   async function loadAvailableNumbers() {
     const box = document.getElementById("banorte-available-emps");

@@ -12,7 +12,81 @@ BANORTE_TABLES: tuple[str, ...] = (
     "nomina_banorte_export_drafts",
     "nomina_banorte_export_draft_rows",
     "nomina_banorte_beneficiary_events",
+    "nomina_banorte_draft_events",
+    "nomina_banorte_beneficiary_batches",
+    "nomina_banorte_beneficiary_batch_rows",
 )
+
+# Real child/parent Banorte tables for focused PRAGMA foreign_key_check(table).
+# No wildcards — every name must exist as a literal allowlisted identifier.
+BANORTE_CHILD_TABLES_FOR_FK_CHECK: tuple[str, ...] = (
+    "nomina_banorte_beneficiaries",
+    "nomina_banorte_aliases",
+    "nomina_banorte_import_batches",
+    "nomina_banorte_import_rows",
+    "nomina_banorte_exports",
+    "nomina_banorte_export_items",
+    "nomina_banorte_export_drafts",
+    "nomina_banorte_export_draft_rows",
+    "nomina_banorte_beneficiary_events",
+    "nomina_banorte_draft_events",
+    "nomina_banorte_beneficiary_batches",
+    "nomina_banorte_beneficiary_batch_rows",
+)
+
+_BANORTE_TABLE_NAME_SET = frozenset(BANORTE_CHILD_TABLES_FOR_FK_CHECK)
+
+
+def _fk_check_tuples(conn: sqlite3.Connection) -> set[tuple[str, int, str, int]]:
+    """Normalize PRAGMA foreign_key_check rows for tuple and sqlite3.Row factories."""
+    out: set[tuple[str, int, str, int]] = set()
+    for row in conn.execute("PRAGMA foreign_key_check"):
+        out.add((str(row[0]), int(row[1]), str(row[2]), int(row[3])))
+    return out
+
+
+def _assert_fk_delta_ok(
+    baseline: set[tuple[str, int, str, int]],
+    after: set[tuple[str, int, str, int]],
+) -> None:
+    """Block on any new/changed FK violation; allow identical pre-existing non-Banorte orphans."""
+    new = after - baseline
+    if new:
+        raise RuntimeError(f"fk_delta_new:{sorted(new)[:3]!r}")
+    gone = baseline - after
+    for table, rowid, parent, fkid in gone:
+        if table in _BANORTE_TABLE_NAME_SET or parent in _BANORTE_TABLE_NAME_SET:
+            raise RuntimeError(
+                f"fk_delta_banorte_gone:{(table, rowid, parent, fkid)!r}"
+            )
+
+
+def _focused_banorte_fk_violations(conn: sqlite3.Connection) -> list[tuple[str, int, str, int]]:
+    found: list[tuple[str, int, str, int]] = []
+    for table in BANORTE_CHILD_TABLES_FOR_FK_CHECK:
+        if table not in _BANORTE_TABLE_NAME_SET:
+            raise RuntimeError("fk_check_table_not_allowlisted")
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+            (table,),
+        ).fetchone()
+        if exists is None:
+            continue
+        for row in conn.execute(f"PRAGMA foreign_key_check({table})"):
+            found.append((str(row[0]), int(row[1]), str(row[2]), int(row[3])))
+    return found
+
+
+def _assert_focused_banorte_fk_clean(
+    conn: sqlite3.Connection,
+    *,
+    baseline: set[tuple[str, int, str, int]],
+) -> None:
+    """Banorte-focused checks must not introduce violations absent from baseline."""
+    focused = set(_focused_banorte_fk_violations(conn))
+    new_focused = focused - baseline
+    if new_focused:
+        raise RuntimeError(f"fk_delta_banorte_focused:{sorted(new_focused)[:3]!r}")
 
 
 def ensure_banorte_tables(conn: sqlite3.Connection) -> None:
@@ -470,6 +544,7 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     _migrate_drafts_excel_nomina(conn)
     _migrate_beneficiaries_inactivo_manual(conn)
     _ensure_beneficiary_events(conn)
+    _ensure_draft_events(conn)
 
 
 def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
@@ -510,6 +585,7 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
     if conn.in_transaction:
         conn.commit()
 
+    baseline_fk = _fk_check_tuples(conn)
     original_fk = _pragma_foreign_keys(conn)
     began = False
     try:
@@ -749,12 +825,84 @@ def _migrate_beneficiaries_inactivo_manual(conn: sqlite3.Connection) -> None:
         if _pragma_foreign_keys(conn) != (1 if original_fk else 0):
             raise RuntimeError("foreign_keys_restore_failed")
 
-    bad = conn.execute("PRAGMA foreign_key_check").fetchall()
-    if bad:
-        raise RuntimeError(f"beneficiary_migration_fk_check:{len(bad)}")
+    # Identical pre-existing non-Banorte orphans must not block startup.
+    after_fk = _fk_check_tuples(conn)
+    _assert_fk_delta_ok(baseline_fk, after_fk)
+    _assert_focused_banorte_fk_clean(conn, baseline=baseline_fk)
     integrity = conn.execute("PRAGMA integrity_check").fetchone()
     if integrity is None or str(integrity[0]).lower() != "ok":
         raise RuntimeError(f"beneficiary_migration_integrity:{integrity}")
+
+
+def _ensure_draft_events(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_draft_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            draft_id INTEGER NOT NULL,
+            row_id INTEGER NOT NULL,
+            action TEXT NOT NULL
+                CHECK (action IN (
+                    'APPLY_BENEFICIARY',
+                    'APPLY_AMOUNT',
+                    'EXCLUDE_ROW',
+                    'UNDO'
+                )),
+            reversible INTEGER NOT NULL CHECK (reversible IN (0, 1)),
+            target_event_id INTEGER,
+            before_nombre_recibido TEXT,
+            after_nombre_recibido TEXT,
+            before_beneficiary_id INTEGER,
+            after_beneficiary_id INTEGER,
+            before_amount_final_cents INTEGER,
+            after_amount_final_cents INTEGER,
+            before_included INTEGER,
+            after_included INTEGER,
+            before_row_state TEXT,
+            after_row_state TEXT,
+            before_excluded_at TEXT,
+            after_excluded_at TEXT,
+            before_excluded_by TEXT,
+            after_excluded_by TEXT,
+            revision_before INTEGER NOT NULL,
+            revision_after INTEGER NOT NULL,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (draft_id)
+                REFERENCES nomina_banorte_export_drafts(id) ON DELETE RESTRICT,
+            FOREIGN KEY (row_id)
+                REFERENCES nomina_banorte_export_draft_rows(id) ON DELETE RESTRICT,
+            FOREIGN KEY (target_event_id)
+                REFERENCES nomina_banorte_draft_events(id) ON DELETE RESTRICT,
+            CHECK (revision_after >= revision_before),
+            CHECK (
+                (action = 'UNDO' AND reversible = 0 AND target_event_id IS NOT NULL)
+                OR
+                (action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW')
+                    AND reversible = 1 AND target_event_id IS NULL)
+            )
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_draft_id
+            ON nomina_banorte_draft_events(draft_id, id DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_row_id
+            ON nomina_banorte_draft_events(row_id, id DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_draft_events_undo_target
+            ON nomina_banorte_draft_events(target_event_id)
+            WHERE action = 'UNDO' AND target_event_id IS NOT NULL
+        """
+    )
 
 
 def _ensure_beneficiary_events(conn: sqlite3.Connection) -> None:
@@ -820,6 +968,7 @@ def _migrate_drafts_excel_nomina(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "nomina_banorte_export_drafts", "source_file_size", "INTEGER")
     if _drafts_sql_allows_excel_nomina(conn):
         return
+    baseline_fk = _fk_check_tuples(conn)
     before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_export_drafts").fetchone()[0])
     conn.execute("BEGIN IMMEDIATE")
     try:
@@ -891,9 +1040,12 @@ def _migrate_drafts_excel_nomina(conn: sqlite3.Connection) -> None:
                   AND calculo_id IS NOT NULL
             """
         )
-        fk_issues = conn.execute("PRAGMA foreign_key_check").fetchall()
-        if fk_issues:
-            raise RuntimeError("draft_migration_fk_check_failed")
+        after_fk = _fk_check_tuples(conn)
+        _assert_fk_delta_ok(baseline_fk, after_fk)
+        _assert_focused_banorte_fk_clean(conn, baseline=baseline_fk)
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity is None or str(integrity[0]).lower() != "ok":
+            raise RuntimeError(f"draft_migration_integrity:{integrity}")
         conn.commit()
     except Exception:
         conn.rollback()
