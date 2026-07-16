@@ -345,6 +345,11 @@ def confirm_batch(
 
         # Insert outside nested transactions via create_manual on same db — use direct insert
         now = _now()
+        origin = str(batch["origin_kind"] or "MANUAL")
+        source_kind = "ALTA_MANUAL" if origin == "MANUAL" else "REPORTE_DETALLADO"
+        validation = (
+            "IMPORTADO_EXITOSO" if origin == "REPORTE_DETALLADO" else "MANUAL_PENDIENTE_VALIDACION"
+        )
         for r in rows:
             name = str(r["nombre"]).strip()
             acct = _digits(r["cuenta"])
@@ -358,7 +363,7 @@ def confirm_batch(
                     source_kind, validation_status, record_status,
                     banorte_employee_substituted, manual_effective_from_account,
                     banorte_comment, imported_at, imported_by, created_at, updated_at
-                ) VALUES (?,?,NULL,?,?,?,?, 'MANUAL_PENDIENTE_VALIDACION','ACTIVO',0,?,?,?,?,?,?)
+                ) VALUES (?,?,NULL,?,?,?,?,?,'ACTIVO',0,?,?,?,?,?,?)
                 """,
                 (
                     name,
@@ -366,13 +371,37 @@ def confirm_batch(
                     emp,
                     emp,
                     acct,
-                    "ALTA_MANUAL" if batch["origin_kind"] == "MANUAL" else "REPORTE_DETALLADO",
+                    source_kind,
+                    validation,
                     manual_eff,
                     f"batch:{batch_id}",
                     now,
                     user,
                     now,
                     now,
+                ),
+            )
+        if origin == "REPORTE_DETALLADO" and batch["source_sha256"]:
+            conn.execute(
+                """
+                INSERT INTO nomina_banorte_import_batches (
+                    file_name, file_sha256, file_size, detected_type, imported_by, imported_at,
+                    rows_processed, count_exitosos, count_manuales, count_fallidos_estatus,
+                    count_fallidos_hoja_sin_estatus, count_excluidos_hoja_fallidos_total,
+                    count_duplicados_reemplazados, count_conflictos, count_omitidos,
+                    summary_json, reimport_confirmed
+                ) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0,0,0,?,0)
+                """,
+                (
+                    batch["source_filename"] or f"batch-{batch_id}.xlsx",
+                    batch["source_sha256"],
+                    0,
+                    "REPORTE_DETALLADO",
+                    user,
+                    now,
+                    len(rows),
+                    len(rows),
+                    "{\"via\":\"beneficiary_batch\"}",
                 ),
             )
         cur = conn.execute(
@@ -422,10 +451,10 @@ def prepare_reporte_batch(
         prior_at = None
         if prior_id is not None:
             prow = conn.execute(
-                "SELECT created_at FROM nomina_banorte_import_batches WHERE id=?",
+                "SELECT imported_at FROM nomina_banorte_import_batches WHERE id=?",
                 (int(prior_id),),
             ).fetchone()
-            prior_at = prow["created_at"] if prow else None
+            prior_at = prow["imported_at"] if prow else None
         if prior_id is not None and not confirm_reimport:
             return {
                 "ok": False,

@@ -224,11 +224,25 @@ def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_import_altas():
         require_csrf()
+        wants_json = (
+            request.accept_mimetypes.best == "application/json"
+            or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or (request.headers.get("Accept") or "").find("application/json") >= 0
+        )
         f = request.files.get("file")
         if f is None:
+            if wants_json:
+                return _json_no_store(
+                    {"ok": False, "code": "file_required", "message": "Seleccione un archivo."},
+                    400,
+                )
             flash("Archivo requerido.", "error")
             return redirect(url_for("nomina.banorte_index"))
-        confirm = (request.form.get("reimport_confirmed") or "") == "1"
+        confirm = (request.form.get("confirm_reimport") or request.form.get("reimport_confirmed") or "") in {
+            "1",
+            "true",
+            "True",
+        }
         result = import_nomina_banorte_xlsx(
             _db_path(),
             f.read(),
@@ -237,16 +251,37 @@ def register_banorte_routes(bp) -> None:
             reimport_confirmed=confirm,
         )
         if not result.mutated:
-            flash(
+            msg = (
                 "Este archivo de base ya fue procesado anteriormente. "
-                "Vuelva a enviar con confirmación si desea reimportarlo.",
-                "warning",
+                "¿Deseas importarlo de nuevo?"
             )
-        else:
-            flash(
-                f"Importación ALTAS OK. EXITOSO={result.count_exitosos} manuales={result.count_manuales}.",
-                "success",
+            if wants_json:
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "duplicate_file_confirmation_required",
+                        "message": msg,
+                        "csrf_token": issue_csrf_token(),
+                    },
+                    409,
+                )
+            flash(msg, "warning")
+            return redirect(url_for("nomina.banorte_index"))
+        ok_msg = (
+            f"Importación ALTAS OK. EXITOSO={result.count_exitosos} "
+            f"manuales={result.count_manuales}."
+        )
+        if wants_json:
+            return _json_no_store(
+                {
+                    "ok": True,
+                    "message": ok_msg,
+                    "count_exitosos": result.count_exitosos,
+                    "count_manuales": result.count_manuales,
+                    "csrf_token": issue_csrf_token(),
+                }
             )
+        flash(ok_msg, "success")
         return redirect(url_for("nomina.banorte_index"))
 
     @_banorte_access_required

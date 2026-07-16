@@ -803,6 +803,44 @@
     renderBatchTable({ rows: [], revision: 0, id: 0, status: "ABANDONED" });
   });
 
+  const altasForm = document.getElementById("banorte-import-altas-form");
+  if (altasForm) altasForm.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const fileInput = document.getElementById("banorte-altas-file");
+    if (!fileInput.files || !fileInput.files[0]) return;
+    const msg = document.getElementById("banorte-altas-msg");
+    async function send(confirmReimport) {
+      const fd = new FormData();
+      fd.append("file", fileInput.files[0]);
+      fd.append("csrf_token", csrf);
+      if (confirmReimport) fd.append("confirm_reimport", "1");
+      const res = await fetch("/nomina/exportaciones/banorte/import/altas", {
+        method: "POST",
+        headers: { "X-CSRF-Token": csrf, "Accept": "application/json", "X-Requested-With": "XMLHttpRequest" },
+        body: fd,
+      });
+      const data = await res.json().catch(function () { return {}; });
+      setCsrf(data.csrf_token);
+      return { res: res, data: data };
+    }
+    let out = await send(false);
+    if (out.res.status === 409 && out.data.code === "duplicate_file_confirmation_required") {
+      const ok = await showModal(
+        out.data.message || "Este archivo de base ya fue procesado anteriormente. ¿Deseas importarlo de nuevo?"
+      );
+      if (!ok) return;
+      out = await send(true);
+    }
+    if (!out.data.ok) {
+      if (msg) { msg.hidden = false; msg.textContent = out.data.message || out.data.code || "Error"; }
+      else alert(out.data.message || out.data.code || "Error");
+      return;
+    }
+    if (msg) { msg.hidden = false; msg.textContent = out.data.message || "Importación ALTAS OK."; }
+    showHub();
+    loadBenefListing(1);
+  });
+
   const reporteForm = document.getElementById("banorte-reporte-form");
   if (reporteForm) reporteForm.addEventListener("submit", async function (e) {
     e.preventDefault();

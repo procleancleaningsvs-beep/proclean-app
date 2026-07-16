@@ -127,15 +127,6 @@
         <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
       </div>
       <p id="banorte-export-msg" class="banorte-warn" hidden></p>
-      <div id="banorte-modal" class="banorte-modal" hidden>
-        <div class="banorte-modal-card">
-          <p id="banorte-modal-text"></p>
-          <div class="banorte-export-bar">
-            <button type="button" class="btn btn-secondary" id="banorte-modal-cancel">Cancelar</button>
-            <button type="button" class="btn btn-primary" id="banorte-modal-ok">Confirmar</button>
-          </div>
-        </div>
-      </div>
     </section>
 
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
@@ -218,11 +209,12 @@
     </div>
     <section class="banorte-panel pc-card">
       <h3 class="pc-panel-title">Importar base Banorte</h3>
-      <form method="post" action="{{ url_for('nomina.banorte_import_altas') }}" enctype="multipart/form-data">
+      <form id="banorte-import-altas-form" enctype="multipart/form-data">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" accept=".xlsx" required></label>
+        <label>NOMINA BANORTE.xlsx (ALTAS)<input type="file" name="file" id="banorte-altas-file" accept=".xlsx" required></label>
         <button type="submit" class="btn btn-primary">Importar ALTAS</button>
       </form>
+      <p id="banorte-altas-msg" class="banorte-warn" hidden></p>
     </section>
   </section>
 
@@ -329,6 +321,16 @@
       </div>
     </section>
   </section>
+
+  <div id="banorte-modal" class="banorte-modal" hidden>
+    <div class="banorte-modal-card">
+      <p id="banorte-modal-text"></p>
+      <div class="banorte-export-bar">
+        <button type="button" class="btn btn-secondary" id="banorte-modal-cancel">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="banorte-modal-ok">Confirmar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
