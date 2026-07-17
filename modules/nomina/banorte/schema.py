@@ -947,6 +947,26 @@ CREATE TABLE nomina_banorte_draft_events (
 )
 """
 
+_DRAFT_EVENTS_NEW_DDL = _DRAFT_EVENTS_DDL.replace(
+    "CREATE TABLE nomina_banorte_draft_events",
+    "CREATE TABLE nomina_banorte_draft_events__new",
+)
+
+_DRAFT_EVENTS_COLS = (
+    "id, draft_id, row_id, action, reversible, target_event_id, "
+    "before_nombre_recibido, after_nombre_recibido, "
+    "before_beneficiary_id, after_beneficiary_id, "
+    "before_amount_final_cents, after_amount_final_cents, "
+    "before_included, after_included, before_row_state, after_row_state, "
+    "before_excluded_at, after_excluded_at, before_excluded_by, after_excluded_by, "
+    "revision_before, revision_after, created_by, created_at"
+)
+
+
+def _draft_events_migration_failpoint(name: str) -> None:
+    """No-op hook for tests to inject failures without patching sqlite3.Connection."""
+    return None
+
 
 def _ensure_draft_events(conn: sqlite3.Connection) -> None:
     conn.execute(_DRAFT_EVENTS_DDL.replace("CREATE TABLE nomina_banorte_draft_events", "CREATE TABLE IF NOT EXISTS nomina_banorte_draft_events"))
@@ -981,35 +1001,124 @@ def _draft_events_sql_allows_add_row(conn: sqlite3.Connection) -> bool:
 
 
 def _migrate_draft_events_add_row(conn: sqlite3.Connection) -> None:
+    """Rebuild draft_events CHECK to include ADD_ROW (idempotent, self-FK-safe).
+
+    The rename-first rebuild fails in production when UNDO rows reference APPLY rows
+    via target_event_id: DROP of the renamed __old table is rejected while foreign_keys
+    are ON inside the transaction. Disable FK enforcement outside any transaction,
+    build nomina_banorte_draft_events__new, copy, DROP live, RENAME __new.
+    """
+    stale_old = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events__old'"
+    ).fetchone()
+    if stale_old is not None:
+        raise RuntimeError("draft_events_migration_orphan_old")
+
     if not _table_cols(conn, "nomina_banorte_draft_events"):
         return
     if _draft_events_sql_allows_add_row(conn):
         return
+
+    if conn.in_transaction:
+        conn.commit()
+
     baseline_fk = _fk_check_tuples(conn)
-    before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events").fetchone()[0])
-    conn.execute("BEGIN IMMEDIATE")
+    original_fk = _pragma_foreign_keys(conn)
+    began = False
     try:
-        conn.execute("ALTER TABLE nomina_banorte_draft_events RENAME TO nomina_banorte_draft_events__old")
-        conn.execute(_DRAFT_EVENTS_DDL)
-        cols = (
-            "id, draft_id, row_id, action, reversible, target_event_id, "
-            "before_nombre_recibido, after_nombre_recibido, "
-            "before_beneficiary_id, after_beneficiary_id, "
-            "before_amount_final_cents, after_amount_final_cents, "
-            "before_included, after_included, before_row_state, after_row_state, "
-            "before_excluded_at, after_excluded_at, before_excluded_by, after_excluded_by, "
-            "revision_before, revision_after, created_by, created_at"
+        conn.execute("PRAGMA foreign_keys = OFF")
+        if _pragma_foreign_keys(conn) != 0:
+            raise RuntimeError("foreign_keys_disable_failed")
+
+        stale_old = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events__old'"
+        ).fetchone()
+        if stale_old is not None:
+            raise RuntimeError("draft_events_migration_orphan_old")
+
+        temp = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events__new'"
+        ).fetchone()
+        if temp is not None:
+            live = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events'"
+            ).fetchone()
+            if live is None:
+                raise RuntimeError("draft_events_migration_orphan_temp")
+            conn.execute("DROP TABLE nomina_banorte_draft_events__new")
+
+        before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events").fetchone()[0])
+        before_ids = [
+            int(r[0])
+            for r in conn.execute("SELECT id FROM nomina_banorte_draft_events ORDER BY id")
+        ]
+        before_targets = [
+            (int(r[0]), int(r[1]) if r[1] is not None else None)
+            for r in conn.execute(
+                "SELECT id, target_event_id FROM nomina_banorte_draft_events ORDER BY id"
+            )
+        ]
+        before_by_action = _sql_count_map(
+            conn.execute(
+                "SELECT action, COUNT(*) AS c FROM nomina_banorte_draft_events GROUP BY action"
+            )
         )
+
+        conn.execute("BEGIN IMMEDIATE")
+        began = True
+        _draft_events_migration_failpoint("before_create_new")
+        conn.execute(_DRAFT_EVENTS_NEW_DDL)
+        _draft_events_migration_failpoint("before_copy")
         conn.execute(
             f"""
-            INSERT INTO nomina_banorte_draft_events ({cols})
-            SELECT {cols} FROM nomina_banorte_draft_events__old
+            INSERT INTO nomina_banorte_draft_events__new ({_DRAFT_EVENTS_COLS})
+            SELECT {_DRAFT_EVENTS_COLS} FROM nomina_banorte_draft_events
             """
         )
-        after = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events").fetchone()[0])
+        _draft_events_migration_failpoint("after_copy")
+        after = int(
+            conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events__new").fetchone()[0]
+        )
         if after != before:
             raise RuntimeError("draft_events_migration_count_mismatch")
-        conn.execute("DROP TABLE nomina_banorte_draft_events__old")
+        after_ids = [
+            int(r[0])
+            for r in conn.execute("SELECT id FROM nomina_banorte_draft_events__new ORDER BY id")
+        ]
+        if after_ids != before_ids:
+            raise RuntimeError("draft_events_migration_id_mismatch")
+        after_targets = [
+            (int(r[0]), int(r[1]) if r[1] is not None else None)
+            for r in conn.execute(
+                "SELECT id, target_event_id FROM nomina_banorte_draft_events__new ORDER BY id"
+            )
+        ]
+        if after_targets != before_targets:
+            raise RuntimeError("draft_events_migration_target_mismatch")
+        orphan = conn.execute(
+            """
+            SELECT id FROM nomina_banorte_draft_events__new
+            WHERE target_event_id IS NOT NULL
+              AND target_event_id NOT IN (
+                SELECT id FROM nomina_banorte_draft_events__new
+              )
+            """
+        ).fetchone()
+        if orphan is not None:
+            raise RuntimeError("draft_events_migration_orphan_target")
+        after_by_action = _sql_count_map(
+            conn.execute(
+                "SELECT action, COUNT(*) AS c FROM nomina_banorte_draft_events__new GROUP BY action"
+            )
+        )
+        if after_by_action != before_by_action:
+            raise RuntimeError("draft_events_migration_action_mismatch")
+
+        _draft_events_migration_failpoint("before_drop")
+        conn.execute("DROP TABLE nomina_banorte_draft_events")
+        conn.execute(
+            "ALTER TABLE nomina_banorte_draft_events__new RENAME TO nomina_banorte_draft_events"
+        )
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_draft_id
@@ -1029,11 +1138,64 @@ def _migrate_draft_events_add_row(conn: sqlite3.Connection) -> None:
                 WHERE action = 'UNDO' AND target_event_id IS NOT NULL
             """
         )
-        _assert_fk_delta_ok(baseline_fk, _fk_check_tuples(conn))
+        if not _draft_events_sql_allows_add_row(conn):
+            raise RuntimeError("draft_events_migration_ddl_missing_add_row")
+        temp_names = {
+            str(r[0])
+            for r in conn.execute(
+                """
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name LIKE 'nomina_banorte_draft_events%'
+                """
+            )
+        }
+        if temp_names != {"nomina_banorte_draft_events"}:
+            raise RuntimeError("draft_events_migration_temp_leftover")
+        fk_parent = conn.execute(
+            "PRAGMA foreign_key_list(nomina_banorte_draft_events)"
+        ).fetchall()
+        target_fk = [row for row in fk_parent if str(row[3]) == "target_event_id"]
+        if not target_fk or str(target_fk[0][2]) != "nomina_banorte_draft_events":
+            raise RuntimeError("draft_events_migration_self_fk_parent")
         conn.commit()
+        began = False
     except Exception:
-        conn.rollback()
+        if began and conn.in_transaction:
+            conn.rollback()
+        if conn.in_transaction:
+            conn.rollback()
+        try:
+            if (
+                conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events__new'"
+                ).fetchone()
+                is not None
+                and conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events'"
+                ).fetchone()
+                is not None
+                and not conn.in_transaction
+            ):
+                conn.execute("DROP TABLE IF EXISTS nomina_banorte_draft_events__new")
+        except Exception:
+            pass
         raise
+    finally:
+        try:
+            if conn.in_transaction:
+                conn.rollback()
+        except Exception:
+            pass
+        conn.execute(f"PRAGMA foreign_keys = {1 if original_fk else 0}")
+        if _pragma_foreign_keys(conn) != (1 if original_fk else 0):
+            raise RuntimeError("foreign_keys_restore_failed")
+
+    after_fk = _fk_check_tuples(conn)
+    _assert_fk_delta_ok(baseline_fk, after_fk)
+    _assert_focused_banorte_fk_clean(conn, baseline=baseline_fk)
+    integrity = conn.execute("PRAGMA integrity_check").fetchone()
+    if integrity is None or str(integrity[0]).lower() != "ok":
+        raise RuntimeError(f"draft_events_migration_integrity:{integrity}")
 
 
 def _ensure_draft_request_nonces(conn: sqlite3.Connection) -> None:
