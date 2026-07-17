@@ -126,9 +126,9 @@
         <h4 class="pc-panel-title">Agregar pago</h4>
         <div class="banorte-export-bar">
           <label>Beneficiario
-            <select id="banorte-add-pay-ben">
-              <option value="">Seleccione…</option>
-            </select>
+            <input id="banorte-add-pay-q" type="search" autocomplete="off" placeholder="Escriba al menos 3 letras">
+            <input type="hidden" id="banorte-add-pay-ben" value="">
+            <div id="banorte-add-pay-suggest" class="banorte-add-pay-suggest" hidden></div>
           </label>
           <label>Monto
             <input id="banorte-add-pay-amount" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">

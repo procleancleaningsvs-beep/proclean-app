@@ -46,24 +46,39 @@ class Reconciliation:
     total_final_cents: int
     difference_cents: int
     payment_count: int
+    original_count: int = 0
+    original_total_cents: int = 0
+    manual_added_count: int = 0
+    manual_added_total_cents: int = 0
+    included_total_cents: int = 0
+
+
+def _is_manual_add(row: dict[str, Any]) -> bool:
+    return str(row.get("row_origin") or "") == "MANUAL_ADD"
 
 
 def compute_reconciliation(rows: list[dict[str, Any]]) -> Reconciliation:
-    original_n = len(rows)
+    source_rows = [r for r in rows if not _is_manual_add(r)]
+    manual_active = [
+        r for r in rows if _is_manual_add(r) and int(r.get("included") or 0) == 1
+    ]
     included = [r for r in rows if int(r.get("included") or 0) == 1]
     excluded = [r for r in rows if int(r.get("included") or 0) == 0]
-    total_orig = sum(int(r.get("amount_original_cents") or 0) for r in rows)
+    total_orig = sum(int(r.get("amount_original_cents") or 0) for r in source_rows)
     total_final = sum(int(r.get("amount_final_cents") or 0) for r in included)
+    manual_total = sum(int(r.get("amount_final_cents") or 0) for r in manual_active)
     adj_pos = 0
     adj_neg = 0
     for r in included:
+        if _is_manual_add(r):
+            continue
         delta = int(r.get("amount_final_cents") or 0) - int(r.get("amount_original_cents") or 0)
         if delta > 0:
             adj_pos += delta
         elif delta < 0:
             adj_neg += -delta
     return Reconciliation(
-        original_row_count=original_n,
+        original_row_count=len(source_rows),
         included_count=len(included),
         excluded_count=len(excluded),
         total_original_cents=total_orig,
@@ -72,6 +87,11 @@ def compute_reconciliation(rows: list[dict[str, Any]]) -> Reconciliation:
         total_final_cents=total_final,
         difference_cents=total_final - total_orig,
         payment_count=len(included),
+        original_count=len(source_rows),
+        original_total_cents=total_orig,
+        manual_added_count=len(manual_active),
+        manual_added_total_cents=manual_total,
+        included_total_cents=total_final,
     )
 
 
@@ -89,7 +109,7 @@ def _undo_available(conn: sqlite3.Connection, draft_id: int) -> bool:
         FROM nomina_banorte_draft_events AS e
         WHERE e.draft_id = ?
           AND e.reversible = 1
-          AND e.action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW')
+          AND e.action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW', 'ADD_ROW')
           AND NOT EXISTS (
             SELECT 1
             FROM nomina_banorte_draft_events AS u
@@ -769,8 +789,10 @@ def add_draft_payment(
     *,
     beneficiary_id: int,
     amount_final: str,
+    request_nonce: str | None = None,
+    confirm_duplicate_beneficiary: bool = False,
 ) -> dict[str, Any]:
-    """Append a payment row from an active Banorte beneficiary + positive amount."""
+    """Append a MANUAL_ADD payment row (ADD_ROW event) from an active beneficiary."""
     from modules.nomina.banorte.money import parse_money, to_cents
     from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
 
@@ -782,13 +804,29 @@ def add_draft_payment(
     cents = to_cents(money.amount)
     if cents <= 0:
         raise ValueError("amount_must_be_positive")
+    nonce = (request_nonce or "").strip() or None
 
     conn = connect(db_path)
     try:
         ensure_banorte_tables(conn)
         conn.execute("BEGIN IMMEDIATE")
+        if nonce:
+            prior = conn.execute(
+                """
+                SELECT result_revision, result_row_id FROM nomina_banorte_draft_request_nonces
+                WHERE draft_id=? AND request_nonce=?
+                """,
+                (int(draft_id), nonce),
+            ).fetchone()
+            if prior is not None:
+                conn.commit()
+                out = get_draft(db_path, int(draft_id))
+                if out is None:
+                    raise ValueError("draft_not_found")
+                return out
+
         draft_meta = conn.execute(
-            "SELECT origin_kind, status FROM nomina_banorte_export_drafts WHERE id=?",
+            "SELECT origin_kind, status, revision FROM nomina_banorte_export_drafts WHERE id=?",
             (int(draft_id),),
         ).fetchone()
         if draft_meta is None:
@@ -813,6 +851,19 @@ def add_draft_payment(
         )
         if int(state.get("included") or 0) != 1:
             raise ValueError("beneficiary_not_usable")
+
+        dup = conn.execute(
+            """
+            SELECT id FROM nomina_banorte_export_draft_rows
+            WHERE draft_id=? AND beneficiary_id=? AND included=1
+              AND COALESCE(excluded_at, '') = ''
+            LIMIT 1
+            """,
+            (int(draft_id), int(beneficiary_id)),
+        ).fetchone()
+        if dup is not None and not confirm_duplicate_beneficiary:
+            raise ValueError("duplicate_beneficiary_payment_confirmation_required")
+
         _bump_or_stale(conn, draft_id, expected_revision, user)
         pos = int(
             conn.execute(
@@ -827,8 +878,8 @@ def add_draft_payment(
                 draft_id, position, calculo_row_id, nombre_recibido, nss_snapshot, banco_snapshot,
                 beneficiary_id, employee_number_snapshot, account_number_snapshot,
                 amount_original_cents, amount_final_cents, included, match_kind, alias_id,
-                row_state, warnings_json, user_decision_json, excluded_at, excluded_by
-            ) VALUES (?,?,NULL,?,NULL,?,?,?,?,?,?,1,'EXACT',NULL,?,?,?,NULL,NULL)
+                row_state, warnings_json, user_decision_json, excluded_at, excluded_by, row_origin
+            ) VALUES (?,?,NULL,?,NULL,?,?,?,?,?,?,1,'EXACT',NULL,?,?,?,NULL,NULL,'MANUAL_ADD')
             """,
             (
                 int(draft_id),
@@ -842,7 +893,7 @@ def add_draft_payment(
                 cents,
                 str(state["row_state"]),
                 json.dumps(state.get("warnings") or [], ensure_ascii=False),
-                "{}",
+                json.dumps({"source": "MANUAL_ADD"}, ensure_ascii=False),
             ),
         )
         row_id = int(cur.lastrowid)
@@ -863,7 +914,7 @@ def add_draft_payment(
             conn,
             draft_id=int(draft_id),
             row_id=row_id,
-            action="APPLY_BENEFICIARY",
+            action="ADD_ROW",
             reversible=1,
             target_event_id=None,
             before=before,
@@ -872,6 +923,15 @@ def add_draft_payment(
             revision_after=int(expected_revision) + 1,
             user=user,
         )
+        if nonce:
+            conn.execute(
+                """
+                INSERT INTO nomina_banorte_draft_request_nonces (
+                    draft_id, request_nonce, result_draft_id, result_revision, result_row_id, created_at
+                ) VALUES (?,?,?,?,?,?)
+                """,
+                (int(draft_id), nonce, int(draft_id), int(expected_revision) + 1, row_id, now),
+            )
         conn.commit()
     except DraftStaleError:
         conn.rollback()
@@ -893,6 +953,7 @@ def undo_last_draft_mutation(
     """Undo last reversible draft event (append-only UNDO with target_event_id)."""
     from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
 
+    undone_action: str | None = None
     conn = connect(db_path)
     try:
         ensure_banorte_tables(conn)
@@ -903,7 +964,7 @@ def undo_last_draft_mutation(
             FROM nomina_banorte_draft_events AS e
             WHERE e.draft_id = ?
               AND e.reversible = 1
-              AND e.action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW')
+              AND e.action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW', 'ADD_ROW')
               AND NOT EXISTS (
                 SELECT 1
                 FROM nomina_banorte_draft_events AS u
@@ -1035,6 +1096,7 @@ def undo_last_draft_mutation(
             revision_after=int(expected_revision) + 1,
             user=user,
         )
+        undone_action = str(tgt["action"])
         conn.commit()
     except DraftStaleError:
         conn.rollback()
@@ -1044,7 +1106,10 @@ def undo_last_draft_mutation(
         raise
     finally:
         conn.close()
-    return get_draft(db_path, draft_id)  # type: ignore[return-value]
+    out = get_draft(db_path, draft_id)  # type: ignore[return-value]
+    if out is not None:
+        out["last_undone_action"] = undone_action
+    return out
 
 
 def restore_last_excluded(

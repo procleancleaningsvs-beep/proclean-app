@@ -82,6 +82,7 @@ def test_add_draft_payment_and_undo(tmp_path):
         int(draft["revision"]),
         beneficiary_id=int(ben["id"]),
         amount_final="250.50",
+        request_nonce="pager-test-1",
     )
     assert out["revision"] == draft["revision"] + 1
     rows = out["rows"]
@@ -114,6 +115,7 @@ def test_add_payment_rejects_zero_and_inactive(tmp_path):
             int(draft["revision"]),
             beneficiary_id=int(ben["id"]),
             amount_final="0",
+            request_nonce="z1",
         )
 
     conn = connect(db)
@@ -131,6 +133,7 @@ def test_add_payment_rejects_zero_and_inactive(tmp_path):
             int(draft["revision"]),
             beneficiary_id=int(ben["id"]),
             amount_final="10",
+            request_nonce="z2",
         )
 
 
@@ -142,5 +145,5 @@ def test_js_and_html_have_add_payment_controls():
     assert "banorte-add-payment" in html or "banorte-add-pay" in html
     assert "add-payment" in js
     assert 'type: "add_payment"' in js
-    assert "enqueueTerminal" in js
+    assert "enqueueOrdinary" in js
     assert "hydrateBenefListing" in js

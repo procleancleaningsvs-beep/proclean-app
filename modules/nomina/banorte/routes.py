@@ -602,6 +602,8 @@ def register_banorte_routes(bp) -> None:
                 int(data.get("expected_revision")),
                 beneficiary_id=int(data.get("beneficiary_id")),
                 amount_final=str(data.get("amount_final") or data.get("amount") or ""),
+                request_nonce=str(data.get("request_nonce") or "") or None,
+                confirm_duplicate_beneficiary=bool(data.get("confirm_duplicate_beneficiary")),
             )
         except DraftStaleError as exc:
             return _stale_response(exc)
@@ -614,10 +616,20 @@ def register_banorte_routes(bp) -> None:
                 "beneficiary_not_active": "El beneficiario no está activo.",
                 "beneficiary_not_usable": "El beneficiario no está listo para pago.",
                 "draft_not_open": "El borrador no está abierto.",
+                "duplicate_beneficiary_payment_confirmation_required": (
+                    "Este beneficiario ya tiene un pago en el borrador. "
+                    "¿Deseas agregar otro pago para la misma persona?"
+                ),
             }
+            status = 409 if code == "duplicate_beneficiary_payment_confirmation_required" else 400
             return _json_no_store(
-                {"ok": False, "code": code, "error_code": code, "message": messages.get(code, "No se pudo agregar el pago.")},
-                400,
+                {
+                    "ok": False,
+                    "code": code,
+                    "error_code": code,
+                    "message": messages.get(code, "No se pudo agregar el pago."),
+                },
+                status,
             )
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
@@ -680,7 +692,17 @@ def register_banorte_routes(bp) -> None:
                 {"ok": False, "code": str(exc), "message": "No hay cambios para deshacer."},
                 400,
             )
-        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+        undone = (draft or {}).get("last_undone_action")
+        message = "Pago agregado deshecho" if undone == "ADD_ROW" else None
+        return _json_no_store(
+            {
+                "ok": True,
+                "draft": draft,
+                "undone_action": undone,
+                "message": message,
+                "csrf_token": issue_csrf_token(),
+            }
+        )
 
     @_banorte_access_required
     def banorte_draft_manual():

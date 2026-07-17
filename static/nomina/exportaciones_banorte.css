@@ -184,6 +184,25 @@
 .banorte-add-payment input {
   min-width: 10rem;
 }
+.banorte-add-pay-suggest {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  margin-top: .35rem;
+  max-width: 24rem;
+}
+.banorte-add-pay-suggest-item {
+  text-align: left;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 6px;
+  padding: .35rem .5rem;
+  cursor: pointer;
+  font: inherit;
+}
+.banorte-add-pay-suggest-item:hover {
+  border-color: #0f766e;
+}
 .banorte-ben-edit-panel {
   background: #f8fafc;
   border: 1px solid #e2e8f0;

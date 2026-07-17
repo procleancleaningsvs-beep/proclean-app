@@ -11,6 +11,7 @@
     closing: false,
     pendingByRow: Object.create(null),
     amountTimers: Object.create(null),
+    pendingOrdinary: [],
     pendingTerminal: null,
     latestConfirmedRevision: null,
   };
@@ -80,10 +81,19 @@
   function clearMutationQueue() {
     clearAmountTimers();
     mutationQueue.pendingByRow = Object.create(null);
+    mutationQueue.pendingOrdinary = [];
     mutationQueue.pendingTerminal = null;
     mutationQueue.active = false;
     mutationQueue.closing = false;
     setBusy(false);
+  }
+
+  function enqueueOrdinary(job) {
+    if (!draft || mutationQueue.closing) return Promise.resolve({ ok: false });
+    return new Promise(function (resolve) {
+      mutationQueue.pendingOrdinary.push(Object.assign({}, job, { _resolve: resolve }));
+      drainMutationQueue();
+    });
   }
 
   function enqueueApply(rowId, payload, opts) {
@@ -122,6 +132,7 @@
         if (job.type === "abandon") {
           clearAmountTimers();
           mutationQueue.pendingByRow = Object.create(null);
+          mutationQueue.pendingOrdinary = [];
         }
       }
       drainMutationQueue();
@@ -177,6 +188,13 @@
           if (!ok) return;
           continue;
         }
+        if (mutationQueue.pendingOrdinary.length) {
+          const ordinary = mutationQueue.pendingOrdinary.shift();
+          const result = await runOrdinaryJob(ordinary);
+          if (ordinary._resolve) ordinary._resolve(result);
+          if (!result.ok) return;
+          continue;
+        }
         const term = mutationQueue.pendingTerminal;
         if (!term) break;
         mutationQueue.pendingTerminal = null;
@@ -187,10 +205,67 @@
     } finally {
       mutationQueue.active = false;
       const pending =
-        Object.keys(mutationQueue.pendingByRow).length > 0 || !!mutationQueue.pendingTerminal;
+        Object.keys(mutationQueue.pendingByRow).length > 0 ||
+        mutationQueue.pendingOrdinary.length > 0 ||
+        !!mutationQueue.pendingTerminal;
       setBusy(pending || mutationQueue.closing);
       if (pending && draft) drainMutationQueue();
     }
+  }
+
+  async function runOrdinaryJob(job) {
+    if (job.type === "add_payment") {
+      return runAddPaymentJob(job);
+    }
+    if (job.type === "exclude" || job.type === "undo" || job.type === "save") {
+      return runTerminalJob(job);
+    }
+    return { ok: false };
+  }
+
+  async function runAddPaymentJob(job) {
+    const rev = confirmedRevision();
+    const body = {
+      expected_revision: rev,
+      beneficiary_id: job.beneficiary_id,
+      amount_final: job.amount_final,
+      request_nonce: job.request_nonce,
+      confirm_duplicate_beneficiary: !!job.confirm_duplicate_beneficiary,
+    };
+    const out = await api(
+      "/nomina/exportaciones/banorte/drafts/" + draft.id + "/add-payment",
+      body
+    );
+    if (out.res.status === 409 || out.data.code === "draft_stale") {
+      if (out.data.code === "duplicate_beneficiary_payment_confirmation_required") {
+        const ok = await showModal(out.data.message || "¿Agregar otro pago para esta persona?");
+        if (!ok) return { ok: false };
+        return runAddPaymentJob(Object.assign({}, job, { confirm_duplicate_beneficiary: true }));
+      }
+      await handleStale();
+      return { ok: false, stale: true };
+    }
+    if (!out.data.ok) {
+      const msg = document.getElementById("banorte-add-pay-msg");
+      if (msg) {
+        msg.hidden = false;
+        msg.textContent = out.data.message || "No se pudo agregar el pago.";
+      } else {
+        alert(out.data.message || out.data.code || "error");
+      }
+      return { ok: false };
+    }
+    const msgOk = document.getElementById("banorte-add-pay-msg");
+    if (msgOk) { msgOk.hidden = true; msgOk.textContent = ""; }
+    const amt = document.getElementById("banorte-add-pay-amount");
+    if (amt) amt.value = "";
+    const hid = document.getElementById("banorte-add-pay-ben");
+    const q = document.getElementById("banorte-add-pay-q");
+    if (hid) hid.value = "";
+    if (q) q.value = "";
+    noteConfirmedDraft(out.data.draft);
+    patchEditorFromDraft(out.data.draft);
+    return { ok: true };
   }
 
   async function runTerminalJob(term) {
@@ -227,6 +302,13 @@
       }
       noteConfirmedDraft(out.data.draft);
       patchEditorFromDraft(out.data.draft);
+      if (out.data.undone_action === "ADD_ROW") {
+        const banner = document.getElementById("banorte-add-pay-msg");
+        if (banner) {
+          banner.hidden = false;
+          banner.textContent = out.data.message || "Pago agregado deshecho";
+        }
+      }
       return { ok: true };
     }
     if (term.type === "save") {
@@ -263,37 +345,6 @@
         return { ok: false };
       }
       clearEditorAfterAbandon();
-      return { ok: true };
-    }
-    if (term.type === "add_payment") {
-      const out = await api(
-        "/nomina/exportaciones/banorte/drafts/" + draft.id + "/add-payment",
-        {
-          expected_revision: rev,
-          beneficiary_id: term.beneficiary_id,
-          amount_final: term.amount_final,
-        }
-      );
-      if (out.res.status === 409 || out.data.code === "draft_stale") {
-        await handleStale();
-        return { ok: false, stale: true };
-      }
-      if (!out.data.ok) {
-        const msg = document.getElementById("banorte-add-pay-msg");
-        if (msg) {
-          msg.hidden = false;
-          msg.textContent = out.data.message || "No se pudo agregar el pago.";
-        } else {
-          alert(out.data.message || out.data.code || "error");
-        }
-        return { ok: false };
-      }
-      const msgOk = document.getElementById("banorte-add-pay-msg");
-      if (msgOk) { msgOk.hidden = true; msgOk.textContent = ""; }
-      const amt = document.getElementById("banorte-add-pay-amount");
-      if (amt) amt.value = "";
-      noteConfirmedDraft(out.data.draft);
-      patchEditorFromDraft(out.data.draft);
       return { ok: true };
     }
     if (term.type === "generate") {
@@ -385,13 +436,20 @@
   function renderRecon(rec) {
     const el = document.getElementById("banorte-recon");
     if (!rec) { el.innerHTML = ""; return; }
+    const origCount = rec.original_count != null ? rec.original_count : rec.original_row_count;
+    const origTotal = rec.original_total_cents != null ? rec.original_total_cents : rec.total_original_cents;
+    const manualCount = rec.manual_added_count != null ? rec.manual_added_count : 0;
+    const manualTotal = rec.manual_added_total_cents != null ? rec.manual_added_total_cents : 0;
+    const includedTotal = rec.included_total_cents != null ? rec.included_total_cents : rec.total_final_cents;
     el.innerHTML =
-      "<div><span>Originales</span><strong>" + rec.original_row_count + "</strong></div>" +
+      "<div><span>Originales</span><strong>" + origCount + "</strong></div>" +
+      "<div><span>Total original</span><strong>$" + money(origTotal) + "</strong></div>" +
+      "<div><span>Agregados</span><strong>" + manualCount + "</strong></div>" +
+      "<div><span>Total agregados</span><strong>$" + money(manualTotal) + "</strong></div>" +
       "<div><span>Incluidas</span><strong>" + rec.included_count + "</strong></div>" +
+      "<div><span>Total incluido</span><strong>$" + money(includedTotal) + "</strong></div>" +
       "<div><span>Excluidas</span><strong>" + rec.excluded_count + "</strong></div>" +
-      "<div><span>Total orig.</span><strong>$" + money(rec.total_original_cents) + "</strong></div>" +
-      "<div><span>Total final</span><strong>$" + money(rec.total_final_cents) + "</strong></div>" +
-      "<div><span>Pagos</span><strong>" + rec.payment_count + "</strong></div>";
+      "<div><span>Total final</span><strong>$" + money(rec.total_final_cents) + "</strong></div>";
   }
 
   function splitRows(d) {
@@ -538,7 +596,7 @@
       tr.querySelector(".c-trash").addEventListener("click", async function () {
         if (!draft || mutationQueue.closing) return;
         if (!confirm("¿Excluir esta fila del archivo .pag?")) return;
-        await enqueueTerminal({ type: "exclude", row_id: Number(tr.dataset.rowId) });
+        await enqueueOrdinary({ type: "exclude", row_id: Number(tr.dataset.rowId) });
       });
     });
 
@@ -598,7 +656,7 @@
 
   document.getElementById("banorte-restore-last").addEventListener("click", async function () {
     if (!draft || mutationQueue.closing) return;
-    await enqueueTerminal({ type: "undo" });
+    await enqueueOrdinary({ type: "undo" });
   });
 
   document.querySelectorAll("[data-prepare-calculo]").forEach(function (btn) {
@@ -630,7 +688,7 @@
 
   document.getElementById("banorte-save-draft").addEventListener("click", async function () {
     if (!draft || mutationQueue.closing) return;
-    await enqueueTerminal({ type: "save" });
+    await enqueueOrdinary({ type: "save" });
   });
 
   function showModal(text) {
@@ -1157,25 +1215,51 @@
   }
   hydrateBenefListing();
 
-  async function refreshAddPayBeneficiaries() {
-    const sel = document.getElementById("banorte-add-pay-ben");
-    if (!sel) return;
-    const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
-      page: 1,
-      record_status: "ACTIVO",
-      sort: "name_asc",
-    });
-    if (!out.data.ok) return;
-    const cur = sel.value;
-    sel.innerHTML = '<option value="">Seleccione…</option>';
-    (out.data.listing.rows || []).forEach(function (b) {
-      const opt = document.createElement("option");
-      opt.value = String(b.id);
-      opt.textContent = b.nombre_original + " · " + (b.employee_number_effective || "");
-      sel.appendChild(opt);
-    });
-    if (cur) sel.value = cur;
+  function refreshAddPayBeneficiaries() {
+    /* autocomplete hydrates on demand */
   }
+
+  let addPaySearchSeq = 0;
+  let addPaySearchTimer = null;
+  const addPayQ = document.getElementById("banorte-add-pay-q");
+  const addPayBen = document.getElementById("banorte-add-pay-ben");
+  const addPaySuggest = document.getElementById("banorte-add-pay-suggest");
+  if (addPayQ) addPayQ.addEventListener("input", function () {
+    if (addPayBen) addPayBen.value = "";
+    const q = (addPayQ.value || "").trim();
+    clearTimeout(addPaySearchTimer);
+    if (!addPaySuggest) return;
+    if (q.length < 3) {
+      addPaySuggest.hidden = true;
+      addPaySuggest.innerHTML = "";
+      return;
+    }
+    addPaySearchTimer = setTimeout(async function () {
+      const seq = ++addPaySearchSeq;
+      const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
+        page: 1,
+        q_name: q,
+        record_status: "ACTIVO",
+        sort: "name_asc",
+      });
+      if (seq !== addPaySearchSeq) return;
+      if (!out.data.ok) return;
+      addPaySuggest.innerHTML = "";
+      (out.data.listing.rows || []).slice(0, 8).forEach(function (b) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "banorte-add-pay-suggest-item";
+        btn.textContent = b.nombre_original + " · " + (b.employee_number_effective || "");
+        btn.addEventListener("click", function () {
+          if (addPayBen) addPayBen.value = String(b.id);
+          addPayQ.value = b.nombre_original;
+          addPaySuggest.hidden = true;
+        });
+        addPaySuggest.appendChild(btn);
+      });
+      addPaySuggest.hidden = !addPaySuggest.children.length;
+    }, 300);
+  });
 
   const addPayBtn = document.getElementById("banorte-add-pay-btn");
   if (addPayBtn) addPayBtn.addEventListener("click", function () {
@@ -1183,17 +1267,19 @@
       alert("Abra o prepare un borrador primero.");
       return;
     }
-    const benId = document.getElementById("banorte-add-pay-ben").value;
+    const benId = addPayBen ? addPayBen.value : "";
     const amount = (document.getElementById("banorte-add-pay-amount").value || "").trim();
     const msg = document.getElementById("banorte-add-pay-msg");
     if (!benId) {
-      if (msg) { msg.hidden = false; msg.textContent = "Seleccione un beneficiario."; }
+      if (msg) { msg.hidden = false; msg.textContent = "Seleccione un beneficiario de la lista."; }
       return;
     }
-    enqueueTerminal({
+    const nonce = "pay-" + draft.id + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+    enqueueOrdinary({
       type: "add_payment",
       beneficiary_id: Number(benId),
       amount_final: amount,
+      request_nonce: nonce,
     });
   });
 

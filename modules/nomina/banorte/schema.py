@@ -534,6 +534,7 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
 
     _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "excluded_at", "TEXT")
     _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "excluded_by", "TEXT")
+    _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "row_origin", "TEXT")
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_banorte_draft_rows_excluded
@@ -545,6 +546,8 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     _migrate_beneficiaries_inactivo_manual(conn)
     _ensure_beneficiary_events(conn)
     _ensure_draft_events(conn)
+    _migrate_draft_events_add_row(conn)
+    _ensure_draft_request_nonces(conn)
     _ensure_beneficiary_batches(conn)
 
 
@@ -895,56 +898,58 @@ def _ensure_beneficiary_batches(conn: sqlite3.Connection) -> None:
     )
 
 
-def _ensure_draft_events(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS nomina_banorte_draft_events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            draft_id INTEGER NOT NULL,
-            row_id INTEGER NOT NULL,
-            action TEXT NOT NULL
-                CHECK (action IN (
-                    'APPLY_BENEFICIARY',
-                    'APPLY_AMOUNT',
-                    'EXCLUDE_ROW',
-                    'UNDO'
-                )),
-            reversible INTEGER NOT NULL CHECK (reversible IN (0, 1)),
-            target_event_id INTEGER,
-            before_nombre_recibido TEXT,
-            after_nombre_recibido TEXT,
-            before_beneficiary_id INTEGER,
-            after_beneficiary_id INTEGER,
-            before_amount_final_cents INTEGER,
-            after_amount_final_cents INTEGER,
-            before_included INTEGER,
-            after_included INTEGER,
-            before_row_state TEXT,
-            after_row_state TEXT,
-            before_excluded_at TEXT,
-            after_excluded_at TEXT,
-            before_excluded_by TEXT,
-            after_excluded_by TEXT,
-            revision_before INTEGER NOT NULL,
-            revision_after INTEGER NOT NULL,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (draft_id)
-                REFERENCES nomina_banorte_export_drafts(id) ON DELETE RESTRICT,
-            FOREIGN KEY (row_id)
-                REFERENCES nomina_banorte_export_draft_rows(id) ON DELETE RESTRICT,
-            FOREIGN KEY (target_event_id)
-                REFERENCES nomina_banorte_draft_events(id) ON DELETE RESTRICT,
-            CHECK (revision_after >= revision_before),
-            CHECK (
-                (action = 'UNDO' AND reversible = 0 AND target_event_id IS NOT NULL)
-                OR
-                (action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW')
-                    AND reversible = 1 AND target_event_id IS NULL)
-            )
-        )
-        """
+_DRAFT_EVENTS_DDL = """
+CREATE TABLE nomina_banorte_draft_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    draft_id INTEGER NOT NULL,
+    row_id INTEGER NOT NULL,
+    action TEXT NOT NULL
+        CHECK (action IN (
+            'APPLY_BENEFICIARY',
+            'APPLY_AMOUNT',
+            'EXCLUDE_ROW',
+            'ADD_ROW',
+            'UNDO'
+        )),
+    reversible INTEGER NOT NULL CHECK (reversible IN (0, 1)),
+    target_event_id INTEGER,
+    before_nombre_recibido TEXT,
+    after_nombre_recibido TEXT,
+    before_beneficiary_id INTEGER,
+    after_beneficiary_id INTEGER,
+    before_amount_final_cents INTEGER,
+    after_amount_final_cents INTEGER,
+    before_included INTEGER,
+    after_included INTEGER,
+    before_row_state TEXT,
+    after_row_state TEXT,
+    before_excluded_at TEXT,
+    after_excluded_at TEXT,
+    before_excluded_by TEXT,
+    after_excluded_by TEXT,
+    revision_before INTEGER NOT NULL,
+    revision_after INTEGER NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (draft_id)
+        REFERENCES nomina_banorte_export_drafts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (row_id)
+        REFERENCES nomina_banorte_export_draft_rows(id) ON DELETE RESTRICT,
+    FOREIGN KEY (target_event_id)
+        REFERENCES nomina_banorte_draft_events(id) ON DELETE RESTRICT,
+    CHECK (revision_after >= revision_before),
+    CHECK (
+        (action = 'UNDO' AND reversible = 0 AND target_event_id IS NOT NULL)
+        OR
+        (action IN ('APPLY_BENEFICIARY', 'APPLY_AMOUNT', 'EXCLUDE_ROW', 'ADD_ROW')
+            AND reversible = 1 AND target_event_id IS NULL)
     )
+)
+"""
+
+
+def _ensure_draft_events(conn: sqlite3.Connection) -> None:
+    conn.execute(_DRAFT_EVENTS_DDL.replace("CREATE TABLE nomina_banorte_draft_events", "CREATE TABLE IF NOT EXISTS nomina_banorte_draft_events"))
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_draft_id
@@ -962,6 +967,89 @@ def _ensure_draft_events(conn: sqlite3.Connection) -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_draft_events_undo_target
             ON nomina_banorte_draft_events(target_event_id)
             WHERE action = 'UNDO' AND target_event_id IS NOT NULL
+        """
+    )
+
+
+def _draft_events_sql_allows_add_row(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='nomina_banorte_draft_events'"
+    ).fetchone()
+    if row is None or not row[0]:
+        return False
+    return "ADD_ROW" in str(row[0])
+
+
+def _migrate_draft_events_add_row(conn: sqlite3.Connection) -> None:
+    if not _table_cols(conn, "nomina_banorte_draft_events"):
+        return
+    if _draft_events_sql_allows_add_row(conn):
+        return
+    baseline_fk = _fk_check_tuples(conn)
+    before = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events").fetchone()[0])
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("ALTER TABLE nomina_banorte_draft_events RENAME TO nomina_banorte_draft_events__old")
+        conn.execute(_DRAFT_EVENTS_DDL)
+        cols = (
+            "id, draft_id, row_id, action, reversible, target_event_id, "
+            "before_nombre_recibido, after_nombre_recibido, "
+            "before_beneficiary_id, after_beneficiary_id, "
+            "before_amount_final_cents, after_amount_final_cents, "
+            "before_included, after_included, before_row_state, after_row_state, "
+            "before_excluded_at, after_excluded_at, before_excluded_by, after_excluded_by, "
+            "revision_before, revision_after, created_by, created_at"
+        )
+        conn.execute(
+            f"""
+            INSERT INTO nomina_banorte_draft_events ({cols})
+            SELECT {cols} FROM nomina_banorte_draft_events__old
+            """
+        )
+        after = int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_draft_events").fetchone()[0])
+        if after != before:
+            raise RuntimeError("draft_events_migration_count_mismatch")
+        conn.execute("DROP TABLE nomina_banorte_draft_events__old")
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_draft_id
+                ON nomina_banorte_draft_events(draft_id, id DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_banorte_draft_events_row_id
+                ON nomina_banorte_draft_events(row_id, id DESC)
+            """
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_draft_events_undo_target
+                ON nomina_banorte_draft_events(target_event_id)
+                WHERE action = 'UNDO' AND target_event_id IS NOT NULL
+            """
+        )
+        _assert_fk_delta_ok(baseline_fk, _fk_check_tuples(conn))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _ensure_draft_request_nonces(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_draft_request_nonces (
+            draft_id INTEGER NOT NULL,
+            request_nonce TEXT NOT NULL,
+            result_draft_id INTEGER NOT NULL,
+            result_revision INTEGER NOT NULL,
+            result_row_id INTEGER,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (draft_id, request_nonce),
+            FOREIGN KEY (draft_id)
+                REFERENCES nomina_banorte_export_drafts(id) ON DELETE CASCADE
+        )
         """
     )
 

@@ -449,6 +449,24 @@ def generate_from_persistent_draft(
             raise ExportBlockedError("rows_require_review", blocked)
 
         included = [r for r in rows if int(r.get("included") or 0) == 1]
+        for r in included:
+            if str(r.get("row_origin") or "") != "MANUAL_ADD":
+                continue
+            if str(r.get("row_state") or "") != "OK":
+                raise ExportBlockedError(
+                    "rows_require_review",
+                    [{"position": r.get("position"), "reason": "manual_add_not_ok"}],
+                )
+            if int(r.get("amount_final_cents") or 0) <= 0:
+                raise ExportBlockedError(
+                    "rows_require_review",
+                    [{"position": r.get("position"), "reason": "manual_add_amount_invalid"}],
+                )
+            if r.get("beneficiary_id") is None:
+                raise ExportBlockedError(
+                    "rows_require_review",
+                    [{"position": r.get("position"), "reason": "manual_add_beneficiary_missing"}],
+                )
         rec = compute_reconciliation(rows)
         payment_rows: list[DraftPaymentRow] = []
         for r in included:
