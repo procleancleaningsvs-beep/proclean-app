@@ -122,6 +122,21 @@
           </table>
         </div>
       </details>
+      <div class="banorte-add-payment" id="banorte-add-payment">
+        <h4 class="pc-panel-title">Agregar pago</h4>
+        <div class="banorte-export-bar">
+          <label>Beneficiario
+            <select id="banorte-add-pay-ben">
+              <option value="">Seleccione…</option>
+            </select>
+          </label>
+          <label>Monto
+            <input id="banorte-add-pay-amount" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
+          </label>
+          <button type="button" class="btn btn-secondary" id="banorte-add-pay-btn">Agregar pago</button>
+        </div>
+        <p id="banorte-add-pay-msg" class="banorte-warn" hidden></p>
+      </div>
       <div class="banorte-export-bar">
         <button type="button" class="btn btn-secondary" id="banorte-save-draft">Guardar</button>
         <button type="button" class="btn btn-primary" id="banorte-generate">Generar .pag</button>
@@ -164,13 +179,13 @@
           </select>
         </label>
       </div>
-      <p class="banorte-hint" id="banorte-ben-meta">Mostrando {{ benef_listing.start_index }}–{{ benef_listing.end_index }} de {{ benef_listing.total }}</p>
+      <p class="banorte-hint" id="banorte-ben-meta">Mostrando {{ benef_listing.start_index }}–{{ benef_listing.end_index }} de {{ benef_listing.total }} beneficiarios</p>
       <div class="pc-table-shell">
         <table class="banorte-table" id="banorte-ben-table">
           <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {% for b in benef_listing.rows %}
-            <tr data-ben-id="{{ b.id }}">
+            <tr data-ben-id="{{ b.id }}" data-record-status="{{ b.record_status }}">
               <td>{{ b.id }}</td>
               <td>{{ b.nombre_original }}{% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}</td>
               <td>{{ b.employee_number_effective }}</td>
@@ -198,7 +213,17 @@
           </tbody>
         </table>
       </div>
-      <div class="banorte-export-bar" id="banorte-ben-pager"></div>
+      <div class="banorte-export-bar" id="banorte-ben-pager"
+           data-page="{{ benef_listing.page }}"
+           data-total-pages="{{ benef_listing.total_pages }}"
+           data-has-previous="{{ 1 if benef_listing.has_previous else 0 }}"
+           data-has-next="{{ 1 if benef_listing.has_next else 0 }}">
+        <button type="button" class="btn btn-secondary btn-sm" disabled>Primera</button>
+        <button type="button" class="btn btn-secondary btn-sm" disabled>Anterior</button>
+        <span class="banorte-hint"> Página {{ benef_listing.page }} de {{ benef_listing.total_pages }} </span>
+        <button type="button" class="btn btn-secondary btn-sm" {% if not benef_listing.has_next %}disabled{% endif %}>Siguiente</button>
+        <button type="button" class="btn btn-secondary btn-sm" {% if not benef_listing.has_next %}disabled{% endif %}>Última</button>
+      </div>
     </section>
   </section>
 

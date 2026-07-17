@@ -265,6 +265,37 @@
       clearEditorAfterAbandon();
       return { ok: true };
     }
+    if (term.type === "add_payment") {
+      const out = await api(
+        "/nomina/exportaciones/banorte/drafts/" + draft.id + "/add-payment",
+        {
+          expected_revision: rev,
+          beneficiary_id: term.beneficiary_id,
+          amount_final: term.amount_final,
+        }
+      );
+      if (out.res.status === 409 || out.data.code === "draft_stale") {
+        await handleStale();
+        return { ok: false, stale: true };
+      }
+      if (!out.data.ok) {
+        const msg = document.getElementById("banorte-add-pay-msg");
+        if (msg) {
+          msg.hidden = false;
+          msg.textContent = out.data.message || "No se pudo agregar el pago.";
+        } else {
+          alert(out.data.message || out.data.code || "error");
+        }
+        return { ok: false };
+      }
+      const msgOk = document.getElementById("banorte-add-pay-msg");
+      if (msgOk) { msgOk.hidden = true; msgOk.textContent = ""; }
+      const amt = document.getElementById("banorte-add-pay-amount");
+      if (amt) amt.value = "";
+      noteConfirmedDraft(out.data.draft);
+      patchEditorFromDraft(out.data.draft);
+      return { ok: true };
+    }
     if (term.type === "generate") {
       return runGenerateQueued(term.flags || {});
     }
@@ -460,6 +491,7 @@
   }
 
   function renderEditor(d) {
+    refreshAddPayBeneficiaries();
     noteConfirmedDraft(d);
     mutationQueue.closing = false;
     const panel = document.getElementById("banorte-editor-panel");
@@ -948,6 +980,7 @@
     editTr.id = "banorte-ben-edit-row";
     const td = document.createElement("td");
     td.colSpan = 6;
+    const canDeactivate = ben.record_status !== "INACTIVO_REEMPLAZADO";
     td.innerHTML =
       '<div class="banorte-ben-edit-panel" data-ben-id="' + ben.id + '">' +
       "<p class=\"banorte-hint\">" + esc(ben.status_explanation || "Edición administrativa") + "</p>" +
@@ -959,7 +992,9 @@
       '<button type="button" class="btn btn-primary btn-sm" data-ben-act="replace">Guardar cambios (versión nueva)</button>' +
       '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="mark_usable_manual">Marcar utilizable</button>' +
       '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="keep_pending">Mantener pendiente</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="deactivate">Desactivar</button>' +
+      (canDeactivate
+        ? '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="deactivate">Desactivar</button>'
+        : "") +
       '<button type="button" class="btn btn-secondary btn-sm" id="ben-edit-close">Cerrar</button>' +
       "</div>" +
       "<h4 class=\"pc-panel-title\">Historial</h4>" +
@@ -995,8 +1030,11 @@
           payload
         );
         if (!out.data.ok) {
-          alert(out.data.code || "No se pudo aplicar la acción");
+          alert(out.data.message || "No se pudo aplicar la acción");
           return;
+        }
+        if (out.data.message) {
+          /* soft confirm */
         }
         closeBenEditPanel();
         loadBenefListing(benPage);
@@ -1018,6 +1056,7 @@
           employee_number_effective: cells[2] ? cells[2].textContent.trim() : "",
           account_number: cells[3] ? cells[3].textContent.trim() : "",
           status_explanation: (tr && tr.querySelector(".banorte-hint") && tr.querySelector(".banorte-hint").textContent) || "",
+          record_status: (tr && tr.getAttribute("data-record-status")) || "",
         });
       });
     });
@@ -1031,6 +1070,7 @@
     (listing.rows || []).forEach(function (b) {
       const tr = document.createElement("tr");
       tr.setAttribute("data-ben-id", String(b.id));
+      tr.setAttribute("data-record-status", String(b.record_status || ""));
       let st = '<span class="banorte-status banorte-status--warn">Pendiente</span>';
       if (b.validation_status === "IMPORTADO_EXITOSO" && b.record_status === "ACTIVO") {
         st = '<span class="banorte-status banorte-status--ok">Validado Banorte</span>';
@@ -1057,7 +1097,7 @@
     bindBenEditButtons(tbody);
     document.getElementById("banorte-ben-meta").textContent =
       "Mostrando " + (listing.start_index || 0) + "–" + (listing.end_index || 0) +
-      " de " + (listing.total || 0) + " · Página " + listing.page + " de " + (listing.total_pages || 1);
+      " de " + (listing.total || 0) + " beneficiarios";
     const pager = document.getElementById("banorte-ben-pager");
     if (pager) {
       pager.innerHTML = "";
@@ -1109,6 +1149,53 @@
     el.addEventListener(el.tagName === "SELECT" ? "change" : "input", scheduleBenefSearch);
   });
   bindBenEditButtons(document.getElementById("banorte-ben-table"));
+
+  function hydrateBenefListing() {
+    const pager = document.getElementById("banorte-ben-pager");
+    const page = pager ? Number(pager.getAttribute("data-page") || 1) : 1;
+    loadBenefListing(page || 1);
+  }
+  hydrateBenefListing();
+
+  async function refreshAddPayBeneficiaries() {
+    const sel = document.getElementById("banorte-add-pay-ben");
+    if (!sel) return;
+    const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
+      page: 1,
+      record_status: "ACTIVO",
+      sort: "name_asc",
+    });
+    if (!out.data.ok) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">Seleccione…</option>';
+    (out.data.listing.rows || []).forEach(function (b) {
+      const opt = document.createElement("option");
+      opt.value = String(b.id);
+      opt.textContent = b.nombre_original + " · " + (b.employee_number_effective || "");
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  }
+
+  const addPayBtn = document.getElementById("banorte-add-pay-btn");
+  if (addPayBtn) addPayBtn.addEventListener("click", function () {
+    if (!draft) {
+      alert("Abra o prepare un borrador primero.");
+      return;
+    }
+    const benId = document.getElementById("banorte-add-pay-ben").value;
+    const amount = (document.getElementById("banorte-add-pay-amount").value || "").trim();
+    const msg = document.getElementById("banorte-add-pay-msg");
+    if (!benId) {
+      if (msg) { msg.hidden = false; msg.textContent = "Seleccione un beneficiario."; }
+      return;
+    }
+    enqueueTerminal({
+      type: "add_payment",
+      beneficiary_id: Number(benId),
+      amount_final: amount,
+    });
+  });
 
   function empSortKey(text) {
     const digits = String(text || "").replace(/\D/g, "");

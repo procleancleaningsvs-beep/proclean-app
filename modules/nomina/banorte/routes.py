@@ -32,6 +32,7 @@ from modules.nomina.banorte.batch_service import (
 from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
     apply_beneficiary_action,
+    beneficiary_action_message,
     create_manual_beneficiary,
     list_beneficiaries,
     list_beneficiary_events,
@@ -48,6 +49,7 @@ from modules.nomina.banorte.draft_repository import (
     DraftConflictError,
     DraftStaleError,
     abandon_draft,
+    add_draft_payment,
     apply_draft_row,
     create_draft_from_adapter,
     create_manual_draft_shell,
@@ -588,6 +590,38 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    def banorte_draft_add_payment(draft_id: int):
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            draft = add_draft_payment(
+                _db_path(),
+                int(draft_id),
+                _username(),
+                int(data.get("expected_revision")),
+                beneficiary_id=int(data.get("beneficiary_id")),
+                amount_final=str(data.get("amount_final") or data.get("amount") or ""),
+            )
+        except DraftStaleError as exc:
+            return _stale_response(exc)
+        except (TypeError, ValueError) as exc:
+            code = str(exc)
+            messages = {
+                "amount_must_be_positive": "El monto debe ser mayor a cero.",
+                "amount_invalid": "El monto no es válido.",
+                "beneficiary_not_found": "Seleccione un beneficiario Banorte válido.",
+                "beneficiary_not_active": "El beneficiario no está activo.",
+                "beneficiary_not_usable": "El beneficiario no está listo para pago.",
+                "draft_not_open": "El borrador no está abierto.",
+            }
+            return _json_no_store(
+                {"ok": False, "code": code, "error_code": code, "message": messages.get(code, "No se pudo agregar el pago.")},
+                400,
+            )
+        return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
     def banorte_draft_exclude_row(draft_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -877,8 +911,23 @@ def register_banorte_routes(bp) -> None:
                 loser_mode=data.get("loser_mode"),
             )
         except BeneficiaryError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
-        return _json_no_store({"ok": True, "beneficiary": out, "csrf_token": issue_csrf_token()})
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "error_code": exc.code,
+                    "message": getattr(exc, "message", None) or beneficiary_action_message(exc.code),
+                },
+                400,
+            )
+        return _json_no_store(
+            {
+                "ok": True,
+                "beneficiary": out,
+                "message": out.get("message") or beneficiary_action_message(str(data.get("action") or "")),
+                "csrf_token": issue_csrf_token(),
+            }
+        )
 
     @_banorte_access_required
     def banorte_beneficiarios_page():
@@ -1218,6 +1267,12 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/drafts/<int:draft_id>/rows/<int:row_id>/apply",
         endpoint="banorte_draft_row_apply",
         view_func=banorte_draft_row_apply,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/drafts/<int:draft_id>/add-payment",
+        endpoint="banorte_draft_add_payment",
+        view_func=banorte_draft_add_payment,
         methods=["POST"],
     )
     bp.add_url_rule(

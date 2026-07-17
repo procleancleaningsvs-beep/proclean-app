@@ -761,6 +761,129 @@ def apply_draft_row(
     return get_draft(db_path, draft_id)  # type: ignore[return-value]
 
 
+def add_draft_payment(
+    db_path: str,
+    draft_id: int,
+    user: str,
+    expected_revision: int,
+    *,
+    beneficiary_id: int,
+    amount_final: str,
+) -> dict[str, Any]:
+    """Append a payment row from an active Banorte beneficiary + positive amount."""
+    from modules.nomina.banorte.money import parse_money, to_cents
+    from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
+
+    money = parse_money(str(amount_final))
+    if money.error == "zero" or (money.ok and money.amount is not None and to_cents(money.amount) <= 0):
+        raise ValueError("amount_must_be_positive")
+    if not money.ok or money.amount is None:
+        raise ValueError("amount_invalid")
+    cents = to_cents(money.amount)
+    if cents <= 0:
+        raise ValueError("amount_must_be_positive")
+
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        draft_meta = conn.execute(
+            "SELECT origin_kind, status FROM nomina_banorte_export_drafts WHERE id=?",
+            (int(draft_id),),
+        ).fetchone()
+        if draft_meta is None:
+            raise ValueError("draft_not_found")
+        if draft_meta["status"] != "OPEN":
+            raise ValueError("draft_not_open")
+        origin_kind = str(draft_meta["origin_kind"])
+        ben_row = conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(beneficiary_id),),
+        ).fetchone()
+        if ben_row is None:
+            raise ValueError("beneficiary_not_found")
+        ben = dict(ben_row)
+        if ben.get("record_status") != "ACTIVO":
+            raise ValueError("beneficiary_not_active")
+        state = compute_row_state_from_beneficiary(
+            amount_final_cents=cents,
+            beneficiary=ben,
+            origin_kind="MANUAL_CAPTURE" if origin_kind == "MANUAL_CAPTURE" else origin_kind,
+            banco_snapshot="Banorte",
+        )
+        if int(state.get("included") or 0) != 1:
+            raise ValueError("beneficiary_not_usable")
+        _bump_or_stale(conn, draft_id, expected_revision, user)
+        pos = int(
+            conn.execute(
+                "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM nomina_banorte_export_draft_rows WHERE draft_id=?",
+                (int(draft_id),),
+            ).fetchone()["p"]
+        )
+        now = _now()
+        cur = conn.execute(
+            """
+            INSERT INTO nomina_banorte_export_draft_rows (
+                draft_id, position, calculo_row_id, nombre_recibido, nss_snapshot, banco_snapshot,
+                beneficiary_id, employee_number_snapshot, account_number_snapshot,
+                amount_original_cents, amount_final_cents, included, match_kind, alias_id,
+                row_state, warnings_json, user_decision_json, excluded_at, excluded_by
+            ) VALUES (?,?,NULL,?,NULL,?,?,?,?,?,?,1,'EXACT',NULL,?,?,?,NULL,NULL)
+            """,
+            (
+                int(draft_id),
+                pos,
+                str(ben["nombre_original"]),
+                "Banorte",
+                int(beneficiary_id),
+                ben["employee_number_effective"],
+                ben["account_number"],
+                cents,
+                cents,
+                str(state["row_state"]),
+                json.dumps(state.get("warnings") or [], ensure_ascii=False),
+                "{}",
+            ),
+        )
+        row_id = int(cur.lastrowid)
+        after_row = conn.execute(
+            "SELECT * FROM nomina_banorte_export_draft_rows WHERE id=?",
+            (row_id,),
+        ).fetchone()
+        before = {
+            "nombre_recibido": str(ben["nombre_original"]),
+            "beneficiary_id": None,
+            "amount_final_cents": 0,
+            "included": 0,
+            "row_state": "EXCLUDED",
+            "excluded_at": now,
+            "excluded_by": user,
+        }
+        _insert_draft_event(
+            conn,
+            draft_id=int(draft_id),
+            row_id=row_id,
+            action="APPLY_BENEFICIARY",
+            reversible=1,
+            target_event_id=None,
+            before=before,
+            after=dict(after_row),
+            revision_before=int(expected_revision),
+            revision_after=int(expected_revision) + 1,
+            user=user,
+        )
+        conn.commit()
+    except DraftStaleError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return get_draft(db_path, draft_id)  # type: ignore[return-value]
+
+
 def undo_last_draft_mutation(
     db_path: str,
     draft_id: int,
