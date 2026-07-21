@@ -143,6 +143,25 @@ def nav_show_comparativo(role: str) -> bool:
     return role in COMPARATIVO_ROLES
 
 
+def can_access_gestion_idse_sua(role: str) -> bool:
+    """Shell del hub: cualquier rol autenticado válido (matriz definitiva en fase posterior)."""
+    return role in VALID_USER_ROLES
+
+
+def nav_show_gestion_idse_sua(role: str) -> bool:
+    return can_access_gestion_idse_sua(role)
+
+
+def nav_show_imss_exportacion_link(role: str) -> bool:
+    """Acceso sidebar al módulo exportacion_imss; oculto tras unificación visual (ruta viva)."""
+    return False
+
+
+def nav_show_comparativo_export_links(role: str) -> bool:
+    """Accesos sidebar Comparativo semanal / Reporte mensual; ocultos tras unificación (rutas vivas)."""
+    return False
+
+
 def login_home_endpoint(role: str) -> str:
     if role == "admin":
         return "dashboard"

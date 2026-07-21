@@ -54,6 +54,9 @@ from modules.roles_access import (
     nav_show_carrier_vitroflex,
     nav_show_checkid,
     nav_show_comparativo,
+    nav_show_comparativo_export_links,
+    nav_show_gestion_idse_sua,
+    nav_show_imss_exportacion_link,
     nav_show_headcount_auditoria,
     nav_show_headcount_cliente,
     nav_show_headcount_conteo,
@@ -308,9 +311,12 @@ def create_app() -> Flask:
             "nav_show_finiquitos": nav_show_finiquitos(role),
             "nav_show_facturacion": nav_show_facturacion(role),
             "nav_show_imss_movimientos": nav_show_imss_movimientos(role),
+            "nav_show_imss_exportacion_link": nav_show_imss_exportacion_link(role),
             "nav_show_carrier_vitroflex": nav_show_carrier_vitroflex(role),
             "nav_show_checkid": nav_show_checkid(role),
             "nav_show_comparativo": nav_show_comparativo(role),
+            "nav_show_comparativo_export_links": nav_show_comparativo_export_links(role),
+            "nav_show_gestion_idse_sua": nav_show_gestion_idse_sua(role),
             "nav_show_headcount_module": nav_show_headcount_module(role),
             "nav_show_headcount_auditoria": nav_show_headcount_auditoria(role),
             "nav_show_headcount_cliente": nav_show_headcount_cliente(role),
@@ -344,6 +350,8 @@ def create_app() -> Flask:
         if path.startswith("/facturacion"):
             return
         if path.startswith("/exportacion-imss"):
+            return
+        if path.startswith("/gestion-idse-sua"):
             return
         if path.startswith("/formatos/nuevo"):
             return
@@ -1052,6 +1060,7 @@ def create_app() -> Flask:
     from modules.examenes_medicos.blueprint import register_examenes_medicos
     from modules.comparativo.routes import comparativo_bp
     from modules.exportacion_imss.routes import exportacion_imss_bp
+    from modules.gestion_idse_sua import gestion_idse_sua_bp
     from modules.nomina.blueprint import register_nomina
     from modules.facturacion.blueprint import register_facturacion
 
@@ -1066,6 +1075,7 @@ def create_app() -> Flask:
     register_headcount(app)
     app.register_blueprint(comparativo_bp)
     app.register_blueprint(exportacion_imss_bp)
+    app.register_blueprint(gestion_idse_sua_bp)
 
     return app
 

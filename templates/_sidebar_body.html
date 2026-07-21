@@ -43,12 +43,22 @@
        class="nav-link{% if ep == 'historial' %} active{% endif %}"
        {% if ep == 'historial' %}aria-current="page"{% endif %}>
       <i data-lucide="clock" class="nav-icon" aria-hidden="true"></i><span>Historial de movimientos</span></a>
-    {% if user_role in ['admin', 'coordinador', 'cobranza'] %}
+    {% if nav_show_imss_exportacion_link and user_role in ['admin', 'coordinador', 'cobranza'] %}
     <a href="{{ url_for('exportacion_imss.index') }}"
        class="nav-link{% if request.blueprint == 'exportacion_imss' %} active{% endif %}"
        {% if request.blueprint == 'exportacion_imss' %}aria-current="page"{% endif %}>
       <i data-lucide="download" class="nav-icon" aria-hidden="true"></i><span>Movimientos IMSS</span></a>
     {% endif %}
+  </div>
+  {% endif %}
+
+  {% if nav_show_gestion_idse_sua %}
+  <div class="nav-group">
+    <span class="nav-group-label">IDSE / SUA</span>
+    <a href="{{ url_for('gestion_idse_sua.hub') }}"
+       class="nav-link{% if request.blueprint == 'gestion_idse_sua' %} active{% endif %}"
+       {% if request.blueprint == 'gestion_idse_sua' %}aria-current="page"{% endif %}>
+      <i data-lucide="shield" class="nav-icon" aria-hidden="true"></i><span>Gestión IDSE / SUA</span></a>
   </div>
   {% endif %}
 
@@ -146,7 +156,7 @@
   </div>
   {% endif %}
 
-  {% if nav_show_checkid or nav_show_comparativo %}
+  {% if nav_show_checkid or nav_show_comparativo_export_links %}
   <div class="nav-group">
     <span class="nav-group-label">Herramientas</span>
     {% if nav_show_checkid %}
@@ -155,7 +165,7 @@
        {% if ep == 'checkid_consulta' %}aria-current="page"{% endif %}>
       <i data-lucide="search" class="nav-icon" aria-hidden="true"></i><span>CheckID</span></a>
     {% endif %}
-    {% if nav_show_comparativo %}
+    {% if nav_show_comparativo_export_links %}
     <a href="{{ url_for('comparativo.index') }}"
        class="nav-link{% if ep == 'comparativo.index' %} active{% endif %}"
        {% if ep == 'comparativo.index' %}aria-current="page"{% endif %}>

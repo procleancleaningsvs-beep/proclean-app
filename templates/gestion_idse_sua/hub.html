@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+{% endblock %}
+
+{% block content %}
+<section class="page-head pc-hub-hero pc-form-hero gis-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">IDSE / SUA</span>
+    <h2 class="pc-page-title">Gestión IDSE / SUA</h2>
+    <p class="pc-page-subtitle">Centro operativo para nóminas, movimientos afiliatorios y reportes mensuales. Elige un área para continuar.</p>
+  </div>
+</section>
+
+<div class="gis-hub pc-safe-zone">
+  <section class="gis-areas" aria-label="Áreas principales">
+    {% for area in areas %}
+      {% if area.available and area.href %}
+      <a class="gis-card" data-gis-area="{{ area.key }}" href="{{ area.href }}">
+        <span class="gis-card__icon" aria-hidden="true"><i data-lucide="{{ area.icon }}"></i></span>
+        <span class="gis-card__body">
+          <span class="gis-card__title">{{ area.title }}</span>
+          <span class="gis-card__desc">{{ area.description }}</span>
+          <span class="gis-card__action">Abrir</span>
+        </span>
+      </a>
+      {% else %}
+      <div class="gis-card gis-card--locked" data-gis-area="{{ area.key }}" aria-disabled="true">
+        <span class="gis-card__icon" aria-hidden="true"><i data-lucide="{{ area.icon }}"></i></span>
+        <span class="gis-card__body">
+          <span class="gis-card__title">{{ area.title }}</span>
+          <span class="gis-card__desc">{{ area.description }}</span>
+          <span class="gis-card__locked">{{ area.locked_reason or 'No disponible para tu rol.' }}</span>
+        </span>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </section>
+
+  <div class="gis-support">
+    <section class="gis-panel" aria-labelledby="gis-pendientes-title">
+      <h3 id="gis-pendientes-title" class="gis-panel__title">Pendientes</h3>
+      <p class="gis-empty" role="status">Sin pendientes por ahora. Las alertas operativas aparecerán aquí cuando existan importaciones, revisiones o movimientos por resolver.</p>
+    </section>
+
+    <section class="gis-panel" aria-labelledby="gis-historial-title">
+      <h3 id="gis-historial-title" class="gis-panel__title">Historial</h3>
+      <ul class="gis-historial-list">
+        {% for item in historial_links %}
+        <li>
+          <a href="{{ item.href }}">{{ item.label }}</a>
+          <span class="gis-historial-note">{{ item.note }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+</div>
+{% endblock %}
