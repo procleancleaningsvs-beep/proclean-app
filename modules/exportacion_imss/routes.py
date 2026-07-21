@@ -265,6 +265,7 @@ def cargar_comparativo_semanal():
 
 
 @exportacion_imss_bp.route("/debug-reporte/<cliente>/<int:anio>/<int:mes>")
+@_login_required_page
 def debug_reporte(cliente: str, anio: int, mes: int):
     import json
     import os
