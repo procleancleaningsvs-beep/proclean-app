@@ -179,8 +179,8 @@ def test_area_full_routes(tmp_path, monkeypatch):
     assert r2.status_code in {302, 301}
     assert "/exportacion-imss" in (r2.headers.get("Location") or "")
     r3 = client.get("/gestion-idse-sua/reportes", follow_redirects=False)
-    assert r3.status_code in {302, 301}
-    assert "reporte-mensual" in (r3.headers.get("Location") or "")
+    assert r3.status_code == 200
+    assert "Reportes mensuales" in r3.get_data(as_text=True)
 
 
 def test_area_nominas_forbidden_for_nomina(tmp_path, monkeypatch):

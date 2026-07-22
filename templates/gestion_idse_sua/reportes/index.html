@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <span class="gis-hero__badge">Reportes</span>
+    <h2 class="gis-hero__title">Reportes mensuales</h2>
+    <p class="gis-hero__sub">Consolide 4–6 semanas importadas, revise trayectoria mensual y exporte movimientos afiliatorios confirmados.</p>
+    <div class="gis-hero__btns">
+      <a class="btn btn-primary" href="{{ url_for('gestion_idse_sua.reportes_create') }}">Crear reporte mensual</a>
+      <a class="btn btn-secondary" href="{{ legacy_url }}">Abrir reporte mensual anterior</a>
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.hub') }}">Volver al hub</a>
+    </div>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <section class="gis-nom-card">
+    <h3>Reportes recientes</h3>
+    {% if recent %}
+    <div class="table-responsive">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Mes</th>
+            <th>Semanas</th>
+            <th>Personas</th>
+            <th>Pendientes</th>
+            <th>Estado</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in recent %}
+          <tr>
+            <td>{{ row.cliente }}</td>
+            <td>{{ row.mes_label }}</td>
+            <td>{{ row.week_count or 0 }}</td>
+            <td>{{ row.person_count or 0 }}</td>
+            <td>{{ row.pending_count or 0 }}</td>
+            <td>{{ row.estado }}</td>
+            <td><a href="{{ url_for('gestion_idse_sua.reportes_workspace', report_id=row.id) }}">Abrir</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="gis-empty" role="status">Aún no hay reportes mensuales en SQLite. Cree el primero seleccionando semanas confirmadas desde Nóminas y análisis.</p>
+    <p><a href="{{ url_for('gestion_idse_sua.reportes_create') }}">Crear reporte mensual</a> · <a href="{{ nominas_url }}">Ir a Nóminas y análisis</a></p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

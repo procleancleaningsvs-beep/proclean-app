@@ -1,0 +1,117 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <span class="gis-hero__badge">Reportes</span>
+    <h2 class="gis-hero__title">Crear reporte mensual</h2>
+    <p class="gis-hero__sub">Seleccione cliente, mes calendario y entre 4 y 6 semanas ya importadas con periodo confirmado.</p>
+    <div class="gis-hero__btns">
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.reportes_index') }}">Volver</a>
+      <a class="btn btn-secondary" href="{{ nominas_url }}">Nóminas y análisis</a>
+    </div>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <form method="post" action="{{ url_for('gestion_idse_sua.reportes_create') }}" id="create-report-form">
+    <section class="gis-nom-card">
+      <h3>Paso 1 · Cliente y mes</h3>
+      <div class="form-row">
+        <label>Cliente
+          <select name="cliente" id="cliente" required>
+            <option value="">—</option>
+            {% for c in clientes %}
+            <option value="{{ c }}">{{ c }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Mes
+          <input type="number" name="mes" id="mes" min="1" max="12" required>
+        </label>
+        <label>Año
+          <input type="number" name="anio" id="anio" min="2020" max="2100" required>
+        </label>
+        <button type="button" class="btn btn-secondary" id="load-weeks">Cargar semanas</button>
+      </div>
+    </section>
+
+    <section class="gis-nom-card">
+      <h3>Paso 2 · Semanas disponibles</h3>
+      <p id="weeks-hint">Elija cliente, mes y año para listar semanas que intersectan el mes.</p>
+      <div id="weeks-container"></div>
+    </section>
+
+    <section class="gis-nom-card">
+      <button class="btn btn-primary" type="submit" id="submit-report" disabled>Generar reporte</button>
+    </section>
+  </form>
+</div>
+
+<script>
+const semanasUrl = "{{ url_for('gestion_idse_sua.reportes_api_semanas') }}";
+const minWeeks = 4;
+const maxWeeks = 6;
+const loadBtn = document.getElementById('load-weeks');
+const container = document.getElementById('weeks-container');
+const hint = document.getElementById('weeks-hint');
+const submitBtn = document.getElementById('submit-report');
+
+function selectedCount() {
+  return container.querySelectorAll('input[name="period_ids"]:checked').length;
+}
+
+function updateSubmit() {
+  const count = selectedCount();
+  submitBtn.disabled = count < minWeeks || count > maxWeeks;
+  hint.textContent = `Seleccionadas: ${count}. Requiere entre ${minWeeks} y ${maxWeeks} semanas.`;
+}
+
+loadBtn.addEventListener('click', async () => {
+  const cliente = document.getElementById('cliente').value;
+  const mes = document.getElementById('mes').value;
+  const anio = document.getElementById('anio').value;
+  if (!cliente || !mes || !anio) return;
+  const res = await fetch(`${semanasUrl}?cliente=${encodeURIComponent(cliente)}&mes=${mes}&anio=${anio}`);
+  const data = await res.json();
+  container.innerHTML = '';
+  if (!data.ok || !data.weeks.length) {
+    hint.textContent = 'No hay semanas confirmadas para este cliente y mes. Importe nóminas primero.';
+    updateSubmit();
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'table';
+  table.innerHTML = `<thead><tr>
+    <th></th><th>Periodo</th><th>Archivo / hoja</th><th>Trabajadores</th>
+    <th>Identidades</th><th>Pendientes</th><th>Asistencia</th><th>Advertencias</th>
+  </tr></thead><tbody></tbody>`;
+  const tbody = table.querySelector('tbody');
+  data.weeks.forEach(week => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><input type="checkbox" name="period_ids" value="${week.period_id}"></td>
+      <td>${week.fecha_inicio} – ${week.fecha_fin}</td>
+      <td>${week.original_filename} / ${week.sheet_name}</td>
+      <td>${week.worker_count}</td>
+      <td>${week.confirmed_identities}</td>
+      <td>${week.pending_identities}</td>
+      <td>${week.attendance_status}</td>
+      <td>${(week.warnings || []).join('; ')}</td>`;
+    tbody.appendChild(tr);
+  });
+  container.appendChild(table);
+  container.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+    if (selectedCount() > maxWeeks) {
+      cb.checked = false;
+      alert(`Máximo ${maxWeeks} semanas.`);
+    }
+    updateSubmit();
+  }));
+  updateSubmit();
+});
+</script>
+{% endblock %}

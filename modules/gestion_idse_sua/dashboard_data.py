@@ -79,6 +79,42 @@ def recent_exportaciones(limit: int = 5) -> list[dict[str, Any]]:
 
 def recent_reportes(limit: int = 5) -> list[dict[str, Any]]:
     try:
+        import sqlite3
+        from flask import current_app
+
+        from modules.gestion_idse_sua.reportes.repository import list_recent_reports
+        from modules.gestion_idse_sua.reportes.schema import ensure_gis_monthly_tables
+        from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+        conn = sqlite3.connect(str(current_app.config["DATABASE"]))
+        conn.row_factory = sqlite3.Row
+        try:
+            ensure_gis_nominas_tables(conn)
+            ensure_gis_monthly_tables(conn)
+            items = list_recent_reports(conn, limit=limit)
+        finally:
+            conn.close()
+        if items:
+            out: list[dict[str, Any]] = []
+            for item in items:
+                mes = item.get("mes")
+                anio = item.get("anio")
+                mes_label = f"{int(mes):02d}/{int(anio)}" if mes and anio else "—"
+                out.append(
+                    {
+                        "cliente": str(item.get("cliente") or "").strip() or "—",
+                        "mes": mes_label,
+                        "semanas": item.get("week_count") or 0,
+                        "personas": item.get("person_count") or 0,
+                        "pendientes": item.get("pending_count") or 0,
+                        "estado": str(item.get("estado") or "borrador"),
+                        "id": item.get("id"),
+                    }
+                )
+            return out
+    except Exception:
+        pass
+    try:
         from modules.comparativo.comparativo_service import obtener_historial_reportes
 
         items = obtener_historial_reportes() or []

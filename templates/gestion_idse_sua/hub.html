@@ -58,8 +58,11 @@
                 <em>{{ row.fecha }}</em>
                 {% else %}
                 <strong>{{ row.cliente }}</strong>
-                <span>{{ row.mes }}</span>
-                <em>{{ row.estado }}</em>
+                <span>{{ row.mes }}{% if row.semanas %} · {{ row.semanas }} sem.{% endif %}</span>
+                <em>{{ row.estado }}{% if row.pendientes %} · {{ row.pendientes }} pend.{% endif %}</em>
+                {% if row.id %}
+                <a href="{{ url_for('gestion_idse_sua.reportes_workspace', report_id=row.id) }}">Abrir</a>
+                {% endif %}
                 {% endif %}
               </li>
               {% endfor %}

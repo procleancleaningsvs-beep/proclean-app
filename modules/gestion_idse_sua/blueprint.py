@@ -57,7 +57,7 @@ def _build_quick_actions(role: str) -> list[dict]:
         actions.append(
             {
                 "label": "Crear reporte mensual",
-                "href": url_for("comparativo.reporte_mensual_index"),
+                "href": url_for("gestion_idse_sua.reportes_index"),
                 "kind": "secondary",
             }
         )
@@ -106,9 +106,9 @@ def _build_areas(role: str) -> list[dict]:
             "icon": "bar-chart",
             "tone": "blue",
             "available": can_cmp,
-            "primary_href": url_for("comparativo.reporte_mensual_index") if can_cmp else None,
+            "primary_href": url_for("gestion_idse_sua.reportes_index") if can_cmp else None,
             "primary_label": "Abrir / crear reporte",
-            "full_href": url_for("gestion_idse_sua.area_reportes") if can_cmp else None,
+            "full_href": url_for("gestion_idse_sua.reportes_index") if can_cmp else None,
             "locked_reason": None
             if can_cmp
             else "Tu rol no tiene acceso al reporte mensual.",
@@ -137,9 +137,9 @@ def _build_historial_links(role: str) -> list[dict]:
         )
         links.append(
             {
-                "label": "Reportes mensuales",
+                "label": "Reporte mensual legado",
                 "href": url_for("comparativo.reporte_mensual_index"),
-                "note": "Historial dentro de Reportes mensuales.",
+                "note": "Respaldo del reporte mensual anterior (JSON).",
             }
         )
     return links
@@ -169,17 +169,8 @@ def area_movimientos():
     return redirect(url_for("exportacion_imss.index"))
 
 
-@gestion_idse_sua_bp.get("/reportes")
-@_login_required_page
-def area_reportes():
-    role = normalized_role(g.user)
-    if not can_access_gestion_idse_sua(role):
-        return redirect(url_for("login"))
-    if not can_access_comparativo(role):
-        abort(403)
-    return redirect(url_for("comparativo.reporte_mensual_index"))
-
-
 from modules.gestion_idse_sua.routes_nominas import register_nominas_routes
+from modules.gestion_idse_sua.routes_reportes import register_reportes_routes
 
 register_nominas_routes(gestion_idse_sua_bp, login_required=_login_required_page)
+register_reportes_routes(gestion_idse_sua_bp, login_required=_login_required_page)

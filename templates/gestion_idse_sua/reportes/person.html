@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <span class="gis-hero__badge">Persona</span>
+    <h2 class="gis-hero__title">{{ person.nombre_nomina or person.num_empleado }}</h2>
+    <p class="gis-hero__sub">{{ person.estado_mensual }} · NSS {{ person.nss or '—' }}</p>
+    <div class="gis-hero__btns">
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.reportes_workspace', report_id=report.id) }}">Volver al reporte</a>
+    </div>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <section class="gis-nom-card">
+    <h3>Asistencia mensual</h3>
+    <div class="table-responsive">
+      <table class="table">
+        <thead><tr><th>Día</th><th>Código</th><th>Estado</th></tr></thead>
+        <tbody>
+          {% for d in person.daily %}
+          {% if d.code %}
+          <tr>
+            <td>{{ d.fecha_iso }}</td>
+            <td>{{ d.code }}</td>
+            <td>{{ d.status or 'ok' }}</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="gis-nom-card">
+    <h3>Eventos</h3>
+    <ul>
+      {% for e in events %}
+      <li>{{ e.event_type_suggested }} · {{ e.fecha_suggested or 'sin fecha' }} · {{ e.estado }}</li>
+      {% else %}
+      <li>Sin eventos operativos para esta persona.</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  {% if person.warnings %}
+  <section class="gis-nom-card">
+    <h3>Advertencias</h3>
+    <ul>{% for w in person.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}
