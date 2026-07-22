@@ -1,7 +1,9 @@
 """Build anonymized Pepsi-layout fixtures from operational evidence (read-only source).
 
-Run locally (requires source xlsm outside repo):
-  set GIS_PEPSI_EVIDENCE_XLSM=c:\\Users\\Yahir\\Documents\\Nomina de Pepsi Definitiva 2026.xlsm
+CI uses the committed ``gis_pepsi_nomina_anon.xlsx`` and does not run this script.
+
+Local regeneration only (outside CI):
+  set GIS_PEPSI_EVIDENCE_XLSM=<path-to-local-evidence.xlsm>
   py -3 tests/fixtures/build_pepsi_nomina_fixtures.py
 """
 
@@ -15,7 +17,6 @@ from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
 FIXTURE_DIR = Path(__file__).resolve().parent
-DEFAULT_SOURCE = Path(r"c:\Users\Yahir\Documents\Nomina de Pepsi Definitiva 2026.xlsm")
 
 FAKE_WORKERS = [
     {
@@ -67,7 +68,13 @@ SHEET_SPECS = {
 
 
 def _source_path() -> Path:
-    return Path(os.environ.get("GIS_PEPSI_EVIDENCE_XLSM", str(DEFAULT_SOURCE)))
+    raw = (os.environ.get("GIS_PEPSI_EVIDENCE_XLSM") or "").strip()
+    if not raw:
+        raise FileNotFoundError(
+            "Define GIS_PEPSI_EVIDENCE_XLSM con la ruta local del XLSM de evidencia "
+            "(solo regeneración local; CI no lo requiere)."
+        )
+    return Path(raw)
 
 
 def _copy_top_block(src_ws, dst_ws, *, max_row: int = 6, max_col: int = 19) -> None:
