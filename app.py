@@ -1255,6 +1255,9 @@ def init_db() -> None:
         from modules.facturacion.db import ensure_facturacion_tables
 
         ensure_facturacion_tables(conn)
+        from modules.gestion_idse_sua.db import ensure_gestion_idse_sua_tables
+
+        ensure_gestion_idse_sua_tables(conn)
         conn.commit()
 
         count = conn.execute("SELECT COUNT(*) AS total FROM users").fetchone()[0]
