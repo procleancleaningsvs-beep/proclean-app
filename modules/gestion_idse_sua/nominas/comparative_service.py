@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
 from typing import Any
 
 from modules.comparativo.headcount_service import obtener_activos
 from modules.gestion_idse_sua.nominas import repository as repo
 from modules.gestion_idse_sua.nominas.match_service import match_worker
-from modules.gestion_idse_sua.nominas.planta_cliente_service import detect_planta_cliente_conflict
+from modules.gestion_idse_sua.nominas.planta_cliente_service import (
+    detect_planta_cliente_conflict,
+    period_cut_warnings,
+)
 from modules.gestion_idse_sua.nominas.text_utils import json_dumps, normalize_name, normalize_upper
 
 
@@ -77,15 +79,15 @@ def run_comparative(
 
     warnings: list[str] = []
     period = conn.execute("SELECT * FROM gis_nomina_periods WHERE id = ?", (period_id,)).fetchone()
-    if period and period["fecha_fin"]:
-        try:
-            fin = datetime.strptime(str(period["fecha_fin"]), "%d/%m/%Y").date()
-            if (datetime.now().date() - fin).days > 14:
-                warnings.append(
-                    "Headcount es una fotografía actual; la comparación puede no representar el estado histórico del periodo."
-                )
-        except ValueError:
-            pass
+    if period and period["fecha_inicio"] and period["fecha_fin"]:
+        warnings.extend(
+            period_cut_warnings(
+                conn,
+                cliente_norm,
+                str(period["fecha_inicio"]),
+                str(period["fecha_fin"]),
+            )
+        )
 
     matched_hc_names: set[str] = set()
     nomina_matched_names: set[str] = set()

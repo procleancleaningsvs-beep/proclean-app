@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from modules.gestion_idse_sua.nominas.text_utils import normalize_planta, normalize_upper
@@ -111,32 +111,72 @@ def detect_planta_cliente_conflict(
     return p != h
 
 
-def expected_cut_warning(
-    conn: sqlite3.Connection,
-    cliente: str | None,
-    fecha_inicio: str,
-    fecha_fin: str,
-) -> str | None:
-    if not cliente:
-        return None
-    row = conn.execute(
-        "SELECT weekday_start FROM gis_cliente_corte WHERE cliente = ?",
-        (normalize_upper(cliente),),
-    ).fetchone()
-    if row is None or row["weekday_start"] is None:
-        return None
+def expected_prior_week_bounds(
+    *,
+    weekday_start: int,
+    reference: date | None = None,
+) -> tuple[date, date]:
+    ref = reference or date.today()
+    days_since = (ref.weekday() - weekday_start) % 7
+    current_week_start = ref - timedelta(days=days_since)
+    prior_start = current_week_start - timedelta(days=7)
+    prior_end = current_week_start - timedelta(days=1)
+    return prior_start, prior_end
 
+
+def _parse_period_dates(fecha_inicio: str, fecha_fin: str) -> tuple[date, date] | None:
     from modules.gestion_idse_sua.nominas.period_parser import parse_manual_period
 
     try:
         period = parse_manual_period(fecha_inicio, fecha_fin)
     except ValueError:
         return None
-    from datetime import datetime
-
     start = datetime.strptime(period["fecha_inicio"], "%d/%m/%Y").date()
+    end = datetime.strptime(period["fecha_fin"], "%d/%m/%Y").date()
+    return start, end
+
+
+def period_cut_warnings(
+    conn: sqlite3.Connection,
+    cliente: str | None,
+    fecha_inicio: str,
+    fecha_fin: str,
+    *,
+    reference: date | None = None,
+) -> list[str]:
+    if not cliente:
+        return []
+    row = conn.execute(
+        "SELECT weekday_start FROM gis_cliente_corte WHERE cliente = ?",
+        (normalize_upper(cliente),),
+    ).fetchone()
+    if row is None or row["weekday_start"] is None:
+        return []
+
+    parsed = _parse_period_dates(fecha_inicio, fecha_fin)
+    if parsed is None:
+        return []
+    start, end = parsed
     expected = int(row["weekday_start"])
+    names = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    warnings: list[str] = []
     if start.weekday() != expected:
-        names = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
-        return f"El inicio del periodo no coincide con el corte esperado ({names[expected]})."
-    return None
+        warnings.append(f"El inicio del periodo no coincide con el corte esperado ({names[expected]}).")
+
+    prior_start, prior_end = expected_prior_week_bounds(weekday_start=expected, reference=reference)
+    if start != prior_start or end != prior_end:
+        warnings.append(
+            "El periodo confirmado no corresponde a la semana anterior esperada según el corte del cliente; "
+            "puede continuar importando periodos históricos."
+        )
+    return warnings
+
+
+def expected_cut_warning(
+    conn: sqlite3.Connection,
+    cliente: str | None,
+    fecha_inicio: str,
+    fecha_fin: str,
+) -> str | None:
+    warnings = period_cut_warnings(conn, cliente, fecha_inicio, fecha_fin)
+    return " | ".join(warnings) if warnings else None
