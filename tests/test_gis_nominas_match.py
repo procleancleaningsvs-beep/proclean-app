@@ -76,3 +76,14 @@ def test_match_unmatched():
     worker = {"nombre_normalizado": "SIN COINCIDENCIA"}
     match = match_worker(worker, HC)
     assert match["status"] == "unmatched"
+
+
+def test_match_alias_resolves_to_headcount(monkeypatch):
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.nominas.match_service.alias_service.obtener_alias",
+        lambda _name: "MARIA GARCIA SOLIS",
+    )
+    worker = {"nombre_normalizado": "MARIA G SOLIS"}
+    match = match_worker(worker, HC)
+    assert match["match_method"] == "alias"
+    assert match["status"] == "confirmed"

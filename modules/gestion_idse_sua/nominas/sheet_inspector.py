@@ -12,6 +12,7 @@ from modules.gestion_idse_sua.nominas.constants import (
     PUESTO_HEADERS,
     TOTAL_MARKERS,
 )
+from modules.gestion_idse_sua.nominas.attendance_parser import detect_attendance_block
 from modules.gestion_idse_sua.nominas.period_parser import detect_period
 from modules.gestion_idse_sua.nominas.text_utils import normalize_header, normalize_upper
 
@@ -30,6 +31,17 @@ def _find_col(header: dict[str, int], aliases: frozenset[str]) -> int | None:
         if alias in header:
             return header[alias]
     return None
+
+
+def _sheet_has_contpaq_marker(ws: Worksheet, sheet_name: str) -> bool:
+    if "CONTPAQ" in normalize_upper(sheet_name):
+        return True
+    for row_idx in range(1, min(ws.max_row or 1, 6) + 1):
+        for col_idx in range(1, min(ws.max_column or 1, 12) + 1):
+            value = normalize_upper(ws.cell(row_idx, col_idx).value)
+            if "INFORMACION DEL EMPLEADO" in value:
+                return True
+    return False
 
 
 def inspect_sheet(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidden: bool) -> dict[str, Any]:
@@ -83,7 +95,21 @@ def inspect_sheet(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidden
     period_text = " ".join([sheet_name, *preview_lines[:3]])
     period = detect_period(period_text)
 
-    if evidence_score >= 3 and estimated_rows >= 1:
+    attendance_block = None
+    if header_row_idx and nombre_col:
+        attendance_block = detect_attendance_block(
+            ws,
+            header_row=int(header_row_idx),
+            nombre_col=int(nombre_col),
+        )
+        if attendance_block:
+            evidence_score += 2
+
+    if evidence_score >= 3 and estimated_rows >= 1 and attendance_block:
+        suggested = "nomina"
+    elif _sheet_has_contpaq_marker(ws, sheet_name):
+        suggested = "auxiliar"
+    elif evidence_score >= 3 and estimated_rows >= 1:
         suggested = "nomina"
     elif evidence_score >= 1 or "AUX" in normalize_upper(sheet_name):
         suggested = "auxiliar"
@@ -98,6 +124,7 @@ def inspect_sheet(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidden
         "estimated_rows": estimated_rows,
         "suggested_period": period,
         "header_row": header_row_idx,
+        "attendance_block": attendance_block,
         "columns": {
             "nombre": nombre_col,
             "num_empleado": num_col,

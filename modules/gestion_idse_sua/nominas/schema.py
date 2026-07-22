@@ -12,6 +12,8 @@ GIS_NOMINA_TABLES: tuple[str, ...] = (
     "gis_nomina_matches",
     "gis_nomina_comparatives",
     "gis_nomina_results",
+    "gis_nomina_attendance",
+    "gis_nomina_attendance_corrections",
 )
 
 _PLANTA_CLIENTE_SEED: tuple[tuple[str, str], ...] = (
@@ -188,6 +190,52 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_gis_nomina_results_comp ON gis_nomina_results(comparative_id)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gis_nomina_attendance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            worker_id INTEGER NOT NULL,
+            period_id INTEGER NOT NULL,
+            column_index INTEGER NOT NULL CHECK (column_index BETWEEN 1 AND 7),
+            column_number INTEGER,
+            fecha_iso TEXT NOT NULL,
+            header_original TEXT,
+            code_original TEXT,
+            code_normalized TEXT,
+            interpretation_status TEXT NOT NULL DEFAULT 'ok',
+            warning TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(worker_id) REFERENCES gis_nomina_workers(id) ON DELETE CASCADE,
+            FOREIGN KEY(period_id) REFERENCES gis_nomina_periods(id) ON DELETE CASCADE,
+            UNIQUE(worker_id, period_id, column_index)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gis_nomina_attendance_period ON gis_nomina_attendance(period_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gis_nomina_attendance_worker ON gis_nomina_attendance(worker_id)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gis_nomina_attendance_corrections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            attendance_id INTEGER NOT NULL,
+            code_original TEXT NOT NULL,
+            code_interpreted TEXT,
+            code_corrected TEXT NOT NULL,
+            corrected_by TEXT,
+            corrected_at TEXT NOT NULL,
+            reason TEXT,
+            FOREIGN KEY(attendance_id) REFERENCES gis_nomina_attendance(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_gis_nomina_attendance_corr ON gis_nomina_attendance_corrections(attendance_id)"
     )
     _seed_planta_cliente(conn)
 

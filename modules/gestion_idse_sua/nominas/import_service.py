@@ -7,10 +7,12 @@ from typing import Any
 from openpyxl import load_workbook
 
 from modules.gestion_idse_sua.nominas import repository as repo
+from modules.gestion_idse_sua.nominas.attendance_parser import extract_attendance_for_workers
+from modules.gestion_idse_sua.nominas.attendance_service import persist_attendance
 from modules.gestion_idse_sua.nominas.period_parser import merge_cut_warning, parse_manual_period
 from modules.gestion_idse_sua.nominas.planta_cliente_service import suggest_cliente_for_planta
 from modules.gestion_idse_sua.nominas.sheet_inspector import inspect_sheet
-from modules.gestion_idse_sua.nominas.text_utils import file_sha256
+from modules.gestion_idse_sua.nominas.text_utils import file_sha256, json_dumps
 from modules.gestion_idse_sua.nominas.worker_extractor import extract_workers
 
 
@@ -82,9 +84,14 @@ def confirm_period(
     fecha_fin: str,
     cliente: str | None = None,
     confirmed: bool = True,
+    extra_warnings: list[str] | None = None,
 ) -> dict[str, Any]:
     period = parse_manual_period(fecha_inicio, fecha_fin)
     period = merge_cut_warning(period, cliente, conn)
+    if extra_warnings:
+        from modules.gestion_idse_sua.nominas.period_signals import merge_signal_warnings
+
+        period["cut_warning"] = merge_signal_warnings(period.get("cut_warning"), extra_warnings)
     conflicts = repo.find_conflicting_periods(
         conn,
         fecha_inicio=period["fecha_inicio"],
@@ -128,6 +135,31 @@ def extract_sheet_workers(
     wb.close()
 
     workers = payload["workers"]
+    inspection = payload.get("inspection") or {}
+    header_row = int(inspection.get("header_row") or 0)
+    nombre_col = (inspection.get("columns") or {}).get("nombre")
+    attendance_payload = {"block": None, "rows": {}, "warnings": []}
+    if header_row and nombre_col:
+        attendance_payload = extract_attendance_for_workers(
+            ws,
+            header_row=header_row,
+            nombre_col=int(nombre_col),
+            fecha_inicio=str(period["fecha_inicio"]),
+            fecha_fin=str(period["fecha_fin"]),
+            worker_rows=[int(w["row_number"]) for w in workers],
+        )
+        for worker in workers:
+            import json
+
+            try:
+                row_data = json.loads(worker.get("row_json") or "{}")
+            except json.JSONDecodeError:
+                row_data = {}
+            row_data["attendance"] = attendance_payload["rows"].get(int(worker["row_number"]), [])
+            if attendance_payload.get("block"):
+                row_data["attendance_block"] = attendance_payload["block"]
+            worker["row_json"] = json_dumps(row_data)
+
     for worker in workers:
         planta = worker.get("planta_normalizada") or worker.get("planta_original") or ""
         suggestion = suggest_cliente_for_planta(conn, planta, headcount_rows)
@@ -137,6 +169,13 @@ def extract_sheet_workers(
 
     conn.execute("DELETE FROM gis_nomina_workers WHERE period_id = ?", (period["id"],))
     worker_ids = repo.insert_workers(conn, int(period["id"]), workers)
+    persist_attendance(
+        conn,
+        period_id=int(period["id"]),
+        worker_ids=worker_ids,
+        worker_row_numbers=[int(w["row_number"]) for w in workers],
+        attendance_payload=attendance_payload,
+    )
     import_row = conn.execute(
         "SELECT import_id FROM gis_nomina_sheets WHERE id = ?",
         (sheet_id,),
@@ -149,4 +188,8 @@ def extract_sheet_workers(
         "worker_ids": worker_ids,
         "workers_count": len(workers),
         "discarded": payload["discarded"],
+        "attendance": {
+            "block_detected": attendance_payload.get("block") is not None,
+            "warnings": attendance_payload.get("warnings") or [],
+        },
     }

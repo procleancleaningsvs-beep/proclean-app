@@ -115,6 +115,65 @@
     </table>
   </section>
 
+  <section class="gis-nom-card">
+    <h3>Asistencia semanal</h3>
+    {% if attendance %}
+    <table class="gis-nom-table" id="gis-nom-attendance">
+      <thead>
+        <tr>
+          <th>Empleado</th>
+          <th>Nombre</th>
+          {% for i in range(1, 8) %}<th>Día {{ i }}</th>{% endfor %}
+          <th>Totales</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in attendance %}
+        <tr>
+          <td>{{ row.num_empleado }}</td>
+          <td>{{ row.nombre_normalizado }}</td>
+          {% for i in range(1, 8) %}
+          <td>
+            {{ row.days.get(i, '') }}
+            {% set meta = row.day_meta.get(i) %}
+            {% if meta and meta.attendance_id %}
+            <form method="post" action="{{ url_for('gestion_idse_sua.nominas_correct_attendance', attendance_id=meta.attendance_id) }}" class="gis-nom-inline">
+              <input name="code_corrected" placeholder="Corregir" maxlength="4" size="3">
+              <button type="submit" class="btn btn-secondary btn-sm">OK</button>
+            </form>
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td>A:{{ row.totals.A }} F:{{ row.totals.F }} I:{{ row.totals.I }} V:{{ row.totals.V }} D:{{ row.totals.D }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p>No se detectó bloque de asistencia en la hoja importada.</p>
+    {% endif %}
+    {% if trajectory and trajectory.trajectories %}
+    <h4>Trayectoria (periodo actual)</h4>
+    <ul class="gis-nom-trajectory">
+      {% for key, item in trajectory.trajectories.items() %}
+      <li>
+        <strong>{{ key }}</strong>
+        {% if item.events %}
+        <ul>
+          {% for ev in item.events %}
+          <li>{{ ev.event_type }} — {{ ev.fecha_sugerida }} ({{ ev.reason }})</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        {% if item.warnings %}
+        <p class="gis-nom-warn">{{ item.warnings|join(' · ') }}</p>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
   {% if results %}
   <section class="gis-nom-card">
     <h3>Resultados del comparativo</h3>

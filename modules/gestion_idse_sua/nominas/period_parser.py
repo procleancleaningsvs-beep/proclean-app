@@ -42,7 +42,15 @@ _PERIOD_PATTERNS: tuple[re.Pattern[str], ...] = (
         re.I,
     ),
     re.compile(
-        r"(?P<d1>\d{1,2})\s+AL\s+(?P<d2>\d{1,2})\s+(?P<m2>[A-ZÁÉÍÓÚÑ]+)",
+        r"(?P<d1>\d{1,2})\s+AL\s+(?P<d2>\d{1,2})\s+(?:DE\s+)?(?P<m2>[A-ZÁÉÍÓÚÑ]+)",
+        re.I,
+    ),
+    re.compile(
+        r"(?P<d1>\d{1,2})\s+AL\s+(?P<d2>\d{1,2})\s+DE\s+(?P<m2>[A-ZÁÉÍÓÚÑ]+)",
+        re.I,
+    ),
+    re.compile(
+        r"PERIODO\s+DEL\s+D[IÍ]A\s+(?P<d1>\d{1,2})\s+AL\s+(?P<d2>\d{1,2})\s+DE\s+(?P<m2>[A-ZÁÉÍÓÚÑ]+)",
         re.I,
     ),
     re.compile(
@@ -100,13 +108,23 @@ def detect_period(text: str, *, reference: date | None = None, explicit_year: in
         d2 = int(groups["d2"])
         m2_token = groups["m2"]
         m1_token = groups.get("m1") or m2_token
+        if groups.get("m1") is None and d1 > d2:
+            end_month = _month_num(m2_token)
+            if end_month is not None and end_month > 1:
+                prev_month_tokens = [k for k, v in _MONTHS.items() if v == end_month - 1 and len(k) <= 3]
+                if prev_month_tokens:
+                    m1_token = prev_month_tokens[0]
 
         start = _build_date(d1, m1_token, ref, year_in_text or explicit_year)
         end = _build_date(d2, m2_token, ref, year_in_text or explicit_year)
         if start is None or end is None:
             continue
         if end < start:
-            end = date(end.year + 1, end.month, end.day) if end.month <= start.month else end
+            end_month = _month_num(m2_token)
+            if end_month is not None and start.month > end_month:
+                end = date(end.year + 1, end.month, end.day)
+            elif end.month <= start.month:
+                end = date(start.year + 1, end.month, end.day)
 
         days = (end - start).days + 1
         iso_week = start.isocalendar()[1]

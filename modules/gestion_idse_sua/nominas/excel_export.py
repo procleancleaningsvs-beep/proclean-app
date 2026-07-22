@@ -125,10 +125,62 @@ def generate_comparative_excel(
         ws_det.cell(r, 23, row.get("observaciones") or "")
 
     ws_asist = wb["Asistencia Semanal"]
-    ws_asist["A3"] = (
-        "Advertencia: la asistencia semanal no fue interpretada en esta fase; "
-        "se conservaron datos de fila para procesamiento posterior."
-    )
+    asist_start = HEADER_ROW_BY_SHEET["Asistencia Semanal"] + 1
+    from datetime import datetime, timedelta
+
+    period_start = datetime.strptime(str(period["fecha_inicio"]), "%d/%m/%Y").date()
+    attendance_rows = repo.list_attendance_for_period(conn, int(comp["period_id"]))
+    by_worker: dict[int, list[dict[str, Any]]] = {}
+    for row in attendance_rows:
+        by_worker.setdefault(int(row["worker_id"]), []).append(row)
+
+    worker_results = {int(r["worker_id"]): r for r in results if r.get("worker_id")}
+    asist_idx = 0
+    for worker_id, days in sorted(by_worker.items(), key=lambda item: item[1][0].get("nombre_normalizado") or ""):
+        result = worker_results.get(worker_id, {})
+        r = asist_start + asist_idx
+        asist_idx += 1
+        day_map = {int(d["column_index"]): d for d in days}
+        totals = {"A": 0, "F": 0, "I": 0, "V": 0, "D": 0}
+        first_a = ""
+        last_a = ""
+        for code_key in totals:
+            totals[code_key] = sum(1 for d in days if d.get("code_normalized") == code_key)
+        for d in sorted(days, key=lambda x: int(x["column_index"])):
+            if d.get("code_normalized") == "A":
+                if not first_a:
+                    first_a = d["fecha_iso"]
+                last_a = d["fecha_iso"]
+
+        ws_asist.cell(r, 1, worker_id)
+        ws_asist.cell(r, 2, comp["cliente"])
+        ws_asist.cell(r, 3, result.get("planta_normalizada") or "")
+        ws_asist.cell(r, 4, result.get("num_empleado") or days[0].get("num_empleado") or "")
+        ws_asist.cell(r, 5, result.get("nombre_normalizado") or days[0].get("nombre_normalizado") or "")
+        ws_asist.cell(r, 6, result.get("puesto") or "")
+        status_bits = [str(result.get("match_status") or "")]
+        review_days = [d for d in days if str(d.get("interpretation_status") or "") not in {"ok", "empty", "corrected"}]
+        if review_days:
+            status_bits.append("revisión asistencia")
+        ws_asist.cell(r, 7, " · ".join(bit for bit in status_bits if bit))
+        for day_idx in range(1, 8):
+            cell = day_map.get(day_idx)
+            display = ""
+            if cell:
+                code = cell.get("code_normalized") or cell.get("code_original") or ""
+                fecha = cell.get("fecha_iso") or ""
+                display = f"{code} ({fecha})" if code and fecha else code
+            ws_asist.cell(r, 7 + day_idx, display)
+        ws_asist.cell(r, 15, totals["A"])
+        ws_asist.cell(r, 16, totals["F"])
+        ws_asist.cell(r, 17, totals["I"])
+        ws_asist.cell(r, 18, totals["V"])
+        ws_asist.cell(r, 19, totals["D"])
+        ws_asist.cell(r, 20, first_a)
+        ws_asist.cell(r, 21, last_a)
+
+    if not by_worker:
+        ws_asist["A3"] = "No se detectó asistencia semanal interpretada para este periodo."
 
     ws_mov = wb["Movimientos Seleccionados"]
     mov_start = HEADER_ROW_BY_SHEET["Movimientos Seleccionados"] + 1

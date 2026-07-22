@@ -338,3 +338,107 @@ def update_result_decision(
         """,
         (decision_final, tipo_sugerido, fecha_sugerida, result_id),
     )
+
+
+def insert_attendance(conn: sqlite3.Connection, row: dict[str, Any]) -> int:
+    cur = conn.execute(
+        """
+        INSERT INTO gis_nomina_attendance
+            (worker_id, period_id, column_index, column_number, fecha_iso, header_original,
+             code_original, code_normalized, interpretation_status, warning, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            row["worker_id"],
+            row["period_id"],
+            row["column_index"],
+            row.get("column_number"),
+            row["fecha_iso"],
+            row.get("header_original"),
+            row.get("code_original"),
+            row.get("code_normalized"),
+            row.get("interpretation_status") or "ok",
+            row.get("warning"),
+            row["created_at"],
+            row["updated_at"],
+        ),
+    )
+    return int(cur.lastrowid)
+
+
+def list_attendance_for_period(conn: sqlite3.Connection, period_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT a.*, w.num_empleado, w.nombre_normalizado, w.nombre_original
+        FROM gis_nomina_attendance a
+        JOIN gis_nomina_workers w ON w.id = a.worker_id
+        WHERE a.period_id = ?
+        ORDER BY w.row_number, a.column_index
+        """,
+        (period_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_attendance_for_worker(conn: sqlite3.Connection, worker_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT * FROM gis_nomina_attendance
+        WHERE worker_id = ?
+        ORDER BY fecha_iso, column_index
+        """,
+        (worker_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_attendance(conn: sqlite3.Connection, attendance_id: int) -> dict[str, Any] | None:
+    row = conn.execute("SELECT * FROM gis_nomina_attendance WHERE id = ?", (attendance_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def apply_attendance_correction(
+    conn: sqlite3.Connection,
+    attendance_id: int,
+    *,
+    code_corrected: str,
+    corrected_by: str | None,
+    reason: str | None = None,
+) -> int:
+    row = get_attendance(conn, attendance_id)
+    if row is None:
+        raise ValueError("Registro de asistencia no encontrado.")
+    now = datetime.now().isoformat(timespec="seconds")
+    cur = conn.execute(
+        """
+        INSERT INTO gis_nomina_attendance_corrections
+            (attendance_id, code_original, code_interpreted, code_corrected, corrected_by, corrected_at, reason)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            attendance_id,
+            row.get("code_original") or "",
+            row.get("code_normalized") or "",
+            code_corrected,
+            corrected_by,
+            now,
+            reason,
+        ),
+    )
+    conn.execute(
+        """
+        UPDATE gis_nomina_attendance
+        SET code_normalized = ?, interpretation_status = 'corrected', updated_at = ?
+        WHERE id = ?
+        """,
+        (code_corrected, now, attendance_id),
+    )
+    return int(cur.lastrowid)
+
+
+def list_attendance_corrections(conn: sqlite3.Connection, attendance_id: int) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT * FROM gis_nomina_attendance_corrections WHERE attendance_id = ? ORDER BY id",
+        (attendance_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]

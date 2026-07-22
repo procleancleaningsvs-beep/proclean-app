@@ -6,10 +6,18 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
+from io import BytesIO
+
 from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, url_for
+from openpyxl import load_workbook
 
 from modules.comparativo.headcount_service import obtener_activos
 from modules.gestion_idse_sua.nominas import repository as repo
+from modules.gestion_idse_sua.nominas.attendance_service import (
+    correct_attendance_code,
+    list_period_attendance,
+    trajectory_for_periods,
+)
 from modules.gestion_idse_sua.nominas.comparative_service import enrich_workers, run_comparative, summarize_results
 from modules.gestion_idse_sua.nominas.excel_export import generate_comparative_excel
 from modules.gestion_idse_sua.nominas.import_service import (
@@ -20,9 +28,11 @@ from modules.gestion_idse_sua.nominas.import_service import (
 )
 from modules.gestion_idse_sua.nominas.match_service import confirm_match, manual_search, match_worker
 from modules.gestion_idse_sua.nominas.movement_bridge import convert_results_to_movements
+from modules.gestion_idse_sua.nominas.period_signals import collect_period_signals
 from modules.gestion_idse_sua.nominas.planta_cliente_service import confirm_planta_cliente
 from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
-from modules.gestion_idse_sua.nominas.ui_helpers import format_period_hint, parse_suggested_period
+from modules.gestion_idse_sua.nominas.sheet_inspector import inspect_sheet
+from modules.gestion_idse_sua.nominas.ui_helpers import format_period_hint, group_attendance_rows, parse_suggested_period
 from modules.exportacion_imss.exportacion_service import obtener_patrones
 from modules.roles_access import can_access_comparativo, normalized_role
 
@@ -171,6 +181,35 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
+            import_row = conn.execute(
+                "SELECT s.import_id, s.sheet_index, s.sheet_name FROM gis_nomina_sheets s WHERE s.id = ?",
+                (sheet_id,),
+            ).fetchone()
+            if import_row is None:
+                abort(404)
+            import_id = int(import_row["import_id"])
+            staging = _staging_path(import_id)
+            if not staging.is_file():
+                flash("Vuelva a cargar el archivo Excel para continuar.", "error")
+                return redirect(url_for("gestion_idse_sua.nominas_index"))
+
+            file_bytes = staging.read_bytes()
+            wb = load_workbook(BytesIO(file_bytes), data_only=True)
+            ws = wb.worksheets[int(import_row["sheet_index"])]
+            inspection = inspect_sheet(
+                ws,
+                sheet_name=str(import_row["sheet_name"]),
+                sheet_index=int(import_row["sheet_index"]),
+                is_hidden=False,
+            )
+            signal_payload = collect_period_signals(
+                ws,
+                sheet_name=str(import_row["sheet_name"]),
+                header_row=inspection.get("header_row"),
+                nombre_col=(inspection.get("columns") or {}).get("nombre"),
+            )
+            wb.close()
+
             period = confirm_period(
                 conn,
                 sheet_id,
@@ -178,6 +217,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 fecha_fin=request.form.get("fecha_fin", ""),
                 cliente=(request.form.get("cliente") or "").strip() or None,
                 confirmed=True,
+                extra_warnings=signal_payload.get("warnings") or [],
             )
             if period.get("conflicts"):
                 flash(
@@ -185,17 +225,10 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     "Puede continuar importando semanas históricas.",
                     "warning",
                 )
-            import_row = conn.execute(
-                "SELECT import_id FROM gis_nomina_sheets WHERE id = ?",
-                (sheet_id,),
-            ).fetchone()
-            import_id = int(import_row["import_id"]) if import_row else 0
-            staging = _staging_path(import_id)
-            if not staging.is_file():
-                flash("Vuelva a cargar el archivo Excel para continuar.", "error")
-                return redirect(url_for("gestion_idse_sua.nominas_index"))
+            if signal_payload.get("warnings"):
+                flash("Advertencia: se detectaron señales de periodo contradictorias.", "warning")
             hc = obtener_activos()
-            extract_sheet_workers(conn, file_bytes=staging.read_bytes(), sheet_id=sheet_id, headcount_rows=hc)
+            extract_sheet_workers(conn, file_bytes=file_bytes, sheet_id=sheet_id, headcount_rows=hc)
             period = repo.get_period_for_sheet(conn, sheet_id)
             enrich_workers(conn, int(period["id"]), hc)
             staging.unlink(missing_ok=True)
@@ -230,7 +263,11 @@ def register_nominas_routes(bp, *, login_required) -> None:
             for worker in workers:
                 row = dict(worker)
                 row["match"] = repo.get_match(conn, int(worker["id"]))
+                row["attendance"] = repo.list_attendance_for_worker(conn, int(worker["id"]))
                 enriched_workers.append(row)
+            attendance = list_period_attendance(conn, period_id)
+            attendance_by_id = {int(a["id"]): a for a in attendance}
+            trajectory = trajectory_for_periods(conn, [period_id])
             comparative = conn.execute(
                 "SELECT * FROM gis_nomina_comparatives WHERE period_id = ? ORDER BY id DESC LIMIT 1",
                 (period_id,),
@@ -254,6 +291,9 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 clientes=_clientes_disponibles(),
                 patrones=obtener_patrones(),
                 comp_warnings=comp_warnings,
+                attendance=group_attendance_rows(attendance),
+                attendance_by_id=attendance_by_id,
+                trajectory=trajectory,
                 legacy_url=url_for("comparativo.index"),
                 movimientos_url=url_for("exportacion_imss.index"),
             )
@@ -412,6 +452,47 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 (comparative_id,),
             ).fetchone()
             return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(period["period_id"])))
+        finally:
+            conn.close()
+
+    @route("/nominas/attendance/<int:attendance_id>/correct", methods=["POST"], endpoint="nominas_correct_attendance")
+    def nominas_correct_attendance(attendance_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            row = repo.get_attendance(conn, attendance_id)
+            if row is None:
+                abort(404)
+            correct_attendance_code(
+                conn,
+                attendance_id=attendance_id,
+                code_corrected=(request.form.get("code_corrected") or "").strip(),
+                corrected_by=str(g.user.get("username") if g.user else ""),
+                reason=(request.form.get("reason") or "").strip() or None,
+            )
+            flash("Corrección de asistencia registrada.", "success")
+            period_id = int(row["period_id"])
+            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return redirect(request.referrer or url_for("gestion_idse_sua.nominas_index"))
+        finally:
+            conn.close()
+
+    @route("/nominas/api/trajectory", methods=["GET"], endpoint="nominas_trajectory_api")
+    def nominas_trajectory_api():
+        _require_comparativo()
+        raw = (request.args.get("period_ids") or "").strip()
+        if not raw:
+            return jsonify({"error": "period_ids requerido"}), 400
+        period_ids = [int(x) for x in raw.split(",") if x.strip().isdigit()]
+        if not period_ids:
+            return jsonify({"error": "period_ids inválido"}), 400
+        conn = _db_from_app()
+        try:
+            ensure_gis_nominas_tables(conn)
+            payload = trajectory_for_periods(conn, period_ids)
+            return jsonify(payload)
         finally:
             conn.close()
 
