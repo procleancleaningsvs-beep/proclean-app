@@ -143,10 +143,14 @@ def test_hub_cards_point_to_legacy_destinations_when_allowed(tmp_path, monkeypat
     assert 'data-gis-area="nominas"' in html
     assert 'data-gis-area="movimientos"' in html
     assert 'data-gis-area="reportes"' in html
+    assert "Importar nómina" in html
+    assert "Nuevo movimiento" in html
+    assert "Crear reporte mensual" in html
+    assert "Abrir área completa" in html
     assert 'href="/comparativo/"' in html
     assert 'href="/exportacion-imss/"' in html
     assert "/comparativo/reporte-mensual" in html
-    assert "gis-card--locked" not in html
+    assert "gis-mod--locked" not in html
 
 
 def test_hub_locked_cards_for_nomina_without_comparativo(tmp_path, monkeypatch):
@@ -156,11 +160,34 @@ def test_hub_locked_cards_for_nomina_without_comparativo(tmp_path, monkeypatch):
     html = client.get("/gestion-idse-sua/").get_data(as_text=True)
     assert "Nóminas y análisis" in html
     assert 'data-gis-area="nominas"' in html
-    assert "gis-card--locked" in html
+    assert "gis-mod--locked" in html
     assert "sin acceso" in html.lower() or "no tiene acceso" in html.lower()
-    # Movimientos remains available
     assert 'data-gis-area="movimientos"' in html
     assert 'href="/exportacion-imss/"' in html
+    assert "Importar nómina" not in html
+    assert "Crear reporte mensual" not in html
+
+
+def test_area_full_routes_redirect(tmp_path, monkeypatch):
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    r1 = client.get("/gestion-idse-sua/nominas", follow_redirects=False)
+    assert r1.status_code in {302, 301}
+    assert "/comparativo" in (r1.headers.get("Location") or "")
+    r2 = client.get("/gestion-idse-sua/movimientos", follow_redirects=False)
+    assert r2.status_code in {302, 301}
+    assert "/exportacion-imss" in (r2.headers.get("Location") or "")
+    r3 = client.get("/gestion-idse-sua/reportes", follow_redirects=False)
+    assert r3.status_code in {302, 301}
+    assert "reporte-mensual" in (r3.headers.get("Location") or "")
+
+
+def test_area_nominas_forbidden_for_nomina(tmp_path, monkeypatch):
+    app = _full_app(tmp_path, monkeypatch, role="nomina")
+    client = app.test_client()
+    _login(client)
+    assert client.get("/gestion-idse-sua/nominas").status_code == 403
 
 
 def test_constancias_movimientos_imss_nav_preserved(tmp_path, monkeypatch):

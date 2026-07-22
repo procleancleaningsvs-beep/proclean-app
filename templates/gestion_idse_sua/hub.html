@@ -4,36 +4,83 @@
 {% endblock %}
 
 {% block content %}
-<section class="page-head pc-hub-hero pc-form-hero gis-hero">
-  <div class="pc-hub-hero__main">
-    <span class="pc-page-eyebrow">IDSE / SUA</span>
-    <h2 class="pc-page-title">Gestión IDSE / SUA</h2>
-    <p class="pc-page-subtitle">Centro operativo para nóminas, movimientos afiliatorios y reportes mensuales. Elige un área para continuar.</p>
+<section class="gis-hero" aria-labelledby="gis-title">
+  <div class="gis-hero__content">
+    <span class="gis-hero__badge">IDSE / SUA</span>
+    <h2 id="gis-title" class="gis-hero__title">Gestión IDSE / SUA</h2>
+    <p class="gis-hero__sub">Centro operativo para nóminas, movimientos afiliatorios y reportes mensuales. Inicia desde aquí y abre el área completa cuando lo necesites.</p>
+    <div class="gis-hero__btns">
+      {% for action in quick_actions %}
+      <a class="btn {% if action.kind == 'primary' %}btn-primary{% else %}btn-secondary{% endif %}" href="{{ action.href }}">{{ action.label }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="gis-hero__deco" aria-hidden="true">
+    <svg viewBox="0 0 180 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="18" y="28" width="90" height="78" rx="14" fill="#E8F4FB" stroke="#1A90C6" stroke-opacity=".35" stroke-width="2"/>
+      <rect x="48" y="48" width="96" height="72" rx="14" fill="#F3FAF0" stroke="#47A92C" stroke-opacity=".4" stroke-width="2"/>
+      <circle cx="126" cy="42" r="18" fill="#1A90C6" fill-opacity=".14"/>
+      <circle cx="58" cy="108" r="12" fill="#47A92C" fill-opacity=".18"/>
+    </svg>
   </div>
 </section>
 
-<div class="gis-hub pc-safe-zone">
-  <section class="gis-areas" aria-label="Áreas principales">
+<div class="gis-dash pc-safe-zone">
+  <section class="gis-grid" aria-label="Áreas principales">
     {% for area in areas %}
-      {% if area.available and area.href %}
-      <a class="gis-card" data-gis-area="{{ area.key }}" href="{{ area.href }}">
-        <span class="gis-card__icon" aria-hidden="true"><i data-lucide="{{ area.icon }}"></i></span>
-        <span class="gis-card__body">
-          <span class="gis-card__title">{{ area.title }}</span>
-          <span class="gis-card__desc">{{ area.description }}</span>
-          <span class="gis-card__action">Abrir</span>
-        </span>
-      </a>
-      {% else %}
-      <div class="gis-card gis-card--locked" data-gis-area="{{ area.key }}" aria-disabled="true">
-        <span class="gis-card__icon" aria-hidden="true"><i data-lucide="{{ area.icon }}"></i></span>
-        <span class="gis-card__body">
-          <span class="gis-card__title">{{ area.title }}</span>
-          <span class="gis-card__desc">{{ area.description }}</span>
-          <span class="gis-card__locked">{{ area.locked_reason or 'No disponible para tu rol.' }}</span>
-        </span>
+    <article class="gis-mod {% if not area.available %}gis-mod--locked{% endif %}" data-gis-area="{{ area.key }}">
+      <header class="gis-mod__head gis-mod__head--{{ area.tone }}">
+        <span class="gis-mod__icon gis-mod__icon--{{ area.tone }}" aria-hidden="true"><i data-lucide="{{ area.icon }}"></i></span>
+        <div>
+          <h3 class="gis-mod__title">{{ area.title }}</h3>
+          <p class="gis-mod__desc">{{ area.description }}</p>
+        </div>
+      </header>
+
+      <div class="gis-mod__body">
+        {% if area.available %}
+          {% if area.primary_href %}
+          <a class="btn btn-secondary gis-mod__cta" href="{{ area.primary_href }}">{{ area.primary_label }}</a>
+          {% endif %}
+
+          <div class="gis-recent" aria-label="Registros recientes">
+            {% if area.recent %}
+            <ul class="gis-recent__list">
+              {% for row in area.recent %}
+              <li class="gis-recent__item">
+                {% if area.recent_kind == 'comparativos' %}
+                <strong>{{ row.cliente }}</strong>
+                <span>{{ row.periodo }}</span>
+                <em>{{ row.estado }}</em>
+                {% elif area.recent_kind == 'movimientos' %}
+                <strong>{{ row.nombre }}</strong>
+                <span>{{ row.tipo }}</span>
+                <em>{{ row.fecha }}</em>
+                {% else %}
+                <strong>{{ row.cliente }}</strong>
+                <span>{{ row.mes }}</span>
+                <em>{{ row.estado }}</em>
+                {% endif %}
+              </li>
+              {% endfor %}
+            </ul>
+            {% else %}
+            <p class="gis-empty gis-empty--compact" role="status">{{ area.recent_empty }}</p>
+            {% endif %}
+          </div>
+        {% else %}
+          <p class="gis-locked" role="status">{{ area.locked_reason }}</p>
+        {% endif %}
       </div>
-      {% endif %}
+
+      <footer class="gis-mod__foot">
+        {% if area.available and area.full_href %}
+        <a class="gis-open-full" href="{{ area.full_href }}">Abrir área completa</a>
+        {% else %}
+        <span class="gis-open-full gis-open-full--disabled" aria-disabled="true">Área no disponible</span>
+        {% endif %}
+      </footer>
+    </article>
     {% endfor %}
   </section>
 
@@ -53,6 +100,20 @@
         </li>
         {% endfor %}
       </ul>
+      {% if recent_exportaciones %}
+      <div class="gis-export-snip">
+        <h4 class="gis-export-snip__title">Últimas exportaciones</h4>
+        <ul class="gis-recent__list">
+          {% for ex in recent_exportaciones %}
+          <li class="gis-recent__item">
+            <strong>{{ ex.tipo }}</strong>
+            <span>RP {{ ex.rp }}</span>
+            <em>{{ ex.fecha }}</em>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
     </section>
   </div>
 </div>

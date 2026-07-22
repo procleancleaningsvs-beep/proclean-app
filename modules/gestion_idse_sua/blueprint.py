@@ -1,12 +1,13 @@
-"""Blueprint: hub unificado Gestión IDSE / SUA (shell Phase 1)."""
+"""Blueprint: hub unificado Gestión IDSE / SUA."""
 
 from __future__ import annotations
 
 import os
 from functools import wraps
 
-from flask import Blueprint, g, redirect, render_template, url_for
+from flask import Blueprint, abort, g, redirect, render_template, url_for
 
+from modules.gestion_idse_sua import dashboard_data
 from modules.roles_access import (
     can_access_comparativo,
     can_access_gestion_idse_sua,
@@ -34,66 +35,111 @@ def _login_required_page(view):
     return wrapped
 
 
+def _build_quick_actions(role: str) -> list[dict]:
+    can_cmp = can_access_comparativo(role)
+    actions: list[dict] = []
+    if can_cmp:
+        actions.append(
+            {
+                "label": "Importar nómina",
+                "href": url_for("comparativo.index"),
+                "kind": "primary",
+            }
+        )
+    actions.append(
+        {
+            "label": "Nuevo movimiento",
+            "href": url_for("exportacion_imss.index"),
+            "kind": "secondary",
+        }
+    )
+    if can_cmp:
+        actions.append(
+            {
+                "label": "Crear reporte mensual",
+                "href": url_for("comparativo.reporte_mensual_index"),
+                "kind": "secondary",
+            }
+        )
+    return actions
+
+
 def _build_areas(role: str) -> list[dict]:
     can_cmp = can_access_comparativo(role)
-    # exportacion_imss solo exige sesión; no ampliar permisos aquí.
     return [
         {
             "key": "nominas",
             "title": "Nóminas y análisis",
-            "description": "Importación semanal, aliases y comparativo contra Headcount.",
+            "description": "Importación semanal y comparativo contra Headcount.",
             "icon": "trending-up",
+            "tone": "blue",
             "available": can_cmp,
-            "href": url_for("comparativo.index") if can_cmp else None,
+            "primary_href": url_for("comparativo.index") if can_cmp else None,
+            "primary_label": "Importar / abrir comparativo",
+            "full_href": url_for("gestion_idse_sua.area_nominas") if can_cmp else None,
             "locked_reason": None
             if can_cmp
-            else "Tu rol no tiene acceso al comparativo semanal. Solicita acceso o usa otra cuenta autorizada.",
+            else "Tu rol no tiene acceso al comparativo semanal.",
+            "recent": dashboard_data.recent_comparativos(5) if can_cmp else [],
+            "recent_empty": "Aún no hay comparativos guardados.",
+            "recent_kind": "comparativos",
         },
         {
             "key": "movimientos",
             "title": "Movimientos afiliatorios",
-            "description": "Captura, validación y exportación de movimientos para IDSE y SUA.",
+            "description": "Captura, validación y exportación IDSE / SUA.",
             "icon": "download",
+            "tone": "green",
             "available": True,
-            "href": url_for("exportacion_imss.index"),
+            "primary_href": url_for("exportacion_imss.index"),
+            "primary_label": "Nuevo movimiento",
+            "full_href": url_for("gestion_idse_sua.area_movimientos"),
             "locked_reason": None,
+            "recent": dashboard_data.recent_movimientos(5),
+            "recent_empty": "Aún no hay movimientos capturados.",
+            "recent_kind": "movimientos",
         },
         {
             "key": "reportes",
             "title": "Reportes mensuales",
-            "description": "Consolidación mensual de personal fijo y rotativo.",
+            "description": "Consolidación mensual de personal y asistencia.",
             "icon": "bar-chart",
+            "tone": "blue",
             "available": can_cmp,
-            "href": url_for("comparativo.reporte_mensual_index") if can_cmp else None,
+            "primary_href": url_for("comparativo.reporte_mensual_index") if can_cmp else None,
+            "primary_label": "Abrir / crear reporte",
+            "full_href": url_for("gestion_idse_sua.area_reportes") if can_cmp else None,
             "locked_reason": None
             if can_cmp
-            else "Tu rol no tiene acceso al reporte mensual. Solicita acceso o usa otra cuenta autorizada.",
+            else "Tu rol no tiene acceso al reporte mensual.",
+            "recent": dashboard_data.recent_reportes(5) if can_cmp else [],
+            "recent_empty": "Aún no hay reportes mensuales guardados.",
+            "recent_kind": "reportes",
         },
     ]
 
 
 def _build_historial_links(role: str) -> list[dict]:
-    links: list[dict] = []
-    links.append(
+    links: list[dict] = [
         {
-            "label": "Historial de exportaciones IDSE/SUA",
+            "label": "Exportaciones IDSE/SUA",
             "href": url_for("exportacion_imss.index"),
-            "note": "Disponible dentro de Movimientos afiliatorios.",
+            "note": "Historial dentro de Movimientos afiliatorios.",
         }
-    )
+    ]
     if can_access_comparativo(role):
         links.append(
             {
-                "label": "Historial de comparativos semanales",
+                "label": "Comparativos semanales",
                 "href": url_for("comparativo.index"),
-                "note": "Disponible dentro de Nóminas y análisis.",
+                "note": "Historial dentro de Nóminas y análisis.",
             }
         )
         links.append(
             {
-                "label": "Reportes mensuales guardados",
+                "label": "Reportes mensuales",
                 "href": url_for("comparativo.reporte_mensual_index"),
-                "note": "Disponible dentro de Reportes mensuales.",
+                "note": "Historial dentro de Reportes mensuales.",
             }
         )
     return links
@@ -108,5 +154,38 @@ def hub():
     return render_template(
         "gestion_idse_sua/hub.html",
         areas=_build_areas(role),
+        quick_actions=_build_quick_actions(role),
         historial_links=_build_historial_links(role),
+        recent_exportaciones=dashboard_data.recent_exportaciones(5),
     )
+
+
+@gestion_idse_sua_bp.get("/nominas")
+@_login_required_page
+def area_nominas():
+    role = normalized_role(g.user)
+    if not can_access_gestion_idse_sua(role):
+        return redirect(url_for("login"))
+    if not can_access_comparativo(role):
+        abort(403)
+    return redirect(url_for("comparativo.index"))
+
+
+@gestion_idse_sua_bp.get("/movimientos")
+@_login_required_page
+def area_movimientos():
+    role = normalized_role(g.user)
+    if not can_access_gestion_idse_sua(role):
+        return redirect(url_for("login"))
+    return redirect(url_for("exportacion_imss.index"))
+
+
+@gestion_idse_sua_bp.get("/reportes")
+@_login_required_page
+def area_reportes():
+    role = normalized_role(g.user)
+    if not can_access_gestion_idse_sua(role):
+        return redirect(url_for("login"))
+    if not can_access_comparativo(role):
+        abort(403)
+    return redirect(url_for("comparativo.reporte_mensual_index"))
