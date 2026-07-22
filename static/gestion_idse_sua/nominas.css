@@ -1,0 +1,95 @@
+.gis-hero--compact {
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.gis-nom-card {
+  background: #fff;
+  border: 1px solid rgba(26, 144, 198, 0.12);
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.gis-nom-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.gis-nom-table th,
+.gis-nom-table td {
+  border-bottom: 1px solid #eef2f5;
+  padding: 0.55rem 0.45rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.gis-nom-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.gis-nom-kpis div {
+  background: #fff;
+  border-radius: 12px;
+  border: 1px solid #e8eef3;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.gis-nom-kpis strong {
+  font-size: 1.25rem;
+}
+
+.gis-nom-kpis span {
+  color: #6e6e73;
+  font-size: 0.78rem;
+}
+
+.gis-nom-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.gis-nom-warn {
+  color: #b45309;
+  font-size: 0.85rem;
+}
+
+.gis-nom-search {
+  width: 100%;
+  max-width: 420px;
+  margin-bottom: 0.75rem;
+}
+
+.gis-semaforo {
+  display: inline-block;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  text-transform: capitalize;
+}
+
+.gis-semaforo--verde { background: #dcfce7; color: #166534; }
+.gis-semaforo--rojo { background: #fee2e2; color: #991b1b; }
+.gis-semaforo--amarillo { background: #fef9c3; color: #854d0e; }
+.gis-semaforo--azul { background: #dbeafe; color: #1e40af; }
+
+.btn-sm {
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+@media (max-width: 720px) {
+  .gis-nom-table {
+    display: block;
+    overflow-x: auto;
+  }
+}

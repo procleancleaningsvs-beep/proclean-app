@@ -135,7 +135,7 @@ def test_legacy_routes_still_reachable(tmp_path, monkeypatch):
     assert client.get("/comparativo/reporte-mensual").status_code == 200
 
 
-def test_hub_cards_point_to_legacy_destinations_when_allowed(tmp_path, monkeypatch):
+def test_hub_cards_point_to_new_nominas_workspace(tmp_path, monkeypatch):
     app = _full_app(tmp_path, monkeypatch, role="admin")
     client = app.test_client()
     _login(client)
@@ -147,7 +147,7 @@ def test_hub_cards_point_to_legacy_destinations_when_allowed(tmp_path, monkeypat
     assert "Nuevo movimiento" in html
     assert "Crear reporte mensual" in html
     assert "Abrir área completa" in html
-    assert 'href="/comparativo/"' in html
+    assert 'href="/gestion-idse-sua/nominas"' in html
     assert 'href="/exportacion-imss/"' in html
     assert "/comparativo/reporte-mensual" in html
     assert "gis-mod--locked" not in html
@@ -168,13 +168,13 @@ def test_hub_locked_cards_for_nomina_without_comparativo(tmp_path, monkeypatch):
     assert "Crear reporte mensual" not in html
 
 
-def test_area_full_routes_redirect(tmp_path, monkeypatch):
+def test_area_full_routes(tmp_path, monkeypatch):
     app = _full_app(tmp_path, monkeypatch, role="admin")
     client = app.test_client()
     _login(client)
     r1 = client.get("/gestion-idse-sua/nominas", follow_redirects=False)
-    assert r1.status_code in {302, 301}
-    assert "/comparativo" in (r1.headers.get("Location") or "")
+    assert r1.status_code == 200
+    assert "Nóminas y análisis" in r1.get_data(as_text=True)
     r2 = client.get("/gestion-idse-sua/movimientos", follow_redirects=False)
     assert r2.status_code in {302, 301}
     assert "/exportacion-imss" in (r2.headers.get("Location") or "")

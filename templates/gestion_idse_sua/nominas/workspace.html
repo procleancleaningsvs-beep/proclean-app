@@ -1,0 +1,122 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <h2 class="gis-hero__title">Espacio de comparativo</h2>
+    <p class="gis-hero__sub">{{ period.original_filename }} · {{ period.sheet_name }} · {{ period.fecha_inicio }} — {{ period.fecha_fin }}</p>
+    {% if period.cut_warning %}<p class="gis-nom-warn">{{ period.cut_warning }}</p>{% endif %}
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <section class="gis-nom-kpis">
+    <div><strong>{{ workers|length }}</strong><span>En nómina</span></div>
+    <div><strong>{{ totals.get('coincidencias', 0) }}</strong><span>Coincidencias</span></div>
+    <div><strong>{{ totals.get('altas', 0) }}</strong><span>Posibles altas</span></div>
+    <div><strong>{{ totals.get('bajas', 0) }}</strong><span>Posibles bajas</span></div>
+    <div><strong>{{ totals.get('revisiones', 0) }}</strong><span>Revisiones</span></div>
+  </section>
+
+  <section class="gis-nom-card">
+    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_compare', period_id=period.id) }}" class="gis-nom-inline">
+      <label>Cliente
+        <select name="cliente" required>
+          <option value="">Seleccione…</option>
+          {% for c in clientes %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="btn btn-primary" type="submit">Comparar contra Headcount</button>
+      {% if comparative %}
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_export', comparative_id=comparative.id) }}">Exportar Excel</a>
+      {% endif %}
+    </form>
+  </section>
+
+  <section class="gis-nom-card">
+    <h3>Trabajadores importados</h3>
+    <input type="search" id="gis-nom-search" placeholder="Buscar nombre, empleado, NSS…" class="gis-nom-search">
+    <table class="gis-nom-table" id="gis-nom-workers">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Empleado</th>
+          <th>Nombre</th>
+          <th>Planta</th>
+          <th>Cliente</th>
+          <th>Match</th>
+          <th>Acciones</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for w in workers %}
+        <tr data-search="{{ w.num_empleado }} {{ w.nombre_normalizado }} {{ (w.match.nss if w.match else '') }}">
+          <td>{{ w.row_number }}</td>
+          <td>{{ w.num_empleado }}</td>
+          <td>{{ w.nombre_normalizado }}</td>
+          <td>{{ w.planta_normalizada or w.planta_original }}</td>
+          <td>{{ w.cliente_confirmado or w.cliente_sugerido or '—' }}</td>
+          <td>{{ w.match.status if w.match else 'sin match' }}</td>
+          <td>
+            <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_planta', worker_id=w.id) }}" class="gis-nom-inline">
+              <input name="planta" value="{{ w.planta_normalizada or w.planta_original }}" hidden>
+              <input name="cliente" placeholder="Cliente" required>
+              <button type="submit" class="btn btn-secondary btn-sm">Cliente</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+
+  {% if results %}
+  <section class="gis-nom-card">
+    <h3>Resultados del comparativo</h3>
+    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_convert', comparative_id=comparative.id) }}">
+      <table class="gis-nom-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Resultado</th>
+            <th>Semáforo</th>
+            <th>Nombre</th>
+            <th>Tipo</th>
+            <th>Fecha</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td>
+              {% if r.tipo_sugerido in ['ALTA', 'BAJA'] and r.conversion_status != 'converted' %}
+              <input type="checkbox" name="result_ids" value="{{ r.id }}">
+              {% endif %}
+            </td>
+            <td>{{ r.resultado }}</td>
+            <td><span class="gis-semaforo gis-semaforo--{{ r.semaforo }}">{{ r.semaforo }}</span></td>
+            <td>{{ r.nombre_normalizado or r.hc_nombre }}</td>
+            <td>{{ r.tipo_sugerido }}</td>
+            <td>{{ r.fecha_sugerida or '—' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <button class="btn btn-primary" type="submit">Enviar seleccionados a movimientos</button>
+      <a class="btn btn-secondary" href="{{ movimientos_url }}">Movimientos afiliatorios</a>
+    </form>
+  </section>
+  {% endif %}
+</div>
+<script>
+document.getElementById('gis-nom-search')?.addEventListener('input', (ev) => {
+  const q = ev.target.value.toLowerCase();
+  document.querySelectorAll('#gis-nom-workers tbody tr').forEach((row) => {
+    row.hidden = q && !(row.dataset.search || '').toLowerCase().includes(q);
+  });
+});
+</script>
+{% endblock %}

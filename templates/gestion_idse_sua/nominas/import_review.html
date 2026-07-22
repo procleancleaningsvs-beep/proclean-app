@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <h2 class="gis-hero__title">Clasificación de hojas</h2>
+    <p class="gis-hero__sub">{{ import_row.original_filename }}</p>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <form method="post" action="{{ url_for('gestion_idse_sua.nominas_classify', import_id=import_row.id) }}">
+    <table class="gis-nom-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Hoja</th>
+          <th>Visible</th>
+          <th>Sugerida</th>
+          <th>Filas est.</th>
+          <th>Clasificación</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sheet in sheets %}
+        <tr>
+          <td>{{ sheet.sheet_index + 1 }}</td>
+          <td>{{ sheet.sheet_name }}</td>
+          <td>{{ 'Oculta' if sheet.is_hidden else 'Visible' }}</td>
+          <td>{{ sheet.suggested_classification }}</td>
+          <td>{{ sheet.estimated_rows }}</td>
+          <td>
+            <select name="sheet_{{ sheet.id }}">
+              <option value="nomina" {% if sheet.suggested_classification == 'nomina' %}selected{% endif %}>Nómina</option>
+              <option value="auxiliar" {% if sheet.suggested_classification == 'auxiliar' %}selected{% endif %}>Auxiliar</option>
+              <option value="ignorada" {% if sheet.suggested_classification == 'ignorada' %}selected{% endif %}>Ignorada</option>
+            </select>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button class="btn btn-primary" type="submit">Confirmar y continuar</button>
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <span class="gis-hero__badge">Nóminas</span>
+    <h2 class="gis-hero__title">Nóminas y análisis</h2>
+    <p class="gis-hero__sub">Importe un Excel multihoja, confirme periodo y ejecute el comparativo manual contra Headcount.</p>
+    <div class="gis-hero__btns">
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.hub') }}">Volver al hub</a>
+      <a class="btn btn-secondary" href="{{ legacy_url }}">Comparativo legado</a>
+    </div>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  <section class="gis-nom-card">
+    <h3>Importar Excel</h3>
+    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_import') }}" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xlsx,.xls" required>
+      <button class="btn btn-primary" type="submit">Analizar hojas</button>
+    </form>
+  </section>
+
+  {% if recent %}
+  <section class="gis-nom-card">
+    <h3>Importaciones recientes</h3>
+    <ul class="gis-recent__list">
+      {% for row in recent %}
+      <li class="gis-recent__item">
+        <strong>{{ row.original_filename }}</strong>
+        <span>{{ row.uploaded_at }}</span>
+        <em>{{ row.status }}</em>
+        <a href="{{ url_for('gestion_idse_sua.nominas_import_review', import_id=row.id) }}">Abrir</a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

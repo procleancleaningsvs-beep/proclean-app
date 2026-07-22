@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+{% endblock %}
+{% block content %}
+<section class="gis-hero gis-hero--compact">
+  <div class="gis-hero__content">
+    <h2 class="gis-hero__title">Confirmar periodo</h2>
+    <p class="gis-hero__sub">Revise fechas y cliente antes de extraer trabajadores.</p>
+  </div>
+</section>
+
+<div class="gis-nom pc-safe-zone">
+  {% for sheet in sheets %}
+  <section class="gis-nom-card">
+    <h3>{{ sheet.sheet_name }}</h3>
+    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_period', sheet_id=sheet.id) }}">
+      <label>Cliente (referencia de corte)
+        <select name="cliente">
+          <option value="">—</option>
+          {% for c in clientes %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Periodo inicio <input name="fecha_inicio" placeholder="dd/mm/aaaa" required></label>
+      <label>Periodo fin <input name="fecha_fin" placeholder="dd/mm/aaaa" required></label>
+      <button class="btn btn-primary" type="submit">Confirmar periodo y extraer</button>
+    </form>
+  </section>
+  {% endfor %}
+</div>
+{% endblock %}

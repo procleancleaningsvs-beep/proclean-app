@@ -42,7 +42,7 @@ def _build_quick_actions(role: str) -> list[dict]:
         actions.append(
             {
                 "label": "Importar nómina",
-                "href": url_for("comparativo.index"),
+                "href": url_for("gestion_idse_sua.nominas_index"),
                 "kind": "primary",
             }
         )
@@ -74,9 +74,9 @@ def _build_areas(role: str) -> list[dict]:
             "icon": "trending-up",
             "tone": "blue",
             "available": can_cmp,
-            "primary_href": url_for("comparativo.index") if can_cmp else None,
-            "primary_label": "Importar / abrir comparativo",
-            "full_href": url_for("gestion_idse_sua.area_nominas") if can_cmp else None,
+            "primary_href": url_for("gestion_idse_sua.nominas_index") if can_cmp else None,
+            "primary_label": "Importar nómina semanal",
+            "full_href": url_for("gestion_idse_sua.nominas_index") if can_cmp else None,
             "locked_reason": None
             if can_cmp
             else "Tu rol no tiene acceso al comparativo semanal.",
@@ -130,9 +130,9 @@ def _build_historial_links(role: str) -> list[dict]:
     if can_access_comparativo(role):
         links.append(
             {
-                "label": "Comparativos semanales",
+                "label": "Comparativo semanal (legado)",
                 "href": url_for("comparativo.index"),
-                "note": "Historial dentro de Nóminas y análisis.",
+                "note": "Respaldo del comparativo anterior.",
             }
         )
         links.append(
@@ -160,17 +160,6 @@ def hub():
     )
 
 
-@gestion_idse_sua_bp.get("/nominas")
-@_login_required_page
-def area_nominas():
-    role = normalized_role(g.user)
-    if not can_access_gestion_idse_sua(role):
-        return redirect(url_for("login"))
-    if not can_access_comparativo(role):
-        abort(403)
-    return redirect(url_for("comparativo.index"))
-
-
 @gestion_idse_sua_bp.get("/movimientos")
 @_login_required_page
 def area_movimientos():
@@ -189,3 +178,8 @@ def area_reportes():
     if not can_access_comparativo(role):
         abort(403)
     return redirect(url_for("comparativo.reporte_mensual_index"))
+
+
+from modules.gestion_idse_sua.routes_nominas import register_nominas_routes
+
+register_nominas_routes(gestion_idse_sua_bp, login_required=_login_required_page)
