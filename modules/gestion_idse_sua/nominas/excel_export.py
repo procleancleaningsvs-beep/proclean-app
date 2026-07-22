@@ -23,6 +23,22 @@ def _safe_filename(cliente: str, periodo_inicio: str, periodo_fin: str) -> str:
     return f"comparativo_{clean(cliente)}_{clean(periodo_inicio)}_{clean(periodo_fin)}.xlsx"
 
 
+def _sbc_for_row(row: dict[str, Any]) -> str:
+    import json
+
+    raw = row.get("hc_json")
+    if raw:
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list) and data:
+                data = data[0]
+            if isinstance(data, dict):
+                return str(mapear_headcount_a_movimiento(data).get("sbc") or "")
+        except json.JSONDecodeError:
+            pass
+    return ""
+
+
 def generate_comparative_excel(
     conn: sqlite3.Connection,
     comparative_id: int,
@@ -100,7 +116,7 @@ def generate_comparative_excel(
         ws_det.cell(r, 14, row.get("nss") or "")
         ws_det.cell(r, 15, row.get("rfc") or "")
         ws_det.cell(r, 16, row.get("curp") or "")
-        ws_det.cell(r, 17, "")
+        ws_det.cell(r, 17, _sbc_for_row(row))
         ws_det.cell(r, 18, row.get("resultado") or "")
         ws_det.cell(r, 19, row.get("semaforo") or "")
         ws_det.cell(r, 20, row.get("fecha_sugerida") or "")

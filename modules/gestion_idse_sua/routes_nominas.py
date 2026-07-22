@@ -22,6 +22,8 @@ from modules.gestion_idse_sua.nominas.match_service import confirm_match, manual
 from modules.gestion_idse_sua.nominas.movement_bridge import convert_results_to_movements
 from modules.gestion_idse_sua.nominas.planta_cliente_service import confirm_planta_cliente
 from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+from modules.gestion_idse_sua.nominas.ui_helpers import format_period_hint, parse_suggested_period
+from modules.exportacion_imss.exportacion_service import obtener_patrones
 from modules.roles_access import can_access_comparativo, normalized_role
 
 
@@ -118,7 +120,10 @@ def register_nominas_routes(bp, *, login_required) -> None:
             return render_template(
                 "gestion_idse_sua/nominas/import_review.html",
                 import_row=imp,
-                sheets=repo.list_sheets(conn, import_id),
+                sheets=[
+                    {**dict(s), "period_hint": format_period_hint(parse_suggested_period(s.get("suggested_period_json")))}
+                    for s in repo.list_sheets(conn, import_id)
+                ],
             )
         finally:
             conn.close()
@@ -146,9 +151,12 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
-            sheets = [
-                s for s in repo.list_sheets(conn, import_id) if s.get("confirmed_classification") == "nomina"
-            ]
+            sheets = []
+            for s in repo.list_sheets(conn, import_id):
+                if s.get("confirmed_classification") != "nomina":
+                    continue
+                period = parse_suggested_period(s.get("suggested_period_json"))
+                sheets.append({**dict(s), "period_hint": format_period_hint(period), "period": period})
             return render_template(
                 "gestion_idse_sua/nominas/period_review.html",
                 import_id=import_id,
@@ -163,7 +171,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
-            confirm_period(
+            period = confirm_period(
                 conn,
                 sheet_id,
                 fecha_inicio=request.form.get("fecha_inicio", ""),
@@ -171,6 +179,12 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 cliente=(request.form.get("cliente") or "").strip() or None,
                 confirmed=True,
             )
+            if period.get("conflicts"):
+                flash(
+                    "Advertencia: ya existe otro periodo confirmado con las mismas fechas. "
+                    "Puede continuar importando semanas históricas.",
+                    "warning",
+                )
             import_row = conn.execute(
                 "SELECT import_id FROM gis_nomina_sheets WHERE id = ?",
                 (sheet_id,),
@@ -222,6 +236,14 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 (period_id,),
             ).fetchone()
             results = repo.list_results(conn, int(comparative["id"])) if comparative else []
+            comp_warnings = []
+            if comparative and comparative["warnings_json"]:
+                import json
+
+                try:
+                    comp_warnings = json.loads(comparative["warnings_json"])
+                except json.JSONDecodeError:
+                    comp_warnings = []
             return render_template(
                 "gestion_idse_sua/nominas/workspace.html",
                 period=dict(period),
@@ -230,6 +252,8 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 results=results,
                 totals=summarize_results(results) if results else {},
                 clientes=_clientes_disponibles(),
+                patrones=obtener_patrones(),
+                comp_warnings=comp_warnings,
                 legacy_url=url_for("comparativo.index"),
                 movimientos_url=url_for("exportacion_imss.index"),
             )
@@ -280,6 +304,47 @@ def register_nominas_routes(bp, *, login_required) -> None:
         finally:
             conn.close()
 
+    @route("/nominas/worker/<int:worker_id>/confirm-match", methods=["POST"], endpoint="nominas_confirm_suggested_match")
+    def nominas_confirm_suggested_match(worker_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            match = repo.get_match(conn, worker_id)
+            if match and match.get("status") in {"suggested", "auto"}:
+                from modules.gestion_idse_sua.nominas.match_service import confirm_match
+
+                confirm_match(conn, worker_id, dict(match))
+                conn.commit()
+                flash("Match confirmado.", "success")
+            period_id = conn.execute(
+                "SELECT period_id FROM gis_nomina_workers WHERE id = ?",
+                (worker_id,),
+            ).fetchone()
+            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(period_id["period_id"])))
+        finally:
+            conn.close()
+
+    @route("/nominas/result/<int:result_id>/decision", methods=["POST"], endpoint="nominas_update_decision")
+    def nominas_update_decision(result_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            repo.update_result_decision(
+                conn,
+                result_id,
+                decision_final=(request.form.get("decision_final") or "").strip(),
+                tipo_sugerido=(request.form.get("tipo_sugerido") or "").strip() or None,
+                fecha_sugerida=(request.form.get("fecha_sugerida") or "").strip() or None,
+            )
+            conn.commit()
+            comp = conn.execute(
+                "SELECT c.period_id FROM gis_nomina_results r JOIN gis_nomina_comparatives c ON c.id = r.comparative_id WHERE r.id = ?",
+                (result_id,),
+            ).fetchone()
+            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(comp["period_id"])))
+        finally:
+            conn.close()
+
     @route("/nominas/worker/<int:worker_id>/match", methods=["POST"], endpoint="nominas_confirm_match")
     def nominas_confirm_match(worker_id: int):
         _require_comparativo()
@@ -327,9 +392,17 @@ def register_nominas_routes(bp, *, login_required) -> None:
     def nominas_convert(comparative_id: int):
         _require_comparativo()
         ids = [int(x) for x in request.form.getlist("result_ids") if str(x).isdigit()]
+        overrides: dict[int, dict[str, str]] = {}
+        for rid in ids:
+            overrides[rid] = {
+                "tipo_movimiento": request.form.get(f"tipo_{rid}", ""),
+                "fecha_movimiento": request.form.get(f"fecha_{rid}", ""),
+                "rp": request.form.get(f"rp_{rid}", ""),
+                "rfc_patron": request.form.get(f"rfc_patron_{rid}", ""),
+            }
         conn = _db_from_app()
         try:
-            outcome = convert_results_to_movements(conn, result_ids=ids)
+            outcome = convert_results_to_movements(conn, result_ids=ids, overrides=overrides)
             flash(
                 f"Movimientos creados: {len(outcome['converted_ids'])}; excluidos: {len(outcome['excluded'])}.",
                 "success",

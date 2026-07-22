@@ -63,10 +63,24 @@
   font-size: 0.85rem;
 }
 
+.gis-nom-hint {
+  font-size: 0.85rem;
+  color: #6e6e73;
+  margin: 0 0 0.75rem;
+}
+
 .gis-nom-search {
   width: 100%;
   max-width: 420px;
-  margin-bottom: 0.75rem;
+  flex: 1 1 200px;
+}
+
+.gis-nom-actions {
+  min-width: 220px;
+}
+
+.gis-nom-actions form {
+  margin-bottom: 0.35rem;
 }
 
 .gis-semaforo {

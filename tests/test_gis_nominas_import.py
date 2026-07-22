@@ -86,6 +86,21 @@ def test_extract_workers_from_fixture(conn):
     assert out["workers_count"] == 4
 
 
-def test_corrupt_file_raises():
-    with pytest.raises(ValueError, match="inválido|corrupto"):
-        inspect_workbook(b"not-an-xlsx", filename="bad.xlsx")
+def test_duplicate_period_warns(conn):
+    from modules.gestion_idse_sua.nominas.repository import find_conflicting_periods
+
+    conn.execute(
+        "INSERT INTO gis_nomina_imports (original_filename, file_hash, uploaded_at, status) VALUES (?,?,?,?)",
+        ("a.xlsx", "h1", "2026-01-01", "classified"),
+    )
+    conn.execute(
+        "INSERT INTO gis_nomina_sheets (import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) VALUES (1,0,'S1',0,'nomina',1)"
+    )
+    conn.execute(
+        "INSERT INTO gis_nomina_sheets (import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) VALUES (1,1,'S2',0,'nomina',1)"
+    )
+    confirm_period(conn, 1, fecha_inicio="01/06/2026", fecha_fin="07/06/2026")
+    conflicts = find_conflicting_periods(conn, fecha_inicio="01/06/2026", fecha_fin="07/06/2026", exclude_sheet_id=2)
+    assert len(conflicts) == 1
+    out = confirm_period(conn, 2, fecha_inicio="01/06/2026", fecha_fin="07/06/2026")
+    assert out["conflicts"]

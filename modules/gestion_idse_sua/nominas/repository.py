@@ -249,8 +249,8 @@ def list_results(conn: sqlite3.Connection, comparative_id: int) -> list[dict[str
     rows = conn.execute(
         """
         SELECT r.*, w.num_empleado, w.nombre_original, w.nombre_normalizado, w.planta_normalizada,
-               w.cliente_confirmado, m.match_method, m.status AS match_status, m.confidence,
-               m.nss, m.rfc, m.curp, m.hc_nombre AS match_hc_nombre
+               w.cliente_confirmado, w.puesto, m.match_method, m.status AS match_status, m.confidence,
+               m.nss, m.rfc, m.curp, m.hc_json, m.hc_nombre AS match_hc_nombre
         FROM gis_nomina_results r
         LEFT JOIN gis_nomina_workers w ON w.id = r.worker_id
         LEFT JOIN gis_nomina_matches m ON m.worker_id = r.worker_id
@@ -289,4 +289,52 @@ def set_import_status(conn: sqlite3.Connection, import_id: int, status: str) -> 
     conn.execute(
         "UPDATE gis_nomina_imports SET status = ? WHERE id = ?",
         (status, import_id),
+    )
+
+
+def find_conflicting_periods(
+    conn: sqlite3.Connection,
+    *,
+    fecha_inicio: str,
+    fecha_fin: str,
+    exclude_sheet_id: int | None = None,
+) -> list[dict[str, Any]]:
+    params: list[Any] = [fecha_inicio, fecha_fin]
+    extra = ""
+    if exclude_sheet_id is not None:
+        extra = " AND p.sheet_id != ?"
+        params.append(exclude_sheet_id)
+    rows = conn.execute(
+        f"""
+        SELECT p.id, p.fecha_inicio, p.fecha_fin, s.sheet_name, i.original_filename
+        FROM gis_nomina_periods p
+        JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+        JOIN gis_nomina_imports i ON i.id = s.import_id
+        WHERE p.user_confirmed = 1
+          AND p.fecha_inicio = ?
+          AND p.fecha_fin = ?
+        {extra}
+        """,
+        params,
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_result_decision(
+    conn: sqlite3.Connection,
+    result_id: int,
+    *,
+    decision_final: str,
+    tipo_sugerido: str | None = None,
+    fecha_sugerida: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE gis_nomina_results
+        SET decision_final = ?,
+            tipo_sugerido = COALESCE(?, tipo_sugerido),
+            fecha_sugerida = COALESCE(?, fecha_sugerida)
+        WHERE id = ?
+        """,
+        (decision_final, tipo_sugerido, fecha_sugerida, result_id),
     )

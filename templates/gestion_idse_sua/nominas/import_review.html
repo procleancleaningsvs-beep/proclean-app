@@ -20,6 +20,7 @@
           <th>Hoja</th>
           <th>Visible</th>
           <th>Sugerida</th>
+          <th>Periodo sugerido</th>
           <th>Filas est.</th>
           <th>Clasificación</th>
         </tr>
@@ -31,6 +32,7 @@
           <td>{{ sheet.sheet_name }}</td>
           <td>{{ 'Oculta' if sheet.is_hidden else 'Visible' }}</td>
           <td>{{ sheet.suggested_classification }}</td>
+          <td>{{ sheet.period_hint }}</td>
           <td>{{ sheet.estimated_rows }}</td>
           <td>
             <select name="sheet_{{ sheet.id }}">

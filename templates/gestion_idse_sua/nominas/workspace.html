@@ -9,6 +9,11 @@
     <h2 class="gis-hero__title">Espacio de comparativo</h2>
     <p class="gis-hero__sub">{{ period.original_filename }} · {{ period.sheet_name }} · {{ period.fecha_inicio }} — {{ period.fecha_fin }}</p>
     {% if period.cut_warning %}<p class="gis-nom-warn">{{ period.cut_warning }}</p>{% endif %}
+    {% for w in comp_warnings %}<p class="gis-nom-warn">{{ w }}</p>{% endfor %}
+    <div class="gis-hero__btns">
+      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_index') }}">Nóminas</a>
+      <a class="btn btn-secondary" href="{{ legacy_url }}">Comparativo legado</a>
+    </div>
   </div>
 </section>
 
@@ -26,7 +31,7 @@
       <label>Cliente
         <select name="cliente" required>
           <option value="">Seleccione…</option>
-          {% for c in clientes %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+          {% for c in clientes %}<option value="{{ c }}" {% if comparative and comparative.cliente == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
         </select>
       </label>
       <button class="btn btn-primary" type="submit">Comparar contra Headcount</button>
@@ -38,7 +43,22 @@
 
   <section class="gis-nom-card">
     <h3>Trabajadores importados</h3>
-    <input type="search" id="gis-nom-search" placeholder="Buscar nombre, empleado, NSS…" class="gis-nom-search">
+    <div class="gis-nom-filters">
+      <input type="search" id="gis-nom-search" placeholder="Buscar empleado, nombre, NSS, RFC, CURP…" class="gis-nom-search">
+      <select id="filter-match">
+        <option value="">Match: todos</option>
+        <option value="auto">Auto</option>
+        <option value="confirmed">Confirmado</option>
+        <option value="suggested">Sugerido</option>
+        <option value="review">Revisión</option>
+        <option value="unmatched">Sin match</option>
+      </select>
+      <select id="filter-cliente">
+        <option value="">Cliente: todos</option>
+        {% for c in clientes %}<option value="{{ c|upper }}">{{ c }}</option>{% endfor %}
+      </select>
+      <input type="search" id="filter-planta" placeholder="Filtrar planta">
+    </div>
     <table class="gis-nom-table" id="gis-nom-workers">
       <thead>
         <tr>
@@ -48,23 +68,45 @@
           <th>Planta</th>
           <th>Cliente</th>
           <th>Match</th>
+          <th>NSS</th>
           <th>Acciones</th>
         </tr>
       </thead>
       <tbody>
         {% for w in workers %}
-        <tr data-search="{{ w.num_empleado }} {{ w.nombre_normalizado }} {{ (w.match.nss if w.match else '') }}">
+        <tr
+          data-search="{{ w.num_empleado }} {{ w.nombre_normalizado }} {{ (w.match.nss if w.match else '') }} {{ (w.match.rfc if w.match else '') }} {{ (w.match.curp if w.match else '') }}"
+          data-match="{{ w.match.status if w.match else 'unmatched' }}"
+          data-cliente="{{ (w.cliente_confirmado or w.cliente_sugerido or '')|upper }}"
+          data-planta="{{ (w.planta_normalizada or w.planta_original or '')|upper }}"
+        >
           <td>{{ w.row_number }}</td>
           <td>{{ w.num_empleado }}</td>
           <td>{{ w.nombre_normalizado }}</td>
           <td>{{ w.planta_normalizada or w.planta_original }}</td>
           <td>{{ w.cliente_confirmado or w.cliente_sugerido or '—' }}</td>
-          <td>{{ w.match.status if w.match else 'sin match' }}</td>
-          <td>
+          <td>{{ w.match.status if w.match else 'sin match' }} ({{ w.match.match_method if w.match else '—' }})</td>
+          <td>{{ w.match.nss if w.match else '—' }}</td>
+          <td class="gis-nom-actions">
             <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_planta', worker_id=w.id) }}" class="gis-nom-inline">
               <input name="planta" value="{{ w.planta_normalizada or w.planta_original }}" hidden>
               <input name="cliente" placeholder="Cliente" required>
               <button type="submit" class="btn btn-secondary btn-sm">Cliente</button>
+            </form>
+            {% if w.match and w.match.status in ['suggested', 'auto'] %}
+            <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_suggested_match', worker_id=w.id) }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Confirmar match</button>
+            </form>
+            {% endif %}
+            <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=w.id) }}" class="gis-nom-inline">
+              <select name="campo">
+                <option value="nombre_completo">Nombre</option>
+                <option value="nss">NSS</option>
+                <option value="rfc_homoclave">RFC</option>
+                <option value="curp">CURP</option>
+              </select>
+              <input name="query" placeholder="Buscar en Headcount" required>
+              <button type="submit" class="btn btn-secondary btn-sm">Match manual</button>
             </form>
           </td>
         </tr>
@@ -76,8 +118,17 @@
   {% if results %}
   <section class="gis-nom-card">
     <h3>Resultados del comparativo</h3>
+    <div class="gis-nom-filters">
+      <select id="filter-resultado">
+        <option value="">Resultado: todos</option>
+        <option value="Coincidencia">Coincidencia</option>
+        <option value="Posible alta">Posible alta</option>
+        <option value="Posible baja">Posible baja</option>
+        <option value="Revisión">Revisión</option>
+      </select>
+    </div>
     <form method="post" action="{{ url_for('gestion_idse_sua.nominas_convert', comparative_id=comparative.id) }}">
-      <table class="gis-nom-table">
+      <table class="gis-nom-table" id="gis-nom-results">
         <thead>
           <tr>
             <th></th>
@@ -86,11 +137,16 @@
             <th>Nombre</th>
             <th>Tipo</th>
             <th>Fecha</th>
+            <th>RP / RFC patronal</th>
+            <th>Decisión</th>
           </tr>
         </thead>
         <tbody>
           {% for r in results %}
-          <tr>
+          <tr
+            data-resultado="{{ r.resultado }}"
+            data-search="{{ r.nombre_normalizado or r.hc_nombre }} {{ r.nss or '' }} {{ r.rfc or '' }} {{ r.curp or '' }}"
+          >
             <td>
               {% if r.tipo_sugerido in ['ALTA', 'BAJA'] and r.conversion_status != 'converted' %}
               <input type="checkbox" name="result_ids" value="{{ r.id }}">
@@ -99,8 +155,30 @@
             <td>{{ r.resultado }}</td>
             <td><span class="gis-semaforo gis-semaforo--{{ r.semaforo }}">{{ r.semaforo }}</span></td>
             <td>{{ r.nombre_normalizado or r.hc_nombre }}</td>
-            <td>{{ r.tipo_sugerido }}</td>
-            <td>{{ r.fecha_sugerida or '—' }}</td>
+            <td>
+              {% if r.tipo_sugerido in ['ALTA', 'BAJA'] and r.conversion_status != 'converted' %}
+              <select name="tipo_{{ r.id }}">
+                <option value="ALTA" {% if r.tipo_sugerido == 'ALTA' %}selected{% endif %}>ALTA</option>
+                <option value="BAJA" {% if r.tipo_sugerido == 'BAJA' %}selected{% endif %}>BAJA</option>
+              </select>
+              {% else %}{{ r.tipo_sugerido }}{% endif %}
+            </td>
+            <td>
+              {% if r.tipo_sugerido in ['ALTA', 'BAJA'] and r.conversion_status != 'converted' %}
+              <input name="fecha_{{ r.id }}" value="{{ r.fecha_sugerida or '' }}" placeholder="dd/mm/aaaa">
+              {% else %}{{ r.fecha_sugerida or '—' }}{% endif %}
+            </td>
+            <td>
+              {% if r.tipo_sugerido in ['ALTA', 'BAJA'] and r.conversion_status != 'converted' %}
+              <input name="rp_{{ r.id }}" placeholder="Registro patronal" maxlength="11">
+              <input name="rfc_patron_{{ r.id }}" placeholder="RFC patronal">
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {{ r.decision_final or r.resultado }}
+              {% if r.conversion_status == 'converted' %}<em>Mov. {{ r.movimiento_id }}</em>{% endif %}
+              {% if r.exclusion_reason %}<em>{{ r.exclusion_reason }}</em>{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
@@ -108,15 +186,51 @@
       <button class="btn btn-primary" type="submit">Enviar seleccionados a movimientos</button>
       <a class="btn btn-secondary" href="{{ movimientos_url }}">Movimientos afiliatorios</a>
     </form>
+    <div class="gis-nom-decisions">
+      <h4>Cambiar decisión</h4>
+      {% for r in results %}
+      {% if r.conversion_status != 'converted' %}
+      <form method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=r.id) }}" class="gis-nom-inline">
+        <span>#{{ r.id }} {{ r.nombre_normalizado or r.hc_nombre }}</span>
+        <select name="decision_final">
+          <option value="Coincidencia" {% if r.decision_final == 'Coincidencia' %}selected{% endif %}>Coincidencia</option>
+          <option value="Posible alta" {% if r.decision_final == 'Posible alta' %}selected{% endif %}>Posible alta</option>
+          <option value="Posible baja" {% if r.decision_final == 'Posible baja' %}selected{% endif %}>Posible baja</option>
+          <option value="Revisión" {% if r.decision_final == 'Revisión' %}selected{% endif %}>Revisión</option>
+        </select>
+        <button type="submit" class="btn btn-secondary btn-sm">Actualizar</button>
+      </form>
+      {% endif %}
+      {% endfor %}
+    </div>
   </section>
   {% endif %}
 </div>
 <script>
-document.getElementById('gis-nom-search')?.addEventListener('input', (ev) => {
-  const q = ev.target.value.toLowerCase();
-  document.querySelectorAll('#gis-nom-workers tbody tr').forEach((row) => {
-    row.hidden = q && !(row.dataset.search || '').toLowerCase().includes(q);
+(function () {
+  function applyWorkerFilters() {
+    const q = (document.getElementById('gis-nom-search')?.value || '').toLowerCase();
+    const match = document.getElementById('filter-match')?.value || '';
+    const cliente = document.getElementById('filter-cliente')?.value || '';
+    const planta = (document.getElementById('filter-planta')?.value || '').toUpperCase();
+    document.querySelectorAll('#gis-nom-workers tbody tr').forEach((row) => {
+      const okSearch = !q || (row.dataset.search || '').toLowerCase().includes(q);
+      const okMatch = !match || row.dataset.match === match;
+      const okCliente = !cliente || (row.dataset.cliente || '').includes(cliente);
+      const okPlanta = !planta || (row.dataset.planta || '').includes(planta);
+      row.hidden = !(okSearch && okMatch && okCliente && okPlanta);
+    });
+  }
+  ['gis-nom-search', 'filter-match', 'filter-cliente', 'filter-planta'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', applyWorkerFilters);
+    document.getElementById(id)?.addEventListener('change', applyWorkerFilters);
   });
-});
+  document.getElementById('filter-resultado')?.addEventListener('change', (ev) => {
+    const val = ev.target.value;
+    document.querySelectorAll('#gis-nom-results tbody tr').forEach((row) => {
+      row.hidden = val && row.dataset.resultado !== val;
+    });
+  });
+})();
 </script>
 {% endblock %}

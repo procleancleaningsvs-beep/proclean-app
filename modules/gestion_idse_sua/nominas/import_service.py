@@ -85,9 +85,19 @@ def confirm_period(
 ) -> dict[str, Any]:
     period = parse_manual_period(fecha_inicio, fecha_fin)
     period = merge_cut_warning(period, cliente, conn)
+    conflicts = repo.find_conflicting_periods(
+        conn,
+        fecha_inicio=period["fecha_inicio"],
+        fecha_fin=period["fecha_fin"],
+        exclude_sheet_id=sheet_id,
+    )
+    if conflicts:
+        names = ", ".join(f"{c['original_filename']}/{c['sheet_name']}" for c in conflicts[:3])
+        extra = f" Advertencia: ya existe un periodo confirmado ({names})."
+        period["cut_warning"] = (period.get("cut_warning") or "") + extra
     period_id = repo.upsert_period(conn, sheet_id, period, confirmed=confirmed)
     conn.commit()
-    return {"period_id": period_id, **period}
+    return {"period_id": period_id, "conflicts": conflicts, **period}
 
 
 def extract_sheet_workers(

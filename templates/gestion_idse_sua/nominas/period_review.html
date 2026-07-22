@@ -15,6 +15,7 @@
   {% for sheet in sheets %}
   <section class="gis-nom-card">
     <h3>{{ sheet.sheet_name }}</h3>
+    <p class="gis-nom-hint">Detección: {{ sheet.period_hint }}</p>
     <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_period', sheet_id=sheet.id) }}">
       <label>Cliente (referencia de corte)
         <select name="cliente">
@@ -22,8 +23,14 @@
           {% for c in clientes %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
         </select>
       </label>
-      <label>Periodo inicio <input name="fecha_inicio" placeholder="dd/mm/aaaa" required></label>
-      <label>Periodo fin <input name="fecha_fin" placeholder="dd/mm/aaaa" required></label>
+      <label>Periodo inicio
+        <input name="fecha_inicio" placeholder="dd/mm/aaaa" required
+               value="{{ sheet.period.fecha_inicio if sheet.period.detected else '' }}">
+      </label>
+      <label>Periodo fin
+        <input name="fecha_fin" placeholder="dd/mm/aaaa" required
+               value="{{ sheet.period.fecha_fin if sheet.period.detected else '' }}">
+      </label>
       <button class="btn btn-primary" type="submit">Confirmar periodo y extraer</button>
     </form>
   </section>
