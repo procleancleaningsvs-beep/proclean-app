@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
-import tempfile
-from pathlib import Path
+from io import BytesIO
 from typing import Any
 
 from openpyxl import load_workbook
@@ -29,35 +27,27 @@ def _json_list(raw: str | None) -> list[Any]:
     return data if isinstance(data, list) else []
 
 
-def generate_monthly_excel(
-    conn: sqlite3.Connection,
-    report_id: int,
+def _coverage_labels(snapshot: dict[str, Any]) -> tuple[str, str, str]:
+    complete = "Sí" if snapshot.get("coverage_complete") else "No"
+    missing = ", ".join(snapshot.get("missing_dates") or []) or "—"
+    warning = "; ".join(snapshot.get("coverage_warnings") or []) or "—"
+    return complete, missing, warning
+
+
+def _fill_workbook(
+    wb,
     *,
-    username: str | None = None,
-) -> tuple[Path, str]:
-    report = repo.get_report(conn, report_id)
-    if report is None:
-        raise ValueError("Reporte no encontrado.")
-    weeks = repo.list_report_weeks(conn, report_id)
-    persons = repo.list_report_persons(conn, report_id)
-    events = repo.list_report_events(conn, report_id)
-    snapshot = {}
-    if report.get("snapshot_json"):
-        try:
-            snapshot = json.loads(report["snapshot_json"])
-        except json.JSONDecodeError:
-            snapshot = {}
-
-    tmp_dir = Path(tempfile.mkdtemp(prefix="gis_mensual_"))
-    out_path = tmp_dir / _safe_filename(str(report["cliente"]), int(report["mes"]), int(report["anio"]))
-    shutil.copy2(mensual_path(), out_path)
-
-    wb = load_workbook(out_path)
+    report: dict[str, Any],
+    weeks: list[dict[str, Any]],
+    persons: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    snapshot: dict[str, Any],
+    username: str | None,
+) -> None:
     ws_res = wb["Resumen"]
-    semanas_label = ", ".join(
-        f"{w.get('fecha_inicio')}–{w.get('fecha_fin')}" for w in weeks
-    )
+    semanas_label = ", ".join(f"{w.get('fecha_inicio')}–{w.get('fecha_fin')}" for w in weeks)
     archivos = ", ".join(sorted({str(w.get("original_filename") or "") for w in weeks if w.get("original_filename")}))
+    coverage_complete, missing_dates, coverage_warning = _coverage_labels(snapshot)
     ws_res["B6"] = report["cliente"]
     ws_res["D6"] = int(report["mes"])
     ws_res["F6"] = int(report["anio"])
@@ -67,6 +57,12 @@ def generate_monthly_excel(
     ws_res["B8"] = archivos
     ws_res["D8"] = report["estado"]
     ws_res["F8"] = report.get("version") or "1.0"
+    ws_res["A9"] = "Cobertura completa"
+    ws_res["B9"] = coverage_complete
+    ws_res["C9"] = "Fechas faltantes"
+    ws_res["D9"] = missing_dates
+    ws_res["E9"] = "Advertencia cobertura"
+    ws_res["F9"] = coverage_warning
 
     ws_personal = wb["Personal Mensual"]
     p_start = HEADER_ROW_BY_SHEET["Personal Mensual"] + 1
@@ -214,7 +210,44 @@ def generate_monthly_excel(
         ws_pend.cell(r, 4, item.get("nombre") or "")
         ws_pend.cell(r, 8, item.get("detalle") or "")
 
-    wb.save(out_path)
-    wb.close()
-    validate_mensual_template(out_path)
-    return out_path, out_path.name
+
+def generate_monthly_excel(
+    conn: sqlite3.Connection,
+    report_id: int,
+    *,
+    username: str | None = None,
+) -> tuple[BytesIO, str]:
+    report = repo.get_report(conn, report_id)
+    if report is None:
+        raise ValueError("Reporte no encontrado.")
+    weeks = repo.list_report_weeks(conn, report_id)
+    persons = repo.list_report_persons(conn, report_id)
+    events = repo.list_report_events(conn, report_id)
+    snapshot: dict[str, Any] = {}
+    if report.get("snapshot_json"):
+        try:
+            snapshot = json.loads(report["snapshot_json"])
+        except json.JSONDecodeError:
+            snapshot = {}
+
+    template_bytes = mensual_path().read_bytes()
+    wb = load_workbook(BytesIO(template_bytes))
+    try:
+        _fill_workbook(
+            wb,
+            report=report,
+            weeks=weeks,
+            persons=persons,
+            events=events,
+            snapshot=snapshot,
+            username=username,
+        )
+        out_buf = BytesIO()
+        wb.save(out_buf)
+    finally:
+        wb.close()
+
+    out_buf.seek(0)
+    validate_mensual_template(out_buf)
+    out_buf.seek(0)
+    return out_buf, _safe_filename(str(report["cliente"]), int(report["mes"]), int(report["anio"]))

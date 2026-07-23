@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -57,20 +58,39 @@ def validate_workbook(
         raise TemplateValidationError(f"No existe la plantilla: {path}")
 
     digest = sha256_file(path)
-    if expected_sha256 and digest != expected_sha256:
-        raise TemplateValidationError(
-            f"SHA-256 inesperado para {path.name}: {digest} (esperado {expected_sha256})"
-        )
-
     try:
         wb = load_workbook(path, data_only=False, read_only=False)
     except Exception as exc:  # noqa: BLE001 — superficie de archivo corrupto
         raise TemplateValidationError(f"No se pudo abrir {path.name}: {exc}") from exc
 
+    return _validate_open_workbook(
+        wb,
+        path_label=str(path),
+        digest=digest,
+        expected_sheets=expected_sheets,
+        required_headers=required_headers,
+        expected_sha256=expected_sha256,
+    )
+
+
+def _validate_open_workbook(
+    wb,
+    *,
+    path_label: str,
+    digest: str,
+    expected_sheets: tuple[str, ...],
+    required_headers: dict[str, tuple[str, ...]],
+    expected_sha256: str | None = None,
+) -> dict[str, Any]:
+    if expected_sha256 and digest != expected_sha256:
+        raise TemplateValidationError(
+            f"SHA-256 inesperado para {Path(path_label).name}: {digest} (esperado {expected_sha256})"
+        )
+
     missing_sheets = [name for name in expected_sheets if name not in wb.sheetnames]
     if missing_sheets:
         raise TemplateValidationError(
-            f"{path.name}: faltan hojas {missing_sheets}. Encontradas: {wb.sheetnames}"
+            f"{Path(path_label).name}: faltan hojas {missing_sheets}. Encontradas: {wb.sheetnames}"
         )
 
     header_map: dict[str, list[str]] = {}
@@ -82,16 +102,16 @@ def validate_workbook(
         missing = [col for col in expected_cols if col not in headers]
         if missing:
             raise TemplateValidationError(
-                f"{path.name} / {sheet_name}: faltan columnas {missing}"
+                f"{Path(path_label).name} / {sheet_name}: faltan columnas {missing}"
             )
         refs = _scan_ref_errors(ws)
         if refs:
             raise TemplateValidationError(
-                f"{path.name} / {sheet_name}: se encontraron {refs} fórmulas con #REF!"
+                f"{Path(path_label).name} / {sheet_name}: se encontraron {refs} fórmulas con #REF!"
             )
 
     return {
-        "path": str(path),
+        "path": path_label,
         "sha256": digest,
         "sheets": list(wb.sheetnames),
         "headers": header_map,
@@ -108,7 +128,23 @@ def validate_comparativo_template(path: Path | None = None) -> dict[str, Any]:
     )
 
 
-def validate_mensual_template(path: Path | None = None) -> dict[str, Any]:
+def validate_mensual_template(path: Path | BytesIO | None = None) -> dict[str, Any]:
+    if isinstance(path, BytesIO):
+        path.seek(0)
+        payload = path.read()
+        digest = hashlib.sha256(payload).hexdigest()
+        try:
+            wb = load_workbook(BytesIO(payload), data_only=False, read_only=False)
+        except Exception as exc:  # noqa: BLE001
+            raise TemplateValidationError(f"No se pudo abrir export mensual en memoria: {exc}") from exc
+        return _validate_open_workbook(
+            wb,
+            path_label="<memory>",
+            digest=digest,
+            expected_sheets=MENSUAL_SHEETS,
+            required_headers=MENSUAL_REQUIRED_HEADERS,
+            expected_sha256=None,
+        )
     return validate_workbook(
         path or mensual_path(),
         expected_sheets=MENSUAL_SHEETS,

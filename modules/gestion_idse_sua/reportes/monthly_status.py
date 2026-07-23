@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 ACTIVE_CODES = frozenset({"A", "I", "V"})
+MIN_WEEKS_FOR_FULL_MONTH = 4
 
 
 def person_has_active_evidence(daily: list[dict[str, Any]]) -> bool:
@@ -37,12 +38,24 @@ def _active_week_ids(daily: list[dict[str, Any]]) -> set[int]:
     }
 
 
+def person_covers_selected_weeks(
+    daily: list[dict[str, Any]],
+    selected_period_ids: set[int],
+) -> bool:
+    if not selected_period_ids:
+        return False
+    active_weeks = _active_week_ids(daily)
+    return selected_period_ids.issubset(active_weeks)
+
+
 def classify_monthly_status(
     *,
     daily: list[dict[str, Any]],
     events: list[dict[str, Any]],
     selected_week_count: int,
     weeks_with_presence: int,
+    coverage_complete: bool = False,
+    selected_period_ids: set[int] | None = None,
 ) -> str:
     if not daily:
         return "Revisión"
@@ -63,13 +76,18 @@ def classify_monthly_status(
     if reingresos and not bajas:
         return "Ingreso durante el mes"
 
+    period_ids = selected_period_ids or set()
     active_weeks = _active_week_ids(daily)
-    if (
-        len(active_weeks) >= selected_week_count
+    can_be_full_month = (
+        coverage_complete
+        and selected_week_count >= MIN_WEEKS_FOR_FULL_MONTH
         and not bajas
         and not reingresos
         and not any(str(d.get("interpretation_status") or "") == "conflict" for d in daily)
-    ):
+        and person_covers_selected_weeks(daily, period_ids)
+        and len(active_weeks) >= selected_week_count
+    )
+    if can_be_full_month:
         return "Todo el mes"
 
     totals = compute_totals(daily)

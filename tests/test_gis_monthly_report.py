@@ -231,10 +231,10 @@ def test_monthly_excel_export(conn):
     report_id = create_report(conn, cliente="PEPSI", mes=6, anio=2026)
     generate_monthly_report(conn, report_id=report_id, period_ids=period_ids, cliente="PEPSI", mes=6, anio=2026)
     before = sha256_file(mensual_path())
-    out_path, _ = generate_monthly_excel(conn, report_id, username="test")
+    buf, _ = generate_monthly_excel(conn, report_id, username="test")
     assert before == MENSUAL_SHA256
-    validate_mensual_template(out_path)
-    wb = load_workbook(out_path)
+    validate_mensual_template(buf)
+    wb = load_workbook(buf)
     assert wb.sheetnames == list(MENSUAL_SHEETS)
     assert wb["Resumen"]["B6"].value == "PEPSI"
     wb.close()

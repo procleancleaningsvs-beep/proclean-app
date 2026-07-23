@@ -201,36 +201,61 @@ def test_inclusion_vs_todo_el_mes_classification():
     assert person_has_active_evidence([{"code_normalized": "I"}])
     assert not person_has_active_evidence([{"code_normalized": "D"}])
     daily_i = [
-        {"fecha_iso": f"2026-06-{d:02d}", "code_normalized": "I", "period_id": 1, "interpretation_status": "ok"}
-        for d in range(1, 8)
+        {"fecha_iso": f"2026-06-{d:02d}", "code_normalized": "I", "period_id": pid, "interpretation_status": "ok"}
+        for d, pid in [(1, 1), (8, 8), (15, 15), (22, 22)]
     ]
-    assert classify_monthly_status(
-        daily=daily_i,
-        events=[],
-        selected_week_count=1,
-        weeks_with_presence=1,
-    ) == "Todo el mes"
+    assert (
+        classify_monthly_status(
+            daily=daily_i,
+            events=[],
+            selected_week_count=4,
+            weeks_with_presence=4,
+            coverage_complete=True,
+            selected_period_ids={1, 8, 15, 22},
+        )
+        == "Todo el mes"
+    )
     daily_v = [{"fecha_iso": "2026-06-01", "code_normalized": "V", "period_id": 1, "interpretation_status": "ok"}]
-    assert classify_monthly_status(daily=daily_v, events=[], selected_week_count=1, weeks_with_presence=1) == "Todo el mes"
+    assert (
+        classify_monthly_status(
+            daily=daily_v,
+            events=[],
+            selected_week_count=1,
+            weeks_with_presence=1,
+            coverage_complete=True,
+            selected_period_ids={1},
+        )
+        != "Todo el mes"
+    )
     daily_d = [{"fecha_iso": "2026-06-01", "code_normalized": "D", "period_id": 1, "interpretation_status": "ok"}]
     assert not person_has_active_evidence(daily_d)
     baja = [{"event_type": "posible_baja", "status": "suggested"}]
-    assert classify_monthly_status(
-        daily=daily_i,
-        events=baja,
-        selected_week_count=1,
-        weeks_with_presence=1,
-    ) == "Salida durante el mes"
+    assert (
+        classify_monthly_status(
+            daily=daily_i,
+            events=baja,
+            selected_week_count=4,
+            weeks_with_presence=4,
+            coverage_complete=True,
+            selected_period_ids={1, 8, 15, 22},
+        )
+        == "Salida durante el mes"
+    )
     partial = [
         {"fecha_iso": "2026-06-01", "code_normalized": "A", "period_id": 1, "interpretation_status": "ok"},
         {"fecha_iso": "2026-06-02", "code_normalized": "D", "period_id": 1, "interpretation_status": "ok"},
     ]
-    assert classify_monthly_status(
-        daily=partial,
-        events=[],
-        selected_week_count=4,
-        weeks_with_presence=1,
-    ) == "Presencia parcial"
+    assert (
+        classify_monthly_status(
+            daily=partial,
+            events=[],
+            selected_week_count=4,
+            weeks_with_presence=1,
+            coverage_complete=True,
+            selected_period_ids={1, 8, 15, 22},
+        )
+        == "Presencia parcial"
+    )
 
 
 def test_multiple_events_stored_and_managed_independently(conn):
@@ -321,10 +346,10 @@ def test_excel_month_day_columns(mes, expected_days, conn):
     report_id = create_report(conn, cliente="PEPSI", mes=mes, anio=2026)
     generate_monthly_report(conn, report_id=report_id, period_ids=period_ids, cliente="PEPSI", mes=mes, anio=2026)
     before = sha256_file(mensual_path())
-    out_path, _ = generate_monthly_excel(conn, report_id)
+    buf, _ = generate_monthly_excel(conn, report_id)
     assert before == MENSUAL_SHA256
-    validate_mensual_template(out_path)
-    wb = load_workbook(out_path)
+    validate_mensual_template(buf)
+    wb = load_workbook(buf)
     assert wb.sheetnames == list(MENSUAL_SHEETS)
     persons = list_report_persons(conn, report_id)
     if not persons:
@@ -340,8 +365,6 @@ def test_excel_month_day_columns(mes, expected_days, conn):
         else:
             assert col_val in (None, "")
     wb.close()
-    out_path.unlink(missing_ok=True)
-    out_path.parent.rmdir()
 
 
 def test_excel_sua_only_alta_and_no_ref(conn):
@@ -355,8 +378,8 @@ def test_excel_sua_only_alta_and_no_ref(conn):
                 (event["event_type_suggested"], event["id"]),
             )
     conn.commit()
-    out_path, _ = generate_monthly_excel(conn, report_id)
-    wb = load_workbook(out_path)
+    buf, _ = generate_monthly_excel(conn, report_id)
+    wb = load_workbook(buf)
     ws = wb["Movimientos Seleccionados"]
     rows = 0
     for r in range(7, 20):

@@ -10,6 +10,7 @@ from modules.gestion_idse_sua.nominas.trajectory_service import build_trajectori
 from modules.gestion_idse_sua.nominas.text_utils import normalize_upper
 from modules.gestion_idse_sua.nominas.trajectory_service import resolve_worker_identity
 from modules.gestion_idse_sua.reportes import repository as repo
+from modules.gestion_idse_sua.reportes.coverage_service import compute_month_coverage
 from modules.gestion_idse_sua.reportes.date_utils import clip_iso_dates_to_month, days_in_calendar_month
 from modules.gestion_idse_sua.reportes.monthly_status import (
     classify_monthly_status,
@@ -111,7 +112,29 @@ def generate_monthly_report(
 
     cliente_norm = normalize_upper(cliente)
     period_ids_ordered = [w["period_id"] for w in validation["weeks"]]
+    selected_period_ids = set(period_ids_ordered)
     repo.replace_report_weeks(conn, report_id, validation["weeks"])
+
+    weeks_snapshot: list[dict[str, Any]] = []
+    for week in validation["weeks"]:
+        row = conn.execute(
+            """
+            SELECT p.id AS period_id, p.fecha_inicio, p.fecha_fin, p.semana_num,
+                   s.sheet_name, i.original_filename, i.file_hash
+            FROM gis_nomina_periods p
+            JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+            JOIN gis_nomina_imports i ON i.id = s.import_id
+            WHERE p.id = ?
+            """,
+            (week["period_id"],),
+        ).fetchone()
+        if row:
+            weeks_snapshot.append(dict(row))
+
+    coverage = compute_month_coverage(weeks_snapshot, mes=mes, anio=anio)
+    warnings = list(validation["warnings"])
+    if coverage["warnings"]:
+        warnings.extend(coverage["warnings"])
 
     workers: list[dict[str, Any]] = []
     worker_meta: dict[int, dict[str, Any]] = {}
@@ -135,7 +158,6 @@ def generate_monthly_report(
     persons: list[dict[str, Any]] = []
     events: list[dict[str, Any]] = []
     pendientes: list[dict[str, Any]] = []
-    warnings = list(validation["warnings"])
 
     identity_workers: dict[str, list[int]] = {}
     for worker in workers:
@@ -195,6 +217,8 @@ def generate_monthly_report(
             events=traj_events,
             selected_week_count=selected_week_count,
             weeks_with_presence=len(weeks_present),
+            coverage_complete=bool(coverage["coverage_complete"]),
+            selected_period_ids=selected_period_ids,
         )
         person_warnings = list(traj.get("warnings") or [])
         persons.append(
@@ -248,33 +272,23 @@ def generate_monthly_report(
     person_id_map = repo.replace_report_persons(conn, report_id, persons)
     repo.insert_report_events(conn, report_id, events, person_id_map=person_id_map)
 
-    weeks_snapshot: list[dict[str, Any]] = []
-    for week in validation["weeks"]:
-        row = conn.execute(
-            """
-            SELECT p.id AS period_id, p.fecha_inicio, p.fecha_fin, p.semana_num,
-                   s.sheet_name, i.original_filename, i.file_hash
-            FROM gis_nomina_periods p
-            JOIN gis_nomina_sheets s ON s.id = p.sheet_id
-            JOIN gis_nomina_imports i ON i.id = s.import_id
-            WHERE p.id = ?
-            """,
-            (week["period_id"],),
-        ).fetchone()
-        if row:
-            weeks_snapshot.append(dict(row))
-
     snapshot = {
         "period_ids": period_ids_ordered,
         "weeks": weeks_snapshot,
+        "coverage_complete": coverage["coverage_complete"],
+        "covered_dates": coverage["covered_dates"],
+        "missing_dates": coverage["missing_dates"],
+        "overlap_dates": coverage["overlap_dates"],
+        "coverage_warnings": coverage["warnings"],
         "person_count": len(persons),
         "pending_count": len(pendientes),
         "pendientes": pendientes,
     }
+    report_estado = "generado" if coverage["coverage_complete"] else "en_revision"
     repo.update_report_status(
         conn,
         report_id,
-        estado="generado",
+        estado=report_estado,
         warnings=warnings,
         snapshot=snapshot,
     )

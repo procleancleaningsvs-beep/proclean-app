@@ -267,13 +267,13 @@ def register_reportes_routes(bp, *, login_required) -> None:
         conn = _db_from_app()
         try:
             _ensure_tables(conn)
-            out_path, filename = generate_monthly_excel(
+            out_buf, filename = generate_monthly_excel(
                 conn,
                 report_id,
                 username=getattr(g.user, "username", None),
             )
             return send_file(
-                out_path,
+                out_buf,
                 as_attachment=True,
                 download_name=filename,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
