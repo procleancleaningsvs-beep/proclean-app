@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import shutil
 import sqlite3
-import tempfile
-from datetime import datetime
-from pathlib import Path
+from io import BytesIO
 from typing import Any
 
 from openpyxl import load_workbook
 
+from modules.exportacion_imss.exportacion_service import mapear_headcount_a_movimiento
 from modules.gestion_idse_sua.nominas import repository as repo
 from modules.gestion_idse_sua.nominas.comparative_service import summarize_results
 from modules.gestion_idse_sua.nominas.text_utils import normalize_upper
@@ -45,7 +43,7 @@ def generate_comparative_excel(
     *,
     username: str | None = None,
     selected_result_ids: list[int] | None = None,
-) -> tuple[Path, str]:
+) -> tuple[BytesIO, str]:
     comp = repo.get_comparative(conn, comparative_id)
     if comp is None:
         raise ValueError("Comparativo no encontrado.")
@@ -73,15 +71,12 @@ def generate_comparative_excel(
         }
     )
 
-    tmp_dir = Path(tempfile.mkdtemp(prefix="gis_cmp_"))
-    out_path = tmp_dir / _safe_filename(
+    filename = _safe_filename(
         str(comp["cliente"]),
         str(period["fecha_inicio"]),
         str(period["fecha_fin"]),
     )
-    shutil.copy2(comparativo_path(), out_path)
-
-    wb = load_workbook(out_path)
+    wb = load_workbook(BytesIO(comparativo_path().read_bytes()))
     ws_res = wb["Resumen"]
     ws_res["B6"] = comp["cliente"]
     ws_res["D6"] = ", ".join(plantas)
@@ -126,9 +121,8 @@ def generate_comparative_excel(
 
     ws_asist = wb["Asistencia Semanal"]
     asist_start = HEADER_ROW_BY_SHEET["Asistencia Semanal"] + 1
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
-    period_start = datetime.strptime(str(period["fecha_inicio"]), "%d/%m/%Y").date()
     attendance_rows = repo.list_attendance_for_period(conn, int(comp["period_id"]))
     by_worker: dict[int, list[dict[str, Any]]] = {}
     for row in attendance_rows:
@@ -210,7 +204,12 @@ def generate_comparative_excel(
         ws_mov.cell(r, 15, "GIS nominas")
         ws_mov.cell(r, 16, row.get("observaciones") or "")
 
-    wb.save(out_path)
-    wb.close()
-    validate_comparativo_template(out_path)
-    return out_path, out_path.name
+    out_buf = BytesIO()
+    try:
+        wb.save(out_buf)
+    finally:
+        wb.close()
+    out_buf.seek(0)
+    validate_comparativo_template(out_buf)
+    out_buf.seek(0)
+    return out_buf, filename

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -67,13 +69,41 @@ def test_canonical_template_hash_unchanged():
 
 def test_generated_workbook_valid(conn):
     before = sha256_file(comparativo_path())
-    out_path, name = generate_comparative_excel(conn, 1, username="tester")
-    assert out_path.is_file()
+    buf, name = generate_comparative_excel(conn, 1, username="tester")
+    assert isinstance(buf, BytesIO)
     assert name.endswith(".xlsx")
-    validate_comparativo_template(out_path)
+    validate_comparativo_template(buf)
     assert sha256_file(comparativo_path()) == before
-    wb = load_workbook(out_path)
+    buf.seek(0)
+    wb = load_workbook(buf)
     assert "Detalle Comparativo" in wb.sheetnames
     ws = wb["Detalle Comparativo"]
     assert ws.cell(7, 8).value == "JUAN PEREZ"
     wb.close()
+
+
+def test_export_with_headcount_match_sbc(conn):
+    hc = json.dumps({"sueldo_diario": 500, "nss": "11111111111"})
+    conn.execute(
+        """
+        INSERT INTO gis_nomina_matches
+        (worker_id, headcount_key, match_method, confidence, status, hc_json, hc_nombre)
+        VALUES (?,?,?,?,?,?,?)
+        """,
+        (1, "hc-1", "auto", 1.0, "confirmed", hc, "JUAN PEREZ"),
+    )
+    conn.commit()
+    buf, _ = generate_comparative_excel(conn, 1)
+    buf.seek(0)
+    wb = load_workbook(buf)
+    sbc = wb["Detalle Comparativo"].cell(7, 17).value
+    assert sbc not in (None, "")
+    wb.close()
+
+
+def test_parallel_exports_use_independent_buffers(conn):
+    buf1, name1 = generate_comparative_excel(conn, 1)
+    buf2, name2 = generate_comparative_excel(conn, 1)
+    assert buf1 is not buf2
+    assert name1 == name2
+    assert len(buf1.getvalue()) > 0

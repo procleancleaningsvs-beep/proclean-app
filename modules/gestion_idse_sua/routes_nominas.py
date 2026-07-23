@@ -423,13 +423,13 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
-            out_path, filename = generate_comparative_excel(
+            out_buf, filename = generate_comparative_excel(
                 conn,
                 comparative_id,
                 username=_session_username(),
             )
             return send_file(
-                out_path,
+                out_buf,
                 as_attachment=True,
                 download_name=filename,
                 mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

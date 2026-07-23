@@ -119,7 +119,23 @@ def _validate_open_workbook(
     }
 
 
-def validate_comparativo_template(path: Path | None = None) -> dict[str, Any]:
+def validate_comparativo_template(path: Path | BytesIO | None = None) -> dict[str, Any]:
+    if isinstance(path, BytesIO):
+        path.seek(0)
+        payload = path.read()
+        digest = hashlib.sha256(payload).hexdigest()
+        try:
+            wb = load_workbook(BytesIO(payload), data_only=False, read_only=False)
+        except Exception as exc:  # noqa: BLE001
+            raise TemplateValidationError(f"No se pudo abrir export comparativo en memoria: {exc}") from exc
+        return _validate_open_workbook(
+            wb,
+            path_label="<memory>",
+            digest=digest,
+            expected_sheets=COMPARATIVO_SHEETS,
+            required_headers=COMPARATIVO_REQUIRED_HEADERS,
+            expected_sha256=None,
+        )
     return validate_workbook(
         path or comparativo_path(),
         expected_sheets=COMPARATIVO_SHEETS,
