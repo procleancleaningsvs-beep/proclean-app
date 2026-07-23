@@ -18,6 +18,7 @@ from modules.gestion_idse_sua.nominas.attendance_service import (
     list_period_attendance,
     trajectory_for_periods,
 )
+from modules.gestion_idse_sua.nominas.client_inference_service import infer_period_clients
 from modules.gestion_idse_sua.nominas.comparative_service import enrich_workers, run_comparative, summarize_results
 from modules.gestion_idse_sua.nominas.excel_export import generate_comparative_excel
 from modules.gestion_idse_sua.nominas.import_service import (
@@ -32,7 +33,14 @@ from modules.gestion_idse_sua.nominas.period_signals import collect_period_signa
 from modules.gestion_idse_sua.nominas.planta_cliente_service import confirm_planta_cliente
 from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
 from modules.gestion_idse_sua.nominas.sheet_inspector import inspect_sheet
-from modules.gestion_idse_sua.nominas.ui_helpers import format_period_hint, group_attendance_rows, parse_suggested_period
+from modules.gestion_idse_sua.nominas.ui_helpers import (
+    build_weekly_workspace_rows,
+    format_period_hint,
+    group_attendance_rows,
+    parse_suggested_period,
+    period_day_headers,
+)
+from modules.nomina.asistencia_palette import css_vars_for_json
 from modules.exportacion_imss.exportacion_service import obtener_patrones
 from modules.roles_access import can_access_comparativo, normalized_role
 
@@ -290,6 +298,26 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     comp_warnings = json.loads(comparative["warnings_json"])
                 except json.JSONDecodeError:
                     comp_warnings = []
+            hc_rows = obtener_activos()
+            matches = {int(w["id"]): w.get("match") for w in enriched_workers}
+            client_payload = infer_period_clients(
+                conn,
+                period_id=period_id,
+                workers=[dict(w) for w in workers],
+                matches=matches,
+                headcount_rows=hc_rows,
+                filename=str(period["original_filename"] or ""),
+                sheet_name=str(period["sheet_name"] or ""),
+            )
+            client_by_worker = {item["worker_id"]: item for item in client_payload["workers"]}
+            day_headers = period_day_headers(str(period["fecha_inicio"]))
+            table_rows = build_weekly_workspace_rows(
+                workers=enriched_workers,
+                results=results,
+                attendance_rows=attendance,
+                client_inferences=client_by_worker,
+                trajectory_payload=trajectory,
+            )
             return render_template(
                 "gestion_idse_sua/nominas/workspace.html",
                 period=dict(period),
@@ -298,6 +326,11 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 results=results,
                 totals=summarize_results(results) if results else {},
                 clientes=_clientes_disponibles(),
+                client_summary=client_payload["summary"],
+                client_by_worker=client_by_worker,
+                table_rows=table_rows,
+                day_headers=day_headers,
+                attendance_palette=css_vars_for_json(),
                 patrones=obtener_patrones(),
                 comp_warnings=comp_warnings,
                 attendance=group_attendance_rows(attendance),
@@ -312,12 +345,38 @@ def register_nominas_routes(bp, *, login_required) -> None:
     @route("/nominas/workspace/<int:period_id>/compare", methods=["POST"], endpoint="nominas_compare")
     def nominas_compare(period_id: int):
         _require_comparativo()
-        cliente = (request.form.get("cliente") or "").strip()
-        if not cliente:
-            flash("Seleccione cliente antes de comparar.", "error")
-            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
         conn = _db_from_app()
         try:
+            period = conn.execute(
+                """
+                SELECT p.*, s.sheet_name, i.original_filename
+                FROM gis_nomina_periods p
+                JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+                JOIN gis_nomina_imports i ON i.id = s.import_id
+                WHERE p.id = ?
+                """,
+                (period_id,),
+            ).fetchone()
+            if period is None:
+                abort(404)
+            cliente = (request.form.get("cliente") or "").strip()
+            if not cliente:
+                workers = repo.list_workers(conn, period_id)
+                hc_rows = obtener_activos()
+                matches = {int(w["id"]): repo.get_match(conn, int(w["id"])) for w in workers}
+                inferred = infer_period_clients(
+                    conn,
+                    period_id=period_id,
+                    workers=[dict(w) for w in workers],
+                    matches=matches,
+                    headcount_rows=hc_rows,
+                    filename=str(period["original_filename"] or ""),
+                    sheet_name=str(period["sheet_name"] or ""),
+                )
+                cliente = inferred["summary"].get("primary_cliente") or ""
+            if not cliente:
+                flash("No se pudo inferir cliente. Confirme al menos una asignación planta/cliente.", "error")
+                return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
             run_comparative(
                 conn,
                 period_id=period_id,
