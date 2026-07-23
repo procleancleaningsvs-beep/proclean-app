@@ -188,6 +188,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                 pendientes=snapshot.get("pendientes") or [],
                 warnings=_parse_json_field(report.get("warnings_json"), []),
                 legacy_url=url_for("comparativo.reporte_mensual_index"),
+                snapshot=snapshot,
             )
         finally:
             conn.close()
