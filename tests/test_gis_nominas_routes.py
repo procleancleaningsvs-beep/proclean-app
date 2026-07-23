@@ -73,3 +73,23 @@ def test_hub_points_to_new_nominas(tmp_path, monkeypatch):
     _login(client)
     html = client.get("/gestion-idse-sua/").get_data(as_text=True)
     assert 'href="/gestion-idse-sua/nominas"' in html
+
+
+def test_nominas_import_post_with_session_user_row(tmp_path, monkeypatch):
+    from io import BytesIO
+    from pathlib import Path
+
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    fixture = Path("tests/fixtures/nomina_carrier_anon.xlsx").read_bytes()
+    res = client.post(
+        "/gestion-idse-sua/nominas/import",
+        data={"file": (BytesIO(fixture), "Carrier 10 al 16 jul.xlsx")},
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    assert res.status_code == 302
+    location = res.headers.get("Location") or ""
+    assert "/gestion-idse-sua/nominas/import/" in location
+    assert "/login" not in location

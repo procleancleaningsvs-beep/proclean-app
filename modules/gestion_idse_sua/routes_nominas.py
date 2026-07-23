@@ -57,6 +57,15 @@ def _require_comparativo() -> None:
         abort(403)
 
 
+def _session_username() -> str:
+    user = g.user
+    if not user:
+        return ""
+    if isinstance(user, dict):
+        return str(user.get("username") or "")
+    return str(user["username"])
+
+
 def _clientes_disponibles() -> list[str]:
     try:
         activos = obtener_activos()
@@ -109,7 +118,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 conn,
                 file_bytes=data,
                 filename=file.filename,
-                uploaded_by=str(g.user.get("username") if g.user else ""),
+                uploaded_by=_session_username(),
             )
             _staging_path(result["import_id"]).write_bytes(data)
             return redirect(url_for("gestion_idse_sua.nominas_import_review", import_id=result["import_id"]))
@@ -313,7 +322,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 conn,
                 period_id=period_id,
                 cliente=cliente,
-                generated_by=str(g.user.get("username") if g.user else ""),
+                generated_by=_session_username(),
             )
             flash("Comparativo generado.", "success")
             return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
@@ -332,7 +341,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 conn,
                 planta=request.form.get("planta", ""),
                 cliente=request.form.get("cliente", ""),
-                confirmed_by=str(g.user.get("username") if g.user else ""),
+                confirmed_by=_session_username(),
             )
             repo.update_worker_cliente(conn, worker_id, request.form.get("cliente", ""))
             conn.commit()
@@ -417,7 +426,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
             out_path, filename = generate_comparative_excel(
                 conn,
                 comparative_id,
-                username=str(g.user.get("username") if g.user else ""),
+                username=_session_username(),
             )
             return send_file(
                 out_path,
@@ -467,7 +476,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 conn,
                 attendance_id=attendance_id,
                 code_corrected=(request.form.get("code_corrected") or "").strip(),
-                corrected_by=str(g.user.get("username") if g.user else ""),
+                corrected_by=_session_username(),
                 reason=(request.form.get("reason") or "").strip() or None,
             )
             flash("Corrección de asistencia registrada.", "success")
