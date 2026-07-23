@@ -57,13 +57,26 @@ def _is_manual_add(row: dict[str, Any]) -> bool:
     return str(row.get("row_origin") or "") == "MANUAL_ADD"
 
 
+def is_pag_included_row(row: dict[str, Any]) -> bool:
+    """Authoritative inclusion for .pag export, totals, and readiness."""
+    if int(row.get("included") or 0) != 1:
+        return False
+    if str(row.get("row_state") or "") == "EXCLUDED":
+        return False
+    if row.get("excluded_at"):
+        return False
+    return True
+
+
+def pag_included_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [r for r in rows if is_pag_included_row(r)]
+
+
 def compute_reconciliation(rows: list[dict[str, Any]]) -> Reconciliation:
     source_rows = [r for r in rows if not _is_manual_add(r)]
-    manual_active = [
-        r for r in rows if _is_manual_add(r) and int(r.get("included") or 0) == 1
-    ]
-    included = [r for r in rows if int(r.get("included") or 0) == 1]
-    excluded = [r for r in rows if int(r.get("included") or 0) == 0]
+    manual_active = [r for r in rows if _is_manual_add(r) and is_pag_included_row(r)]
+    included = pag_included_rows(rows)
+    excluded = [r for r in rows if not is_pag_included_row(r)]
     total_orig = sum(int(r.get("amount_original_cents") or 0) for r in source_rows)
     total_final = sum(int(r.get("amount_final_cents") or 0) for r in included)
     manual_total = sum(int(r.get("amount_final_cents") or 0) for r in manual_active)
@@ -368,7 +381,15 @@ def save_draft_rows(
         }
         seen: set[int] = set()
         for i, r in enumerate(rows, start=1):
+            row_state = str(r.get("row_state") or "")
             included = int(r.get("included") or 0)
+            if row_state == "EXCLUDED" or r.get("excluded_at"):
+                included = 0
+                row_state = "EXCLUDED"
+            elif row_state in {"NEEDS_REVIEW", "BLOCKED"}:
+                included = 0
+            elif not row_state:
+                row_state = "OK" if included else "EXCLUDED"
             final_cents = int(r.get("amount_final_cents") or 0)
             if included and final_cents <= 0:
                 raise ValueError("included_requires_positive_final")
@@ -387,7 +408,7 @@ def save_draft_rows(
                 included,
                 str(r.get("match_kind") or "NONE"),
                 r.get("alias_id"),
-                str(r.get("row_state") or ("OK" if included else "EXCLUDED")),
+                row_state,
                 json.dumps(r.get("warnings") or [], ensure_ascii=False),
                 json.dumps(r.get("user_decision") or {}, ensure_ascii=False),
                 r.get("excluded_at"),

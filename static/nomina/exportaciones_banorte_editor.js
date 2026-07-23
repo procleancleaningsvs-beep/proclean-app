@@ -286,6 +286,8 @@
       }
       noteConfirmedDraft(out.data.draft);
       patchEditorFromDraft(out.data.draft);
+      const exportMsg = document.getElementById("banorte-export-msg");
+      if (exportMsg) { exportMsg.hidden = true; exportMsg.textContent = ""; }
       return { ok: true };
     }
     if (term.type === "undo") {

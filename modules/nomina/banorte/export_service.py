@@ -8,7 +8,12 @@ from decimal import Decimal
 from typing import Any, Sequence
 from zoneinfo import ZoneInfo
 
-from modules.nomina.banorte.draft_repository import DraftStaleError, compute_reconciliation, get_draft
+from modules.nomina.banorte.draft_repository import (
+    DraftStaleError,
+    compute_reconciliation,
+    get_draft,
+    pag_included_rows,
+)
 from modules.nomina.banorte.drift import DriftError, check_beneficiary_snapshots, check_calculo_origin_drift
 from modules.nomina.banorte.models import NormalizedPayment
 from modules.nomina.banorte.money import parse_money, to_cents
@@ -444,29 +449,28 @@ def generate_from_persistent_draft(
             r["warnings"] = json.loads(r.get("warnings_json") or "[]")
             r["user_decision"] = json.loads(r.get("user_decision_json") or "{}")
 
-        blocked = check_beneficiary_snapshots(conn, rows)
+        included = pag_included_rows(rows)
+        blocked = check_beneficiary_snapshots(conn, included)
         if blocked:
             raise ExportBlockedError("rows_require_review", blocked)
 
-        included = [r for r in rows if int(r.get("included") or 0) == 1]
         for r in included:
-            if str(r.get("row_origin") or "") != "MANUAL_ADD":
-                continue
             if str(r.get("row_state") or "") != "OK":
                 raise ExportBlockedError(
                     "rows_require_review",
-                    [{"position": r.get("position"), "reason": "manual_add_not_ok"}],
+                    [{"position": r.get("position"), "reason": "row_not_ok"}],
                 )
-            if int(r.get("amount_final_cents") or 0) <= 0:
-                raise ExportBlockedError(
-                    "rows_require_review",
-                    [{"position": r.get("position"), "reason": "manual_add_amount_invalid"}],
-                )
-            if r.get("beneficiary_id") is None:
-                raise ExportBlockedError(
-                    "rows_require_review",
-                    [{"position": r.get("position"), "reason": "manual_add_beneficiary_missing"}],
-                )
+            if str(r.get("row_origin") or "") == "MANUAL_ADD":
+                if int(r.get("amount_final_cents") or 0) <= 0:
+                    raise ExportBlockedError(
+                        "rows_require_review",
+                        [{"position": r.get("position"), "reason": "manual_add_amount_invalid"}],
+                    )
+                if r.get("beneficiary_id") is None:
+                    raise ExportBlockedError(
+                        "rows_require_review",
+                        [{"position": r.get("position"), "reason": "manual_add_beneficiary_missing"}],
+                    )
         rec = compute_reconciliation(rows)
         payment_rows: list[DraftPaymentRow] = []
         for r in included:
