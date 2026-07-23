@@ -107,6 +107,9 @@ def convert_events_to_movements(
             "nombres": override.get("nombres") or mapped.get("nombres") or event.get("nombre_nomina") or "",
             "sbc": override.get("sbc") or event.get("sbc") or mapped.get("sbc") or "0.00",
             "origen": "gis_reporte_mensual",
+            "alerta": (
+                f"reporte_id={event.get('report_id')};persona_id={event.get('person_id')};evento_id={event_id}"
+            ),
         }
         faltantes = [k for k in REQUIRED_MOV_FIELDS if not str(payload.get(k) or "").strip()]
         if faltantes:

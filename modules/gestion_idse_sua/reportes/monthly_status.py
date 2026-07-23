@@ -29,6 +29,14 @@ def first_and_last_a(daily: list[dict[str, Any]]) -> tuple[str, str]:
     return first_a, last_a
 
 
+def _active_week_ids(daily: list[dict[str, Any]]) -> set[int]:
+    return {
+        int(d.get("period_id") or 0)
+        for d in daily
+        if str(d.get("code_normalized") or "") in ACTIVE_CODES and int(d.get("period_id") or 0) > 0
+    }
+
+
 def classify_monthly_status(
     *,
     daily: list[dict[str, Any]],
@@ -40,6 +48,7 @@ def classify_monthly_status(
         return "Revisión"
     if any(str(e.get("interpretation_status") or "") == "conflict" for e in daily):
         return "Revisión"
+
     operational = [e for e in events if e.get("event_type") in {"posible_baja", "posible_reingreso"}]
     bajas = [e for e in operational if e.get("event_type") == "posible_baja" and e.get("status") != "discarded"]
     reingresos = [e for e in operational if e.get("event_type") == "posible_reingreso"]
@@ -49,21 +58,34 @@ def classify_monthly_status(
         if len(bajas) > 1 or len(reingresos) > 1:
             return "Varias interrupciones"
         return "Baja y reingreso"
-    totals = compute_totals(daily)
-    if totals["I"] and totals["I"] >= len(daily) // 2:
-        return "Incapacidad o vacaciones"
-    if totals["V"] and totals["V"] >= len(daily) // 2:
-        return "Incapacidad o vacaciones"
-    first_a, last_a = first_and_last_a(daily)
-    month_days = sorted({str(d.get("fecha_iso") or "") for d in daily if d.get("fecha_iso")})
-    if not month_days:
-        return "Revisión"
     if bajas and not reingresos:
         return "Salida durante el mes"
     if reingresos and not bajas:
         return "Ingreso durante el mes"
-    if weeks_with_presence >= selected_week_count and first_a == month_days[0] and last_a == month_days[-1]:
+
+    active_weeks = _active_week_ids(daily)
+    if (
+        len(active_weeks) >= selected_week_count
+        and not bajas
+        and not reingresos
+        and not any(str(d.get("interpretation_status") or "") == "conflict" for d in daily)
+    ):
         return "Todo el mes"
-    if weeks_with_presence < selected_week_count or first_a != month_days[0] or last_a != month_days[-1]:
+
+    totals = compute_totals(daily)
+    if totals["I"] and totals["I"] >= len(daily) // 2 and len(active_weeks) < selected_week_count:
+        return "Incapacidad o vacaciones"
+    if totals["V"] and totals["V"] >= len(daily) // 2 and len(active_weeks) < selected_week_count:
+        return "Incapacidad o vacaciones"
+    if weeks_with_presence < selected_week_count:
         return "Presencia parcial"
+
+    first_a, last_a = first_and_last_a(daily)
+    month_days = sorted({str(d.get("fecha_iso") or "") for d in daily if d.get("fecha_iso")})
+    if not month_days:
+        return "Revisión"
+    if first_a and last_a and (first_a != month_days[0] or last_a != month_days[-1]):
+        return "Presencia parcial"
+    if totals["I"] or totals["V"]:
+        return "Incapacidad o vacaciones"
     return "Presencia parcial"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Any
@@ -102,6 +103,25 @@ def replace_report_weeks(
 
 
 def list_report_weeks(conn: sqlite3.Connection, report_id: int) -> list[dict[str, Any]]:
+    report = get_report(conn, report_id)
+    frozen: list[dict[str, Any]] = []
+    if report and report.get("snapshot_json"):
+        try:
+            snapshot = json.loads(report["snapshot_json"])
+            frozen = snapshot.get("weeks") or []
+        except json.JSONDecodeError:
+            frozen = []
+    if frozen:
+        rows = conn.execute(
+            "SELECT * FROM gis_monthly_report_weeks WHERE report_id = ? ORDER BY sort_order",
+            (report_id,),
+        ).fetchall()
+        by_period = {int(item["period_id"]): item for item in frozen}
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            meta = by_period.get(int(row["period_id"]), {})
+            out.append({**dict(row), **meta})
+        return out
     rows = conn.execute(
         """
         SELECT w.*, p.fecha_inicio, p.fecha_fin, p.semana_num, s.sheet_name, i.original_filename, i.file_hash

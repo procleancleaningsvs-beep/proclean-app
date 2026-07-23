@@ -247,8 +247,26 @@ def generate_monthly_report(
 
     person_id_map = repo.replace_report_persons(conn, report_id, persons)
     repo.insert_report_events(conn, report_id, events, person_id_map=person_id_map)
+
+    weeks_snapshot: list[dict[str, Any]] = []
+    for week in validation["weeks"]:
+        row = conn.execute(
+            """
+            SELECT p.id AS period_id, p.fecha_inicio, p.fecha_fin, p.semana_num,
+                   s.sheet_name, i.original_filename, i.file_hash
+            FROM gis_nomina_periods p
+            JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+            JOIN gis_nomina_imports i ON i.id = s.import_id
+            WHERE p.id = ?
+            """,
+            (week["period_id"],),
+        ).fetchone()
+        if row:
+            weeks_snapshot.append(dict(row))
+
     snapshot = {
         "period_ids": period_ids_ordered,
+        "weeks": weeks_snapshot,
         "person_count": len(persons),
         "pending_count": len(pendientes),
         "pendientes": pendientes,
