@@ -33,46 +33,7 @@ def check_calculo_origin_drift(db_path: str, draft: dict[str, Any]) -> None:
 
 
 def check_beneficiary_snapshots(conn, draft_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    blocked: list[dict[str, Any]] = []
-    for r in draft_rows:
-        if int(r.get("included") or 0) != 1:
-            continue
-        bid = r.get("beneficiary_id")
-        if bid is None:
-            blocked.append({"position": r.get("position"), "reason": "beneficiary_missing"})
-            continue
-        ben = conn.execute(
-            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
-            (int(bid),),
-        ).fetchone()
-        if ben is None:
-            blocked.append({"position": r.get("position"), "reason": "beneficiary_missing"})
-            continue
-        if ben["record_status"] != "ACTIVO":
-            blocked.append(
-                {
-                    "position": r.get("position"),
-                    "reason": "beneficiary_not_active",
-                    "record_status": ben["record_status"],
-                }
-            )
-            continue
-        snap_acct = r.get("account_number_snapshot")
-        if snap_acct is not None and str(snap_acct) != str(ben["account_number"]):
-            blocked.append({"position": r.get("position"), "reason": "account_changed_since_preview"})
-            continue
-        snap_emp = r.get("employee_number_snapshot")
-        if snap_emp is not None and str(snap_emp) != str(ben["employee_number_effective"]):
-            blocked.append({"position": r.get("position"), "reason": "employee_changed_since_preview"})
-            continue
-        # manual_effective requires explicit confirmation before export
-        if int(ben["manual_effective_from_account"] or 0) == 1:
-            ud = r.get("user_decision") or {}
-            if not ud.get("confirm_manual_effective_from_account"):
-                blocked.append(
-                    {
-                        "position": r.get("position"),
-                        "reason": "manual_effective_confirmation_required",
-                    }
-                )
-    return blocked
+    """Backward-compatible wrapper; prefer evaluate_pag_export_blockers."""
+    from modules.nomina.banorte.export_readiness import evaluate_pag_export_blockers
+
+    return evaluate_pag_export_blockers(conn, draft_rows)

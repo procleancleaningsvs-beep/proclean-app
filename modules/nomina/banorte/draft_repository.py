@@ -726,11 +726,16 @@ def apply_draft_row(
                 raise ValueError("beneficiary_not_found")
             ben = dict(ben_row)
 
+        user_decision = json.loads(row["user_decision_json"] or "{}")
+        if ben is not None and benef_touch and int(ben.get("manual_effective_from_account") or 0) == 1:
+            user_decision["confirm_manual_effective_from_account"] = True
+
         state = compute_row_state_from_beneficiary(
             amount_final_cents=cents,
             beneficiary=ben,
             origin_kind=origin_kind,
             banco_snapshot=row["banco_snapshot"],
+            user_decision=user_decision,
         )
         nombre = (
             str(nombre_recibido)
@@ -754,6 +759,7 @@ def apply_draft_row(
                 included=?,
                 row_state=?,
                 warnings_json=?,
+                user_decision_json=?,
                 match_kind=?,
                 excluded_at=NULL,
                 excluded_by=NULL
@@ -768,7 +774,10 @@ def apply_draft_row(
                 int(state["included"]),
                 str(state["row_state"]),
                 json.dumps(warnings, ensure_ascii=False),
-                "EXACT" if bid and int(state["included"]) == 1 else (row["match_kind"] or "NONE"),
+                json.dumps(user_decision, ensure_ascii=False),
+                "MANUAL_SELECT" if bid and benef_touch else (
+                    "EXACT" if bid and int(state["included"]) == 1 else (row["match_kind"] or "NONE")
+                ),
                 int(row_id),
                 int(draft_id),
             ),
@@ -864,11 +873,15 @@ def add_draft_payment(
         ben = dict(ben_row)
         if ben.get("record_status") != "ACTIVO":
             raise ValueError("beneficiary_not_active")
+        user_decision: dict[str, Any] = {"source": "MANUAL_ADD"}
+        if int(ben.get("manual_effective_from_account") or 0) == 1:
+            user_decision["confirm_manual_effective_from_account"] = True
         state = compute_row_state_from_beneficiary(
             amount_final_cents=cents,
             beneficiary=ben,
             origin_kind="MANUAL_CAPTURE" if origin_kind == "MANUAL_CAPTURE" else origin_kind,
             banco_snapshot="Banorte",
+            user_decision=user_decision,
         )
         if int(state.get("included") or 0) != 1:
             raise ValueError("beneficiary_not_usable")
@@ -914,7 +927,7 @@ def add_draft_payment(
                 cents,
                 str(state["row_state"]),
                 json.dumps(state.get("warnings") or [], ensure_ascii=False),
-                json.dumps({"source": "MANUAL_ADD"}, ensure_ascii=False),
+                json.dumps(user_decision, ensure_ascii=False),
             ),
         )
         row_id = int(cur.lastrowid)

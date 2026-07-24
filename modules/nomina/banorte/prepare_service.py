@@ -15,6 +15,7 @@ from typing import Any
 
 from modules.nomina.banorte.matching_service import MatchResult, match_name
 from modules.nomina.banorte.repository import connect
+from modules.nomina.banorte.export_readiness import manual_effective_confirmed
 from modules.nomina.banorte.validators import (
     is_exact_banorte_bank,
     is_valid_account_number,
@@ -278,11 +279,44 @@ def prepare_draft_rows(
     origin_kind: str = "CALCULO_RUN",
 ) -> list[dict[str, Any]]:
     prepared: list[dict[str, Any]] = []
-    for row in rows:
-        m = resolve_row_match(db_path, row)
-        kind = str(row.get("origin_kind") or origin_kind)
-        prepared.append(apply_bank_rules(row, m, origin_kind=kind))
+    conn = connect(db_path)
+    try:
+        for row in rows:
+            m = resolve_row_match(db_path, row)
+            kind = str(row.get("origin_kind") or origin_kind)
+            out = apply_bank_rules(row, m, origin_kind=kind)
+            bid = out.get("beneficiary_id")
+            beneficiary = None
+            if bid is not None:
+                ben_row = conn.execute(
+                    "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+                    (int(bid),),
+                ).fetchone()
+                if ben_row is not None:
+                    beneficiary = dict(ben_row)
+            prepared.append(_apply_manual_effective_gate(out, beneficiary))
+    finally:
+        conn.close()
     return prepared
+
+
+def _apply_manual_effective_gate(
+    row: dict[str, Any],
+    beneficiary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    out = dict(row)
+    if beneficiary is None or int(beneficiary.get("manual_effective_from_account") or 0) != 1:
+        return out
+    if str(out.get("row_state") or "") != "OK" or manual_effective_confirmed(out):
+        return out
+    warnings = list(out.get("warnings") or [])
+    if "manual_effective_confirmation_required" not in warnings:
+        warnings.append("manual_effective_confirmation_required")
+    out["warnings"] = warnings
+    out["warnings_json"] = json.dumps(warnings, ensure_ascii=False)
+    out["row_state"] = "NEEDS_REVIEW"
+    out["included"] = 0
+    return out
 
 
 def compute_row_state_from_beneficiary(
@@ -291,6 +325,7 @@ def compute_row_state_from_beneficiary(
     beneficiary: dict[str, Any] | None,
     origin_kind: str = "MANUAL_CAPTURE",
     banco_snapshot: str | None = None,
+    user_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Authoritative state for apply/restore using canonical validators."""
     warnings: list[str] = []
@@ -341,6 +376,17 @@ def compute_row_state_from_beneficiary(
     if beneficiary.get("validation_status") == "MANUAL_PENDIENTE_VALIDACION":
         # usable structurally if emp/acct ok — still LISTO for pag with confirm_manuals at generate
         pass
+    if int(beneficiary.get("manual_effective_from_account") or 0) == 1:
+        ud = user_decision or {}
+        if not ud.get("confirm_manual_effective_from_account"):
+            return {
+                "included": 0,
+                "row_state": "NEEDS_REVIEW",
+                "amount_final_cents": amount_final_cents,
+                "warnings": ["manual_effective_confirmation_required"],
+                "employee_number_snapshot": beneficiary.get("employee_number_effective"),
+                "account_number_snapshot": beneficiary.get("account_number"),
+            }
     return {
         "included": 1,
         "row_state": "OK",
