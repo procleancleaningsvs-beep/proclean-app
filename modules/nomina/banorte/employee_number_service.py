@@ -8,6 +8,11 @@ from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.banorte.validators import digits_only
 
+# Permanently excluded from suggestions (Banorte reserved range).
+BANORTE_RESERVED_EMPLOYEE_NUMBERS: frozenset[str] = frozenset(
+    str(i).zfill(10) for i in range(1, 6)
+)
+
 
 def _normalize_occupied(raw: Any) -> str | None:
     digits = digits_only(raw)
@@ -59,6 +64,7 @@ def list_available_employee_numbers(
     try:
         ensure_banorte_tables(conn)
         occupied = collect_occupied_employee_numbers(conn)
+        occupied.update(BANORTE_RESERVED_EMPLOYEE_NUMBERS)
         occupied_ints = sorted(int(x) for x in occupied)
         numbers: list[str] = []
         cursor = after_n + 1 if after_n else 1

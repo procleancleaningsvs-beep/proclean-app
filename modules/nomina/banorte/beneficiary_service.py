@@ -90,6 +90,11 @@ def _status_explanation(item: dict[str, Any]) -> str:
         return "Desactivado manualmente."
     if item.get("record_status") == "CONFLICTO_CRITICO":
         return "Conflicto crítico pendiente."
+    if item.get("banorte_employee_substituted") and item.get("employee_number_requested"):
+        req = str(item["employee_number_requested"])
+        eff = str(item.get("employee_number_effective") or "")
+        if req and eff and req != eff:
+            return f"Solicitado {req}; operativo {eff} (Banorte)."
     if item.get("banorte_comment"):
         return str(item["banorte_comment"])
     if item.get("validation_status") == "IMPORTADO_EXITOSO" and item.get("record_status") == "ACTIVO":

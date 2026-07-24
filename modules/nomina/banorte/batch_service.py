@@ -16,6 +16,7 @@ from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.banorte.validators import (
     digits_only,
     extract_identifier_cell,
+    is_banorte_employee_substituted_comment,
     normalize_header,
     normalize_name,
     safe_upload_filename,
@@ -123,6 +124,101 @@ def _bump_batch(conn, batch_id: int, expected_revision: int, user: str) -> None:
     _ = user  # reserved for future audit column
 
 
+def _batch_requested_employee(row: dict[str, Any]) -> str:
+    return _digits(row.get("employee_number"))
+
+
+def _batch_effective_employee(row: dict[str, Any]) -> str:
+    acct = _digits(row.get("cuenta"))
+    requested = _batch_requested_employee(row)
+    use_acct = int(row.get("use_account_as_employee_number") or 0) == 1
+    if use_acct:
+        return acct
+    return requested
+
+
+def _insert_batch_rows_conn(
+    conn,
+    batch_id: int,
+    *,
+    start_position: int,
+    rows: list[dict[str, Any]],
+    now: str,
+) -> None:
+    if not rows:
+        return
+    values: list[tuple[Any, ...]] = []
+    for i, row in enumerate(rows):
+        name = (row.get("nombre") or "").strip()
+        acct = _digits(row.get("cuenta"))
+        use_acct = bool(row.get("use_account_as_employee_number"))
+        if use_acct:
+            requested = _digits(row.get("employee_number") or "")
+            emp = requested or acct
+        else:
+            emp = _digits(row.get("employee_number") or "")
+        state = "OK" if name and acct and emp else "DRAFT"
+        values.append(
+            (
+                int(batch_id),
+                start_position + i,
+                name or None,
+                acct or None,
+                emp or None,
+                1 if use_acct else 0,
+                row.get("comment"),
+                state,
+                row.get("source_row"),
+                now,
+                now,
+            )
+        )
+    conn.executemany(
+        """
+        INSERT INTO nomina_banorte_beneficiary_batch_rows (
+            batch_id, position, nombre, cuenta, employee_number,
+            use_account_as_employee_number, comment, row_state,
+            source_row, created_at, updated_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        values,
+    )
+
+
+def add_batch_rows_bulk(
+    db_path: str,
+    batch_id: int,
+    user: str,
+    expected_revision: int,
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not rows:
+        return get_batch(db_path, batch_id)  # type: ignore[return-value]
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        _bump_batch(conn, batch_id, expected_revision, user)
+        pos = int(
+            conn.execute(
+                "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM nomina_banorte_beneficiary_batch_rows WHERE batch_id=?",
+                (int(batch_id),),
+            ).fetchone()["p"]
+        )
+        now = _now()
+        _insert_batch_rows_conn(conn, batch_id, start_position=pos, rows=rows, now=now)
+        conn.commit()
+    except BatchStaleError:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return get_batch(db_path, batch_id)  # type: ignore[return-value]
+
+
 def add_batch_row(
     db_path: str,
     batch_id: int,
@@ -142,7 +238,10 @@ def add_batch_row(
     if use_acct:
         if len(acct) != 10:
             raise ValueError("account_must_be_exactly_10_digits")
-        emp = acct
+        requested = _digits(employee_number or "")
+        if requested and (len(requested) != 10 or requested == "0000000000"):
+            raise ValueError("employee_number_must_be_exactly_10_digits")
+        emp = requested or acct
     else:
         emp = _digits(employee_number or "")
         if emp and (len(emp) != 10 or emp == "0000000000"):
@@ -292,6 +391,12 @@ def confirm_batch(
         if not rows:
             raise ValueError("batch_empty")
         occupied = collect_occupied_employee_numbers(conn)
+        active_accounts = {
+            str(r["account_number"])
+            for r in conn.execute(
+                "SELECT account_number FROM nomina_banorte_beneficiaries WHERE record_status='ACTIVO'"
+            )
+        }
         seen_emp: set[str] = set()
         seen_acct: set[str] = set()
         errors: list[dict[str, Any]] = []
@@ -299,7 +404,8 @@ def confirm_batch(
             rid = int(r["id"])
             name = (r.get("nombre") or "").strip()
             acct = _digits(r.get("cuenta"))
-            emp = _digits(r.get("employee_number"))
+            requested = _batch_requested_employee(r)
+            effective = _batch_effective_employee(r)
             use_acct = int(r.get("use_account_as_employee_number") or 0) == 1
             code = None
             msg = None
@@ -309,27 +415,22 @@ def confirm_batch(
                 code, msg = "account_required", "Cuenta obligatoria."
             elif use_acct and len(acct) != 10:
                 code, msg = "account_must_be_exactly_10_digits", "La cuenta debe tener exactamente 10 dígitos."
-            elif len(emp) != 10 or emp == "0000000000":
+            elif len(requested) != 10 or requested == "0000000000":
                 code, msg = "employee_number_must_be_exactly_10_digits", "El número debe tener exactamente 10 dígitos."
-            elif use_acct and emp != acct:
-                code, msg = "employee_account_mismatch", "El número debe coincidir con la cuenta."
-            elif emp in seen_emp or emp in occupied:
+            elif len(effective) != 10 or effective == "0000000000":
+                code, msg = "employee_number_must_be_exactly_10_digits", "El número efectivo debe tener exactamente 10 dígitos."
+            elif effective in seen_emp or effective in occupied:
                 code, msg = "duplicate_employee_number", "Número de empleado no disponible."
             elif acct in seen_acct:
                 code, msg = "duplicate_account_in_batch", "Cuenta duplicada en el lote."
-            else:
-                dup = conn.execute(
-                    "SELECT id FROM nomina_banorte_beneficiaries WHERE account_number=? AND record_status='ACTIVO'",
-                    (acct,),
-                ).fetchone()
-                if dup:
-                    code, msg = "duplicate_active_account", "Ya existe una cuenta activa igual."
+            elif acct in active_accounts:
+                code, msg = "duplicate_active_account", "Ya existe una cuenta activa igual."
             if code:
                 errors.append({"row_id": rid, "error_code": code, "error_message": msg})
             else:
-                seen_emp.add(emp)
+                seen_emp.add(effective)
                 seen_acct.add(acct)
-                occupied.add(emp.zfill(10) if len(emp) <= 10 else emp)
+                occupied.add(effective.zfill(10) if len(effective) <= 10 else effective)
         if errors:
             for e in errors:
                 conn.execute(
@@ -353,8 +454,12 @@ def confirm_batch(
         for r in rows:
             name = str(r["nombre"]).strip()
             acct = _digits(r["cuenta"])
-            emp = _digits(r["employee_number"])
-            manual_eff = 1 if int(r.get("use_account_as_employee_number") or 0) == 1 else 0
+            requested = _batch_requested_employee(r)
+            effective = _batch_effective_employee(r)
+            use_acct = int(r.get("use_account_as_employee_number") or 0) == 1
+            substituted = 1 if use_acct and requested != effective else 0
+            manual_eff = 1 if use_acct and substituted == 0 else 0
+            comment = r.get("comment") or f"batch:{batch_id}"
             conn.execute(
                 """
                 INSERT INTO nomina_banorte_beneficiaries (
@@ -363,18 +468,19 @@ def confirm_batch(
                     source_kind, validation_status, record_status,
                     banorte_employee_substituted, manual_effective_from_account,
                     banorte_comment, imported_at, imported_by, created_at, updated_at
-                ) VALUES (?,?,NULL,?,?,?,?,?,'ACTIVO',0,?,?,?,?,?,?)
+                ) VALUES (?,?,NULL,?,?,?,?,?,'ACTIVO',?,?,?,?,?,?,?)
                 """,
                 (
                     name,
                     normalize_name(name),
-                    emp,
-                    emp,
+                    requested,
+                    effective,
                     acct,
                     source_kind,
                     validation,
+                    substituted,
                     manual_eff,
-                    f"batch:{batch_id}",
+                    comment,
                     now,
                     user,
                     now,
@@ -512,8 +618,7 @@ def prepare_reporte_batch(
     batch = get_batch(db_path, int(batch["id"]))  # type: ignore[assignment]
     assert batch is not None
 
-    rev = int(batch["revision"])
-    bid = int(batch["id"])
+    pending_rows: list[dict[str, Any]] = []
     for r in range(header_row + 1, (ws.max_row or header_row) + 1):
         if not any(ws.cell(r, c).value for c in range(1, (ws.max_column or 1) + 1)):
             continue
@@ -527,16 +632,23 @@ def prepare_reporte_batch(
         acct, _acct_err = extract_identifier_cell(acct_cell.value, number_format=acct_cell.number_format)
         if not nombre or not emp or not acct:
             continue
-        batch = add_batch_row(
-            db_path,
-            bid,
-            user,
-            rev,
-            nombre=str(nombre),
-            cuenta=str(acct),
-            employee_number=str(emp),
-            use_account_as_employee_number=False,
-            source_row=r,
+        comment = _cell(ws, r, colmap.get("COMENTARIOS"))
+        substituted = is_banorte_employee_substituted_comment(comment)
+        pending_rows.append(
+            {
+                "nombre": str(nombre),
+                "cuenta": str(acct),
+                "employee_number": str(emp),
+                "use_account_as_employee_number": substituted,
+                "comment": str(comment) if comment is not None else None,
+                "source_row": r,
+            }
         )
-        rev = int(batch["revision"])
+    batch = add_batch_rows_bulk(
+        db_path,
+        int(batch["id"]),
+        user,
+        int(batch["revision"]),
+        pending_rows,
+    )
     return {"ok": True, "batch": batch, "idempotent": False}

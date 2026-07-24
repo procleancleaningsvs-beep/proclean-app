@@ -243,4 +243,5 @@ def test_available_numbers_skip_requested_effective_and_export_snapshot(tmp_path
     assert "0000000002" not in nums
     assert "0000000003" not in nums
     assert "0000000004" not in nums
-    assert "0000000005" in nums
+    assert "0000000005" not in nums
+    assert "0000000006" in nums

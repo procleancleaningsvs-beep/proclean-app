@@ -795,6 +795,13 @@
     if (batchUse && batchUse.checked) syncUseAccountCheckbox();
   });
 
+  function batchEffectiveEmployee(r) {
+    if (parseInt(r.use_account_as_employee_number || 0, 10) === 1) {
+      return r.cuenta || r.employee_number || "";
+    }
+    return r.employee_number || "";
+  }
+
   function renderBatchTable(batch) {
     stagingBatch = batch;
     const tbody = document.querySelector("#banorte-batch-table tbody");
@@ -805,7 +812,7 @@
       tr.innerHTML =
         "<td>" + esc(r.nombre) + "</td>" +
         '<td class="banorte-mono">' + esc(r.cuenta) + "</td>" +
-        '<td class="banorte-mono">' + esc(r.employee_number) + "</td>" +
+        '<td class="banorte-mono">' + esc(batchEffectiveEmployee(r)) + "</td>" +
         "<td>" + esc(r.row_state) + "</td>" +
         "<td>" + esc(r.error_message || r.comment || "") + "</td>" +
         "<td><button type='button' class='btn btn-secondary btn-sm' data-del='" + r.id + "'>Eliminar</button></td>";
