@@ -83,24 +83,48 @@ def _reporte_many_bytes(n_rows: int) -> bytes:
     return buf.getvalue()
 
 
-def test_reserved_employee_numbers_are_first_five():
+def test_reserved_employee_numbers_are_business_blocklist():
     assert BANORTE_RESERVED_EMPLOYEE_NUMBERS == frozenset(
-        str(i).zfill(10) for i in range(1, 6)
+        {
+            "0000000154",
+            "0000000155",
+            "0000000156",
+            "0000000157",
+            "0000000616",
+        }
     )
 
 
 def test_available_numbers_never_suggest_reserved(tmp_path):
     db = _db(tmp_path)
-    avail = list_available_employee_numbers(db, limit=10)
+    avail = list_available_employee_numbers(db, limit=20)
     nums = set(avail["numbers"])
     assert nums.isdisjoint(BANORTE_RESERVED_EMPLOYEE_NUMBERS)
-    assert "0000000006" in nums
+    assert "0000000001" in nums
 
 
 def test_available_numbers_skip_reserved_even_when_unoccupied(tmp_path):
     db = _db(tmp_path)
     avail = list_available_employee_numbers(db, limit=1)
-    assert avail["numbers"][0] == "0000000006"
+    assert avail["numbers"][0] == "0000000001"
+
+
+def test_available_numbers_exclude_each_business_reserved(tmp_path):
+    db = _db(tmp_path)
+    avail = list_available_employee_numbers(db, limit=200)
+    nums = set(avail["numbers"])
+    for reserved in (
+        "0000000154",
+        "0000000155",
+        "0000000156",
+        "0000000157",
+        "0000000616",
+    ):
+        assert reserved not in nums
+    # cursor after 153 should skip the 154-157 block
+    after_block = list_available_employee_numbers(db, limit=5, after="0000000153")
+    assert "0000000154" not in after_block["numbers"]
+    assert "0000000158" in after_block["numbers"]
 
 
 def test_reporte_batch_substitution_preserved_through_confirm(tmp_path):
@@ -124,6 +148,35 @@ def test_reporte_batch_substitution_preserved_through_confirm(tmp_path):
     assert ben["employee_number_requested"] == "0000000616"
     assert ben["employee_number_effective"] == "1377672164"
     assert ben["account_number"] == "1377672164"
+    assert int(ben["banorte_employee_substituted"]) == 1
+
+
+def test_reporte_real_file_substitution_case(tmp_path):
+    real = Path(r"c:\Users\Yahir\Downloads\Reporte_Detallado_6705926070000000010.xlsx")
+    if not real.is_file():
+        pytest.skip("real reporte fixture not available on this machine")
+    db = _db(tmp_path)
+    raw = real.read_bytes()
+    out = prepare_reporte_batch(db, "u", raw, real.name, confirm_reimport=True)
+    assert out["ok"] is True
+    substituted = [
+        r
+        for r in out["batch"]["rows"]
+        if r.get("employee_number") == "0000000616" and r.get("cuenta") == "1377672164"
+    ]
+    assert substituted, "expected substitution row 0000000616 -> 1377672164"
+    row = substituted[0]
+    assert int(row["use_account_as_employee_number"]) == 1
+    assert SUBSTITUTION_COMMENT in str(row.get("comment") or "")
+
+    confirmed = confirm_batch(db, int(out["batch"]["id"]), "u", int(out["batch"]["revision"]))
+    assert confirmed["status"] == "CONFIRMED"
+    ben = next(
+        b
+        for b in list_beneficiaries(db, page=1, page_size=50)["rows"]
+        if b["employee_number_effective"] == "1377672164"
+    )
+    assert ben["employee_number_requested"] == "0000000616"
     assert int(ben["banorte_employee_substituted"]) == 1
 
 

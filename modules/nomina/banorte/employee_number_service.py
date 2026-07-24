@@ -8,9 +8,15 @@ from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.banorte.validators import digits_only
 
-# Permanently excluded from suggestions (Banorte reserved range).
+# Permanently excluded from suggestions (Banorte business-reserved identifiers).
 BANORTE_RESERVED_EMPLOYEE_NUMBERS: frozenset[str] = frozenset(
-    str(i).zfill(10) for i in range(1, 6)
+    {
+        "0000000154",
+        "0000000155",
+        "0000000156",
+        "0000000157",
+        "0000000616",
+    }
 )
 
 
