@@ -52,6 +52,16 @@ def _staging_path(import_id: int) -> Path:
     return base / f"import_{import_id}.xlsx"
 
 
+def _load_import_bytes(conn: sqlite3.Connection, import_id: int) -> bytes:
+    row = conn.execute(
+        "SELECT file_content FROM gis_nomina_imports WHERE id = ?", (import_id,)
+    ).fetchone()
+    if row is not None and row["file_content"]:
+        return bytes(row["file_content"])
+    staging = _staging_path(import_id)
+    return staging.read_bytes() if staging.is_file() else b""
+
+
 def _db_from_app() -> sqlite3.Connection:
     from flask import current_app
 
@@ -100,13 +110,27 @@ def register_nominas_routes(bp, *, login_required) -> None:
         try:
             ensure_gis_nominas_tables(conn)
             conn.commit()
+            show_archived = request.args.get("archived") == "1"
             recent = conn.execute(
-                "SELECT id, original_filename, uploaded_at, status FROM gis_nomina_imports ORDER BY id DESC LIMIT 10"
+                """
+                SELECT id, original_filename, uploaded_at, status, archived_at, archived_by, archive_reason
+                FROM gis_nomina_imports
+                WHERE (? = 1 AND archived_at IS NOT NULL) OR (? = 0 AND archived_at IS NULL)
+                ORDER BY id DESC LIMIT 25
+                """,
+                (1 if show_archived else 0, 1 if show_archived else 0),
             ).fetchall()
+            recent_rows = []
+            for row in recent:
+                item = dict(row)
+                item["resume"] = repo.resolve_import_resume(conn, int(row["id"]))
+                item["dependencies"] = repo.import_dependencies(conn, int(row["id"]))
+                recent_rows.append(item)
             return render_template(
                 "gestion_idse_sua/nominas/index.html",
                 clientes=_clientes_disponibles(),
-                recent=[dict(r) for r in recent],
+                recent=recent_rows,
+                show_archived=show_archived,
                 legacy_url=url_for("comparativo.index"),
             )
         finally:
@@ -156,6 +180,66 @@ def register_nominas_routes(bp, *, login_required) -> None:
         finally:
             conn.close()
 
+    @route("/nominas/import/<int:import_id>/open", methods=["GET"], endpoint="nominas_open_import")
+    def nominas_open_import(import_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            state = repo.resolve_import_resume(conn, import_id)
+            if state["state"] == "missing":
+                abort(404)
+            if state["state"] == "archived":
+                flash("La importación está archivada. Restáurela para continuar.", "warning")
+                return redirect(url_for("gestion_idse_sua.nominas_index", archived=1))
+            if state["state"] in {"comparative_ready", "period_confirmed"}:
+                return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=state["period_id"]))
+            if state["state"] == "period_pending":
+                return redirect(url_for("gestion_idse_sua.nominas_period_review", import_id=import_id))
+            if state["state"] == "incomplete":
+                flash("Importación incompleta: no hay hojas extraídas. Puede reimportar o archivar.", "warning")
+                return redirect(url_for("gestion_idse_sua.nominas_index"))
+            return redirect(url_for("gestion_idse_sua.nominas_import_review", import_id=import_id))
+        finally:
+            conn.close()
+
+    @route("/nominas/import/<int:import_id>/archive", methods=["POST"], endpoint="nominas_archive_import")
+    def nominas_archive_import(import_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            if repo.get_import(conn, import_id) is None:
+                abort(404)
+            dependencies = repo.import_dependencies(conn, import_id)
+            repo.archive_import(
+                conn,
+                import_id,
+                archived_by=_session_username(),
+                reason=request.form.get("reason"),
+            )
+            conn.commit()
+            linked = sum(dependencies.values())
+            if linked:
+                flash(f"Importación archivada sin borrar {linked} dependencias históricas.", "warning")
+            else:
+                flash("Importación archivada. Puede restaurarla cuando lo necesite.", "success")
+            return redirect(url_for("gestion_idse_sua.nominas_index"))
+        finally:
+            conn.close()
+
+    @route("/nominas/import/<int:import_id>/restore", methods=["POST"], endpoint="nominas_restore_import")
+    def nominas_restore_import(import_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            if repo.get_import(conn, import_id) is None:
+                abort(404)
+            repo.restore_import(conn, import_id)
+            conn.commit()
+            flash("Importación restaurada.", "success")
+            return redirect(url_for("gestion_idse_sua.nominas_index", archived=1))
+        finally:
+            conn.close()
+
     @route("/nominas/import/<int:import_id>/classify", methods=["POST"], endpoint="nominas_classify")
     def nominas_classify(import_id: int):
         _require_comparativo()
@@ -183,8 +267,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
             imp = repo.get_import(conn, import_id)
             if imp is None:
                 abort(404)
-            staging = _staging_path(import_id)
-            file_bytes = staging.read_bytes() if staging.is_file() else b""
+            file_bytes = _load_import_bytes(conn, import_id)
             headcount_rows = obtener_activos() if file_bytes else []
             for s in repo.list_sheets(conn, import_id):
                 if s.get("confirmed_classification") != "nomina":
@@ -229,11 +312,10 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 abort(404)
             import_id = int(import_row["import_id"])
             staging = _staging_path(import_id)
-            if not staging.is_file():
-                flash("Vuelva a cargar el archivo Excel para continuar.", "error")
+            file_bytes = _load_import_bytes(conn, import_id)
+            if not file_bytes:
+                flash("Importación incompleta: falta el Excel extraído. Reimporte o archive el registro.", "error")
                 return redirect(url_for("gestion_idse_sua.nominas_index"))
-
-            file_bytes = staging.read_bytes()
             wb = load_workbook(BytesIO(file_bytes), data_only=True)
             ws = wb.worksheets[int(import_row["sheet_index"])]
             inspection = inspect_sheet(

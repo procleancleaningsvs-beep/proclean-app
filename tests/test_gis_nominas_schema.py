@@ -64,3 +64,21 @@ def test_no_drop_on_rerun(conn):
     ensure_gis_nominas_tables(conn)
     conn.commit()
     assert conn.execute("SELECT COUNT(*) FROM gis_nomina_imports").fetchone()[0] == 1
+
+
+def test_import_archive_and_file_columns_are_migrated(conn):
+    conn.execute(
+        """
+        CREATE TABLE gis_nomina_imports (
+            id INTEGER PRIMARY KEY,
+            original_filename TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            uploaded_by TEXT,
+            uploaded_at TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+    ensure_gis_nominas_tables(conn)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_nomina_imports)")}
+    assert {"file_content", "archived_at", "archived_by", "archive_reason"} <= columns

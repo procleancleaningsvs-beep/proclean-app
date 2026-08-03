@@ -33,6 +33,10 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
             file_hash TEXT NOT NULL,
             uploaded_by TEXT,
             uploaded_at TEXT NOT NULL,
+            file_content BLOB,
+            archived_at TEXT,
+            archived_by TEXT,
+            archive_reason TEXT,
             status TEXT NOT NULL
                 CHECK (status IN (
                     'uploaded', 'classified', 'period_confirmed',
@@ -41,6 +45,15 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    import_columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_nomina_imports)")}
+    for column, definition in (
+        ("file_content", "BLOB"),
+        ("archived_at", "TEXT"),
+        ("archived_by", "TEXT"),
+        ("archive_reason", "TEXT"),
+    ):
+        if column not in import_columns:
+            conn.execute(f"ALTER TABLE gis_nomina_imports ADD COLUMN {column} {definition}")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS gis_nomina_sheets (

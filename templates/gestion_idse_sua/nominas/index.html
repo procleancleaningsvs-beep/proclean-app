@@ -2,6 +2,7 @@
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/workspace_table.css') }}">
 {% endblock %}
 {% block content %}
 <section class="gis-hero gis-hero--compact">
@@ -25,20 +26,41 @@
     </form>
   </section>
 
-  {% if recent %}
   <section class="gis-nom-card">
-    <h3>Importaciones recientes</h3>
+    <div class="gis-ws-toolbar">
+      <h3>{{ 'Importaciones archivadas' if show_archived else 'Importaciones recientes' }}</h3>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('gestion_idse_sua.nominas_index', archived=0 if show_archived else 1) }}">
+        {{ 'Ver activas' if show_archived else 'Mostrar archivadas' }}
+      </a>
+    </div>
+    {% if recent %}
     <ul class="gis-recent__list">
       {% for row in recent %}
       <li class="gis-recent__item">
         <strong>{{ row.original_filename }}</strong>
         <span>{{ row.uploaded_at }}</span>
-        <em>{{ row.status }}</em>
-        <a href="{{ url_for('gestion_idse_sua.nominas_import_review', import_id=row.id) }}">Abrir</a>
+        <em>{{ row.resume.state|replace('_', ' ') }}</em>
+        {% if row.resume.state == 'incomplete' %}<span class="gis-nom-warn">Importación incompleta</span>{% endif %}
+        {% if row.dependencies.comparatives or row.dependencies.reports or row.dependencies.movements %}
+        <small>Dependencias: {{ row.dependencies.comparatives }} comparativos · {{ row.dependencies.reports }} reportes · {{ row.dependencies.movements }} movimientos</small>
+        {% endif %}
+        {% if show_archived %}
+        <form method="post" action="{{ url_for('gestion_idse_sua.nominas_restore_import', import_id=row.id) }}">
+          <button class="btn btn-secondary btn-sm" type="submit">Restaurar</button>
+        </form>
+        {% else %}
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('gestion_idse_sua.nominas_open_import', import_id=row.id) }}">Abrir</a>
+        <form method="post" action="{{ url_for('gestion_idse_sua.nominas_archive_import', import_id=row.id) }}">
+          <input name="reason" placeholder="Motivo opcional" aria-label="Motivo de archivo">
+          <button class="btn btn-secondary btn-sm" type="submit">Archivar</button>
+        </form>
+        {% endif %}
       </li>
       {% endfor %}
     </ul>
+    {% else %}
+    <p class="gis-nom-hint">No hay importaciones en esta vista.</p>
+    {% endif %}
   </section>
-  {% endif %}
 </div>
 {% endblock %}

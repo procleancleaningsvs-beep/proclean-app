@@ -49,6 +49,7 @@ def register_import(
         original_filename=filename,
         file_hash=inspection["file_hash"],
         uploaded_by=uploaded_by,
+        file_content=file_bytes,
     )
     sheet_ids: list[int] = []
     for sheet in inspection["sheets"]:

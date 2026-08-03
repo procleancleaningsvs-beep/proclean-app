@@ -120,6 +120,9 @@ def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatc
         f"/gestion-idse-sua/nominas/import/{import_id}/classify",
         data={f"sheet_{sheet_id}": "nomina"},
     )
+    from modules.gestion_idse_sua.routes_nominas import _staging_path
+
+    _staging_path(import_id).unlink(missing_ok=True)
     monkeypatch.setattr(
         "modules.gestion_idse_sua.routes_nominas.obtener_activos",
         lambda *args, **kwargs: [{"cliente": "CARRIER", "nombre_completo": "PERSONA HC"}],
@@ -148,3 +151,20 @@ def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatc
     ).fetchall()
     connection.close()
     assert assignments == [("CARRIER",)]
+
+    opened = client.get(
+        f"/gestion-idse-sua/nominas/import/{import_id}/open", follow_redirects=False
+    )
+    assert "/workspace/" in opened.headers["Location"]
+    client.post(
+        f"/gestion-idse-sua/nominas/import/{import_id}/archive",
+        data={"reason": "QA"},
+    )
+    active_html = client.get("/gestion-idse-sua/nominas").get_data(as_text=True)
+    assert "Carrier 10 al 16 jul.xlsx" not in active_html
+    archived_html = client.get("/gestion-idse-sua/nominas?archived=1").get_data(as_text=True)
+    assert "Carrier 10 al 16 jul.xlsx" in archived_html
+    assert "Restaurar" in archived_html
+    client.post(f"/gestion-idse-sua/nominas/import/{import_id}/restore")
+    restored_html = client.get("/gestion-idse-sua/nominas").get_data(as_text=True)
+    assert "Carrier 10 al 16 jul.xlsx" in restored_html

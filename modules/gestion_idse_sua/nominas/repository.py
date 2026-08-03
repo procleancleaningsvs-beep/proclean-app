@@ -13,15 +13,16 @@ def create_import(
     original_filename: str,
     file_hash: str,
     uploaded_by: str | None,
+    file_content: bytes | None = None,
 ) -> int:
     now = datetime.now().isoformat(timespec="seconds")
     cur = conn.execute(
         """
         INSERT INTO gis_nomina_imports
-            (original_filename, file_hash, uploaded_by, uploaded_at, status)
-        VALUES (?, ?, ?, ?, 'uploaded')
+            (original_filename, file_hash, uploaded_by, uploaded_at, file_content, status)
+        VALUES (?, ?, ?, ?, ?, 'uploaded')
         """,
-        (original_filename, file_hash, uploaded_by, now),
+        (original_filename, file_hash, uploaded_by, now, file_content),
     )
     return int(cur.lastrowid)
 
@@ -51,6 +52,119 @@ def add_sheet(conn: sqlite3.Connection, import_id: int, sheet: dict[str, Any]) -
 def get_import(conn: sqlite3.Connection, import_id: int) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM gis_nomina_imports WHERE id = ?", (import_id,)).fetchone()
     return dict(row) if row else None
+
+
+def archive_import(
+    conn: sqlite3.Connection,
+    import_id: int,
+    *,
+    archived_by: str | None,
+    reason: str | None = None,
+) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        UPDATE gis_nomina_imports
+        SET archived_at = ?, archived_by = ?, archive_reason = ?
+        WHERE id = ?
+        """,
+        (now, archived_by, (reason or "").strip() or None, import_id),
+    )
+
+
+def restore_import(conn: sqlite3.Connection, import_id: int) -> None:
+    conn.execute(
+        """
+        UPDATE gis_nomina_imports
+        SET archived_at = NULL, archived_by = NULL, archive_reason = NULL
+        WHERE id = ?
+        """,
+        (import_id,),
+    )
+
+
+def import_dependencies(conn: sqlite3.Connection, import_id: int) -> dict[str, int]:
+    periods = conn.execute(
+        """
+        SELECT p.id
+        FROM gis_nomina_periods p
+        JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+        WHERE s.import_id = ?
+        """,
+        (import_id,),
+    ).fetchall()
+    period_ids = [int(row["id"]) for row in periods]
+    out = {"periods": len(period_ids), "comparatives": 0, "movements": 0, "reports": 0}
+    if not period_ids:
+        return out
+    marks = ",".join("?" for _ in period_ids)
+    out["comparatives"] = int(conn.execute(
+        f"SELECT COUNT(*) FROM gis_nomina_comparatives WHERE period_id IN ({marks})", period_ids
+    ).fetchone()[0])
+    out["movements"] = int(conn.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM gis_nomina_results r
+        JOIN gis_nomina_comparatives c ON c.id = r.comparative_id
+        WHERE c.period_id IN ({marks}) AND r.movimiento_id IS NOT NULL
+        """,
+        period_ids,
+    ).fetchone()[0])
+    has_monthly = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gis_monthly_report_weeks'"
+    ).fetchone()
+    if has_monthly:
+        out["reports"] = int(conn.execute(
+            f"SELECT COUNT(DISTINCT report_id) FROM gis_monthly_report_weeks WHERE period_id IN ({marks})",
+            period_ids,
+        ).fetchone()[0])
+    return out
+
+
+def resolve_import_resume(conn: sqlite3.Connection, import_id: int) -> dict[str, Any]:
+    imp = get_import(conn, import_id)
+    if imp is None:
+        return {"state": "missing"}
+    if imp.get("archived_at"):
+        return {"state": "archived", "import_id": import_id}
+    sheet_count = int(conn.execute(
+        "SELECT COUNT(*) FROM gis_nomina_sheets WHERE import_id = ?", (import_id,)
+    ).fetchone()[0])
+    if not sheet_count:
+        return {"state": "incomplete", "import_id": import_id}
+    comp = conn.execute(
+        """
+        SELECT c.id AS comparative_id, c.period_id
+        FROM gis_nomina_comparatives c
+        JOIN gis_nomina_periods p ON p.id = c.period_id
+        JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+        WHERE s.import_id = ?
+        ORDER BY c.id DESC LIMIT 1
+        """,
+        (import_id,),
+    ).fetchone()
+    if comp:
+        return {"state": "comparative_ready", **dict(comp)}
+    period = conn.execute(
+        """
+        SELECT p.id AS period_id, p.user_confirmed,
+               (SELECT COUNT(*) FROM gis_nomina_workers w WHERE w.period_id = p.id) AS worker_count
+        FROM gis_nomina_periods p
+        JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+        WHERE s.import_id = ?
+        ORDER BY p.id DESC LIMIT 1
+        """,
+        (import_id,),
+    ).fetchone()
+    if period and int(period["worker_count"] or 0) > 0:
+        return {"state": "period_confirmed", **dict(period)}
+    classified = conn.execute(
+        "SELECT COUNT(*) FROM gis_nomina_sheets WHERE import_id = ? AND confirmed_classification IS NOT NULL",
+        (import_id,),
+    ).fetchone()[0]
+    if classified:
+        return {"state": "period_pending", "import_id": import_id}
+    return {"state": "classified" if imp.get("status") == "classified" else "uploaded", "import_id": import_id}
 
 
 def list_sheets(conn: sqlite3.Connection, import_id: int) -> list[dict[str, Any]]:
