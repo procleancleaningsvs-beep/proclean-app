@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from typing import Any
 
 from modules.comparativo.headcount_service import obtener_activos
@@ -31,6 +32,25 @@ def _hc_cliente(match: dict[str, Any]) -> str:
     if isinstance(data, dict):
         return normalize_upper(data.get("cliente"))
     return ""
+
+
+def _first_attendance_dates(conn: sqlite3.Connection, period_id: int) -> dict[int, str]:
+    first_by_worker: dict[int, str] = {}
+    for row in repo.list_attendance_for_period(conn, period_id):
+        if str(row.get("code_normalized") or "").upper() != "A":
+            continue
+        if str(row.get("interpretation_status") or "ok") not in {"ok", "corrected"}:
+            continue
+        worker_id = int(row["worker_id"])
+        if worker_id in first_by_worker:
+            continue
+        try:
+            first_by_worker[worker_id] = datetime.strptime(
+                str(row.get("fecha_iso") or ""), "%Y-%m-%d"
+            ).strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+    return first_by_worker
 
 
 RESULTADO_LABELS = {
@@ -91,6 +111,7 @@ def run_comparative(
 
     matched_hc_names: set[str] = set()
     nomina_matched_names: set[str] = set()
+    first_attendance_by_worker = _first_attendance_dates(conn, period_id)
 
     comparative_id = repo.create_comparative(
         conn,
@@ -131,6 +152,8 @@ def run_comparative(
             totals["sin_match"] += 1
             observaciones = "Presente en nómina sin match confirmado en Headcount."
             tipo_mov = "ALTA"
+            if wid not in first_attendance_by_worker:
+                observaciones += " Sin asistencia A en el periodo; fecha pendiente de revisión manual."
         else:
             tipo = "Revisión"
             sem = "amarillo"
@@ -146,7 +169,7 @@ def run_comparative(
                 "resultado": tipo,
                 "semaforo": sem,
                 "tipo_sugerido": tipo_mov or tipo,
-                "fecha_sugerida": period["fecha_inicio"] if tipo_mov == "ALTA" else "",
+                "fecha_sugerida": first_attendance_by_worker.get(wid, "") if tipo_mov == "ALTA" else "",
                 "decision_final": tipo,
                 "observaciones": observaciones,
             },

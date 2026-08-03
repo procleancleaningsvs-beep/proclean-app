@@ -8,7 +8,12 @@ import pytest
 
 from modules.gestion_idse_sua.nominas.comparative_service import run_comparative
 from modules.gestion_idse_sua.nominas.match_service import match_worker
-from modules.gestion_idse_sua.nominas.repository import insert_workers, upsert_match, upsert_period
+from modules.gestion_idse_sua.nominas.repository import (
+    insert_attendance,
+    insert_workers,
+    upsert_match,
+    upsert_period,
+)
 from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
 
 
@@ -108,6 +113,56 @@ def test_comparative_manual_produces_semaforo(conn):
     assert resultados.get("Posible baja") == "rojo"
     assert out["totals"]["coincidencias"] >= 1
     assert out["totals"]["bajas"] >= 1
+
+
+@pytest.mark.parametrize(
+    ("codes", "expected_date"),
+    [
+        (["A", "F", "F", "F", "F", "F", "F"], "01/06/2026"),
+        (["D", "NI", "F", "F", "A", "F", "F"], "05/06/2026"),
+        (["D", "NI", "V", "I", "F", "", "F"], ""),
+    ],
+)
+def test_possible_alta_uses_first_real_attendance(conn, codes, expected_date):
+    connection, period_id = conn
+    worker = connection.execute(
+        "SELECT id FROM gis_nomina_workers WHERE num_empleado = '999'"
+    ).fetchone()
+    for index, code in enumerate(codes, start=1):
+        insert_attendance(
+            connection,
+            {
+                "worker_id": int(worker["id"]),
+                "period_id": period_id,
+                "column_index": index,
+                "column_number": 10 + index,
+                "fecha_iso": f"2026-06-{index:02d}",
+                "header_original": f"D{index}",
+                "code_original": code,
+                "code_normalized": code,
+                "interpretation_status": "ok",
+                "created_at": "2026-06-08T10:00:00",
+                "updated_at": "2026-06-08T10:00:00",
+            },
+        )
+    connection.commit()
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="PEPSI",
+        generated_by="test",
+        headcount_rows=HC,
+    )
+    result = connection.execute(
+        """
+        SELECT fecha_sugerida
+        FROM gis_nomina_results
+        WHERE comparative_id = ? AND worker_id = ?
+        """,
+        (out["comparative_id"], int(worker["id"])),
+    ).fetchone()
+    assert result["fecha_sugerida"] == expected_date
 
 
 def test_homonym_goes_to_review():
