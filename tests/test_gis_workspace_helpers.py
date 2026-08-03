@@ -69,3 +69,47 @@ def test_build_weekly_workspace_rows_merges_result_and_attendance():
     assert rows[0]["resultado"] == "Coincidencia"
     assert rows[0]["result_badge"] == "coincidencia"
     assert rows[0]["days"][1] == "A"
+    assert rows[0]["display_name"] == "JUAN HC"
+    assert rows[0]["name_badge"] == ""
+
+
+def test_weekly_workspace_template_uses_unified_operational_table():
+    template = open("templates/gestion_idse_sua/nominas/workspace.html", encoding="utf-8").read()
+    css = open("static/gestion_idse_sua/workspace_table.css", encoding="utf-8").read()
+    javascript = open("static/gestion_idse_sua/workspace_table.js", encoding="utf-8").read()
+    assert "Nombre completo" in template
+    assert "Nombre HC</th>" not in template
+    assert "Match</th>" not in template
+    assert "data-toggle-detail" in template
+    assert "gis-ws-modal" in template
+    assert "data-excel-filter" in template
+    assert "Movimientos sugeridos" in template
+    assert "grid-template-columns: minmax(0, 3fr) minmax(250px, 1fr)" in css
+    assert "ProCleanExcelTable" in javascript
+
+
+def test_unmatched_weekly_name_keeps_payroll_identity():
+    rows = build_weekly_workspace_rows(
+        workers=[
+            {
+                "id": 2,
+                "num_empleado": "102",
+                "nombre_normalizado": "NORA RIVERA",
+                "planta_normalizada": "A",
+                "match": {"status": "unmatched"},
+            }
+        ],
+        results=[
+            {
+                "id": 10,
+                "worker_id": 2,
+                "resultado": "Posible alta",
+                "decision_final": "Posible alta",
+            }
+        ],
+        attendance_rows=[],
+        client_inferences={},
+        trajectory_payload=None,
+    )
+    assert rows[0]["display_name"] == "NORA RIVERA"
+    assert rows[0]["name_badge"] == "Sin match"

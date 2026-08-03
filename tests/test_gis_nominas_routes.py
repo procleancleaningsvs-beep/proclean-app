@@ -145,6 +145,10 @@ def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatc
     )
     assert confirmed.status_code == 302
     assert "/workspace/" in confirmed.headers["Location"]
+    workspace_html = client.get(confirmed.headers["Location"]).get_data(as_text=True)
+    assert "Nombre completo" in workspace_html
+    assert "Movimientos sugeridos" in workspace_html
+    assert "data-excel-filter" in workspace_html
     connection = sqlite3.connect(app.config["DATABASE"])
     assignments = connection.execute(
         "SELECT DISTINCT cliente_confirmado FROM gis_nomina_workers"

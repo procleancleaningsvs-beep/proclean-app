@@ -14,6 +14,7 @@ GIS_NOMINA_TABLES: tuple[str, ...] = (
     "gis_nomina_results",
     "gis_nomina_attendance",
     "gis_nomina_attendance_corrections",
+    "gis_workspace_audit",
 )
 
 _PLANTA_CLIENTE_SEED: tuple[tuple[str, str], ...] = (
@@ -190,6 +191,9 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
             movimiento_id TEXT,
             exclusion_reason TEXT,
             observaciones TEXT,
+            hidden_at TEXT,
+            hidden_by TEXT,
+            hidden_reason TEXT,
             FOREIGN KEY(comparative_id) REFERENCES gis_nomina_comparatives(id) ON DELETE CASCADE,
             FOREIGN KEY(worker_id) REFERENCES gis_nomina_workers(id) ON DELETE SET NULL
         )
@@ -204,6 +208,10 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_gis_nomina_results_comp ON gis_nomina_results(comparative_id)"
     )
+    result_columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_nomina_results)")}
+    for column in ("hidden_at", "hidden_by", "hidden_reason"):
+        if column not in result_columns:
+            conn.execute(f"ALTER TABLE gis_nomina_results ADD COLUMN {column} TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS gis_nomina_attendance (
@@ -249,6 +257,22 @@ def ensure_gis_nominas_tables(conn: sqlite3.Connection) -> None:
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_gis_nomina_attendance_corr ON gis_nomina_attendance_corrections(attendance_id)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS gis_workspace_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope TEXT NOT NULL,
+            record_type TEXT NOT NULL,
+            record_id INTEGER NOT NULL,
+            action TEXT NOT NULL,
+            before_json TEXT,
+            after_json TEXT,
+            changed_by TEXT,
+            changed_at TEXT NOT NULL,
+            reason TEXT
+        )
+        """
     )
     _seed_planta_cliente(conn)
 

@@ -376,6 +376,59 @@ def list_results(conn: sqlite3.Connection, comparative_id: int) -> list[dict[str
     return [dict(r) for r in rows]
 
 
+def set_result_visibility(
+    conn: sqlite3.Connection,
+    result_id: int,
+    *,
+    hidden: bool,
+    changed_by: str | None,
+    reason: str | None = None,
+) -> None:
+    before_row = conn.execute("SELECT * FROM gis_nomina_results WHERE id = ?", (result_id,)).fetchone()
+    if before_row is None:
+        raise ValueError("Resultado no encontrado.")
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        UPDATE gis_nomina_results
+        SET hidden_at = ?, hidden_by = ?, hidden_reason = ?
+        WHERE id = ?
+        """,
+        (now if hidden else None, changed_by if hidden else None, (reason or "").strip() or None if hidden else None, result_id),
+    )
+    after_row = conn.execute("SELECT * FROM gis_nomina_results WHERE id = ?", (result_id,)).fetchone()
+    conn.execute(
+        """
+        INSERT INTO gis_workspace_audit
+            (scope, record_type, record_id, action, before_json, after_json, changed_by, changed_at, reason)
+        VALUES ('weekly', 'result', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            result_id,
+            "hide" if hidden else "restore",
+            json_dumps(dict(before_row)),
+            json_dumps(dict(after_row)),
+            changed_by,
+            now,
+            (reason or "").strip() or None,
+        ),
+    )
+
+
+def list_workspace_audit(
+    conn: sqlite3.Connection, *, scope: str, record_type: str, record_id: int
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT * FROM gis_workspace_audit
+        WHERE scope = ? AND record_type = ? AND record_id = ?
+        ORDER BY id DESC
+        """,
+        (scope, record_type, record_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_comparative(conn: sqlite3.Connection, comparative_id: int) -> dict[str, Any] | None:
     row = conn.execute("SELECT * FROM gis_nomina_comparatives WHERE id = ?", (comparative_id,)).fetchone()
     return dict(row) if row else None
@@ -441,16 +494,32 @@ def update_result_decision(
     decision_final: str,
     tipo_sugerido: str | None = None,
     fecha_sugerida: str | None = None,
+    observaciones: str | None = None,
+    changed_by: str | None = None,
 ) -> None:
+    before_row = conn.execute("SELECT * FROM gis_nomina_results WHERE id = ?", (result_id,)).fetchone()
+    if before_row is None:
+        raise ValueError("Resultado no encontrado.")
     conn.execute(
         """
         UPDATE gis_nomina_results
         SET decision_final = ?,
             tipo_sugerido = COALESCE(?, tipo_sugerido),
-            fecha_sugerida = COALESCE(?, fecha_sugerida)
+            fecha_sugerida = COALESCE(?, fecha_sugerida),
+            observaciones = COALESCE(?, observaciones)
         WHERE id = ?
         """,
-        (decision_final, tipo_sugerido, fecha_sugerida, result_id),
+        (decision_final, tipo_sugerido, fecha_sugerida, observaciones, result_id),
+    )
+    after_row = conn.execute("SELECT * FROM gis_nomina_results WHERE id = ?", (result_id,)).fetchone()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO gis_workspace_audit
+            (scope, record_type, record_id, action, before_json, after_json, changed_by, changed_at)
+        VALUES ('weekly', 'result', ?, 'edit', ?, ?, ?, ?)
+        """,
+        (result_id, json_dumps(dict(before_row)), json_dumps(dict(after_row)), changed_by, now),
     )
 
 
@@ -483,7 +552,9 @@ def insert_attendance(conn: sqlite3.Connection, row: dict[str, Any]) -> int:
 def list_attendance_for_period(conn: sqlite3.Connection, period_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT a.*, w.num_empleado, w.nombre_normalizado, w.nombre_original
+        SELECT a.*, w.num_empleado, w.nombre_normalizado, w.nombre_original,
+               (SELECT COUNT(*) FROM gis_nomina_attendance_corrections c WHERE c.attendance_id = a.id)
+                   AS correction_count
         FROM gis_nomina_attendance a
         JOIN gis_nomina_workers w ON w.id = a.worker_id
         WHERE a.period_id = ?

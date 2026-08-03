@@ -3,6 +3,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/workspace_table.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='shared/excel_table.css') }}">
 {% endblock %}
 {% block content %}
 <section class="gis-hero gis-hero--compact">
@@ -10,9 +11,10 @@
     <h2 class="gis-hero__title">Comparativo semanal</h2>
     <p class="gis-hero__sub">{{ period.original_filename }} · {{ period.sheet_name }} · {{ period.fecha_inicio }} — {{ period.fecha_fin }}</p>
     {% if period.cut_warning %}<p class="gis-nom-warn">{{ period.cut_warning }}</p>{% endif %}
-    {% for w in comp_warnings %}<p class="gis-nom-warn">{{ w }}</p>{% endfor %}
+    {% for warning in comp_warnings %}<p class="gis-nom-warn">{{ warning }}</p>{% endfor %}
     <div class="gis-hero__btns">
       <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_index') }}">Nóminas</a>
+      {% if comparative %}<a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_export', comparative_id=comparative.id) }}">Exportar Excel</a>{% endif %}
       <a class="btn btn-secondary" href="{{ legacy_url }}">Comparativo legado</a>
     </div>
   </div>
@@ -27,208 +29,195 @@
     <div><strong>{{ totals.get('revisiones', 0) }}</strong><span>Revisiones</span></div>
   </section>
 
-  {% if client_summary %}
-  <section class="gis-nom-card">
-    <h3>Clientes detectados</h3>
-    <div class="gis-ws-client-summary">
-      {% if client_summary.primary_cliente %}
-      <span class="gis-ws-client-chip {% if client_summary.requires_review %}is-review{% endif %}">
-        Principal: {{ client_summary.primary_cliente }}
-        {% if client_summary.counts %}({{ client_summary.counts[client_summary.primary_cliente] }} trab.){% endif %}
-      </span>
-      {% endif %}
-      {% for cliente, count in client_summary.counts.items() if cliente != client_summary.primary_cliente %}
-      <span class="gis-ws-client-chip is-review">{{ cliente }} ({{ count }})</span>
-      {% endfor %}
-      {% if client_summary.requires_review %}
-      <span class="gis-ws-client-chip is-review">Revisión recomendada</span>
-      {% endif %}
-    </div>
-  </section>
-  {% endif %}
-
   <section class="gis-nom-card">
     <div class="gis-ws-toolbar">
       <form method="post" action="{{ url_for('gestion_idse_sua.nominas_compare', period_id=period.id) }}" class="gis-nom-inline">
-        <label>Cliente (opcional)
+        <label>Cliente para comparar
           <select name="cliente">
-            <option value="">Inferir automáticamente</option>
-            {% for c in clientes %}
-            <option value="{{ c }}" {% if client_summary and client_summary.primary_cliente == c %}selected{% endif %}>{{ c }}</option>
+            <option value="">Inferir de asignaciones semanales</option>
+            {% for cliente in client_summary.counts.keys() %}
+            <option value="{{ cliente }}" {% if client_summary.primary_cliente == cliente %}selected{% endif %}>{{ cliente }}</option>
             {% endfor %}
           </select>
         </label>
         <button class="btn btn-primary" type="submit">Comparar contra Headcount</button>
       </form>
-      {% if comparative %}
-      <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_export', comparative_id=comparative.id) }}">Exportar Excel</a>
-      {% endif %}
-      <label>RP lote <input id="gis-ws-batch-rp" maxlength="11" placeholder="Registro patronal"></label>
-      <label>RFC lote <input id="gis-ws-batch-rfc" placeholder="RFC patronal"></label>
-      <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-apply-patron">Aplicar a seleccionados</button>
     </div>
-
-    <div class="gis-ws-toolbar">
-      <input type="search" id="gis-ws-search" placeholder="Buscar empleado, nombre, NSS…" class="gis-nom-search">
-      <select data-filter-col="match"><option value="">Match: todos</option>
-        <option value="auto">Auto</option><option value="confirmed">Confirmado</option>
-        <option value="suggested">Sugerido</option><option value="review">Revisión</option><option value="unmatched">Sin match</option>
-      </select>
-      <select data-filter-col="resultado"><option value="">Resultado: todos</option>
-        <option value="Coincidencia">Coincidencia</option><option value="Posible alta">Posible alta</option>
-        <option value="Posible baja">Posible baja</option><option value="Revisión">Revisión</option>
-      </select>
-      <select data-filter-col="cliente"><option value="">Cliente: todos</option>
-        {% for c in clientes %}<option value="{{ c|upper }}">{{ c }}</option>{% endfor %}
-      </select>
-      <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-clear-filters">Limpiar filtros</button>
-    </div>
-
-    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_convert', comparative_id=comparative.id) if comparative else '#' }}">
-      <div class="gis-ws-table-wrap">
-        <table class="gis-ws-table" id="gis-ws-table">
-          <thead>
-            <tr>
-              <th class="col-sticky"><input type="checkbox" id="gis-ws-select-all" aria-label="Seleccionar todo"></th>
-              <th class="col-sticky">Empleado</th>
-              <th class="col-sticky">Nombre nómina</th>
-              <th>Nombre HC</th>
-              <th>Planta</th>
-              <th>Cliente</th>
-              <th>NSS</th>
-              <th>Match</th>
-              {% for day in day_headers %}
-              <th class="col-attendance">{{ day.label }}</th>
-              {% endfor %}
-              <th>Totales</th>
-              <th>Resultado</th>
-              <th>Movimiento</th>
-              <th>Fecha</th>
-              <th class="col-trajectory-detail">Trayectoria</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for row in table_rows %}
-            <tr
-              data-search="{{ row.num_empleado }} {{ row.nombre_nomina }} {{ row.nombre_hc }} {{ row.nss }} {{ row.rfc }} {{ row.curp }}"
-              data-match="{{ row.match_status }}"
-              data-resultado="{{ row.resultado }}"
-              data-cliente="{{ row.cliente|upper }}"
-              data-result-id="{{ row.result_id or '' }}"
-              data-drawer-title="{{ row.nombre_nomina or row.nombre_hc or 'Detalle' }}"
-            >
-              <td class="col-sticky">
-                {% if row.result_id and row.tipo_movimiento in ['ALTA','BAJA'] and row.conversion_status != 'converted' %}
-                <input type="checkbox" name="result_ids" value="{{ row.result_id }}" data-row-select>
-                {% endif %}
-              </td>
-              <td class="col-sticky">{{ row.num_empleado or '—' }}</td>
-              <td class="col-sticky">{{ row.nombre_nomina or '—' }}</td>
-              <td>{{ row.nombre_hc or '—' }}</td>
-              <td>{{ row.planta or '—' }}</td>
-              <td>
-                {{ row.cliente or '—' }}
-                {% if row.cliente_source %}<small>({{ row.cliente_source }})</small>{% endif %}
-                {% if row.cliente_requires_review %}<span class="gis-ws-badge gis-ws-badge--revision">Revisar</span>{% endif %}
-              </td>
-              <td>{{ row.nss or '—' }}</td>
-              <td>
-                {% if row.match_status == 'unmatched' %}
-                <span class="gis-ws-badge gis-ws-badge--nomatch">Sin match</span>
-                {% else %}
-                {{ row.match_status }} ({{ row.match_method or '—' }})
-                {% endif %}
-                {% if row.warning %}<div class="gis-nom-warn">{{ row.warning }}</div>{% endif %}
-              </td>
-              {% for day in day_headers %}
-              {% set code = row.days.get(day.index, '') %}
-              <td class="col-attendance"><span class="gis-ws-att-cell" data-code="{{ code }}">{{ code or '·' }}</span></td>
-              {% endfor %}
-              <td>{{ row.totals_label or '—' }}</td>
-              <td><span class="gis-ws-badge gis-ws-badge--{{ row.result_badge }}">{{ row.resultado or '—' }}</span></td>
-              <td>{{ row.tipo_movimiento or '—' }}</td>
-              <td>
-                {% if row.result_id and row.tipo_movimiento in ['ALTA','BAJA'] and row.conversion_status != 'converted' %}
-                <input name="fecha_{{ row.result_id }}" value="{{ row.fecha_sugerida }}" placeholder="dd/mm/aaaa" size="10">
-                <input type="hidden" name="tipo_{{ row.result_id }}" value="{{ row.tipo_movimiento }}">
-                <input name="rp_{{ row.result_id }}" placeholder="RP" size="8">
-                <input name="rfc_patron_{{ row.result_id }}" placeholder="RFC patronal" size="12">
-                {% else %}{{ row.fecha_sugerida or '—' }}{% endif %}
-              </td>
-              <td class="col-trajectory-detail">
-                {% set t = row.trajectory %}
-                {% if t.primera_a %}A: {{ t.primera_a }}–{{ t.ultima_a }}{% endif %}
-                {% if t.posible_baja %} · Baja {{ t.posible_baja }}{% endif %}
-                {% if t.posible_reingreso %} · Reingreso {{ t.posible_reingreso }}{% endif %}
-                {% if t.warning %}<div class="gis-nom-warn">{{ t.warning }}</div>{% endif %}
-              </td>
-              <td class="gis-ws-row-actions">
-                <button type="button" class="btn btn-secondary btn-sm" data-open-drawer>Editar</button>
-                <div class="gis-ws-drawer-template" hidden>
-                  <p><strong>Original:</strong> {{ row.nombre_nomina }}</p>
-                  <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin match' }}</p>
-                  <p><strong>Cliente sugerido:</strong> {{ row.cliente or '—' }} ({{ row.cliente_source }})</p>
-                  {% if row.worker_id %}
-                  <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_planta', worker_id=row.worker_id) }}">
-                    <input name="planta" value="{{ row.planta }}" hidden>
-                    <label>Confirmar cliente <input name="cliente" value="{{ row.cliente }}" required></label>
-                    <button type="submit" class="btn btn-secondary btn-sm">Guardar cliente</button>
-                  </form>
-                  <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=row.worker_id) }}">
-                    <select name="campo"><option value="nss">NSS</option><option value="nombre_completo">Nombre</option><option value="curp">CURP</option></select>
-                    <input name="query" placeholder="Buscar Headcount" required>
-                    <button type="submit" class="btn btn-secondary btn-sm">Match manual</button>
-                  </form>
-                  {% if row.match_status in ['suggested','auto'] %}
-                  <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_suggested_match', worker_id=row.worker_id) }}">
-                    <button type="submit" class="btn btn-secondary btn-sm">Confirmar match sugerido</button>
-                  </form>
-                  {% endif %}
-                  {% endif %}
-                  {% if row.result_id and row.conversion_status != 'converted' %}
-                  <form method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=row.result_id) }}">
-                    <select name="decision_final">
-                      <option value="Coincidencia">Coincidencia</option>
-                      <option value="Posible alta">Posible alta</option>
-                      <option value="Posible baja">Posible baja</option>
-                      <option value="Revisión">Revisión</option>
-                    </select>
-                    <button type="submit" class="btn btn-secondary btn-sm">Actualizar decisión</button>
-                  </form>
-                  {% endif %}
-                  {% if row.trajectory.detail_events %}
-                  <details><summary>Ver trayectoria</summary>
-                    <ul>{% for ev in row.trajectory.detail_events %}<li>{{ ev.event_type }} — {{ ev.fecha_sugerida }}</li>{% endfor %}</ul>
-                  </details>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% if comparative %}
-      <div class="gis-ws-bulkbar" id="gis-ws-bulkbar">
-        <span><strong data-selected-count>0</strong> seleccionados</span>
-        <button class="btn btn-primary btn-sm" type="submit">Enviar a movimientos</button>
-        <a class="btn btn-secondary btn-sm" href="{{ movimientos_url }}">Bandeja movimientos</a>
-      </div>
-      {% endif %}
-    </form>
   </section>
+
+  <div class="gis-ws-layout">
+    <section class="gis-nom-card gis-ws-main">
+      <div class="gis-ws-toolbar">
+        <input type="search" id="gis-ws-search" placeholder="Buscar empleado, nombre, planta, cliente o NSS…" class="gis-nom-search">
+        <label><input type="checkbox" id="gis-ws-show-removed"> Mostrar retirados</label>
+        <span><strong id="gis-ws-visible-count">{{ table_rows|rejectattr('hidden')|list|length }}</strong> visibles</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-clear-filters">Limpiar filtros</button>
+      </div>
+
+      <form id="gis-weekly-actions" method="post" action="{{ url_for('gestion_idse_sua.nominas_convert', comparative_id=comparative.id) if comparative else '#' }}">
+        <div class="gis-ws-table-wrap">
+          <table class="gis-ws-table" id="gis-ws-table" data-workspace="weekly">
+            <thead><tr>
+              <th><input type="checkbox" id="gis-ws-select-all" aria-label="Seleccionar filas visibles"></th>
+              <th aria-label="Detalle"></th>
+              <th data-excel-filter data-filter-label="Empleado">Empleado</th>
+              <th data-excel-filter data-filter-label="Nombre completo">Nombre completo</th>
+              <th data-excel-filter>Planta</th>
+              <th data-excel-filter>Cliente</th>
+              <th data-excel-filter>NSS</th>
+              {% for day in day_headers %}<th class="col-attendance" data-excel-filter>{{ day.label }}</th>{% endfor %}
+              <th data-excel-filter>Totales</th>
+              <th data-excel-filter>Resultado</th>
+              <th data-excel-filter data-filter-label="Pendiente">Fecha sugerida</th>
+              <th>Acciones</th>
+            </tr></thead>
+            <tbody>
+              {% for row in table_rows %}
+              {% set record_key = row.result_id or ('worker-' ~ row.worker_id) %}
+              <tr data-record-row data-detail-id="{{ record_key }}" data-result-id="{{ row.result_id or '' }}"
+                  data-search="{{ row.num_empleado }} {{ row.display_name }} {{ row.nombre_nomina }} {{ row.nombre_hc }} {{ row.planta }} {{ row.cliente }} {{ row.nss }} {{ row.resultado }}"
+                  data-archived="{{ 1 if row.hidden else 0 }}">
+                <td>
+                  {% if row.result_id and row.tipo_movimiento in ['ALTA','BAJA'] and row.conversion_status != 'converted' %}
+                  <input type="checkbox" name="result_ids" value="{{ row.result_id }}" data-row-select>
+                  {% endif %}
+                </td>
+                <td><button class="gis-ws-eye" type="button" data-toggle-detail aria-label="Ver detalle" aria-expanded="false">◉</button></td>
+                <td data-filter-value="{{ row.num_empleado }}">{{ row.num_empleado or '—' }}</td>
+                <td data-filter-value="{{ row.display_name }}">
+                  <strong>{{ row.display_name or '—' }}</strong>
+                  {% if row.name_badge %}<span class="gis-ws-badge gis-ws-badge--{{ 'nomatch' if row.name_badge == 'Sin match' else 'revision' }}">{{ row.name_badge }}</span>{% endif %}
+                </td>
+                <td data-filter-value="{{ row.planta }}">{{ row.planta or '—' }}</td>
+                <td data-filter-value="{{ row.cliente }}">{{ row.cliente or '—' }}</td>
+                <td data-filter-value="{{ row.nss }}">{{ row.nss or '—' }}</td>
+                {% for day in day_headers %}
+                {% set code = row.days.get(day.index, '') %}
+                <td class="col-attendance" data-filter-value="{{ code }}"><span class="gis-ws-att-cell" data-code="{{ code }}">{{ code or '·' }}</span></td>
+                {% endfor %}
+                <td data-filter-value="{{ row.totals_label }}"><span class="gis-ws-totals">{{ row.totals_label or '—' }}</span></td>
+                <td data-filter-value="{{ row.resultado }}"><span class="gis-ws-badge gis-ws-badge--{{ row.result_badge }}">{{ row.resultado or '—' }}</span></td>
+                <td data-filter-value="{{ row.fecha_sugerida or 'Pendiente' }}">{{ row.fecha_sugerida or 'Pendiente' }}</td>
+                <td class="gis-ws-row-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" data-open-modal="editor-{{ record_key }}">Editar</button>
+                  {% if row.result_id %}
+                  <button type="submit" class="btn btn-secondary btn-sm"
+                          formaction="{{ url_for('gestion_idse_sua.nominas_result_visibility', result_id=row.result_id) }}"
+                          name="action" value="{{ 'restore' if row.hidden else 'hide' }}">{{ 'Restaurar' if row.hidden else 'Retirar' }}</button>
+                  {% endif %}
+                  {% if row.result_id %}
+                  <input type="hidden" name="fecha_{{ row.result_id }}" value="{{ row.fecha_sugerida }}">
+                  <input type="hidden" name="tipo_{{ row.result_id }}" value="{{ row.tipo_movimiento }}">
+                  <input type="hidden" name="rp_{{ row.result_id }}">
+                  <input type="hidden" name="rfc_patron_{{ row.result_id }}">
+                  {% endif %}
+                </td>
+              </tr>
+              <tr data-detail-for="{{ record_key }}" class="gis-ws-detail-row" hidden><td colspan="18">
+                <div class="gis-ws-detail-grid">
+                  <section><h4>Identidad y match</h4>
+                    <p><strong>Nómina:</strong> {{ row.nombre_nomina or '—' }}</p>
+                    <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin match confirmado' }}</p>
+                    <p><strong>Método:</strong> {{ row.match_method or 'sin match' }} · {{ row.match_status }}</p>
+                  </section>
+                  <section><h4>Cliente y origen</h4>
+                    <p>{{ row.cliente or 'Pendiente' }} · {{ row.cliente_source or 'sin fuente' }} · {{ ((row.cliente_confidence or 0) * 100)|round|int }}%</p>
+                    <p><strong>Valores originales:</strong> nombre {{ row.original_values.get('nombre_original', row.nombre_nomina) }} · planta {{ row.original_values.get('planta_original', row.planta) }}</p>
+                  </section>
+                  <section><h4>Asistencia y trayectoria</h4>
+                    <p>{{ row.totals_label or 'Sin asistencia' }}</p>
+                    <p>Primera A: {{ row.trajectory.primera_a or '—' }} · Última A: {{ row.trajectory.ultima_a or '—' }}</p>
+                    {% if row.trajectory.warning %}<p class="gis-nom-warn">{{ row.trajectory.warning }}</p>{% endif %}
+                  </section>
+                  <section><h4>Advertencias y auditoría</h4>
+                    <p>{{ row.observaciones or row.warning or 'Sin advertencias' }}</p>
+                    {% if row.audit %}<ul>{% for audit in row.audit[:5] %}<li>{{ audit.action }} · {{ audit.changed_at }} · {{ audit.changed_by or 'sistema' }}</li>{% endfor %}</ul>{% else %}<p>Sin correcciones auditadas.</p>{% endif %}
+                  </section>
+                </div>
+              </td></tr>
+
+              <template id="editor-{{ record_key }}">
+                <div class="gis-ws-editor">
+                  <section><h4>1. Identidad</h4><p>{{ row.num_empleado or '—' }} · {{ row.nombre_nomina or row.nombre_hc }}</p><p>NSS {{ row.nss or '—' }} · RFC {{ row.rfc or '—' }} · CURP {{ row.curp or '—' }}</p></section>
+                  {% if row.worker_id %}
+                  <section><h4>2. Match Headcount</h4>
+                    <p>Nómina: <strong>{{ row.nombre_nomina }}</strong></p>
+                    <p>Actual: {{ row.nombre_hc or 'Sin coincidencia confirmada' }}</p>
+                    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=row.worker_id) }}">
+                      <select name="campo"><option value="nombre_completo">Nombre</option><option value="nss">NSS</option><option value="rfc_homoclave">RFC</option><option value="curp">CURP</option></select>
+                      <input name="query" placeholder="Buscar sugerencias" required>
+                      <button class="btn btn-secondary btn-sm" type="submit">Buscar y confirmar</button>
+                    </form>
+                    {% if row.match_status in ['suggested','auto'] %}<form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_suggested_match', worker_id=row.worker_id) }}"><button class="btn btn-secondary btn-sm" type="submit">Confirmar sugerencia actual</button></form>{% endif %}
+                  </section>
+                  <section><h4>3. Cliente</h4>
+                    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_planta', worker_id=row.worker_id) }}">
+                      <input name="planta" value="{{ row.planta }}" type="hidden"><input name="cliente" value="{{ row.cliente }}" required>
+                      <button class="btn btn-secondary btn-sm" type="submit">Guardar cliente semanal</button>
+                    </form>
+                  </section>
+                  <section><h4>4. Asistencia</h4>
+                    <p>Total calculado: {{ row.totals_label }}</p>
+                    <div class="gis-ws-att-editor">{% for day in day_headers %}{% set meta = row.day_meta.get(day.index, {}) %}
+                      {% if meta.attendance_id %}<form method="post" action="{{ url_for('gestion_idse_sua.nominas_correct_attendance', attendance_id=meta.attendance_id) }}"><label>{{ day.label }} <input name="code" value="{{ row.days.get(day.index, '') }}" size="3" required></label><input name="reason" placeholder="Motivo" required><button class="btn btn-secondary btn-sm" type="submit">Corregir</button>{% if meta.correction_count %}<small>{{ meta.correction_count }} correcciones</small>{% endif %}</form>{% endif %}
+                    {% endfor %}</div>
+                  </section>
+                  {% endif %}
+                  {% if row.result_id %}<section><h4>5. Resultado y fecha</h4>
+                    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=row.result_id) }}">
+                      <select name="decision_final">{% for option in ['Coincidencia','Posible alta','Posible baja','Revisión'] %}<option {% if row.decision_final == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+                      <select name="tipo_sugerido"><option value="">Sin movimiento</option><option value="ALTA" {% if row.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option><option value="BAJA" {% if row.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option></select>
+                      <input name="fecha_sugerida" value="{{ row.fecha_sugerida }}" placeholder="dd/mm/aaaa">
+                      <textarea name="observaciones" placeholder="Observaciones">{{ row.observaciones }}</textarea>
+                      <button class="btn btn-primary btn-sm" type="submit">Guardar decisión auditada</button>
+                    </form>
+                  </section>{% endif %}
+                  <section><h4>6. Datos patronales</h4><p>Los RP/RFC se aplican por lote desde el panel de movimientos; los ajustes individuales se conservan en esta decisión.</p></section>
+                  <section><h4>7. Observaciones</h4><p>{{ row.observaciones or 'Sin observaciones' }}</p></section>
+                </div>
+              </template>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </form>
+    </section>
+
+    <aside class="gis-ws-sidepanel" id="gis-ws-movements">
+      <h3>Movimientos sugeridos</h3>
+      <div class="gis-ws-side-stats">
+        <span>Altas <strong>{{ table_rows|selectattr('tipo_movimiento', 'equalto', 'ALTA')|list|length }}</strong></span>
+        <span>Bajas <strong>{{ table_rows|selectattr('tipo_movimiento', 'equalto', 'BAJA')|list|length }}</strong></span>
+        <span>Revisiones <strong>{{ table_rows|selectattr('resultado', 'equalto', 'Revisión')|list|length }}</strong></span>
+        <span>Seleccionados <strong data-selected-count>0</strong></span>
+        <span>Incompletos <strong>{{ table_rows|selectattr('fecha_sugerida', 'equalto', '')|selectattr('tipo_movimiento')|list|length }}</strong></span>
+      </div>
+      <div class="gis-ws-movement-list">
+        {% for row in table_rows if row.tipo_movimiento in ['ALTA','BAJA'] and not row.hidden %}
+        <label data-panel-result="{{ row.result_id }}"><input type="checkbox" data-panel-select="{{ row.result_id }}"> <span><strong>{{ row.display_name }}</strong><small>{{ row.tipo_movimiento }} · {{ row.fecha_sugerida or 'fecha pendiente' }}</small></span></label>
+        {% endfor %}
+      </div>
+      <label>RP del grupo <input id="gis-ws-batch-rp" maxlength="11" placeholder="Registro patronal"></label>
+      <label>RFC patronal <input id="gis-ws-batch-rfc" placeholder="RFC patronal"></label>
+      <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-apply-patron">Aplicar RP/RFC al grupo</button>
+      {% if comparative %}
+      <button class="btn btn-primary btn-sm" type="submit" form="gis-weekly-actions">Enviar seleccionados</button>
+      <button class="btn btn-secondary btn-sm" type="submit" form="gis-weekly-actions" formaction="{{ url_for('gestion_idse_sua.nominas_bulk_visibility', comparative_id=comparative.id) }}" name="action" value="hide">Descartar seleccionados</button>
+      <a class="btn btn-secondary btn-sm" href="{{ url_for('gestion_idse_sua.nominas_export', comparative_id=comparative.id) }}">Exportar selección/comparativo</a>
+      {% endif %}
+    </aside>
+  </div>
 </div>
 
-<div class="gis-ws-drawer" id="gis-ws-drawer" aria-hidden="true">
-  <div class="gis-ws-drawer__backdrop" data-close-drawer></div>
-  <div class="gis-ws-drawer__panel">
-    <button type="button" class="btn btn-secondary btn-sm" data-close-drawer>Cerrar</button>
-    <h3 data-drawer-title>Detalle</h3>
-    <div data-drawer-body></div>
+<div class="gis-ws-modal" id="gis-ws-modal" hidden aria-hidden="true">
+  <button class="gis-ws-modal__backdrop" type="button" data-close-modal aria-label="Cerrar"></button>
+  <div class="gis-ws-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="gis-ws-modal-title">
+    <div class="gis-ws-modal__head"><h3 id="gis-ws-modal-title">Editar trabajador</h3><button type="button" class="btn btn-secondary btn-sm" data-close-modal>Cerrar</button></div>
+    <div data-modal-body></div>
   </div>
 </div>
 
 <script type="application/json" id="gis-ws-palette">{{ attendance_palette|tojson }}</script>
+<script src="{{ url_for('static', filename='shared/excel_table.js') }}"></script>
 <script src="{{ url_for('static', filename='gestion_idse_sua/workspace_table.js') }}"></script>
 {% endblock %}

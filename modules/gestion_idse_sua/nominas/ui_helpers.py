@@ -60,6 +60,7 @@ def group_attendance_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "header_original": row.get("header_original") or "",
             "interpretation_status": row.get("interpretation_status") or "",
             "warning": row.get("warning") or "",
+            "correction_count": int(row.get("correction_count") or 0),
         }
         norm = str(row.get("code_normalized") or "")
         if norm in bucket["totals"]:
@@ -154,6 +155,15 @@ def build_weekly_workspace_rows(
         inference = client_inferences.get(wid, {})
         cliente = worker.get("cliente_confirmado") or inference.get("cliente") or worker.get("cliente_sugerido") or ""
         resultado = str(result.get("decision_final") or result.get("resultado") or "")
+        match_status = match.get("status") or "unmatched"
+        confirmed_match = match_status in {"auto", "confirmed", "manual"}
+        display_name = (match.get("hc_nombre") or result.get("match_hc_nombre") or "") if confirmed_match else ""
+        display_name = display_name or worker.get("nombre_normalizado") or ""
+        name_badge = "" if confirmed_match else ("Sin match" if match_status == "unmatched" else "Revisión")
+        try:
+            original_values = json.loads(worker.get("row_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            original_values = {}
         rows.append(
             {
                 "worker_id": wid,
@@ -161,6 +171,8 @@ def build_weekly_workspace_rows(
                 "num_empleado": worker.get("num_empleado") or "",
                 "nombre_nomina": worker.get("nombre_normalizado") or "",
                 "nombre_hc": match.get("hc_nombre") or result.get("match_hc_nombre") or "",
+                "display_name": display_name,
+                "name_badge": name_badge,
                 "planta": worker.get("planta_normalizada") or worker.get("planta_original") or "",
                 "cliente": cliente,
                 "cliente_source": inference.get("source") or "",
@@ -169,12 +181,13 @@ def build_weekly_workspace_rows(
                 "nss": match.get("nss") or result.get("nss") or "",
                 "rfc": match.get("rfc") or result.get("rfc") or "",
                 "curp": match.get("curp") or result.get("curp") or "",
-                "match_status": match.get("status") or "unmatched",
+                "match_status": match_status,
                 "match_method": match.get("match_method") or "",
                 "warning": inference.get("requires_review") and "Revisar cliente" or "",
                 "days": att.get("days") or {},
                 "day_meta": att.get("day_meta") or {},
                 "totals_label": attendance_totals_label(att.get("totals") or {}),
+                "totals": att.get("totals") or {},
                 "resultado": resultado,
                 "result_badge": RESULT_BADGE_CLASS.get(resultado, "revision"),
                 "tipo_movimiento": result.get("tipo_sugerido") or "",
@@ -182,6 +195,10 @@ def build_weekly_workspace_rows(
                 "decision_final": resultado,
                 "conversion_status": result.get("conversion_status") or "none",
                 "observaciones": result.get("observaciones") or "",
+                "original_values": original_values,
+                "hidden": bool(result.get("hidden_at")),
+                "hidden_at": result.get("hidden_at") or "",
+                "hidden_by": result.get("hidden_by") or "",
                 "trajectory": compact_trajectory_for_worker(wid, match, trajectory_payload),
             }
         )
@@ -196,6 +213,8 @@ def build_weekly_workspace_rows(
                 "num_empleado": "",
                 "nombre_nomina": "",
                 "nombre_hc": result.get("hc_nombre") or "",
+                "display_name": result.get("hc_nombre") or "",
+                "name_badge": "",
                 "planta": "",
                 "cliente": "",
                 "cliente_source": "headcount_only",
@@ -207,6 +226,7 @@ def build_weekly_workspace_rows(
                 "days": {},
                 "day_meta": {},
                 "totals_label": "",
+                "totals": {},
                 "resultado": resultado,
                 "result_badge": RESULT_BADGE_CLASS.get(resultado, "baja"),
                 "tipo_movimiento": result.get("tipo_sugerido") or "BAJA",
@@ -214,6 +234,10 @@ def build_weekly_workspace_rows(
                 "decision_final": resultado,
                 "conversion_status": result.get("conversion_status") or "none",
                 "observaciones": result.get("observaciones") or "",
+                "original_values": {},
+                "hidden": bool(result.get("hidden_at")),
+                "hidden_at": result.get("hidden_at") or "",
+                "hidden_by": result.get("hidden_by") or "",
                 "trajectory": {},
             }
         )

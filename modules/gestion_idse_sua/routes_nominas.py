@@ -443,6 +443,11 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 client_inferences=client_by_worker,
                 trajectory_payload=trajectory,
             )
+            for table_row in table_rows:
+                result_id = table_row.get("result_id")
+                table_row["audit"] = repo.list_workspace_audit(
+                    conn, scope="weekly", record_type="result", record_id=int(result_id)
+                ) if result_id else []
             return render_template(
                 "gestion_idse_sua/nominas/workspace.html",
                 period=dict(period),
@@ -568,6 +573,8 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 decision_final=(request.form.get("decision_final") or "").strip(),
                 tipo_sugerido=(request.form.get("tipo_sugerido") or "").strip() or None,
                 fecha_sugerida=(request.form.get("fecha_sugerida") or "").strip() or None,
+                observaciones=(request.form.get("observaciones") or "").strip() or None,
+                changed_by=_session_username(),
             )
             conn.commit()
             comp = conn.execute(
@@ -575,6 +582,63 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 (result_id,),
             ).fetchone()
             return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(comp["period_id"])))
+        finally:
+            conn.close()
+
+    @route("/nominas/result/<int:result_id>/visibility", methods=["POST"], endpoint="nominas_result_visibility")
+    def nominas_result_visibility(result_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            comp = conn.execute(
+                """
+                SELECT c.period_id
+                FROM gis_nomina_results r
+                JOIN gis_nomina_comparatives c ON c.id = r.comparative_id
+                WHERE r.id = ?
+                """,
+                (result_id,),
+            ).fetchone()
+            if comp is None:
+                abort(404)
+            hidden = request.form.get("action") != "restore"
+            repo.set_result_visibility(
+                conn,
+                result_id,
+                hidden=hidden,
+                changed_by=_session_username(),
+                reason=request.form.get("reason"),
+            )
+            conn.commit()
+            flash("Línea restaurada." if not hidden else "Línea retirada de la vista activa.", "success")
+            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(comp["period_id"])))
+        finally:
+            conn.close()
+
+    @route("/nominas/comparative/<int:comparative_id>/visibility", methods=["POST"], endpoint="nominas_bulk_visibility")
+    def nominas_bulk_visibility(comparative_id: int):
+        _require_comparativo()
+        result_ids = [int(value) for value in request.form.getlist("result_ids") if str(value).isdigit()]
+        conn = _db_from_app()
+        try:
+            comparative = repo.get_comparative(conn, comparative_id)
+            if comparative is None:
+                abort(404)
+            hidden = request.form.get("action") != "restore"
+            valid = {
+                int(row["id"]) for row in repo.list_results(conn, comparative_id)
+            }
+            for result_id in result_ids:
+                if result_id in valid:
+                    repo.set_result_visibility(
+                        conn,
+                        result_id,
+                        hidden=hidden,
+                        changed_by=_session_username(),
+                        reason=request.form.get("reason"),
+                    )
+            conn.commit()
+            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(comparative["period_id"])))
         finally:
             conn.close()
 

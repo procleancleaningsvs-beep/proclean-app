@@ -11,6 +11,9 @@ from modules.gestion_idse_sua.nominas.match_service import match_worker
 from modules.gestion_idse_sua.nominas.repository import (
     insert_attendance,
     insert_workers,
+    list_workspace_audit,
+    set_result_visibility,
+    update_result_decision,
     upsert_match,
     upsert_period,
 )
@@ -172,3 +175,32 @@ def test_homonym_goes_to_review():
     ]
     match = match_worker({"nombre_normalizado": "JUAN PEREZ LOPEZ"}, hc)
     assert match["status"] == "review"
+
+
+def test_weekly_result_hide_restore_and_edit_are_audited(conn):
+    connection, period_id = conn
+    out = run_comparative(
+        connection, period_id=period_id, cliente="PEPSI", generated_by="test", headcount_rows=HC
+    )
+    result_id = connection.execute(
+        "SELECT id FROM gis_nomina_results WHERE comparative_id = ? AND resultado = 'Posible alta'",
+        (out["comparative_id"],),
+    ).fetchone()[0]
+    set_result_visibility(connection, result_id, hidden=True, changed_by="tester", reason="duplicada")
+    assert connection.execute(
+        "SELECT hidden_at FROM gis_nomina_results WHERE id = ?", (result_id,)
+    ).fetchone()[0]
+    set_result_visibility(connection, result_id, hidden=False, changed_by="tester")
+    update_result_decision(
+        connection,
+        result_id,
+        decision_final="Revisión",
+        fecha_sugerida="",
+        observaciones="Validar identidad",
+        changed_by="tester",
+    )
+    connection.commit()
+    audit = list_workspace_audit(
+        connection, scope="weekly", record_type="result", record_id=result_id
+    )
+    assert [row["action"] for row in audit] == ["edit", "restore", "hide"]

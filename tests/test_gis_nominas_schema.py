@@ -82,3 +82,12 @@ def test_import_archive_and_file_columns_are_migrated(conn):
     ensure_gis_nominas_tables(conn)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_nomina_imports)")}
     assert {"file_content", "archived_at", "archived_by", "archive_reason"} <= columns
+
+
+def test_weekly_result_visibility_columns_and_audit_table_exist(conn):
+    ensure_gis_nominas_tables(conn)
+    result_columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_nomina_results)")}
+    assert {"hidden_at", "hidden_by", "hidden_reason"} <= result_columns
+    assert conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gis_workspace_audit'"
+    ).fetchone()

@@ -77,7 +77,8 @@
     function apply() {
       let visible = 0;
       rows.forEach(function (row) {
-        const show = passes(row) && row.dataset.archived !== "1";
+        const showArchived = typeof options.showArchived === "function" && options.showArchived();
+        const show = passes(row) && (showArchived || row.dataset.archived !== "1");
         row.hidden = !show;
         if (show) visible += 1;
         const detail = detailRow(row);
