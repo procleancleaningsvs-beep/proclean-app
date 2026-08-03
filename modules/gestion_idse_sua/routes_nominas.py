@@ -18,7 +18,7 @@ from modules.gestion_idse_sua.nominas.attendance_service import (
     list_period_attendance,
     trajectory_for_periods,
 )
-from modules.gestion_idse_sua.nominas.client_inference_service import infer_period_clients
+from modules.gestion_idse_sua.nominas.client_inference_service import infer_period_clients, preview_sheet_clients
 from modules.gestion_idse_sua.nominas.comparative_service import enrich_workers, run_comparative, summarize_results
 from modules.gestion_idse_sua.nominas.excel_export import generate_comparative_excel
 from modules.gestion_idse_sua.nominas.import_service import (
@@ -33,6 +33,7 @@ from modules.gestion_idse_sua.nominas.period_signals import collect_period_signa
 from modules.gestion_idse_sua.nominas.planta_cliente_service import confirm_planta_cliente
 from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
 from modules.gestion_idse_sua.nominas.sheet_inspector import inspect_sheet
+from modules.gestion_idse_sua.nominas.text_utils import normalize_upper
 from modules.gestion_idse_sua.nominas.ui_helpers import (
     build_weekly_workspace_rows,
     format_period_hint,
@@ -179,11 +180,33 @@ def register_nominas_routes(bp, *, login_required) -> None:
         conn = _db_from_app()
         try:
             sheets = []
+            imp = repo.get_import(conn, import_id)
+            if imp is None:
+                abort(404)
+            staging = _staging_path(import_id)
+            file_bytes = staging.read_bytes() if staging.is_file() else b""
+            headcount_rows = obtener_activos() if file_bytes else []
             for s in repo.list_sheets(conn, import_id):
                 if s.get("confirmed_classification") != "nomina":
                     continue
                 period = parse_suggested_period(s.get("suggested_period_json"))
-                sheets.append({**dict(s), "period_hint": format_period_hint(period), "period": period})
+                preview = {"workers": [], "summary": {"counts": {}, "pending_count": 0}}
+                if file_bytes:
+                    preview = preview_sheet_clients(
+                        conn,
+                        file_bytes=file_bytes,
+                        sheet=dict(s),
+                        headcount_rows=headcount_rows,
+                        filename=str(imp["original_filename"]),
+                    )
+                sheets.append(
+                    {
+                        **dict(s),
+                        "period_hint": format_period_hint(period),
+                        "period": period,
+                        "client_preview": preview,
+                    }
+                )
             return render_template(
                 "gestion_idse_sua/nominas/period_review.html",
                 import_id=import_id,
@@ -227,12 +250,15 @@ def register_nominas_routes(bp, *, login_required) -> None:
             )
             wb.close()
 
+            selected_clients = {
+                normalize_upper(value) for value in request.form.getlist("clientes") if normalize_upper(value)
+            }
             period = confirm_period(
                 conn,
                 sheet_id,
                 fecha_inicio=request.form.get("fecha_inicio", ""),
                 fecha_fin=request.form.get("fecha_fin", ""),
-                cliente=(request.form.get("cliente") or "").strip() or None,
+                cliente=next(iter(selected_clients)) if len(selected_clients) == 1 else None,
                 confirmed=True,
                 extra_warnings=signal_payload.get("warnings") or [],
             )
@@ -248,6 +274,23 @@ def register_nominas_routes(bp, *, login_required) -> None:
             extract_sheet_workers(conn, file_bytes=file_bytes, sheet_id=sheet_id, headcount_rows=hc)
             period = repo.get_period_for_sheet(conn, sheet_id)
             enrich_workers(conn, int(period["id"]), hc)
+            workers = repo.list_workers(conn, int(period["id"]))
+            matches = {int(w["id"]): repo.get_match(conn, int(w["id"])) for w in workers}
+            assignments = infer_period_clients(
+                conn,
+                period_id=int(period["id"]),
+                workers=workers,
+                matches=matches,
+                headcount_rows=hc,
+                filename=str(conn.execute(
+                    "SELECT original_filename FROM gis_nomina_imports WHERE id = ?", (import_id,)
+                ).fetchone()["original_filename"]),
+                sheet_name=str(import_row["sheet_name"]),
+            )
+            for assignment in assignments["workers"]:
+                cliente = normalize_upper(assignment.get("cliente"))
+                if cliente and cliente in selected_clients:
+                    repo.update_worker_cliente(conn, int(assignment["worker_id"]), cliente)
             staging.unlink(missing_ok=True)
             repo.set_import_status(conn, import_id, "review")
             conn.commit()

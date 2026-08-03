@@ -93,3 +93,58 @@ def test_nominas_import_post_with_session_user_row(tmp_path, monkeypatch):
     location = res.headers.get("Location") or ""
     assert "/gestion-idse-sua/nominas/import/" in location
     assert "/login" not in location
+
+
+def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatch):
+    from io import BytesIO
+
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    fixture = Path("tests/fixtures/nomina_carrier_anon.xlsx").read_bytes()
+    response = client.post(
+        "/gestion-idse-sua/nominas/import",
+        data={"file": (BytesIO(fixture), "Carrier 10 al 16 jul.xlsx")},
+        content_type="multipart/form-data",
+        follow_redirects=False,
+    )
+    import_id = int((response.headers["Location"].rstrip("/").split("/")[-1]))
+
+    connection = sqlite3.connect(app.config["DATABASE"])
+    sheet_id = connection.execute(
+        "SELECT id FROM gis_nomina_sheets WHERE import_id = ? ORDER BY sheet_index LIMIT 1",
+        (import_id,),
+    ).fetchone()[0]
+    connection.close()
+    client.post(
+        f"/gestion-idse-sua/nominas/import/{import_id}/classify",
+        data={f"sheet_{sheet_id}": "nomina"},
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_activos",
+        lambda *args, **kwargs: [{"cliente": "CARRIER", "nombre_completo": "PERSONA HC"}],
+    )
+
+    html = client.get(f"/gestion-idse-sua/nominas/import/{import_id}/period").get_data(as_text=True)
+    assert "Clientes detectados" in html
+    assert 'name="clientes" value="CARRIER"' in html
+    assert "Confianza" in html
+    assert "Periodo inicio" in html
+
+    confirmed = client.post(
+        f"/gestion-idse-sua/nominas/sheet/{sheet_id}/period",
+        data={
+            "fecha_inicio": "10/07/2025",
+            "fecha_fin": "16/07/2025",
+            "clientes": ["CARRIER"],
+        },
+        follow_redirects=False,
+    )
+    assert confirmed.status_code == 302
+    assert "/workspace/" in confirmed.headers["Location"]
+    connection = sqlite3.connect(app.config["DATABASE"])
+    assignments = connection.execute(
+        "SELECT DISTINCT cliente_confirmado FROM gis_nomina_workers"
+    ).fetchall()
+    connection.close()
+    assert assignments == [("CARRIER",)]

@@ -28,6 +28,34 @@
   background: #fffbeb;
 }
 
+.gis-ws-client-preview {
+  margin: 0.75rem 0 1rem;
+  padding: 0.8rem;
+  border: 1px solid #dbe7ef;
+  border-radius: 12px;
+  background: #f8fbfd;
+}
+
+.gis-ws-client-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.65rem;
+}
+
+.gis-ws-client-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.5rem;
+  align-items: start;
+  padding: 0.65rem;
+  border: 1px solid #cfe0ea;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.gis-ws-client-option input { grid-row: 1 / span 5; margin-top: 0.2rem; }
+.gis-ws-client-option span { color: #526475; font-size: 0.76rem; }
+
 .gis-ws-table-wrap {
   overflow: auto;
   max-width: 100%;

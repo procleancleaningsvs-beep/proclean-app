@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from io import BytesIO
 from typing import Any
 
+from openpyxl import load_workbook
+
+from modules.gestion_idse_sua.nominas.match_service import match_worker
 from modules.gestion_idse_sua.nominas.planta_cliente_service import suggest_cliente_for_planta
 from modules.gestion_idse_sua.nominas.text_utils import normalize_upper
+from modules.gestion_idse_sua.nominas.worker_extractor import extract_workers
 
 
 def _known_clients(headcount_rows: list[dict[str, Any]]) -> list[str]:
@@ -118,6 +123,7 @@ def infer_worker_client(
 def summarize_period_clients(worker_inferences: list[dict[str, Any]]) -> dict[str, Any]:
     counts: dict[str, int] = {}
     sources: dict[str, set[str]] = {}
+    confidences: dict[str, list[float]] = {}
     review = 0
     for item in worker_inferences:
         cliente = normalize_upper(item.get("cliente"))
@@ -126,6 +132,7 @@ def summarize_period_clients(worker_inferences: list[dict[str, Any]]) -> dict[st
             continue
         counts[cliente] = counts.get(cliente, 0) + 1
         sources.setdefault(cliente, set()).add(str(item.get("source") or ""))
+        confidences.setdefault(cliente, []).append(float(item.get("confidence") or 0))
         if item.get("requires_review"):
             review += 1
 
@@ -137,6 +144,9 @@ def summarize_period_clients(worker_inferences: list[dict[str, Any]]) -> dict[st
         "primary_cliente": primary,
         "counts": counts,
         "sources": {k: sorted(v) for k, v in sources.items()},
+        "confidence": {
+            key: round(sum(values) / len(values), 2) for key, values in confidences.items() if values
+        },
         "contradictions": len(counts) > 1,
         "requires_review": review > 0 or len(counts) > 1,
         "review_count": review,
@@ -168,3 +178,56 @@ def infer_period_clients(
 
     summary = summarize_period_clients(per_worker)
     return {"workers": per_worker, "summary": summary}
+
+
+def preview_sheet_clients(
+    conn: sqlite3.Connection,
+    *,
+    file_bytes: bytes,
+    sheet: dict[str, Any],
+    headcount_rows: list[dict[str, Any]],
+    filename: str,
+) -> dict[str, Any]:
+    """Extract just enough row data to infer clients before period confirmation."""
+    wb = load_workbook(BytesIO(file_bytes), data_only=True)
+    try:
+        ws = wb.worksheets[int(sheet["sheet_index"])]
+        payload = extract_workers(
+            ws,
+            sheet_name=str(sheet["sheet_name"]),
+            sheet_index=int(sheet["sheet_index"]),
+            is_hidden=bool(sheet.get("is_hidden")),
+        )
+    finally:
+        wb.close()
+
+    inferred_workers: list[dict[str, Any]] = []
+    plants: dict[str, set[str]] = {}
+    for worker in payload["workers"]:
+        match = match_worker(worker, headcount_rows)
+        inference = infer_worker_client(
+            conn,
+            worker=worker,
+            match=match,
+            headcount_rows=headcount_rows,
+            filename=filename,
+            sheet_name=str(sheet["sheet_name"]),
+        )
+        cliente = normalize_upper(inference.get("cliente"))
+        planta = str(worker.get("planta_normalizada") or worker.get("planta_original") or "")
+        if cliente and planta:
+            plants.setdefault(cliente, set()).add(planta)
+        inferred_workers.append(
+            {
+                "row_number": int(worker["row_number"]),
+                "nombre": worker.get("nombre_normalizado") or worker.get("nombre_original") or "",
+                "planta": planta,
+                "match_status": match.get("status") or "unmatched",
+                **inference,
+            }
+        )
+
+    summary = summarize_period_clients(inferred_workers)
+    summary["plants"] = {cliente: sorted(values) for cliente, values in plants.items()}
+    summary["pending_count"] = sum(1 for row in inferred_workers if not row.get("cliente"))
+    return {"workers": inferred_workers, "summary": summary, "discarded": payload.get("discarded") or []}
