@@ -2,6 +2,8 @@
 {% from '_icon_button.html' import icon_link, icon_button %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/asistencia_hub.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='shared/excel_table.css') }}">
+<script src="{{ url_for('static', filename='shared/excel_table.js') }}"></script>
 {% endblock %}
 
 {% block content %}

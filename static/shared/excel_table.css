@@ -1,0 +1,39 @@
+.pc-excel-filter-btn {
+  margin-left: 0.25rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #526475;
+  cursor: pointer;
+}
+
+.pc-excel-filter-btn:hover,
+.pc-excel-filter-btn.is-active { background: #e6f3f9; color: #147ca8; }
+
+.pc-excel-filter {
+  position: fixed;
+  z-index: 1000;
+  width: min(300px, calc(100vw - 16px));
+  padding: 0.75rem;
+  border: 1px solid #ccdce5;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 38px rgba(15, 23, 42, 0.2);
+}
+
+.pc-excel-filter[hidden] { display: none; }
+.pc-excel-filter input[type="search"] { width: 100%; margin: 0.5rem 0; }
+.pc-excel-filter__sort,
+.pc-excel-filter__actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+.pc-excel-filter__sort button,
+.pc-excel-filter__actions button { flex: 1; }
+.pc-excel-filter__values {
+  display: grid;
+  max-height: 210px;
+  overflow: auto;
+  margin: 0.4rem 0;
+  padding: 0.35rem;
+  border: 1px solid #e3ebf0;
+  border-radius: 7px;
+}
+.pc-excel-filter__values label { padding: 0.18rem; font-size: 0.8rem; }

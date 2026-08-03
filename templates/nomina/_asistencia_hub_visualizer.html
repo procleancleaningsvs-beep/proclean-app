@@ -248,6 +248,7 @@
   let skipNextFilterChange = false;
 
   function normalizeForSearch(s) {
+    if (window.ProCleanExcelTable) return window.ProCleanExcelTable.normalize(s).toLowerCase();
     return normalizeSpaces(s).toLowerCase()
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   }

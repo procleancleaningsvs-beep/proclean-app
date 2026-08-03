@@ -5,6 +5,18 @@ from __future__ import annotations
 from modules.gestion_idse_sua.nominas.ui_helpers import build_weekly_workspace_rows, period_day_headers
 
 
+def test_shared_excel_table_component_is_loaded_by_attendance_hub():
+    shared = open("static/shared/excel_table.js", encoding="utf-8").read()
+    hub = open("templates/nomina/index.html", encoding="utf-8").read()
+    visualizer = open("templates/nomina/_asistencia_hub_visualizer.html", encoding="utf-8").read()
+    assert "ProCleanExcelTable" in shared
+    assert "uniqueValues" in shared
+    assert "data-select-all" in shared
+    assert "data-sort" in shared
+    assert "shared/excel_table.js" in hub
+    assert "ProCleanExcelTable.normalize" in visualizer
+
+
 def test_period_day_headers_real_dates():
     headers = period_day_headers("10/07/2026")
     assert len(headers) == 7
