@@ -267,11 +267,47 @@ def register_nominas_routes(bp, *, login_required) -> None:
             imp = repo.get_import(conn, import_id)
             if imp is None:
                 abort(404)
+            continue_pending = (
+                request.args.get("continue_pending") == "1"
+                and repo.has_pending_payroll_sheets(conn, import_id)
+            )
+            if (
+                continue_pending
+                and repo.resolve_import_resume(conn, import_id)["state"] == "comparative_ready"
+            ):
+                period_id = int(
+                    conn.execute(
+                        """
+                        SELECT p.id
+                        FROM gis_nomina_comparatives c
+                        JOIN gis_nomina_periods p ON p.id = c.period_id
+                        JOIN gis_nomina_sheets s ON s.id = p.sheet_id
+                        WHERE s.import_id = ?
+                        ORDER BY c.id DESC
+                        LIMIT 1
+                        """,
+                        (import_id,),
+                    ).fetchone()["id"]
+                )
+                return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
             file_bytes = _load_import_bytes(conn, import_id)
             headcount_rows = obtener_activos() if file_bytes else []
             for s in repo.list_sheets(conn, import_id):
                 if s.get("confirmed_classification") != "nomina":
                     continue
+                if continue_pending:
+                    extracted = conn.execute(
+                        """
+                        SELECT 1
+                        FROM gis_nomina_periods p
+                        JOIN gis_nomina_workers w ON w.period_id = p.id
+                        WHERE p.sheet_id = ?
+                        LIMIT 1
+                        """,
+                        (s["id"],),
+                    ).fetchone()
+                    if extracted is not None:
+                        continue
                 period = parse_suggested_period(s.get("suggested_period_json"))
                 preview = {"workers": [], "summary": {"counts": {}, "pending_count": 0}}
                 if file_bytes:
@@ -448,6 +484,13 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 table_row["audit"] = repo.list_workspace_audit(
                     conn, scope="weekly", record_type="result", record_id=int(result_id)
                 ) if result_id else []
+            pending_import_url = None
+            if repo.has_pending_payroll_sheets(conn, int(period["import_id"])):
+                pending_import_url = url_for(
+                    "gestion_idse_sua.nominas_period_review",
+                    import_id=int(period["import_id"]),
+                    continue_pending=1,
+                )
             return render_template(
                 "gestion_idse_sua/nominas/workspace.html",
                 period=dict(period),
@@ -468,6 +511,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 trajectory=trajectory,
                 legacy_url=url_for("comparativo.index"),
                 movimientos_url=url_for("exportacion_imss.index"),
+                pending_import_url=pending_import_url,
             )
         finally:
             conn.close()

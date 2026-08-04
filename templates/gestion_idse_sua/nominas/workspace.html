@@ -14,6 +14,9 @@
     {% for warning in comp_warnings %}<p class="gis-nom-warn">{{ warning }}</p>{% endfor %}
     <div class="gis-hero__btns">
       <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_index') }}">Nóminas</a>
+      {% if pending_import_url %}
+      <a class="btn btn-primary" href="{{ pending_import_url }}">Continuar hojas pendientes</a>
+      {% endif %}
       {% if comparative %}<a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.nominas_export', comparative_id=comparative.id) }}">Exportar Excel</a>{% endif %}
       <a class="btn btn-secondary" href="{{ legacy_url }}">Comparativo legado</a>
     </div>

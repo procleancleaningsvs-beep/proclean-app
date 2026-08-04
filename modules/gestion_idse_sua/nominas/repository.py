@@ -83,6 +83,26 @@ def restore_import(conn: sqlite3.Connection, import_id: int) -> None:
     )
 
 
+def has_pending_payroll_sheets(conn: sqlite3.Connection, import_id: int) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM gis_nomina_sheets s
+        WHERE s.import_id = ?
+          AND s.confirmed_classification = 'nomina'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM gis_nomina_periods p
+              JOIN gis_nomina_workers w ON w.period_id = p.id
+              WHERE p.sheet_id = s.id
+          )
+        LIMIT 1
+        """,
+        (import_id,),
+    ).fetchone()
+    return row is not None
+
+
 def import_dependencies(conn: sqlite3.Connection, import_id: int) -> dict[str, int]:
     periods = conn.execute(
         """
