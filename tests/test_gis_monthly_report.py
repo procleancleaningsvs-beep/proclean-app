@@ -22,7 +22,14 @@ from modules.gestion_idse_sua.reportes.excel_export import generate_monthly_exce
 from modules.gestion_idse_sua.reportes.monthly_status import person_has_active_evidence
 from modules.gestion_idse_sua.reportes.movement_bridge import convert_events_to_movements
 from modules.gestion_idse_sua.reportes.period_selection import validate_week_selection
-from modules.gestion_idse_sua.reportes.repository import create_report, list_report_events, list_report_persons
+from modules.gestion_idse_sua.reportes.repository import (
+    create_report,
+    list_monthly_audit,
+    list_report_events,
+    list_report_persons,
+    set_person_visibility,
+    update_event,
+)
 from modules.gestion_idse_sua.reportes.schema import GIS_MONTHLY_TABLES, ensure_gis_monthly_tables
 from modules.gestion_idse_sua.template_contract import MENSUAL_SHEETS, MENSUAL_SHA256, mensual_path
 from modules.gestion_idse_sua.template_validator import sha256_file, validate_mensual_template
@@ -161,6 +168,8 @@ def test_monthly_tables_idempotent(conn):
     }
     for table in GIS_MONTHLY_TABLES:
         assert table in tables
+    person_columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_monthly_report_persons)")}
+    assert {"hidden_at", "hidden_by", "hidden_reason"} <= person_columns
 
 
 def test_period_intersects_month_cross_month():
@@ -271,3 +280,51 @@ def test_monthly_movement_conversion_idempotent(mock_save, conn, monkeypatch, tm
     again = convert_events_to_movements(conn, event_ids=[event_id])
     assert again["converted_ids"] == ["mov-m1"]
     assert mock_save.call_count == 1
+
+
+def test_monthly_visibility_and_event_edits_are_audited(conn):
+    period_ids = [
+        _seed_period(conn, period_id=i, fecha_inicio=f"{i:02d}/06/2026", fecha_fin=f"{i+6:02d}/06/2026")
+        for i in (1, 8, 15, 22)
+    ]
+    report_id = create_report(conn, cliente="PEPSI", mes=6, anio=2026, created_by="tester")
+    generate_monthly_report(
+        conn, report_id=report_id, period_ids=period_ids, cliente="PEPSI", mes=6, anio=2026
+    )
+    person_id = list_report_persons(conn, report_id)[0]["id"]
+    set_person_visibility(conn, person_id, hidden=True, changed_by="tester", reason="duplicada")
+    set_person_visibility(conn, person_id, hidden=False, changed_by="tester")
+    event_id = conn.execute(
+        """
+        INSERT INTO gis_monthly_report_events
+            (report_id, person_id, event_type_suggested, fecha_suggested, estado)
+        VALUES (?, ?, 'ALTA', '2026-06-01', 'propuesto')
+        """,
+        (report_id, person_id),
+    ).lastrowid
+    update_event(
+        conn,
+        event_id,
+        event_type_confirmed="ALTA",
+        fecha_confirmed="2026-06-01",
+        estado="confirmado",
+        decided_by="tester",
+    )
+    conn.commit()
+    assert [row["action"] for row in list_monthly_audit(conn, record_type="person", record_id=person_id)] == [
+        "restore",
+        "hide",
+    ]
+    assert list_monthly_audit(conn, record_type="event", record_id=event_id)[0]["action"] == "edit"
+
+
+def test_monthly_workspace_uses_shared_ux_without_weekly_business_logic():
+    template = open("templates/gestion_idse_sua/reportes/workspace.html", encoding="utf-8").read()
+    assert "data-excel-filter" in template
+    assert "data-toggle-detail" in template
+    assert "gis-ws-modal" in template
+    assert "Eventos del reporte" in template
+    assert "data-event-select" in template
+    assert "Comparar contra Headcount (opcional)" in template
+    assert "shared/excel_table.js" in template
+    assert "run_comparative" not in template

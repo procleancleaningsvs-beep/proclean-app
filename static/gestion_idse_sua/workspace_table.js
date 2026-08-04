@@ -9,12 +9,15 @@
   const showRemoved = document.getElementById("gis-ws-show-removed");
   const modal = document.getElementById("gis-ws-modal");
 
-  table.querySelectorAll(".gis-ws-att-cell").forEach(function (cell) {
-    const key = String(cell.dataset.code || "").toUpperCase();
-    const style = palette[key] || palette._neutral || { bg: "#f3f4f6", bold: false };
-    cell.style.background = style.bg;
-    cell.style.fontWeight = style.bold ? "700" : "600";
-  });
+  function paintAttendance(root) {
+    root.querySelectorAll(".gis-ws-att-cell").forEach(function (cell) {
+      const key = String(cell.dataset.code || "").toUpperCase();
+      const style = palette[key] || palette._neutral || { bg: "#f3f4f6", bold: false };
+      cell.style.background = style.bg;
+      cell.style.fontWeight = style.bold ? "700" : "600";
+    });
+  }
+  paintAttendance(table);
 
   function recordRows() {
     return Array.from(table.querySelectorAll("tbody tr[data-record-row]"));
@@ -75,6 +78,7 @@
     if (open && modal) {
       const template = document.getElementById(open.dataset.openModal);
       modal.querySelector("[data-modal-body]").innerHTML = template?.innerHTML || "";
+      paintAttendance(modal);
       modal.hidden = false;
       modal.setAttribute("aria-hidden", "false");
     }
@@ -100,6 +104,16 @@
     });
   });
 
+  function syncEventSelection() {
+    const count = document.querySelectorAll("[data-event-select]:checked").length;
+    document.querySelectorAll("[data-event-selected-count]").forEach(function (node) {
+      node.textContent = String(count);
+    });
+  }
+  document.querySelectorAll("[data-event-select]").forEach(function (checkbox) {
+    checkbox.addEventListener("change", syncEventSelection);
+  });
+
   document.getElementById("gis-ws-apply-patron")?.addEventListener("click", function () {
     const rp = document.getElementById("gis-ws-batch-rp")?.value.trim() || "";
     const rfc = document.getElementById("gis-ws-batch-rfc")?.value.trim() || "";
@@ -123,4 +137,5 @@
 
   excel?.apply();
   syncSelection();
+  syncEventSelection();
 })();

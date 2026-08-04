@@ -3,18 +3,17 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/hub.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/nominas.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='gestion_idse_sua/workspace_table.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='shared/excel_table.css') }}">
 {% endblock %}
 {% block content %}
 <section class="gis-hero gis-hero--compact">
   <div class="gis-hero__content">
-    <span class="gis-hero__badge">Reporte</span>
+    <span class="gis-hero__badge">Reporte mensual</span>
     <h2 class="gis-hero__title">{{ report.cliente }} · {{ '%02d'|format(report.mes|int) }}/{{ report.anio }}</h2>
-    <p class="gis-hero__sub">Estado: {{ report.estado }} · {{ weeks|length }} semanas · {{ persons|length }} personas</p>
+    <p class="gis-hero__sub">{{ report.estado }} · {{ weeks|length }} semanas · {{ persons|length }} personas</p>
     <div class="gis-hero__btns">
-      <a class="btn btn-primary" href="{{ url_for('gestion_idse_sua.reportes_export', report_id=report.id) }}">Exportar Excel</a>
-      <form method="post" action="{{ url_for('gestion_idse_sua.reportes_compare_headcount', report_id=report.id) }}" style="display:inline">
-        <button class="btn btn-secondary" type="submit">Comparar contra Headcount (opcional)</button>
-      </form>
+      <a class="btn btn-primary" href="{{ url_for('gestion_idse_sua.reportes_export', report_id=report.id) }}">Exportar Excel mensual</a>
+      <form method="post" action="{{ url_for('gestion_idse_sua.reportes_compare_headcount', report_id=report.id) }}"><button class="btn btn-secondary" type="submit">Comparar contra Headcount (opcional)</button></form>
       <a class="btn btn-secondary" href="{{ url_for('gestion_idse_sua.reportes_index') }}">Volver</a>
       <a class="btn btn-secondary" href="{{ legacy_url }}">Reporte legado</a>
     </div>
@@ -22,107 +21,101 @@
 </section>
 
 <div class="gis-nom pc-safe-zone">
-  {% if warnings %}
-  <section class="gis-nom-card"><h3>Advertencias</h3><ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul></section>
-  {% endif %}
-
-  {% if snapshot is defined and snapshot.coverage_complete is defined %}
+  {% if warnings %}<section class="gis-nom-card"><h3>Advertencias</h3><ul>{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul></section>{% endif %}
   <section class="gis-nom-card">
     <h3>Cobertura calendario</h3>
-    <p>Cobertura completa: {{ 'Sí' if snapshot.coverage_complete else 'No' }}
-      {% if snapshot.missing_dates %} · Faltantes: {{ snapshot.missing_dates|join(', ') }}{% endif %}
-    </p>
-  </section>
-  {% endif %}
-
-  <section class="gis-nom-card">
-    <div class="gis-ws-toolbar">
-      <input type="search" id="gis-ws-search" placeholder="Buscar persona, NSS, número…" class="gis-nom-search">
-      <select id="filter-estado"><option value="">Estado: todos</option>
-        <option value="Todo el mes">Todo el mes</option><option value="Presencia parcial">Presencia parcial</option>
-        <option value="Revisión">Revisión</option><option value="Salida durante el mes">Salida</option>
-      </select>
-      <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-clear-filters">Limpiar filtros</button>
-    </div>
-
-    <div class="gis-ws-table-wrap">
-      <table class="gis-ws-table" id="gis-ws-table">
-        <thead>
-          <tr>
-            <th class="col-sticky">Núm.</th>
-            <th class="col-sticky">Nombre</th>
-            <th>NSS</th>
-            <th>Estado mensual</th>
-            <th>Totales A/F/I/V/D</th>
-            <th>Primera A</th>
-            <th>Última A</th>
-            <th>Eventos</th>
-            <th>Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for p in persons %}
-          {% set person_events = events|selectattr('person_id', 'equalto', p.id)|list %}
-          <tr data-search="{{ p.num_empleado or '' }} {{ p.nombre_nomina or '' }} {{ p.nss or '' }} {{ p.rfc or '' }}" data-estado="{{ p.estado_mensual or '' }}">
-            <td class="col-sticky">{{ p.num_empleado or '—' }}</td>
-            <td class="col-sticky">{{ p.nombre_nomina or '—' }}</td>
-            <td>{{ p.nss or '—' }}</td>
-            <td><span class="gis-ws-badge gis-ws-badge--revision">{{ p.estado_mensual or '—' }}</span></td>
-            <td>{{ p.totals.A or 0 }}/{{ p.totals.F or 0 }}/{{ p.totals.I or 0 }}/{{ p.totals.V or 0 }}/{{ p.totals.D or 0 }}</td>
-            <td>{{ p.primera_a or '—' }}</td>
-            <td>{{ p.ultima_a or '—' }}</td>
-            <td>{{ person_events|length }}</td>
-            <td><a href="{{ url_for('gestion_idse_sua.reportes_person', report_id=report.id, person_id=p.id) }}">Ver detalle</a></td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <p>{{ 'Completa' if snapshot.coverage_complete else 'Incompleta' }}{% if snapshot.missing_dates %} · Faltantes: {{ snapshot.missing_dates|join(', ') }}{% endif %}</p>
   </section>
 
-  <section class="gis-nom-card">
-    <h3>Eventos confirmables</h3>
-    <form method="post" action="{{ url_for('gestion_idse_sua.reportes_send_movements', report_id=report.id) }}">
-      <div class="gis-ws-table-wrap">
-        <table class="gis-ws-table">
-          <thead><tr><th>Enviar</th><th>Persona</th><th>Tipo</th><th>Fecha</th><th>Estado</th></tr></thead>
-          <tbody>
-            {% for e in events %}
-            <tr>
-              <td>{% if e.estado == 'confirmado' %}<input type="checkbox" name="event_ids" value="{{ e.id }}">{% endif %}</td>
-              <td>{{ e.nombre_nomina or e.num_empleado }}</td>
-              <td>{{ e.event_type_confirmed or e.event_type_suggested }}</td>
-              <td>{{ e.fecha_confirmed or e.fecha_suggested or '—' }}</td>
-              <td>{{ e.estado }}</td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+  <div class="gis-ws-layout">
+    <section class="gis-nom-card gis-ws-main">
+      <div class="gis-ws-toolbar">
+        <input type="search" id="gis-ws-search" placeholder="Buscar persona, NSS, cliente o planta…" class="gis-nom-search">
+        <label><input type="checkbox" id="gis-ws-show-removed"> Mostrar retirados</label>
+        <span><strong id="gis-ws-visible-count">{{ persons|rejectattr('hidden_at')|list|length }}</strong> visibles</span>
+        <button type="button" class="btn btn-secondary btn-sm" id="gis-ws-clear-filters">Limpiar filtros</button>
       </div>
-      <button class="btn btn-primary" type="submit">Enviar movimientos seleccionados</button>
-    </form>
-  </section>
+      <form id="gis-monthly-person-actions" method="post" action="{{ url_for('gestion_idse_sua.reportes_person_visibility', report_id=report.id) }}">
+        <div class="gis-ws-table-wrap">
+          <table class="gis-ws-table" id="gis-ws-table" data-workspace="monthly">
+            <thead><tr>
+              <th><input type="checkbox" id="gis-ws-select-all" aria-label="Seleccionar personas visibles"></th>
+              <th aria-label="Detalle"></th>
+              <th data-excel-filter>Empleado</th>
+              <th data-excel-filter>Nombre completo</th>
+              <th data-excel-filter>Plantas</th>
+              <th data-excel-filter>Clientes</th>
+              <th data-excel-filter>NSS</th>
+              <th data-excel-filter>Estado mensual</th>
+              <th data-excel-filter>Totales A/F/I/V/D</th>
+              <th data-excel-filter>Primera A</th>
+              <th data-excel-filter>Última A</th>
+              <th data-excel-filter>Eventos</th>
+              <th>Acciones</th>
+            </tr></thead>
+            <tbody>
+              {% for person in persons %}
+              {% set person_events = events|selectattr('person_id', 'equalto', person.id)|list %}
+              <tr data-record-row data-detail-id="person-{{ person.id }}" data-person-id="{{ person.id }}"
+                  data-search="{{ person.num_empleado }} {{ person.nombre_nomina }} {{ person.nombre_hc }} {{ person.nss }} {{ person.clientes|join(' ') }} {{ person.plantas|join(' ') }} {{ person.estado_mensual }}"
+                  data-archived="{{ 1 if person.hidden_at else 0 }}">
+                <td><input type="checkbox" name="person_ids" value="{{ person.id }}" data-row-select></td>
+                <td><button class="gis-ws-eye" type="button" data-toggle-detail aria-label="Ver detalle" aria-expanded="false">◉</button></td>
+                <td data-filter-value="{{ person.num_empleado }}">{{ person.num_empleado or '—' }}</td>
+                <td data-filter-value="{{ person.nombre_hc or person.nombre_nomina }}"><strong>{{ person.nombre_hc or person.nombre_nomina or '—' }}</strong>{% if person.match_status in ['unmatched','review','suggested'] %}<span class="gis-ws-badge gis-ws-badge--revision">Revisión</span>{% endif %}</td>
+                <td data-filter-value="{{ person.plantas|join(', ') }}">{{ person.plantas|join(', ') or '—' }}</td>
+                <td data-filter-value="{{ person.clientes|join(', ') }}">{{ person.clientes|join(', ') or report.cliente }}</td>
+                <td data-filter-value="{{ person.nss }}">{{ person.nss or '—' }}</td>
+                <td data-filter-value="{{ person.estado_mensual }}"><span class="gis-ws-badge gis-ws-badge--revision">{{ person.estado_mensual or '—' }}</span></td>
+                <td data-filter-value="A:{{ person.totals.A or 0 }} F:{{ person.totals.F or 0 }} I:{{ person.totals.I or 0 }} V:{{ person.totals.V or 0 }} D:{{ person.totals.D or 0 }}"><span class="gis-ws-totals">A:{{ person.totals.A or 0 }} · F:{{ person.totals.F or 0 }} · I:{{ person.totals.I or 0 }} · V:{{ person.totals.V or 0 }} · D:{{ person.totals.D or 0 }}</span></td>
+                <td data-filter-value="{{ person.primera_a or 'Pendiente' }}">{{ person.primera_a or '—' }}</td>
+                <td data-filter-value="{{ person.ultima_a or 'Pendiente' }}">{{ person.ultima_a or '—' }}</td>
+                <td data-filter-value="{{ person_events|map(attribute='estado')|join(', ') }}">{{ person_events|length }}</td>
+                <td><button type="button" class="btn btn-secondary btn-sm" data-open-modal="monthly-editor-{{ person.id }}">Editar</button></td>
+              </tr>
+              <tr data-detail-for="person-{{ person.id }}" class="gis-ws-detail-row" hidden><td colspan="13">
+                <div class="gis-ws-detail-grid">
+                  <section><h4>Identidad mensual consolidada</h4><p>Nómina: {{ person.nombre_nomina }} · HC: {{ person.nombre_hc or 'sin enriquecimiento' }}</p><p>{{ person.match_method or 'sin match' }} · {{ person.match_status or 'pendiente' }}</p></section>
+                  <section><h4>Trayectoria mensual</h4><p>Primera A {{ person.primera_a or '—' }} · Última A {{ person.ultima_a or '—' }}</p><p>{{ person.daily|length }} registros diarios · {{ weeks|length }} semanas</p></section>
+                  <section><h4>Eventos múltiples</h4><ul>{% for event in person_events %}<li>{{ event.event_type_confirmed or event.event_type_suggested }} · {{ event.fecha_confirmed or event.fecha_suggested or 'sin fecha' }} · {{ event.estado }}</li>{% else %}<li>Sin eventos.</li>{% endfor %}</ul></section>
+                  <section><h4>Advertencias y auditoría</h4><ul>{% for warning in person.warnings %}<li>{{ warning }}</li>{% else %}<li>Sin advertencias.</li>{% endfor %}{% for audit in person.audit[:5] %}<li>{{ audit.action }} · {{ audit.changed_at }} · {{ audit.changed_by or 'sistema' }}</li>{% endfor %}</ul></section>
+                </div>
+              </td></tr>
+              <template id="monthly-editor-{{ person.id }}"><div class="gis-ws-editor">
+                <section><h4>1. Identidad</h4><p>{{ person.num_empleado or '—' }} · {{ person.nombre_nomina }}</p><p>NSS {{ person.nss or '—' }} · RFC {{ person.rfc or '—' }} · CURP {{ person.curp or '—' }}</p></section>
+                <section><h4>2. Enriquecimiento Headcount</h4><p>{{ person.nombre_hc or 'Sin nombre HC confirmado' }}</p><p>{{ person.match_method or 'sin método' }} · {{ person.match_status or 'pendiente' }}</p><p>La comparación actual contra Headcount se ejecuta manualmente desde el encabezado y no se aplica automáticamente al mes histórico.</p></section>
+                <section><h4>3. Cliente y plantas</h4><p>{{ person.clientes|join(', ') or report.cliente }} · {{ person.plantas|join(', ') or 'sin planta' }}</p></section>
+                <section><h4>4. Asistencia mensual</h4><div class="gis-ws-month-days">{% for day in person.daily %}{% if day.code_normalized or day.code %}<span class="gis-ws-att-cell" data-code="{{ day.code_normalized or day.code }}" title="{{ day.fecha_iso }}">{{ day.code_normalized or day.code }}</span>{% endif %}{% endfor %}</div><p>Las correcciones diarias se realizan en la semana fuente para conservar trazabilidad; el reporte se consolida sin duplicar lógica semanal.</p></section>
+                <section><h4>5. Estado mensual</h4><p>{{ person.estado_mensual }}</p><p>A:{{ person.totals.A or 0 }} · F:{{ person.totals.F or 0 }} · I:{{ person.totals.I or 0 }} · V:{{ person.totals.V or 0 }} · D:{{ person.totals.D or 0 }}</p></section>
+                <section><h4>6. Datos patronales</h4><p>RP/RFC se aplican por lote a los eventos seleccionados desde el panel.</p></section>
+                <section><h4>7. Eventos y observaciones</h4>{% for event in person_events %}<form method="post" action="{{ url_for('gestion_idse_sua.reportes_event_action', report_id=report.id, event_id=event.id) }}"><select name="tipo"><option value="ALTA" {% if (event.event_type_confirmed or event.event_type_suggested) == 'ALTA' %}selected{% endif %}>ALTA</option><option value="BAJA" {% if (event.event_type_confirmed or event.event_type_suggested) == 'BAJA' %}selected{% endif %}>BAJA</option></select><input name="fecha" value="{{ event.fecha_confirmed or event.fecha_suggested }}" placeholder="aaaa-mm-dd"><input name="observaciones" value="{{ event.observaciones or '' }}" placeholder="Observaciones"><button class="btn btn-secondary btn-sm" name="action" value="correct" type="submit">Guardar evento</button><button class="btn btn-secondary btn-sm" name="action" value="discard" type="submit">Descartar</button></form>{% else %}<p>Sin eventos editables.</p>{% endfor %}</section>
+              </div></template>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="gis-ws-bulkbar is-visible"><span><strong data-selected-count>0</strong> personas seleccionadas</span><button class="btn btn-secondary btn-sm" name="action" value="hide" type="submit">Retirar seleccionadas</button><button class="btn btn-secondary btn-sm" name="action" value="restore" type="submit">Restaurar seleccionadas</button></div>
+      </form>
+    </section>
+
+    <aside class="gis-ws-sidepanel">
+      <h3>Eventos del reporte</h3>
+      <div class="gis-ws-side-stats"><span>Altas <strong>{{ events|selectattr('event_type_suggested', 'equalto', 'ALTA')|list|length }}</strong></span><span>Bajas <strong>{{ events|selectattr('event_type_suggested', 'equalto', 'BAJA')|list|length }}</strong></span><span>Revisiones <strong>{{ events|selectattr('estado', 'equalto', 'propuesto')|list|length }}</strong></span><span>Seleccionados <strong data-event-selected-count>0</strong></span><span>Incompletos <strong>{{ events|selectattr('estado', 'equalto', 'incompleto')|list|length }}</strong></span></div>
+      <form id="gis-monthly-events" method="post" action="{{ url_for('gestion_idse_sua.reportes_send_movements', report_id=report.id) }}">
+        <div class="gis-ws-movement-list">{% for event in events %}<label><input type="checkbox" name="event_ids" value="{{ event.id }}" data-event-select><span><strong>{{ event.nombre_nomina or event.num_empleado }}</strong><small>{{ event.event_type_confirmed or event.event_type_suggested }} · {{ event.fecha_confirmed or event.fecha_suggested or 'fecha pendiente' }} · {{ event.estado }}</small></span></label>{% endfor %}</div>
+        <label>RP del grupo <input name="rp" maxlength="11" placeholder="Registro patronal"></label>
+        <label>RFC patronal <input name="rfc_patron" placeholder="RFC patronal"></label>
+        <button class="btn btn-secondary btn-sm" type="submit" formaction="{{ url_for('gestion_idse_sua.reportes_bulk_event_action', report_id=report.id) }}" name="action" value="confirm">Confirmar seleccionados</button>
+        <button class="btn btn-secondary btn-sm" type="submit" formaction="{{ url_for('gestion_idse_sua.reportes_bulk_event_action', report_id=report.id) }}" name="action" value="discard">Descartar seleccionados</button>
+        <button class="btn btn-primary btn-sm" type="submit">Aplicar RP/RFC y enviar</button>
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('gestion_idse_sua.reportes_export', report_id=report.id) }}">Exportar reporte</a>
+      </form>
+    </aside>
+  </div>
 </div>
-<script>
-(function(){
-  const table = document.getElementById('gis-ws-table');
-  if (!table) return;
-  function apply() {
-    const q = (document.getElementById('gis-ws-search')?.value || '').toLowerCase();
-    const estado = document.getElementById('filter-estado')?.value || '';
-    table.querySelectorAll('tbody tr').forEach(row => {
-      const okQ = !q || (row.dataset.search || '').toLowerCase().includes(q);
-      const okE = !estado || row.dataset.estado === estado;
-      row.hidden = !(okQ && okE);
-    });
-  }
-  document.getElementById('gis-ws-search')?.addEventListener('input', apply);
-  document.getElementById('filter-estado')?.addEventListener('change', apply);
-  document.getElementById('gis-ws-clear-filters')?.addEventListener('click', () => {
-    document.getElementById('gis-ws-search').value = '';
-    document.getElementById('filter-estado').value = '';
-    apply();
-  });
-})();
-</script>
+
+<div class="gis-ws-modal" id="gis-ws-modal" hidden aria-hidden="true"><button class="gis-ws-modal__backdrop" type="button" data-close-modal aria-label="Cerrar"></button><div class="gis-ws-modal__dialog" role="dialog" aria-modal="true" aria-labelledby="gis-ws-modal-title"><div class="gis-ws-modal__head"><h3 id="gis-ws-modal-title">Editar persona mensual</h3><button type="button" class="btn btn-secondary btn-sm" data-close-modal>Cerrar</button></div><div data-modal-body></div></div></div>
+<script type="application/json" id="gis-ws-palette">{{ attendance_palette|tojson }}</script>
+<script src="{{ url_for('static', filename='shared/excel_table.js') }}"></script>
+<script src="{{ url_for('static', filename='gestion_idse_sua/workspace_table.js') }}"></script>
 {% endblock %}

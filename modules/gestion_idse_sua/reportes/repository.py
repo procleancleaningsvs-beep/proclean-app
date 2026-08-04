@@ -233,6 +233,59 @@ def get_report_person(conn: sqlite3.Connection, person_id: int) -> dict[str, Any
     return dict(row) if row else None
 
 
+def set_person_visibility(
+    conn: sqlite3.Connection,
+    person_id: int,
+    *,
+    hidden: bool,
+    changed_by: str | None,
+    reason: str | None = None,
+) -> None:
+    before = conn.execute("SELECT * FROM gis_monthly_report_persons WHERE id = ?", (person_id,)).fetchone()
+    if before is None:
+        raise ValueError("Persona mensual no encontrada.")
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        UPDATE gis_monthly_report_persons
+        SET hidden_at = ?, hidden_by = ?, hidden_reason = ?
+        WHERE id = ?
+        """,
+        (now if hidden else None, changed_by if hidden else None, (reason or "").strip() or None if hidden else None, person_id),
+    )
+    after = conn.execute("SELECT * FROM gis_monthly_report_persons WHERE id = ?", (person_id,)).fetchone()
+    conn.execute(
+        """
+        INSERT INTO gis_workspace_audit
+            (scope, record_type, record_id, action, before_json, after_json, changed_by, changed_at, reason)
+        VALUES ('monthly', 'person', ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            person_id,
+            "hide" if hidden else "restore",
+            json_dumps(dict(before)),
+            json_dumps(dict(after)),
+            changed_by,
+            now,
+            (reason or "").strip() or None,
+        ),
+    )
+
+
+def list_monthly_audit(
+    conn: sqlite3.Connection, *, record_type: str, record_id: int
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT * FROM gis_workspace_audit
+        WHERE scope = 'monthly' AND record_type = ? AND record_id = ?
+        ORDER BY id DESC
+        """,
+        (record_type, record_id),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def list_report_events(conn: sqlite3.Connection, report_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
@@ -282,6 +335,15 @@ def update_event(
             now,
             event_id,
         ),
+    )
+    after = conn.execute("SELECT * FROM gis_monthly_report_events WHERE id = ?", (event_id,)).fetchone()
+    conn.execute(
+        """
+        INSERT INTO gis_workspace_audit
+            (scope, record_type, record_id, action, before_json, after_json, changed_by, changed_at)
+        VALUES ('monthly', 'event', ?, 'edit', ?, ?, ?, ?)
+        """,
+        (event_id, json_dumps(dict(row)), json_dumps(dict(after)), decided_by, now),
     )
 
 

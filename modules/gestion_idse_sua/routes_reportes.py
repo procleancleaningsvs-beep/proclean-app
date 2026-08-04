@@ -23,10 +23,13 @@ from modules.gestion_idse_sua.reportes.repository import (
     list_report_events,
     list_report_persons,
     list_report_weeks,
+    list_monthly_audit,
+    set_person_visibility,
     update_event,
     update_report_status,
 )
 from modules.gestion_idse_sua.reportes.schema import ensure_gis_monthly_tables
+from modules.nomina.asistencia_palette import css_vars_for_json
 from modules.roles_access import can_access_comparativo, normalized_role
 
 
@@ -64,6 +67,15 @@ def _parse_json_field(raw: str | None, default):
         return json.loads(raw)
     except json.JSONDecodeError:
         return default
+
+
+def _session_username() -> str:
+    user = g.user
+    if not user:
+        return ""
+    if isinstance(user, dict):
+        return str(user.get("username") or "")
+    return str(user["username"])
 
 
 def register_reportes_routes(bp, *, login_required) -> None:
@@ -124,7 +136,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                 cliente=cliente,
                 mes=mes,
                 anio=anio,
-                created_by=getattr(g.user, "username", None),
+                created_by=_session_username(),
             )
             generate_monthly_report(
                 conn,
@@ -179,6 +191,10 @@ def register_reportes_routes(bp, *, login_required) -> None:
                 person["warnings"] = _parse_json_field(person.get("warnings_json"), [])
                 person["plantas"] = _parse_json_field(person.get("plantas_json"), [])
                 person["clientes"] = _parse_json_field(person.get("clientes_json"), [])
+                person["trajectory"] = _parse_json_field(person.get("trajectory_json"), {})
+                person["audit"] = list_monthly_audit(
+                    conn, record_type="person", record_id=int(person["id"])
+                )
             return render_template(
                 "gestion_idse_sua/reportes/workspace.html",
                 report=report,
@@ -189,6 +205,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                 warnings=_parse_json_field(report.get("warnings_json"), []),
                 legacy_url=url_for("comparativo.reporte_mensual_index"),
                 snapshot=snapshot,
+                attendance_palette=css_vars_for_json(),
             )
         finally:
             conn.close()
@@ -232,7 +249,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                     fecha_confirmed=str(request.form.get("fecha") or "").strip() or None,
                     estado="confirmado",
                     observaciones=str(request.form.get("observaciones") or "").strip() or None,
-                    decided_by=getattr(g.user, "username", None),
+                    decided_by=_session_username(),
                 )
             elif action == "discard":
                 update_event(
@@ -240,7 +257,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                     event_id,
                     estado="descartado",
                     observaciones=str(request.form.get("observaciones") or "").strip() or None,
-                    decided_by=getattr(g.user, "username", None),
+                    decided_by=_session_username(),
                 )
             elif action == "correct":
                 update_event(
@@ -250,7 +267,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
                     fecha_confirmed=str(request.form.get("fecha") or "").strip() or None,
                     estado="confirmado",
                     observaciones=str(request.form.get("observaciones") or "").strip() or None,
-                    decided_by=getattr(g.user, "username", None),
+                    decided_by=_session_username(),
                 )
             else:
                 flash("Acción no reconocida.", "error")
@@ -271,7 +288,7 @@ def register_reportes_routes(bp, *, login_required) -> None:
             out_buf, filename = generate_monthly_excel(
                 conn,
                 report_id,
-                username=getattr(g.user, "username", None),
+                username=_session_username(),
             )
             return send_file(
                 out_buf,
@@ -292,10 +309,71 @@ def register_reportes_routes(bp, *, login_required) -> None:
         conn = _db_from_app()
         try:
             _ensure_tables(conn)
-            result = convert_events_to_movements(conn, event_ids=event_ids)
+            rp = str(request.form.get("rp") or "").strip()
+            rfc_patron = str(request.form.get("rfc_patron") or "").strip()
+            overrides = {
+                event_id: {"rp": rp, "rfc_patron": rfc_patron}
+                for event_id in event_ids
+                if rp or rfc_patron
+            }
+            result = convert_events_to_movements(conn, event_ids=event_ids, overrides=overrides)
             converted = len(result.get("converted_ids") or [])
             excluded = len(result.get("excluded") or [])
             flash(f"Movimientos enviados: {converted}. Excluidos: {excluded}.", "success")
+        finally:
+            conn.close()
+        return redirect(url_for("gestion_idse_sua.reportes_workspace", report_id=report_id))
+
+    @route("/reportes/<int:report_id>/personas/visibility", methods=["POST"], endpoint="reportes_person_visibility")
+    def reportes_person_visibility(report_id: int):
+        _require_comparativo()
+        person_ids = [int(value) for value in request.form.getlist("person_ids") if str(value).isdigit()]
+        hidden = request.form.get("action") != "restore"
+        conn = _db_from_app()
+        try:
+            _ensure_tables(conn)
+            valid = {int(person["id"]) for person in list_report_persons(conn, report_id)}
+            for person_id in person_ids:
+                if person_id in valid:
+                    set_person_visibility(
+                        conn,
+                        person_id,
+                        hidden=hidden,
+                        changed_by=_session_username(),
+                        reason=request.form.get("reason"),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return redirect(url_for("gestion_idse_sua.reportes_workspace", report_id=report_id))
+
+    @route("/reportes/<int:report_id>/eventos/bulk", methods=["POST"], endpoint="reportes_bulk_event_action")
+    def reportes_bulk_event_action(report_id: int):
+        _require_comparativo()
+        event_ids = [int(value) for value in request.form.getlist("event_ids") if str(value).isdigit()]
+        action = request.form.get("action")
+        if action not in {"confirm", "discard"}:
+            flash("Acción masiva no reconocida.", "error")
+            return redirect(url_for("gestion_idse_sua.reportes_workspace", report_id=report_id))
+        conn = _db_from_app()
+        try:
+            _ensure_tables(conn)
+            valid = {int(event["id"]): event for event in list_report_events(conn, report_id)}
+            for event_id in event_ids:
+                event = valid.get(event_id)
+                if not event:
+                    continue
+                update_event(
+                    conn,
+                    event_id,
+                    event_type_confirmed=(event.get("event_type_confirmed") or event.get("event_type_suggested")) if action == "confirm" else None,
+                    fecha_confirmed=(event.get("fecha_confirmed") or event.get("fecha_suggested")) if action == "confirm" else None,
+                    estado="confirmado" if action == "confirm" else "descartado",
+                    observaciones=str(request.form.get("observaciones") or "").strip() or None,
+                    decided_by=_session_username(),
+                )
+            update_report_status(conn, report_id, estado="en_revision")
+            conn.commit()
         finally:
             conn.close()
         return redirect(url_for("gestion_idse_sua.reportes_workspace", report_id=report_id))

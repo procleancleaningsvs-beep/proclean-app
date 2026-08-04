@@ -74,11 +74,18 @@ def ensure_gis_monthly_tables(conn: sqlite3.Connection) -> None:
             warnings_json TEXT,
             daily_json TEXT,
             trajectory_json TEXT,
+            hidden_at TEXT,
+            hidden_by TEXT,
+            hidden_reason TEXT,
             FOREIGN KEY(report_id) REFERENCES gis_monthly_reports(id) ON DELETE CASCADE,
             UNIQUE(report_id, identity_key)
         )
         """
     )
+    person_columns = {row[1] for row in conn.execute("PRAGMA table_info(gis_monthly_report_persons)")}
+    for column in ("hidden_at", "hidden_by", "hidden_reason"):
+        if column not in person_columns:
+            conn.execute(f"ALTER TABLE gis_monthly_report_persons ADD COLUMN {column} TEXT")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS gis_monthly_report_events (

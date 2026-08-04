@@ -172,3 +172,55 @@ def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatc
     client.post(f"/gestion-idse-sua/nominas/import/{import_id}/restore")
     restored_html = client.get("/gestion-idse-sua/nominas").get_data(as_text=True)
     assert "Carrier 10 al 16 jul.xlsx" in restored_html
+
+
+def test_monthly_workspace_renders_shared_table_and_event_panel(tmp_path, monkeypatch):
+    import json
+
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+    from modules.gestion_idse_sua.reportes.schema import ensure_gis_monthly_tables
+
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    ensure_gis_nominas_tables(connection)
+    ensure_gis_monthly_tables(connection)
+    report_id = connection.execute(
+        """
+        INSERT INTO gis_monthly_reports
+            (cliente, mes, anio, estado, created_at, updated_at, warnings_json, snapshot_json)
+        VALUES ('PEPSI', 6, 2026, 'generado', '2026-07-01', '2026-07-01', '[]', ?)
+        """,
+        (json.dumps({"coverage_complete": True, "missing_dates": []}),),
+    ).lastrowid
+    person_id = connection.execute(
+        """
+        INSERT INTO gis_monthly_report_persons
+            (report_id, identity_key, num_empleado, nombre_nomina, nombre_hc, match_method,
+             match_status, nss, clientes_json, plantas_json, estado_mensual, totals_json,
+             primera_a, ultima_a, warnings_json, daily_json, trajectory_json)
+        VALUES (?, 'nss:111', '101', 'JUAN NOMINA', 'JUAN HC', 'nss', 'confirmed', '111',
+                '["PEPSI"]', '["PLANTA A"]', 'Todo el mes', '{"A":20,"D":8}',
+                '2026-06-01', '2026-06-30', '[]', '[]', '{}')
+        """,
+        (report_id,),
+    ).lastrowid
+    connection.execute(
+        """
+        INSERT INTO gis_monthly_report_events
+            (report_id, person_id, event_type_suggested, fecha_suggested, estado)
+        VALUES (?, ?, 'ALTA', '2026-06-01', 'propuesto')
+        """,
+        (report_id, person_id),
+    )
+    connection.commit()
+    connection.close()
+
+    response = client.get(f"/gestion-idse-sua/reportes/{report_id}")
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Nombre completo" in html
+    assert "Eventos del reporte" in html
+    assert "data-excel-filter" in html
+    assert "JUAN HC" in html
