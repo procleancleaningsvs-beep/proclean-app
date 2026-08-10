@@ -1,0 +1,4 @@
+interface:
+  display_name: "ProClean Task Router"
+  short_description: "Clasifica tareas ProClean por riesgo operativo"
+  default_prompt: "Use $proclean-task-router to classify this ProClean App task before making any changes."

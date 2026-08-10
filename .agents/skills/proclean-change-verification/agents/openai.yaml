@@ -1,0 +1,4 @@
+interface:
+  display_name: "ProClean Change Verification"
+  short_description: "Verifica cambios ProClean antes de integrar"
+  default_prompt: "Use $proclean-change-verification to verify this ProClean App change before completion or integration."
