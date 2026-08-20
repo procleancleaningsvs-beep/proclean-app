@@ -336,7 +336,7 @@
               <td>${{ '%.2f'|format(e.total_cents / 100) }}</td>
               <td>{{ e.capture_origin }}{% if e.calculo_id %} #{{ e.calculo_id }}{% endif %}</td>
               <td>{{ e.created_at }}</td>
-              <td><a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e.id) }}">Descargar</a></td>
+              <td><a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e.id) }}" data-banorte-pag-save data-export-id="{{ e.id }}" data-filename="{{ e.filename }}">Guardar .pag</a></td>
             </tr>
             {% else %}
             <tr><td colspan="9" class="banorte-empty">Sin exportaciones.</td></tr>
@@ -358,5 +358,6 @@
   </div>
 </div>
 
+<script src="{{ url_for('static', filename='nomina/banorte_pag_save.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
 {% endblock %}

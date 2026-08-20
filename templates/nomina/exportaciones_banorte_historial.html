@@ -45,7 +45,7 @@
             <td>{{ e['created_by'] }}</td>
             <td class="banorte-mono">{{ e['file_sha256'][:16] }}…</td>
             <td>{{ e['same_calculo_export_count'] }}</td>
-            <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}">Descargar</a></td>
+            <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}" data-banorte-pag-save data-export-id="{{ e['id'] }}" data-filename="{{ e['filename'] }}" data-sha256="{{ e['file_sha256'] }}">Guardar .pag</a></td>
           </tr>
           {% else %}
           <tr><td colspan="13" class="banorte-empty">Sin exportaciones.</td></tr>
@@ -55,4 +55,5 @@
     </div>
   </section>
 </div>
+<script src="{{ url_for('static', filename='nomina/banorte_pag_save.js') }}"></script>
 {% endblock %}

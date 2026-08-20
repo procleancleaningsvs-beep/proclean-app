@@ -750,8 +750,24 @@
       document.getElementById("banorte-app-date").textContent = out.data.layout_date_display;
     }
     msg.hidden = false;
-    msg.textContent = "Generado " + out.data.filename;
-    window.location.href = "/nomina/exportaciones/banorte/historial/" + out.data.export_id + "/download";
+    msg.textContent = "Generado " + out.data.filename + ". Preparando guardado seguro…";
+    const rawUrl = "/nomina/exportaciones/banorte/historial/" + out.data.export_id + "/download";
+    if (window.BanortePagSave && typeof window.BanortePagSave.saveExport === "function") {
+      try {
+        const saved = await window.BanortePagSave.saveExport({
+          exportId: out.data.export_id,
+          filename: out.data.filename,
+          sha256: out.data.sha256,
+        });
+        msg.textContent = window.BanortePagSave.describeResult(saved, out.data.filename);
+      } catch (err) {
+        msg.textContent = "Generado " + out.data.filename + ". No se pudo completar el guardado seguro: " +
+          ((err && err.message) || "error inesperado") + ". Puede descargarlo desde el historial.";
+        if (!err || err.code !== "integrity_mismatch") window.location.href = rawUrl;
+      }
+    } else {
+      window.location.href = rawUrl;
+    }
     return { ok: true };
   }
 
