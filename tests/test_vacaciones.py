@@ -22,7 +22,7 @@ from modules.nomina.db import (
     save_vacaciones_import,
     validar_vacaciones_base,
 )
-from modules.nomina.vacaciones_excel import _to_date_iso, _to_days_value, parse_vacaciones_historico_excel
+from modules.nomina.vacaciones_excel import _to_date_iso, _to_days, parse_vacaciones_historico_excel
 from modules.nomina.vacaciones_logic import (
     aplicar_calculo_a_fila,
     build_migration_events_from_row,
@@ -50,13 +50,13 @@ class TestVacacionesExcel(unittest.TestCase):
         self.assertEqual(_to_date_iso(45352), "2024-03-01")
 
     def test_vacaciones_laboradas_si(self):
-        self.assertEqual(_to_days_value("SI"), 1.0)
+        self.assertEqual(_to_days("SI"), 1.0)
 
     def test_vacaciones_laboradas_uno(self):
-        self.assertEqual(_to_days_value(1), 1.0)
+        self.assertEqual(_to_days(1), 1.0)
 
     def test_dias_pagados_vacio(self):
-        self.assertEqual(_to_days_value(None), 0.0)
+        self.assertEqual(_to_days(None), 0.0)
 
     def test_carrier_excel_72_rows(self):
         if not CARRIER_XLSX.exists():
@@ -64,16 +64,17 @@ class TestVacacionesExcel(unittest.TestCase):
         parsed = parse_vacaciones_historico_excel(CARRIER_XLSX.read_bytes(), CARRIER_XLSX.name)
         self.assertEqual(len(parsed.rows), 72)
         self.assertEqual(len(parsed.errors), 0)
-        self.assertGreater(parsed.weekly_events_total, 0)
+        self.assertEqual(parsed.import_kind, "LEGACY_HISTORY")
+        self.assertEqual(parsed.weekly_events_total, 0)
 
-    def test_antonia_desglose_semanal(self):
+    def test_legacy_history_uses_summary_without_weekly_breakdown(self):
         if not CARRIER_XLSX.exists():
             self.skipTest("Archivo Carrier no disponible")
         parsed = parse_vacaciones_historico_excel(CARRIER_XLSX.read_bytes(), CARRIER_XLSX.name)
-        antonia = next(r for r in parsed.rows if "Antonia" in r["excel_nombre_original"])
-        self.assertGreaterEqual(len(antonia["desglose_semanal"]), 2)
-        self.assertEqual(antonia["dias_utilizados_calculado_semanal"], 24.0)
-        self.assertEqual(antonia["dias_utilizados_excel_resumen"], 24.0)
+        self.assertEqual(parsed.import_kind, "LEGACY_HISTORY")
+        self.assertTrue(parsed.rows)
+        self.assertTrue(all(row["desglose_semanal"] == [] for row in parsed.rows))
+        self.assertTrue(all(row["dias_utilizados_calculado_semanal"] == 0.0 for row in parsed.rows))
 
 
 class TestVacacionesUtil(unittest.TestCase):
