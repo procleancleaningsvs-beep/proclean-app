@@ -15,29 +15,29 @@ CATALOG_PROJECTION_VERSION = 1
 CATALOG_MAX_FILE_BYTES = 10 * 1024 * 1024
 
 CATALOG_HEADER_V1: tuple[str, ...] = (
-    "No. Empleado",
+    "No Empleado",
     "Nombre",
     "Fecha Alta",
-    "Fecha Ult. Modificacion",
-    "Usuario Ult. Modificacion",
+    "Fecha Últ. Modificación",
+    "Última Modificación",
     "Fecha Nacimiento",
     "RFC",
-    "Sueldo Bruto",
+    "Sueldo Bruto Mensual",
     "Sueldo Neto",
-    "Entidad Nacimiento",
-    "Fecha Inicio Relacion Laboral",
-    "Periodicidad Pago",
+    "Entidad de Nacimiento",
+    "Fecha Ingreso",
+    "Frecuencia Pago",
     "Entidad",
-    "Tipo Cuenta",
-    "No. Cuenta",
+    "Tipo de Cuenta",
+    "No. de Cuenta",
     "Dependencias",
-    "Tipo Operacion",
-    "Tipo Transmision",
+    "Tipo de Operación",
+    "Tipo de Transmisión",
     "Estatus Interno",
     "Resultado",
-    "Usuario Ejecuto",
+    "Ejecutó",
     "Fecha Ejecucion",
-    "Usuario Coejecuto",
+    "Coejecutó",
     "Fecha Coejecucion",
 )
 
@@ -155,6 +155,16 @@ def _parse_spanish_date(value: str, *, code: str, required: bool = True) -> str:
     raw = str(value or "").strip()
     if not raw and not required:
         return ""
+    numeric_match = re.fullmatch(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw)
+    if numeric_match is not None:
+        try:
+            return date(
+                int(numeric_match.group(3)),
+                int(numeric_match.group(2)),
+                int(numeric_match.group(1)),
+            ).isoformat()
+        except ValueError as exc:
+            raise CatalogParseError(code) from exc
     match = re.fullmatch(r"(\d{1,2})/([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3})\.?/(\d{4})", raw)
     if match is None:
         raise CatalogParseError(code)
@@ -255,7 +265,9 @@ def parse_catalog_txt(raw: bytes, *, filename: str) -> ParsedCatalog:
     if len(lines) < 4:
         raise CatalogParseError("preamble_incomplete")
     report_match = re.fullmatch(r"FECHA:\s*(.+)", lines[0].strip(), re.IGNORECASE)
-    issuer_match = re.fullmatch(r"EMISORA:\s*(\d{5})", lines[1].strip(), re.IGNORECASE)
+    issuer_match = re.fullmatch(
+        r"EMISORA:\s*(\d{5})(?:\s+.+)?", lines[1].strip(), re.IGNORECASE
+    )
     if report_match is None:
         raise CatalogParseError("report_date_missing")
     if issuer_match is None:
@@ -285,7 +297,7 @@ def parse_catalog_txt(raw: bytes, *, filename: str) -> ParsedCatalog:
         encoding=encoding,
         delimiter="|",
         report_date=_parse_spanish_date(report_match.group(1), code="report_date_invalid"),
-        issuer_original=issuer_match.group(1),
+        issuer_original=lines[1].split(":", 1)[1].strip(),
         issuer_normalized=issuer_match.group(1),
         source_line_count=len(lines),
         data_row_count=len(rows),

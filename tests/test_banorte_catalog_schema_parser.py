@@ -158,6 +158,21 @@ def test_catalog_parser_hashes_raw_file_and_content_not_position():
     assert parsed.rows[0].row_content_sha256 == parsed.rows[1].row_content_sha256
 
 
+def test_catalog_parser_accepts_issuer_descriptor_and_numeric_row_dates():
+    row = _row(created="01/01/2026", modified="20/08/2026")
+    row[5] = "01/01/1990"
+    row[10] = "01/01/2020"
+    row[21] = "20/08/2026"
+    payload = _catalog_bytes(row).replace(
+        b"EMISORA: 67059", b"EMISORA: 67059 EMPRESA SINTETICA"
+    )
+    parsed = parse_catalog_txt(payload, filename="catalogo.txt")
+    assert parsed.issuer_original == "67059 EMPRESA SINTETICA"
+    assert parsed.issuer_normalized == "67059"
+    assert parsed.rows[0].record_created_date_iso == "2026-01-01"
+    assert parsed.rows[0].last_modified_date_iso == "2026-08-20"
+
+
 def test_catalog_parser_fail_closed_eligibility_and_normalization():
     parsed = parse_catalog_txt(
         _catalog_bytes(
@@ -178,7 +193,7 @@ def test_catalog_parser_rejects_wrong_extension_size_header_and_invalid_utf8():
     with pytest.raises(CatalogParseError, match="extension_invalid"):
         parse_catalog_txt(payload, filename="catalogo.csv")
     with pytest.raises(CatalogParseError, match="header_invalid"):
-        parse_catalog_txt(payload.replace(b"No. Empleado", b"Empleado X"), filename="catalogo.txt")
+        parse_catalog_txt(payload.replace(b"No Empleado", b"Empleado X"), filename="catalogo.txt")
     with pytest.raises(CatalogParseError, match="encoding_invalid"):
         parse_catalog_txt(payload + b"\xff", filename="catalogo.txt")
     with pytest.raises(CatalogParseError, match="file_too_large"):

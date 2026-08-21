@@ -816,6 +816,36 @@ def _ensure_catalog_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_events_version_created "
         "ON nomina_banorte_catalog_events(version_id,created_at,id)"
     )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_banorte_catalog_rows_immutable_update
+        BEFORE UPDATE ON nomina_banorte_catalog_rows
+        WHEN (SELECT status FROM nomina_banorte_catalog_versions WHERE id=OLD.version_id) <> 'STAGED'
+        BEGIN
+            SELECT RAISE(ABORT, 'catalog_rows_immutable');
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_banorte_catalog_rows_immutable_delete
+        BEFORE DELETE ON nomina_banorte_catalog_rows
+        WHEN (SELECT status FROM nomina_banorte_catalog_versions WHERE id=OLD.version_id) <> 'STAGED'
+        BEGIN
+            SELECT RAISE(ABORT, 'catalog_rows_immutable');
+        END
+        """
+    )
+    conn.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_banorte_catalog_rows_immutable_insert
+        BEFORE INSERT ON nomina_banorte_catalog_rows
+        WHEN (SELECT status FROM nomina_banorte_catalog_versions WHERE id=NEW.version_id) <> 'STAGED'
+        BEGIN
+            SELECT RAISE(ABORT, 'catalog_rows_immutable');
+        END
+        """
+    )
 
     _add_column_if_missing(
         conn, "nomina_banorte_export_drafts", "catalog_mode",
