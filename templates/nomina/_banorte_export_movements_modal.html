@@ -1,0 +1,38 @@
+<div id="banorte-movements-modal" class="banorte-modal banorte-movements-modal" hidden
+     role="dialog" aria-modal="true" aria-labelledby="banorte-movements-title">
+  <section class="banorte-modal-card banorte-movements-card">
+    <header class="banorte-movements-head">
+      <div>
+        <span class="banorte-hint">Histórico persistido</span>
+        <h3 id="banorte-movements-title" class="pc-panel-title">Movimientos del export</h3>
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" id="banorte-movements-close"
+              aria-label="Cerrar movimientos históricos">Cerrar</button>
+    </header>
+
+    <dl class="banorte-movements-summary">
+      <div><dt>Archivo</dt><dd id="banorte-movements-filename">—</dd></div>
+      <div><dt>Fecha bancaria</dt><dd id="banorte-movements-date">—</dd></div>
+      <div><dt>Pagos</dt><dd id="banorte-movements-count">—</dd></div>
+      <div><dt>Total histórico</dt><dd id="banorte-movements-total">—</dd></div>
+    </dl>
+
+    <p id="banorte-movements-state" class="banorte-empty" role="status" aria-live="polite">
+      Cargando movimientos históricos…
+    </p>
+    <div id="banorte-movements-table-wrap" class="pc-table-shell banorte-movements-table-wrap" hidden>
+      <table class="banorte-table banorte-movements-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Nombre histórico</th>
+            <th>No. empleado</th>
+            <th>Cuenta</th>
+            <th>Importe</th>
+          </tr>
+        </thead>
+        <tbody id="banorte-movements-body"></tbody>
+      </table>
+    </div>
+  </section>
+</div>

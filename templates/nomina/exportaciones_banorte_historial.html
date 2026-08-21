@@ -45,7 +45,17 @@
             <td>{{ e['created_by'] }}</td>
             <td class="banorte-mono">{{ e['file_sha256'][:16] }}…</td>
             <td>{{ e['same_calculo_export_count'] }}</td>
-            <td><a href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}" data-banorte-pag-save data-export-id="{{ e['id'] }}" data-filename="{{ e['filename'] }}" data-sha256="{{ e['file_sha256'] }}">Guardar .pag</a></td>
+            <td>
+              <div class="banorte-history-actions">
+                <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e['id']) }}" data-banorte-pag-save data-export-id="{{ e['id'] }}" data-filename="{{ e['filename'] }}" data-sha256="{{ e['file_sha256'] }}">Guardar .pag</a>
+                <button type="button" class="btn btn-secondary btn-sm" title="Ver movimientos"
+                        aria-label="Ver movimientos de {{ e['filename'] }}"
+                        data-banorte-export-movements data-export-id="{{ e['id'] }}">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  <span>Ver movimientos</span>
+                </button>
+              </div>
+            </td>
           </tr>
           {% else %}
           <tr><td colspan="13" class="banorte-empty">Sin exportaciones.</td></tr>
@@ -55,5 +65,7 @@
     </div>
   </section>
 </div>
+{% include "nomina/_banorte_export_movements_modal.html" %}
 <script src="{{ url_for('static', filename='nomina/banorte_pag_save.js') }}"></script>
+<script src="{{ url_for('static', filename='nomina/banorte_export_history.js') }}"></script>
 {% endblock %}

@@ -226,7 +226,86 @@
   color: #475569;
   font-size: .9rem;
 }
+.banorte-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+  align-items: center;
+}
+.banorte-history-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  white-space: nowrap;
+}
+.banorte-movements-modal { z-index: 45; }
+.banorte-movements-card {
+  width: min(72rem, calc(100% - 2rem));
+  max-width: 72rem;
+  max-height: calc(100vh - 2rem);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.banorte-movements-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.banorte-movements-head .pc-panel-title { margin: .15rem 0 0; }
+.banorte-movements-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: .6rem;
+  margin: .85rem 0;
+}
+.banorte-movements-summary div {
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: .5rem .6rem;
+}
+.banorte-movements-summary dt {
+  color: #64748b;
+  font-size: .78rem;
+}
+.banorte-movements-summary dd {
+  margin: .15rem 0 0;
+  color: #0f172a;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.banorte-movements-table-wrap {
+  min-height: 0;
+  max-height: 60vh;
+  overflow: auto;
+}
+.banorte-movements-table { min-width: 720px; }
+.banorte-movements-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f8fafc;
+  box-shadow: 0 1px 0 #e2e8f0;
+}
+.banorte-movements-amount {
+  text-align: right !important;
+  white-space: nowrap;
+}
 @media (max-width: 900px) {
   .banorte-actions { justify-content: stretch; }
   .banorte-alta-layout { grid-template-columns: 1fr; }
+  .banorte-movements-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .banorte-history-actions .btn span { display: none; }
+}
+
+@media (max-width: 520px) {
+  .banorte-movements-card {
+    width: calc(100% - 1rem);
+    max-height: calc(100vh - 1rem);
+    padding: .85rem;
+  }
+  .banorte-movements-summary { grid-template-columns: 1fr; }
 }

@@ -64,6 +64,10 @@ from modules.nomina.banorte.download_service import (
     ExportDownloadError,
     load_historical_pag,
 )
+from modules.nomina.banorte.history_service import (
+    HistoricalExportNotFound,
+    load_historical_export_movements,
+)
 from modules.nomina.banorte.export_service import (
     DraftPaymentRow,
     ExportBlockedError,
@@ -1209,6 +1213,14 @@ def register_banorte_routes(bp) -> None:
             }
         )
 
+    @_banorte_access_required
+    def banorte_export_movements(export_id: int):
+        try:
+            historical = load_historical_export_movements(_db_path(), export_id)
+        except HistoricalExportNotFound:
+            return _json_no_store({"ok": False, "code": "export_not_found"}, 404)
+        return _json_no_store({"ok": True, **historical})
+
     bp.add_url_rule("/exportaciones/banorte", endpoint="banorte_index", view_func=banorte_index, methods=["GET"])
     bp.add_url_rule(
         "/exportaciones/banorte/import/altas",
@@ -1440,5 +1452,11 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/historial/<int:export_id>/metadata",
         endpoint="banorte_download_metadata",
         view_func=banorte_download_metadata,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/historial/<int:export_id>/movimientos",
+        endpoint="banorte_export_movements",
+        view_func=banorte_export_movements,
         methods=["GET"],
     )
