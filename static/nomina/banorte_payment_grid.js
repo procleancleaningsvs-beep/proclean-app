@@ -431,11 +431,33 @@
     return null;
   }
 
+  function installGridPasteListener(pasteRoot, handler) {
+    if (!pasteRoot || typeof handler !== "function") {
+      return { installed: false, dispatch: function () {}, teardown: function () {} };
+    }
+    if (pasteRoot.__banorteGridPasteBinding) {
+      return pasteRoot.__banorteGridPasteBinding;
+    }
+    function onPaste(e) {
+      handler(e);
+    }
+    pasteRoot.addEventListener("paste", onPaste, true);
+    const binding = {
+      installed: true,
+      dispatch: onPaste,
+      teardown: function () {
+        pasteRoot.removeEventListener("paste", onPaste, true);
+        delete pasteRoot.__banorteGridPasteBinding;
+      },
+    };
+    pasteRoot.__banorteGridPasteBinding = binding;
+    return binding;
+  }
+
   function createGridController(options) {
     options = options || {};
     const gridBody = options.gridBody;
     const pasteRoot = options.pasteRoot;
-    const gridTable = options.gridTable;
     if (!gridBody) return null;
 
     const rows = [];
@@ -553,6 +575,8 @@
       applyPaste(text, resolvePasteAnchor(e.target));
     }
 
+    const pasteBinding = installGridPasteListener(pasteRoot, handlePasteEvent);
+
     function handleInputKeydown(e) {
       const input = e.target;
       if (!input.matches(".banorte-grid-name, .banorte-grid-amount")) return;
@@ -635,11 +659,6 @@
       });
     }
 
-    const pasteTargets = [pasteRoot, gridTable, gridBody].filter(Boolean);
-    pasteTargets.forEach(function (node) {
-      node.addEventListener("paste", handlePasteEvent, true);
-    });
-
     return {
       rows: rows,
       addRow: addRow,
@@ -648,6 +667,8 @@
       applyPaste: applyPaste,
       render: render,
       focusEditableCell: focusEditableCell,
+      handlePasteEvent: handlePasteEvent,
+      pasteBinding: pasteBinding,
       getRowsPayload: function () {
         return rows.map(function (r) {
           return {
@@ -672,11 +693,15 @@
   function mount() {
     const pageRoot = root.document && root.document.getElementById("banorte-root");
     const gridBody = root.document && root.document.getElementById("banorte-payment-grid-body");
-    if (!pageRoot || !gridBody) return null;
+    const pasteRoot = root.document && root.document.getElementById("banorte-payment-grid-paste");
+    if (!pageRoot || !gridBody || !pasteRoot) return null;
+    if (pasteRoot.dataset.banortePaymentGridMounted === "1") {
+      return root.__banortePaymentGridController || null;
+    }
+    pasteRoot.dataset.banortePaymentGridMounted = "1";
     const controller = createGridController({
       gridBody: gridBody,
-      pasteRoot: root.document.getElementById("banorte-payment-grid-paste"),
-      gridTable: root.document.getElementById("banorte-payment-grid"),
+      pasteRoot: pasteRoot,
     });
     if (!controller) return null;
 
@@ -694,6 +719,7 @@
     if (addBtn) addBtn.addEventListener("click", function () { controller.addRow({}); });
 
     controller.addRow({});
+    root.__banortePaymentGridController = controller;
     root.banortePaymentGrid = {
       getRowsPayload: controller.getRowsPayload.bind(controller),
       clear: controller.clear.bind(controller),
@@ -726,6 +752,7 @@
     evaluateRow: evaluateRow,
     resolveKeyboardMove: resolveKeyboardMove,
     EDITABLE_COLUMNS: EDITABLE_COLUMNS,
+    installGridPasteListener: installGridPasteListener,
     createGridController: createGridController,
     mount: mount,
   };

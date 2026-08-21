@@ -16,6 +16,7 @@ const {
   applySingleColumnPasteToModel,
   isSingleColumnPaste,
   extractPasteMatrix,
+  installGridPasteListener,
 } = grid;
 
 function makeRow(partial) {
@@ -57,6 +58,61 @@ function buildAmounts(start, count) {
   const lines = [];
   for (let i = 0; i < count; i += 1) lines.push(String(start + i));
   return lines;
+}
+
+function createMockPasteRoot() {
+  const listeners = [];
+  return {
+    addEventListener(type, fn, capture) {
+      listeners.push({ type: type, fn: fn, capture: !!capture });
+    },
+    removeEventListener(type, fn, capture) {
+      for (let i = listeners.length - 1; i >= 0; i -= 1) {
+        const item = listeners[i];
+        if (item.type === type && item.fn === fn && item.capture === !!capture) {
+          listeners.splice(i, 1);
+        }
+      }
+    },
+    pasteListenerCount() {
+      return listeners.filter(function (item) { return item.type === "paste"; }).length;
+    },
+    dispatchPaste(text, target) {
+      const event = {
+        clipboardData: { getData: function () { return text; } },
+        target: target || this,
+        preventDefault: function () {},
+      };
+      listeners.forEach(function (item) {
+        if (item.type === "paste") item.fn(event);
+      });
+    },
+  };
+}
+
+function rowsWithDefaultBlank() {
+  return [makeRow({})];
+}
+
+function pasteNamesThenAmounts(rows, nameCount, amountStart, amountExplicit) {
+  const createRow = createRowFactory();
+  applySingleColumnPasteToModel(
+    rows,
+    buildNames(nameCount),
+    { rowIndex: 0, column: "name", explicit: true },
+    createRow
+  );
+  applySingleColumnPasteToModel(
+    rows,
+    buildAmounts(amountStart, nameCount),
+    { rowIndex: 0, column: "amount", explicit: amountExplicit !== false },
+    createRow
+  );
+  return rows;
+}
+
+function countPopulated(rows, field) {
+  return rows.filter(function (row) { return trimCell(row[field]); }).length;
 }
 
 function rowAt(text, index) {
@@ -345,4 +401,124 @@ test("inferred amount paste after names from container anchor", () => {
   for (let i = 0; i < 16; i += 1) {
     assert.equal(rows[i].amount_raw, String(1001 + i));
   }
+});
+
+test("one DOM paste event invokes applyPaste once", () => {
+  const pasteRoot = createMockPasteRoot();
+  let calls = 0;
+  installGridPasteListener(pasteRoot, function () { calls += 1; });
+  pasteRoot.dispatchPaste("Nombre 01\nNombre 02");
+  assert.equal(calls, 1);
+  assert.equal(pasteRoot.pasteListenerCount(), 1);
+});
+
+test("nested paste target still executes pipeline once", () => {
+  const pasteRoot = createMockPasteRoot();
+  let calls = 0;
+  installGridPasteListener(pasteRoot, function () { calls += 1; });
+  const nestedInput = {
+    matches: function () { return true; },
+    classList: { contains: function () { return false; } },
+    closest: function () { return null; },
+  };
+  pasteRoot.dispatchPaste("1001\n1002", nestedInput);
+  assert.equal(calls, 1);
+});
+
+test("repeated paste listener install is idempotent", () => {
+  const pasteRoot = createMockPasteRoot();
+  let calls = 0;
+  const handler = function () { calls += 1; };
+  const first = installGridPasteListener(pasteRoot, handler);
+  const second = installGridPasteListener(pasteRoot, handler);
+  assert.equal(first, second);
+  assert.equal(pasteRoot.pasteListenerCount(), 1);
+  pasteRoot.dispatchPaste("Nombre 01");
+  assert.equal(calls, 1);
+});
+
+test("default blank row plus 9 names yields exactly 9 rows", () => {
+  const rows = rowsWithDefaultBlank();
+  applySingleColumnPasteToModel(
+    rows,
+    buildNames(9),
+    { rowIndex: 0, column: "name", explicit: true },
+    createRowFactory()
+  );
+  assert.equal(rows.length, 9);
+  assert.equal(countPopulated(rows, "name_raw"), 9);
+  assert.equal(countPopulated(rows, "amount_raw"), 0);
+});
+
+test("contract: 9 names then 9 amounts remain 9 rows aligned", () => {
+  const rows = rowsWithDefaultBlank();
+  pasteNamesThenAmounts(rows, 9, 1001, false);
+  assert.equal(rows.length, 9);
+  assert.equal(countPopulated(rows, "name_raw"), 9);
+  assert.equal(countPopulated(rows, "amount_raw"), 9);
+  for (let i = 0; i < 9; i += 1) {
+    assert.equal(rows[i].name_raw, "Nombre " + pad2(i + 1));
+    assert.equal(rows[i].amount_raw, String(1001 + i));
+  }
+});
+
+test("contract: default blank plus 16 names then 16 amounts remain 16 rows", () => {
+  const rows = rowsWithDefaultBlank();
+  pasteNamesThenAmounts(rows, 16, 1001, true);
+  assert.equal(rows.length, 16);
+  assert.equal(countPopulated(rows, "name_raw"), 16);
+  assert.equal(countPopulated(rows, "amount_raw"), 16);
+});
+
+test("existing 9 name rows plus amount paste creates no extra rows", () => {
+  const rows = rowsWithDefaultBlank();
+  applySingleColumnPasteToModel(
+    rows,
+    buildNames(9),
+    { rowIndex: 0, column: "name", explicit: true },
+    createRowFactory()
+  );
+  assert.equal(rows.length, 9);
+  applySingleColumnPasteToModel(
+    rows,
+    buildAmounts(1001, 9),
+    { rowIndex: 0, column: "amount", explicit: false },
+    createRowFactory()
+  );
+  assert.equal(rows.length, 9);
+  assert.equal(countPopulated(rows, "name_raw"), 9);
+  assert.equal(countPopulated(rows, "amount_raw"), 9);
+});
+
+test("triple inferred name paste would duplicate rows without single-event guard", () => {
+  const rows = rowsWithDefaultBlank();
+  const createRow = createRowFactory();
+  const names = buildNames(9);
+  for (let i = 0; i < 3; i += 1) {
+    applySingleColumnPasteToModel(
+      rows,
+      names,
+      { rowIndex: 0, column: "name", explicit: false },
+      createRow
+    );
+  }
+  assert.equal(rows.length, 27);
+});
+
+test("no amount-only duplicate rows after names then amounts", () => {
+  const rows = rowsWithDefaultBlank();
+  pasteNamesThenAmounts(rows, 9, 1001, false);
+  const amountOnly = rows.filter(function (row) {
+    return trimCell(row.amount_raw) && !trimCell(row.name_raw);
+  });
+  assert.equal(amountOnly.length, 0);
+});
+
+test("no name-only duplicate rows after names then amounts", () => {
+  const rows = rowsWithDefaultBlank();
+  pasteNamesThenAmounts(rows, 9, 1001, false);
+  const nameOnly = rows.filter(function (row) {
+    return trimCell(row.name_raw) && !trimCell(row.amount_raw);
+  });
+  assert.equal(nameOnly.length, 0);
 });
