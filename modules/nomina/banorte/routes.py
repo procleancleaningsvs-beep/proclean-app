@@ -64,6 +64,22 @@ from modules.nomina.banorte.download_service import (
     ExportDownloadError,
     load_historical_pag,
 )
+from modules.nomina.banorte.catalog_activation import catalog_activation_check
+from modules.nomina.banorte.catalog_parser import CatalogParseError
+from modules.nomina.banorte.catalog_reconciliation import (
+    CatalogReconciliationError,
+    manual_reconcile_catalog_person,
+    pre_reconcile_catalog_version,
+)
+from modules.nomina.banorte.catalog_service import (
+    CatalogVersionError,
+    analyze_catalog_version,
+    catalog_version_diff,
+    get_catalog_version,
+    list_catalog_versions,
+    mark_catalog_ready_for_review,
+    stage_catalog_version,
+)
 from modules.nomina.banorte.history_service import (
     HistoricalExportNotFound,
     load_historical_export_movements,
@@ -114,6 +130,18 @@ def _banorte_access_required(view: Callable):
         if g.user is None:
             return redirect(url_for("login"))
         if _current_role() not in NOMINA_DASHBOARD_ROLES:
+            abort(403)
+        return view(*args, **kwargs)
+
+    return wrapped
+
+
+def _banorte_admin_required(view: Callable):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if g.user is None:
+            return redirect(url_for("login"))
+        if _current_role() != "admin":
             abort(403)
         return view(*args, **kwargs)
 
@@ -231,6 +259,7 @@ def register_banorte_routes(bp) -> None:
         return resp
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_import_altas():
         require_csrf()
         wants_json = (
@@ -294,6 +323,7 @@ def register_banorte_routes(bp) -> None:
         return redirect(url_for("nomina.banorte_index"))
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_import_reporte():
         """Legacy form path — prefer JSON prepare-batch + confirm staging."""
         require_csrf()
@@ -319,6 +349,7 @@ def register_banorte_routes(bp) -> None:
         return redirect(url_for("nomina.banorte_index"))
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_reporte_prepare_batch():
         require_csrf()
         f = request.files.get("file")
@@ -386,6 +417,7 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_alias():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -910,6 +942,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "listing": listing, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_beneficiarios_available_numbers():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -922,6 +955,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **out, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_beneficiarios_actions(beneficiary_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -995,6 +1029,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "rows": rows, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_beneficiarios_create():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1025,6 +1060,7 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_get_or_create():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1034,6 +1070,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_get(batch_id: int):
         batch = get_batch(_db_path(), int(batch_id))
         if batch is None:
@@ -1041,6 +1078,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_add_row(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1064,6 +1102,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_delete_row(batch_id: int, row_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1083,6 +1122,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_confirm(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1098,6 +1138,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_batch_abandon(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1113,6 +1154,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
+    @_banorte_admin_required
     def banorte_beneficiarios_replace(beneficiary_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1221,7 +1263,207 @@ def register_banorte_routes(bp) -> None:
             return _json_no_store({"ok": False, "code": "export_not_found"}, 404)
         return _json_no_store({"ok": True, **historical})
 
+    def _catalog_redirect(version_id: int | None = None):
+        if version_id is None:
+            return redirect(url_for("nomina.banorte_catalog_index"))
+        return redirect(url_for("nomina.banorte_catalog_index", version_id=int(version_id)))
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_index():
+        versions = list_catalog_versions(_db_path())
+        selected = None
+        selected_diff = None
+        selected_check = None
+        raw_version_id = request.args.get("version_id")
+        if raw_version_id:
+            try:
+                version_id = int(raw_version_id)
+                selected = get_catalog_version(_db_path(), version_id)
+                if selected["status"] != "STAGED":
+                    selected_diff = catalog_version_diff(_db_path(), version_id)
+                    selected_check = catalog_activation_check(_db_path(), version_id)
+            except (ValueError, CatalogVersionError):
+                abort(404)
+        resp = Response(
+            render_template(
+                "nomina/exportaciones_banorte_catalogo.html",
+                versions=versions,
+                selected=selected,
+                selected_diff=selected_diff,
+                selected_check=selected_check,
+                csrf_token=issue_csrf_token(),
+            )
+        )
+        resp.headers.update(_NO_STORE)
+        return resp
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_upload():
+        require_csrf()
+        file = request.files.get("file")
+        if file is None:
+            flash("Seleccione un Empleados.txt.", "error")
+            return _catalog_redirect()
+        try:
+            version = stage_catalog_version(
+                _db_path(),
+                raw=file.read(),
+                filename=file.filename or "Empleados.txt",
+                actor=_username(),
+            )
+        except (CatalogParseError, CatalogVersionError) as exc:
+            flash(f"No se pudo preparar el catálogo ({exc}).", "error")
+            return _catalog_redirect()
+        flash(f"Versión #{version['id']} preparada como STAGED.", "success")
+        return _catalog_redirect(int(version["id"]))
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_detail(version_id: int):
+        try:
+            detail = get_catalog_version(_db_path(), int(version_id))
+        except CatalogVersionError:
+            return _json_no_store({"ok": False, "code": "version_not_found"}, 404)
+        return _json_no_store({"ok": True, "version": detail})
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_analyze(version_id: int):
+        require_csrf()
+        try:
+            analyze_catalog_version(_db_path(), int(version_id), actor=_username())
+        except CatalogVersionError as exc:
+            flash(f"No se pudo analizar ({exc.code}).", "error")
+            return _catalog_redirect(int(version_id))
+        flash("Proyección analizada sin activar catálogo.", "success")
+        return _catalog_redirect(int(version_id))
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_diff(version_id: int):
+        try:
+            diff = catalog_version_diff(_db_path(), int(version_id))
+        except CatalogVersionError:
+            return _json_no_store({"ok": False, "code": "version_not_found"}, 404)
+        return _json_no_store({"ok": True, "diff": diff})
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_pre_reconcile(version_id: int):
+        require_csrf()
+        try:
+            summary = pre_reconcile_catalog_version(
+                _db_path(), int(version_id), actor=_username()
+            )
+        except CatalogReconciliationError as exc:
+            flash(f"No se pudo pre-reconciliar ({exc.code}).", "error")
+            return _catalog_redirect(int(version_id))
+        auto = int(summary["by_status"].get("AUTO_MATCHED", 0))
+        flash(
+            f"Pre-reconciliación completada: {auto} automáticas, {summary['total'] - auto} administrativas.",
+            "success",
+        )
+        return _catalog_redirect(int(version_id))
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_ready(version_id: int):
+        require_csrf()
+        try:
+            mark_catalog_ready_for_review(_db_path(), int(version_id), actor=_username())
+        except CatalogVersionError as exc:
+            flash(f"No se pudo marcar para revisión ({exc.code}).", "error")
+            return _catalog_redirect(int(version_id))
+        flash("Versión lista para revisión. No fue activada.", "success")
+        return _catalog_redirect(int(version_id))
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_activation_check(version_id: int):
+        try:
+            check = catalog_activation_check(_db_path(), int(version_id))
+        except ValueError:
+            return _json_no_store({"ok": False, "code": "version_not_found"}, 404)
+        return _json_no_store({"ok": True, **check})
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_manual_reconcile():
+        require_csrf()
+        try:
+            person_id = int(request.form.get("person_id") or 0)
+            beneficiary_id = int(request.form.get("beneficiary_id") or 0)
+            result = manual_reconcile_catalog_person(
+                _db_path(),
+                int(person_id),
+                beneficiary_id,
+                actor=_username(),
+                reason=str(request.form.get("reason") or ""),
+            )
+        except (ValueError, CatalogReconciliationError) as exc:
+            code = getattr(exc, "code", "beneficiary_invalid")
+            flash(f"No se pudo reconciliar manualmente ({code}).", "error")
+            return _catalog_redirect()
+        flash("Reconciliación manual registrada con historia append-only.", "success")
+        return _catalog_redirect(int(result["version_id"]))
+
     bp.add_url_rule("/exportaciones/banorte", endpoint="banorte_index", view_func=banorte_index, methods=["GET"])
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo",
+        endpoint="banorte_catalog_index",
+        view_func=banorte_catalog_index,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions",
+        endpoint="banorte_catalog_upload",
+        view_func=banorte_catalog_upload,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>",
+        endpoint="banorte_catalog_detail",
+        view_func=banorte_catalog_detail,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/analyze",
+        endpoint="banorte_catalog_analyze",
+        view_func=banorte_catalog_analyze,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/diff",
+        endpoint="banorte_catalog_diff",
+        view_func=banorte_catalog_diff,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/pre-reconcile",
+        endpoint="banorte_catalog_pre_reconcile",
+        view_func=banorte_catalog_pre_reconcile,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/ready",
+        endpoint="banorte_catalog_ready",
+        view_func=banorte_catalog_ready,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/activation-check",
+        endpoint="banorte_catalog_activation_check",
+        view_func=banorte_catalog_activation_check,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/reconciliations/manual",
+        endpoint="banorte_catalog_manual_reconcile",
+        view_func=banorte_catalog_manual_reconcile,
+        methods=["POST"],
+    )
     bp.add_url_rule(
         "/exportaciones/banorte/import/altas",
         endpoint="banorte_import_altas",

@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
+{% endblock %}
+{% block content %}
+<section class="page-head pc-hub-hero">
+  <div class="pc-hub-hero__main">
+    <span class="pc-page-eyebrow">Nóminas · Banorte · Administración</span>
+    <h2 class="pc-page-title">Catálogo oficial Banorte</h2>
+    <p class="pc-page-subtitle">Release 2A · infraestructura dormida y revisión administrativa</p>
+  </div>
+  <div class="page-head-actions">
+    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_index') }}">Volver a Banorte</a>
+  </div>
+</section>
+
+<div class="pc-safe-zone banorte-wrap" data-csrf="{{ csrf_token }}">
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Subir Empleados.txt</h3>
+    <form method="post" action="{{ url_for('nomina.banorte_catalog_upload') }}" enctype="multipart/form-data" class="banorte-export-bar">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Archivo oficial <input type="file" name="file" accept=".txt,text/plain" required></label>
+      <button class="btn btn-primary" type="submit">Preparar versión STAGED</button>
+    </form>
+    <p class="banorte-hint">El upload no activa ni modifica beneficiarios legacy, drafts o pagos.</p>
+  </section>
+
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Versiones</h3>
+    <div class="pc-table-shell">
+      <table class="banorte-table">
+        <thead><tr><th>ID</th><th>Fecha</th><th>Filas</th><th>Personas</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody>
+          {% for version in versions %}
+          <tr>
+            <td>#{{ version.id }}</td>
+            <td>{{ version.report_date }}</td>
+            <td>{{ version.data_row_count }}</td>
+            <td>{{ version.person_count if version.person_count is not none else '—' }}</td>
+            <td><span class="banorte-status">{{ version.status }}</span></td>
+            <td>
+              <div class="banorte-export-bar">
+                <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_catalog_index', version_id=version.id) }}">Revisar</a>
+                {% if version.status == 'STAGED' %}
+                <form method="post" action="{{ url_for('nomina.banorte_catalog_analyze', version_id=version.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="btn btn-primary btn-sm" type="submit">Analizar</button>
+                </form>
+                {% elif version.status == 'ANALYZED' %}
+                <form method="post" action="{{ url_for('nomina.banorte_catalog_pre_reconcile', version_id=version.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="btn btn-secondary btn-sm" type="submit">Pre-reconciliar</button>
+                </form>
+                <form method="post" action="{{ url_for('nomina.banorte_catalog_ready', version_id=version.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <button class="btn btn-primary btn-sm" type="submit">Listo para revisión</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="banorte-empty">Sin versiones. El estado 0 ACTIVE es válido.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if selected %}
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Revisión de versión #{{ selected.id }}</h3>
+    <div class="banorte-export-bar">
+      <span>Estado: <strong>{{ selected.status }}</strong></span>
+      <span>Elegibles: <strong>{{ selected.eligible_row_count if selected.eligible_row_count is not none else '—' }}</strong></span>
+      <span>Personas listas: <strong>{{ selected.catalog_ready_count if selected.catalog_ready_count is not none else '—' }}</strong></span>
+      <span>Bloqueadas: <strong>{{ selected.blocked_person_count if selected.blocked_person_count is not none else '—' }}</strong></span>
+    </div>
+    {% if selected_diff %}
+    <p class="banorte-hint">Diff agregado: {{ selected_diff.added }} altas · {{ selected_diff.changed }} cambios · {{ selected_diff.removed }} bajas · {{ selected_diff.unchanged }} sin cambio.</p>
+    {% endif %}
+    {% if selected_check %}
+    <p class="banorte-hint">Activation-check: {{ selected_check.projection_blockers }} blockers de proyección · {{ selected_check.reconciliation_pending }} reconciliaciones pendientes · {{ selected_check.stale_reconciliations }} stale · {{ selected_check.legacy_open_draft_blockers }} drafts legacy OPEN.</p>
+    {% endif %}
+  </section>
+
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Reconciliación manual controlada</h3>
+    <form method="post" action="{{ url_for('nomina.banorte_catalog_manual_reconcile') }}" class="banorte-export-bar">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Person ID <input type="number" name="person_id" min="1" required></label>
+      <label>Beneficiary ID <input type="number" name="beneficiary_id" min="1" required></label>
+      <label>Motivo <input type="text" name="reason" minlength="3" required></label>
+      <button class="btn btn-secondary" type="submit">Registrar reconciliación</button>
+    </form>
+    <p class="banorte-hint">El backend vuelve a validar estado, employee number, cuenta, nombre y fingerprint; no modifica el beneficiario legacy.</p>
+  </section>
+  {% endif %}
+
+  <section class="banorte-panel pc-card">
+    <h3 class="pc-panel-title">Activación</h3>
+    <p class="banorte-status banorte-status--warn">Activación disponible después de Release 2B</p>
+    <p class="banorte-hint">Release 2A no registra ruta HTTP de activación. El estado productivo esperado permanece en 0 ACTIVE.</p>
+  </section>
+</div>
+{% endblock %}
