@@ -6,6 +6,7 @@ import sqlite3
 from typing import Any
 
 from modules.nomina.banorte.draft_repository import is_pag_included_row, pag_included_rows
+from modules.nomina.banorte.payment_authority import evaluate_catalog_export_blockers
 
 
 def manual_effective_confirmed(row: dict[str, Any]) -> bool:
@@ -57,9 +58,13 @@ def pag_row_export_blockers(
 def evaluate_pag_export_blockers(
     conn: sqlite3.Connection,
     rows: list[dict[str, Any]],
+    *,
+    draft: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Authoritative pre-export validation for pag-included rows only."""
     blocked: list[dict[str, Any]] = []
+    if draft is not None:
+        blocked.extend(evaluate_catalog_export_blockers(conn, draft, rows))
     for row in pag_included_rows(rows):
         bid = row.get("beneficiary_id")
         beneficiary = None

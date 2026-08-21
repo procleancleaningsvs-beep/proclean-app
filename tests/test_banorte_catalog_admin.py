@@ -198,14 +198,20 @@ def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):
     assert check.status_code == 200
     assert check.get_json()["active_version_id"] is None
 
-    activation_rules = [
-        rule.rule for rule in app.url_map.iter_rules() if "banorte" in rule.rule and "activate" in rule.rule
-    ]
-    assert activation_rules == []
-    assert client.post(
+    activation_rules = sorted(
+        rule.rule
+        for rule in app.url_map.iter_rules()
+        if "banorte" in rule.rule and ("activate" in rule.rule or "rollback" in rule.rule)
+    )
+    assert "/nomina/exportaciones/banorte/catalogo/versions/<int:version_id>/activate" in activation_rules
+    assert "/nomina/exportaciones/banorte/catalogo/versions/<int:version_id>/rollback" in activation_rules
+    activate = client.post(
         f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
         data={"csrf_token": token},
-    ).status_code == 404
+    )
+    assert activate.status_code in {200, 400}
+    if activate.status_code == 200:
+        assert activate.get_json()["active_version_id"] == version_id
 
 
 def test_catalog_routes_are_admin_only(tmp_path):

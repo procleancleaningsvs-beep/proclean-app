@@ -5,13 +5,12 @@ import re
 from pathlib import Path
 from typing import Any
 
-from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
 from modules.nomina.banorte.catalog_search_cursor import (
     CatalogSearchCursorError,
     issue_catalog_search_cursor,
     parse_catalog_search_cursor,
 )
-from modules.nomina.banorte.export_readiness import manual_effective_confirmed
+from modules.nomina.banorte.payment_authority import evaluate_payment_authority
 from modules.nomina.banorte.repository import connect
 
 _MAX_Q = 100
@@ -75,57 +74,22 @@ def _order_clause(sort: str) -> str:
 
 def _evaluate_sidebar_person(
     *,
+    conn,
     person: dict[str, Any],
     reconciliation: dict[str, Any] | None,
     beneficiary: dict[str, Any] | None,
     active_version_id: int,
 ) -> dict[str, Any]:
-    reason_codes: list[str] = []
-    if int(person["version_id"]) != int(active_version_id):
-        reason_codes.append("CATALOG_VERSION_MISMATCH")
     person_status = str(person.get("person_status") or "")
-    if person_status != "CATALOG_READY":
-        reason_codes.append(person_status or "CATALOG_PERSON_NOT_READY")
-    row_eligibility = str(person.get("eligibility") or "")
-    if row_eligibility and row_eligibility != "ELIGIBLE":
-        reason_codes.append("NO_ELIGIBLE_ROW")
-    if reconciliation is None:
-        reason_codes.append("RECONCILIATION_MISSING")
-    else:
-        recon_status = str(reconciliation.get("reconciliation_status") or "")
-        if recon_status not in {"AUTO_MATCHED", "MANUAL_MATCHED"}:
-            reason_codes.append(recon_status or "RECONCILIATION_MISSING")
-        elif int(reconciliation.get("is_current") or 0) != 1:
-            reason_codes.append("RECONCILIATION_STALE")
-        elif beneficiary is not None:
-            live_fp = beneficiary_material_fingerprint(beneficiary)
-            if (
-                str(reconciliation.get("beneficiary_material_fingerprint") or "")
-                != live_fp.sha256
-            ):
-                reason_codes.append("STALE_RECONCILIATION")
-            elif (
-                str(reconciliation.get("beneficiary_material_fingerprint_version") or "")
-                != live_fp.version
-            ):
-                reason_codes.append("FINGERPRINT_VERSION_MISMATCH")
-    if beneficiary is None:
-        reason_codes.append("LEGACY_NOT_USABLE")
-    else:
-        record_status = str(beneficiary.get("record_status") or "")
-        if record_status != "ACTIVO":
-            reason_codes.append("LEGACY_NOT_USABLE")
-        employee = str(person.get("employee_number_normalized") or "")
-        account = str(person.get("account_number_normalized") or "")
-        if employee and str(beneficiary.get("employee_number_effective") or "") != employee:
-            reason_codes.append("EMPLOYEE_MISMATCH")
-        if account and str(beneficiary.get("account_number") or "") != account:
-            reason_codes.append("ACCOUNT_MISMATCH")
-        if int(beneficiary.get("manual_effective_from_account") or 0) == 1:
-            pseudo_row = {"user_decision": {}}
-            if not manual_effective_confirmed(pseudo_row):
-                reason_codes.append("MANUAL_PENDIENTE_VALIDACION")
-    payment_enabled = not reason_codes
+    authority = evaluate_payment_authority(
+        conn=conn,
+        person=person,
+        reconciliation=reconciliation,
+        beneficiary=beneficiary,
+        active_version_id=active_version_id,
+    )
+    reason_codes = list(authority.get("reason_codes") or [])
+    payment_enabled = bool(authority.get("payment_enabled"))
     block_reason = _human_block_reason(reason_codes, person_status, reconciliation, beneficiary)
     return {
         "catalog_person_id": int(person["id"]),
@@ -315,6 +279,7 @@ def search_catalog_sidebar(
                     "updated_at": raw.get("updated_at"),
                 }
             evaluated = _evaluate_sidebar_person(
+                conn=conn,
                 person=person,
                 reconciliation=reconciliation,
                 beneficiary=beneficiary,

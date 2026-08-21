@@ -6,7 +6,7 @@ from typing import Any
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
 from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
-from modules.nomina.banorte.catalog_search_service import _evaluate_sidebar_person
+from modules.nomina.banorte.payment_authority import evaluate_payment_authority
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.rows_capture import CaptureRow, capture_rows_to_prepare_inputs
@@ -173,7 +173,8 @@ def prepare_capture_rows(
             person, reconciliation, beneficiary = _load_catalog_person_bundle(
                 conn, int(person_id), active_id
             )
-            authority = _evaluate_sidebar_person(
+            authority = evaluate_payment_authority(
+                conn=conn,
                 person=person,
                 reconciliation=reconciliation,
                 beneficiary=beneficiary,

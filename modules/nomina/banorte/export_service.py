@@ -15,6 +15,7 @@ from modules.nomina.banorte.draft_repository import (
     pag_included_rows,
 )
 from modules.nomina.banorte.export_readiness import evaluate_pag_export_blockers
+from modules.nomina.banorte.payment_authority import rehydrate_row_authority
 from modules.nomina.banorte.drift import DriftError, check_calculo_origin_drift
 from modules.nomina.banorte.models import NormalizedPayment
 from modules.nomina.banorte.money import parse_money, to_cents
@@ -441,6 +442,7 @@ def generate_from_persistent_draft(
             raise ExportBlockedError("draft_not_open")
         if int(row["revision"]) != int(expected_revision):
             raise DraftStaleError(int(draft_id), int(row["revision"]))
+        draft_meta = dict(row)
 
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM nomina_banorte_export_draft_rows WHERE draft_id=? ORDER BY position",
@@ -449,9 +451,11 @@ def generate_from_persistent_draft(
         for r in rows:
             r["warnings"] = json.loads(r.get("warnings_json") or "[]")
             r["user_decision"] = json.loads(r.get("user_decision_json") or "{}")
+        for idx, r in enumerate(rows):
+            rows[idx] = rehydrate_row_authority(conn, draft=draft_meta, row=r)
 
         included = pag_included_rows(rows)
-        blocked = evaluate_pag_export_blockers(conn, rows)
+        blocked = evaluate_pag_export_blockers(conn, rows, draft=draft_meta)
         if blocked:
             raise ExportBlockedError("rows_require_review", blocked)
 

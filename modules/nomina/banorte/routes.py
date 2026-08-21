@@ -64,6 +64,13 @@ from modules.nomina.banorte.download_service import (
     ExportDownloadError,
     load_historical_pag,
 )
+from modules.nomina.banorte.catalog_activation import (
+    CatalogActivationError,
+    activate_catalog_version,
+    catalog_activation_check,
+    rollback_catalog_activation,
+)
+from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
 from modules.nomina.banorte.catalog_search_cursor import CatalogSearchCursorError
 from modules.nomina.banorte.catalog_search_service import search_catalog_sidebar
 from modules.nomina.banorte.catalog_parser import CatalogParseError
@@ -153,6 +160,16 @@ def _banorte_admin_required(view: Callable):
 
 def _db_path() -> str:
     return str(current_app.config["DATABASE"])
+
+
+def _legacy_authority_guard() -> Response | None:
+    conn = connect(_db_path())
+    try:
+        if not legacy_authority_allowed(conn):
+            return _json_no_store({"ok": False, "code": "CATALOG_ACTIVE_REQUIRED"}, 403)
+    finally:
+        conn.close()
+    return None
 
 
 def _username() -> str:
@@ -439,6 +456,9 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        blocked = _legacy_authority_guard()
+        if blocked is not None:
+            return blocked
         drafts = []
         for row in data.get("rows") or []:
             drafts.append(
@@ -636,6 +656,10 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        if not data.get("catalog_person_id"):
+            blocked = _legacy_authority_guard()
+            if blocked is not None:
+                return blocked
         try:
             draft = add_draft_payment(
                 _db_path(),
@@ -1394,6 +1418,28 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     @_banorte_admin_required
+    def banorte_catalog_activate(version_id: int):
+        require_csrf()
+        try:
+            result = activate_catalog_version(_db_path(), int(version_id), actor=_username())
+        except CatalogActivationError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        flash("Catálogo activado.", "success")
+        return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    @_banorte_admin_required
+    def banorte_catalog_rollback(version_id: int):
+        require_csrf()
+        try:
+            result = rollback_catalog_activation(_db_path(), int(version_id), actor=_username())
+        except CatalogActivationError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 400)
+        flash("Activación revertida.", "success")
+        return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
+    @_banorte_admin_required
     def banorte_catalog_activation_check(version_id: int):
         try:
             check = catalog_activation_check(_db_path(), int(version_id))
@@ -1469,6 +1515,18 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/catalogo/sidebar/search",
         endpoint="banorte_catalog_sidebar_search",
         view_func=banorte_catalog_sidebar_search,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/activate",
+        endpoint="banorte_catalog_activate",
+        view_func=banorte_catalog_activate,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/rollback",
+        endpoint="banorte_catalog_rollback",
+        view_func=banorte_catalog_rollback,
         methods=["POST"],
     )
     bp.add_url_rule(
