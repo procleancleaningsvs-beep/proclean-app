@@ -286,4 +286,5 @@ def test_activation_check_counts_only_open_legacy_drafts_and_never_activates(tmp
     check = catalog_activation_check(app.config["DATABASE"], version["id"])
     assert check["legacy_open_draft_blockers"] == 1
     assert check["active_version_id"] is None
+    assert "LEGACY_OPEN_DRAFTS" not in check["blocker_codes"]
     assert check["can_activate"] is False

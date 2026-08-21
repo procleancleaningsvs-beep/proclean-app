@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
+from modules.nomina.banorte.catalog_legacy_sync import (
+    DRAFT_BLOCK_REASON,
+    apply_catalog_legacy_sync,
+    build_catalog_legacy_sync_plan,
+)
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 
@@ -27,6 +33,7 @@ def _record_event(
     actor: str,
     event_type: str,
     reason_code: str | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> None:
     conn.execute(
         """
@@ -35,7 +42,16 @@ def _record_event(
             metadata_json,actor,created_at
         ) VALUES (?,?,?,?,?,?,?,?)
         """,
-        (version_id, None, None, event_type, reason_code, "{}", actor, _now()),
+        (
+            version_id,
+            None,
+            None,
+            event_type,
+            reason_code,
+            json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+            actor,
+            _now(),
+        ),
     )
 
 
@@ -118,17 +134,27 @@ def catalog_activation_check(db_path: str | Path, version_id: int) -> dict[str, 
                 (int(version_id),),
             ).fetchone()[0]
         )
+        sync_plan = None
+        sync_plan_valid = False
+        sync_plan_aggregates: dict[str, int] = {}
+        sync_plan_errors: list[str] = []
+        if active is None and version["status"] == "READY_FOR_REVIEW":
+            sync_plan = build_catalog_legacy_sync_plan(conn, int(version_id))
+            sync_plan_valid = bool(sync_plan.valid)
+            sync_plan_aggregates = dict(sync_plan.aggregates)
+            sync_plan_errors = list(sync_plan.errors)
+
         reasons: list[str] = []
         if version["status"] != "READY_FOR_REVIEW":
             reasons.append("VERSION_NOT_READY_FOR_REVIEW")
         if projection_blockers:
             reasons.append("PROJECTION_BLOCKERS")
-        if reconciliation_pending:
+        if reconciliation_pending and not sync_plan_valid:
             reasons.append("RECONCILIATION_PENDING")
-        if stale_count:
+        if stale_count and not sync_plan_valid:
             reasons.append("STALE_RECONCILIATIONS")
-        if legacy_open_draft_blockers:
-            reasons.append("LEGACY_OPEN_DRAFTS")
+        if sync_plan is not None and not sync_plan_valid:
+            reasons.append("CATALOG_SYNC_INCOMPLETE")
         if incompatible_open:
             reasons.append("CATALOG_VERSION_CHANGED")
         return {
@@ -139,6 +165,9 @@ def catalog_activation_check(db_path: str | Path, version_id: int) -> dict[str, 
             "reconciliation_pending": reconciliation_pending,
             "stale_reconciliations": stale_count,
             "legacy_open_draft_blockers": legacy_open_draft_blockers,
+            "sync_plan_valid": sync_plan_valid,
+            "sync_plan_aggregates": sync_plan_aggregates,
+            "sync_plan_errors": sync_plan_errors,
             "can_activate": not reasons,
             "blocker_codes": reasons,
         }
@@ -166,6 +195,7 @@ def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str
                 """,
                 (actor, _now(), int(prior["id"])),
             )
+        sync_result = apply_catalog_legacy_sync(conn, int(version_id), actor=actor)
         now = _now()
         cur = conn.execute(
             """
@@ -177,7 +207,17 @@ def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str
         )
         if cur.rowcount != 1:
             raise CatalogActivationError("version_not_ready")
-        _record_event(conn, version_id=int(version_id), actor=actor, event_type="VERSION_ACTIVATED")
+        _record_event(
+            conn,
+            version_id=int(version_id),
+            actor=actor,
+            event_type="VERSION_ACTIVATED",
+            reason_code=DRAFT_BLOCK_REASON,
+            metadata={
+                "sync_aggregates": sync_result["aggregates"],
+                "blocked_draft_ids": sync_result["blocked_draft_ids"],
+            },
+        )
         conn.commit()
     except CatalogActivationError:
         conn.rollback()
