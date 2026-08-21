@@ -15,6 +15,12 @@ BANORTE_TABLES: tuple[str, ...] = (
     "nomina_banorte_draft_events",
     "nomina_banorte_beneficiary_batches",
     "nomina_banorte_beneficiary_batch_rows",
+    "nomina_banorte_catalog_versions",
+    "nomina_banorte_catalog_rows",
+    "nomina_banorte_catalog_persons",
+    "nomina_banorte_catalog_person_rows",
+    "nomina_banorte_catalog_reconciliations",
+    "nomina_banorte_catalog_events",
 )
 
 # Real child/parent Banorte tables for focused PRAGMA foreign_key_check(table).
@@ -32,6 +38,12 @@ BANORTE_CHILD_TABLES_FOR_FK_CHECK: tuple[str, ...] = (
     "nomina_banorte_draft_events",
     "nomina_banorte_beneficiary_batches",
     "nomina_banorte_beneficiary_batch_rows",
+    "nomina_banorte_catalog_versions",
+    "nomina_banorte_catalog_rows",
+    "nomina_banorte_catalog_persons",
+    "nomina_banorte_catalog_person_rows",
+    "nomina_banorte_catalog_reconciliations",
+    "nomina_banorte_catalog_events",
 )
 
 _BANORTE_TABLE_NAME_SET = frozenset(BANORTE_CHILD_TABLES_FOR_FK_CHECK)
@@ -549,6 +561,307 @@ def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     _migrate_draft_events_add_row(conn)
     _ensure_draft_request_nonces(conn)
     _ensure_beneficiary_batches(conn)
+    _ensure_catalog_schema(conn)
+
+
+def _ensure_catalog_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            status TEXT NOT NULL DEFAULT 'STAGED'
+                CHECK (status IN ('STAGED','ANALYZED','READY_FOR_REVIEW','ACTIVE',
+                                  'SUPERSEDED','REJECTED','FAILED')),
+            source_filename TEXT NOT NULL,
+            file_sha256 TEXT NOT NULL CHECK (length(file_sha256)=64 AND file_sha256 NOT GLOB '*[^0-9a-f]*'),
+            file_size_bytes INTEGER NOT NULL CHECK (file_size_bytes > 0),
+            encoding TEXT NOT NULL CHECK (encoding IN ('UTF-8','UTF-8-BOM')),
+            delimiter TEXT NOT NULL DEFAULT '|',
+            report_date TEXT NOT NULL,
+            issuer_original TEXT NOT NULL,
+            issuer_normalized TEXT NOT NULL CHECK (length(issuer_normalized)=5 AND issuer_normalized NOT GLOB '*[^0-9]*'),
+            source_line_count INTEGER NOT NULL CHECK (source_line_count >= 4),
+            data_row_count INTEGER NOT NULL CHECK (data_row_count >= 0),
+            useful_column_count INTEGER NOT NULL DEFAULT 24 CHECK (useful_column_count=24),
+            parser_version INTEGER NOT NULL DEFAULT 1 CHECK (parser_version >= 1),
+            normalization_version INTEGER NOT NULL DEFAULT 1 CHECK (normalization_version >= 1),
+            projection_version INTEGER NOT NULL DEFAULT 1 CHECK (projection_version >= 1),
+            eligible_row_count INTEGER CHECK (eligible_row_count >= 0),
+            person_count INTEGER CHECK (person_count >= 0),
+            catalog_ready_count INTEGER CHECK (catalog_ready_count >= 0),
+            blocked_person_count INTEGER CHECK (blocked_person_count >= 0),
+            analysis_summary_json TEXT NOT NULL DEFAULT '{}',
+            failure_code TEXT,
+            supersedes_version_id INTEGER,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            analyzed_by TEXT,
+            analyzed_at TEXT,
+            ready_by TEXT,
+            ready_at TEXT,
+            activated_by TEXT,
+            activated_at TEXT,
+            superseded_by TEXT,
+            superseded_at TEXT,
+            FOREIGN KEY (supersedes_version_id)
+                REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            UNIQUE (file_sha256, parser_version, normalization_version, projection_version)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_single_active "
+        "ON nomina_banorte_catalog_versions(status) WHERE status='ACTIVE'"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_versions_status_id "
+        "ON nomina_banorte_catalog_versions(status,id DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_versions_report_date "
+        "ON nomina_banorte_catalog_versions(report_date DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_versions_sha "
+        "ON nomina_banorte_catalog_versions(file_sha256)"
+    )
+
+    original_columns = ",\n".join(
+        f"{name} TEXT NOT NULL"
+        for name in (
+            "employee_number_original", "name_original", "record_created_date_original",
+            "last_modified_date_original", "last_modified_by_original", "birth_date_original",
+            "rfc_original", "gross_salary_original", "net_salary_original", "birth_state_original",
+            "employment_start_date_original", "pay_frequency_original", "entity_original",
+            "account_type_original", "account_number_original", "dependencies_original",
+            "operation_type_original", "transmission_type_original", "internal_status_original",
+            "result_original", "executed_by_original", "execution_date_original",
+            "coexecuted_by_original", "coexecution_date_original",
+        )
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_rows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER NOT NULL,
+            source_position INTEGER NOT NULL CHECK (source_position >= 1),
+            row_content_sha256 TEXT NOT NULL
+                CHECK (length(row_content_sha256)=64 AND row_content_sha256 NOT GLOB '*[^0-9a-f]*'),
+            row_business_status TEXT NOT NULL CHECK (row_business_status IN ('VALID','BLOCKED')),
+            error_codes_json TEXT NOT NULL DEFAULT '[]',
+            warning_codes_json TEXT NOT NULL DEFAULT '[]',
+            {original_columns},
+            employee_number_normalized TEXT,
+            name_normalized TEXT NOT NULL,
+            name_controlled_key TEXT NOT NULL,
+            record_created_date_iso TEXT NOT NULL,
+            last_modified_date_iso TEXT NOT NULL,
+            birth_date_iso TEXT NOT NULL,
+            rfc_normalized TEXT NOT NULL,
+            account_number_normalized TEXT NOT NULL,
+            internal_status_normalized TEXT NOT NULL,
+            result_normalized TEXT NOT NULL,
+            eligibility TEXT NOT NULL CHECK (eligibility IN ('ELIGIBLE','BLOCKED')),
+            eligibility_reason TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id)
+                REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            UNIQUE (version_id, source_position)
+        )
+        """
+    )
+    for name, columns in (
+        ("idx_banorte_catalog_rows_hash", "row_content_sha256"),
+        ("idx_banorte_catalog_rows_rfc", "version_id,rfc_normalized"),
+        ("idx_banorte_catalog_rows_employee", "version_id,employee_number_normalized"),
+        ("idx_banorte_catalog_rows_account", "version_id,account_number_normalized"),
+        ("idx_banorte_catalog_rows_name", "version_id,name_normalized"),
+        ("idx_banorte_catalog_rows_controlled", "version_id,name_controlled_key"),
+        ("idx_banorte_catalog_rows_eligibility", "version_id,eligibility"),
+    ):
+        conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON nomina_banorte_catalog_rows({columns})")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_persons (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER NOT NULL,
+            issuer_normalized TEXT NOT NULL,
+            rfc_normalized TEXT NOT NULL,
+            birth_date_iso TEXT NOT NULL,
+            name_normalized TEXT NOT NULL,
+            name_controlled_key TEXT NOT NULL,
+            person_status TEXT NOT NULL CHECK (person_status IN (
+                'CATALOG_READY','NO_ELIGIBLE_ROW','IDENTITY_CONFLICT',
+                'AMBIGUOUS_CURRENT_ACCOUNT','INVALID_CURRENT_ROW')),
+            current_row_id INTEGER,
+            current_selection_method TEXT CHECK (current_selection_method IS NULL OR current_selection_method IN (
+                'SINGLE_ELIGIBLE','LATEST_MODIFIED','LATEST_CREATED_TIEBREAK','TIED_SAME_ACCOUNT')),
+            observation_codes_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            FOREIGN KEY (current_row_id) REFERENCES nomina_banorte_catalog_rows(id) ON DELETE RESTRICT,
+            UNIQUE (version_id, issuer_normalized, rfc_normalized),
+            CHECK ((person_status='CATALOG_READY' AND current_row_id IS NOT NULL AND current_selection_method IS NOT NULL)
+                OR (person_status<>'CATALOG_READY' AND current_row_id IS NULL AND current_selection_method IS NULL))
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_persons_status "
+        "ON nomina_banorte_catalog_persons(version_id,person_status)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_persons_current "
+        "ON nomina_banorte_catalog_persons(current_row_id)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_person_rows (
+            person_id INTEGER NOT NULL,
+            row_id INTEGER NOT NULL,
+            version_id INTEGER NOT NULL,
+            is_eligible INTEGER NOT NULL CHECK (is_eligible IN (0,1)),
+            recency_rank INTEGER,
+            is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+            exclusion_reason TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (person_id,row_id),
+            FOREIGN KEY (person_id) REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
+            FOREIGN KEY (row_id) REFERENCES nomina_banorte_catalog_rows(id) ON DELETE RESTRICT,
+            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            UNIQUE (row_id)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_person_current_row "
+        "ON nomina_banorte_catalog_person_rows(person_id) WHERE is_current=1"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_person_rows_version "
+        "ON nomina_banorte_catalog_person_rows(version_id,person_id)"
+    )
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_reconciliations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER NOT NULL,
+            person_id INTEGER NOT NULL,
+            beneficiary_id INTEGER,
+            reconciliation_status TEXT NOT NULL CHECK (reconciliation_status IN (
+                'UNMATCHED','AUTO_MATCHED','MANUAL_MATCHED','MULTIPLE_CANDIDATES','ACCOUNT_MISMATCH',
+                'EMPLOYEE_MISMATCH','IDENTITY_CONFLICT','LEGACY_NOT_USABLE','STALE_RECONCILIATION')),
+            match_method TEXT NOT NULL CHECK (match_method IN (
+                'NONE','EXACT_EMPLOYEE_ACCOUNT_RAW_NAME','EXACT_EMPLOYEE_ACCOUNT_CANONICAL_NAME',
+                'EXACT_EMPLOYEE_ACCOUNT_CONTROLLED_MA','MANUAL_SELECTION')),
+            candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+            reason_code TEXT,
+            beneficiary_material_fingerprint_version TEXT,
+            beneficiary_material_state_json TEXT,
+            beneficiary_material_fingerprint TEXT,
+            beneficiary_updated_at_seen TEXT,
+            is_current INTEGER NOT NULL DEFAULT 1 CHECK (is_current IN (0,1)),
+            supersedes_reconciliation_id INTEGER,
+            manual_reason TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            superseded_by TEXT,
+            superseded_at TEXT,
+            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            FOREIGN KEY (person_id) REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
+            FOREIGN KEY (beneficiary_id) REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
+            FOREIGN KEY (supersedes_reconciliation_id)
+                REFERENCES nomina_banorte_catalog_reconciliations(id) ON DELETE RESTRICT,
+            CHECK (reconciliation_status NOT IN ('AUTO_MATCHED','MANUAL_MATCHED') OR
+                (beneficiary_id IS NOT NULL AND beneficiary_material_fingerprint_version IS NOT NULL AND
+                 beneficiary_material_state_json IS NOT NULL AND beneficiary_material_fingerprint IS NOT NULL)),
+            CHECK (match_method<>'MANUAL_SELECTION' OR length(trim(COALESCE(manual_reason,''))) > 0)
+        )
+        """
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_reconciliation_current "
+        "ON nomina_banorte_catalog_reconciliations(person_id) WHERE is_current=1"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_reconciliations_version_status "
+        "ON nomina_banorte_catalog_reconciliations(version_id,reconciliation_status)"
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER,
+            person_id INTEGER,
+            reconciliation_id INTEGER,
+            event_type TEXT NOT NULL CHECK (event_type IN (
+                'VERSION_STAGED','VERSION_ANALYZED','VERSION_READY','VERSION_ACTIVATED',
+                'VERSION_SUPERSEDED','VERSION_REJECTED','VERSION_FAILED','VERSION_ROLLBACK',
+                'RECONCILIATION_CREATED','RECONCILIATION_SUPERSEDED','STALE_DETECTED',
+                'ACTIVATION_BLOCKED','DUPLICATE_FILE_REJECTED')),
+            reason_code TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            actor TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            FOREIGN KEY (person_id) REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
+            FOREIGN KEY (reconciliation_id)
+                REFERENCES nomina_banorte_catalog_reconciliations(id) ON DELETE RESTRICT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_events_version_created "
+        "ON nomina_banorte_catalog_events(version_id,created_at,id)"
+    )
+
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_drafts", "catalog_mode",
+        "TEXT NOT NULL DEFAULT 'LEGACY' CHECK (catalog_mode IN ('LEGACY','CATALOG'))",
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_drafts", "catalog_version_id",
+        "INTEGER REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT",
+    )
+    _add_column_if_missing(conn, "nomina_banorte_export_drafts", "catalog_bound_at", "TEXT")
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_draft_rows", "catalog_person_id",
+        "INTEGER REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT",
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_draft_rows", "catalog_reconciliation_id",
+        "INTEGER REFERENCES nomina_banorte_catalog_reconciliations(id) ON DELETE RESTRICT",
+    )
+    _add_column_if_missing(conn, "nomina_banorte_export_draft_rows", "catalog_match_method", "TEXT")
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_draft_rows", "catalog_observation_codes_json", "TEXT NOT NULL DEFAULT '[]'"
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_draft_rows", "beneficiary_material_fingerprint_version", "TEXT"
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_export_draft_rows", "beneficiary_material_fingerprint_seen", "TEXT"
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_exports", "catalog_mode",
+        "TEXT NOT NULL DEFAULT 'LEGACY' CHECK (catalog_mode IN ('LEGACY','CATALOG'))",
+    )
+    _add_column_if_missing(
+        conn, "nomina_banorte_exports", "catalog_version_id",
+        "INTEGER REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT",
+    )
+    for column, ddl in (
+        ("catalog_version_id", "INTEGER REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT"),
+        ("catalog_person_id", "INTEGER REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT"),
+        ("catalog_reconciliation_id", "INTEGER REFERENCES nomina_banorte_catalog_reconciliations(id) ON DELETE RESTRICT"),
+        ("catalog_match_method", "TEXT"),
+        ("beneficiary_material_fingerprint_version", "TEXT"),
+        ("beneficiary_material_fingerprint", "TEXT"),
+        ("catalog_observation_codes_json", "TEXT NOT NULL DEFAULT '[]'"),
+    ):
+        _add_column_if_missing(conn, "nomina_banorte_export_items", column, ddl)
 
 
 def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
