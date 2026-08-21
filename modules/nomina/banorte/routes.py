@@ -64,7 +64,8 @@ from modules.nomina.banorte.download_service import (
     ExportDownloadError,
     load_historical_pag,
 )
-from modules.nomina.banorte.catalog_activation import catalog_activation_check
+from modules.nomina.banorte.catalog_search_cursor import CatalogSearchCursorError
+from modules.nomina.banorte.catalog_search_service import search_catalog_sidebar
 from modules.nomina.banorte.catalog_parser import CatalogParseError
 from modules.nomina.banorte.catalog_reconciliation import (
     CatalogReconciliationError,
@@ -1380,6 +1381,27 @@ def register_banorte_routes(bp) -> None:
         return _catalog_redirect(int(version_id))
 
     @_banorte_access_required
+    def banorte_catalog_sidebar_search():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        try:
+            result = search_catalog_sidebar(
+                _db_path(),
+                secret_key=str(current_app.config["SECRET_KEY"]),
+                q=str(data.get("q") or ""),
+                sort=str(data.get("sort") or "employee_asc"),
+                cursor=str(data.get("cursor") or "") or None,
+                limit=int(data.get("limit") or 25),
+                role=_current_role(),
+            )
+        except CatalogSearchCursorError:
+            return _json_no_store({"ok": False, "code": "cursor_invalid"}, 400)
+        except ValueError:
+            return _json_no_store({"ok": False, "code": "invalid_request"}, 400)
+        return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
+
+    @_banorte_access_required
     @_banorte_admin_required
     def banorte_catalog_activation_check(version_id: int):
         try:
@@ -1450,6 +1472,12 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/catalogo/versions/<int:version_id>/ready",
         endpoint="banorte_catalog_ready",
         view_func=banorte_catalog_ready,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/sidebar/search",
+        endpoint="banorte_catalog_sidebar_search",
+        view_func=banorte_catalog_sidebar_search,
         methods=["POST"],
     )
     bp.add_url_rule(

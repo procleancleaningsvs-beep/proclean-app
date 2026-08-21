@@ -152,7 +152,8 @@
     </section>
 
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
-      <h3 class="pc-panel-title">Beneficiarios Banorte</h3>
+      <h3 class="pc-panel-title">Beneficiarios operacionales legacy</h3>
+      <p class="banorte-hint">Mantenimiento del maestro legacy. La captura operacional futura usa el catálogo oficial en el panel lateral.</p>
       <div class="banorte-export-bar" id="banorte-ben-filters">
         <label>Búsqueda por nombre
           <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Desde 1 carácter">
@@ -311,12 +312,25 @@
       </form>
       <div id="banorte-excel-preview-out" class="banorte-hint" hidden></div>
     </section>
-    <section class="banorte-panel pc-card">
+    <section class="banorte-panel pc-card banorte-manual-capture">
       <h3 class="pc-panel-title">Captura manual</h3>
-      <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
-      <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
-      <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
-      <p id="manual-choice" class="banorte-warn" hidden></p>
+      <div class="banorte-manual-layout">
+        <aside class="banorte-catalog-sidebar" id="banorte-catalog-sidebar" aria-label="Catálogo oficial Banorte">
+          <label class="banorte-catalog-sidebar__search">
+            Buscar nombre, número o cuenta
+            <input type="search" id="banorte-catalog-sidebar-q" autocomplete="off" maxlength="100" placeholder="Buscar...">
+          </label>
+          <p id="banorte-catalog-sidebar-status" class="banorte-hint banorte-catalog-sidebar__status" hidden></p>
+          <div id="banorte-catalog-sidebar-list" class="banorte-catalog-sidebar__list" role="list"></div>
+          <button type="button" class="btn btn-secondary btn-sm banorte-catalog-sidebar__more" id="banorte-catalog-sidebar-more" hidden>Cargar más</button>
+        </aside>
+        <div class="banorte-manual-main">
+          <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
+          <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
+          <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
+          <p id="manual-choice" class="banorte-warn" hidden></p>
+        </div>
+      </div>
     </section>
   </section>
 
@@ -380,5 +394,6 @@
 
 <script src="{{ url_for('static', filename='nomina/banorte_pag_save.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/banorte_export_history.js') }}"></script>
+<script src="{{ url_for('static', filename='nomina/banorte_catalog_sidebar.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
 {% endblock %}
