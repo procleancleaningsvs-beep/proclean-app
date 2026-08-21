@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import io
 import re
-import zipfile
 from dataclasses import dataclass
 
 from modules.nomina.banorte.export_service import get_export_blob
@@ -53,14 +51,3 @@ def load_historical_pag(db_path: str, export_id: int) -> HistoricalPag:
         size_bytes=len(blob),
         sha256=digest,
     )
-
-
-def build_single_entry_zip(export: HistoricalPag) -> bytes:
-    """Empaqueta exactamente una entrada con el nombre bancario histórico."""
-    stream = io.BytesIO()
-    info = zipfile.ZipInfo(export.filename, date_time=(1980, 1, 1, 0, 0, 0))
-    info.compress_type = zipfile.ZIP_DEFLATED
-    info.external_attr = 0o600 << 16
-    with zipfile.ZipFile(stream, mode="w") as archive:
-        archive.writestr(info, export.blob)
-    return stream.getvalue()

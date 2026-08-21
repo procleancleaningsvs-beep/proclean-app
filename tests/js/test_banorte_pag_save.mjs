@@ -3,43 +3,47 @@ import test from "node:test";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const {
-  createIndexedDbHandleStore,
-  createSaver,
-} = require("../../static/nomina/banorte_pag_save.js");
+const { createSaver } = require("../../static/nomina/banorte_pag_save.js");
 
 const bytes = new TextEncoder().encode("HISTORICAL-PAG-BYTES");
 const blob = new Blob([bytes], { type: "application/octet-stream" });
 const sha = "a".repeat(64);
 
-function base(overrides = {}) {
+class FakeFile extends Blob {
+  constructor(parts, name, options) {
+    super(parts, options);
+    this.name = name;
+  }
+}
+
+function base(options = {}) {
+  const expectedFilename = options.expectedFilename || "PAYROLL_DYNAMIC_07.pag";
+  const metadataFilename = options.metadataFilename || expectedFilename;
+  const fileName = options.fileName || expectedFilename;
   const downloads = [];
   const writes = [];
-  const file = { name: "NI6705907.pag", size: blob.size, arrayBuffer: () => blob.arrayBuffer() };
+  const events = [];
+  const pickerOptions = [];
+  const writtenFile = {
+    name: fileName,
+    size: blob.size,
+    arrayBuffer: () => blob.arrayBuffer(),
+  };
   const fileHandle = {
+    name: fileName,
     async createWritable() {
+      events.push("createWritable");
       return {
-        async write(value) { writes.push(value); },
-        async close() {},
-        async abort() {},
+        async write(value) { events.push("write"); writes.push(value); },
+        async close() { events.push("close"); },
+        async abort() { events.push("abort"); },
       };
     },
-    async getFile() { return file; },
-  };
-  const directory = {
-    async queryPermission() { return "granted"; },
-    async requestPermission() { return "granted"; },
-    async getFileHandle(_name, options = {}) {
-      if (!options.create) {
-        const error = new Error("missing");
-        error.name = "NotFoundError";
-        throw error;
-      }
-      return fileHandle;
-    },
+    async getFile() { events.push("getFile"); return writtenFile; },
   };
   const env = {
     async fetch(url) {
+      events.push("fetch:" + url);
       if (url.endsWith("/metadata")) {
         return {
           ok: true,
@@ -47,11 +51,10 @@ function base(overrides = {}) {
             return {
               ok: true,
               export_id: 7,
-              filename: "NI6705907.pag",
+              filename: metadataFilename,
               size_bytes: blob.size,
               sha256: sha,
               raw_url: "/raw",
-              zip_url: "/zip",
             };
           },
         };
@@ -60,201 +63,189 @@ function base(overrides = {}) {
       throw new Error("unexpected fetch " + url);
     },
     async sha256Hex() { return sha; },
-    async showDirectoryPicker() { return directory; },
-    async loadDirectoryHandle() { return null; },
-    async saveDirectoryHandle(handle) { assert.equal(handle, directory); },
-    async clearDirectoryHandle() {},
-    confirm() { return true; },
+    async showSaveFilePicker(picker) {
+      events.push("picker");
+      pickerOptions.push(picker);
+      return fileHandle;
+    },
     navigator: {},
+    File: FakeFile,
     async navigateDownload(url) { downloads.push(url); return true; },
-    ...overrides,
+    ...(options.env || {}),
   };
-  return { saver: createSaver(env), env, directory, fileHandle, writes, downloads };
+  return {
+    saver: createSaver(env),
+    env,
+    fileHandle,
+    writes,
+    downloads,
+    events,
+    pickerOptions,
+    expectedFilename,
+  };
 }
 
-test("File System Access writes exact name and verifies pre/post hash", async () => {
-  const ctx = base();
-  const result = await ctx.saver.saveExport({ exportId: 7, filename: "NI6705907.pag", sha256: sha });
-  assert.equal(result.method, "file-system-access");
+test("save picker is invoked before fetch with the dynamic backend filename", async () => {
+  const ctx = base({ expectedFilename: "BANK_EXPORT_93.pag" });
+  const result = await ctx.saver.saveExport({
+    exportId: 7,
+    filename: ctx.expectedFilename,
+    sha256: sha,
+  });
+
+  assert.equal(result.method, "save-file-picker");
   assert.equal(result.status, "saved");
+  assert.equal(ctx.events[0], "picker");
+  assert.match(ctx.events[1], /metadata$/);
+  assert.equal(ctx.pickerOptions[0].suggestedName, "BANK_EXPORT_93.pag");
+  assert.deepEqual(
+    ctx.pickerOptions[0].types[0].accept["application/octet-stream"],
+    [".pag"],
+  );
   assert.equal(ctx.writes.length, 1);
   assert.equal(ctx.writes[0], blob);
 });
 
-test("existing file cancellation happens before createWritable", async () => {
-  let writableCalls = 0;
-  const ctx = base({ confirm: () => false });
-  ctx.fileHandle.createWritable = async () => { writableCalls += 1; throw new Error("must not run"); };
-  ctx.directory.getFileHandle = async () => ctx.fileHandle;
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.status, "cancelled");
-  assert.equal(writableCalls, 0);
+test("different dynamic filenames are passed through without reconstruction", async () => {
+  for (const filename of ["CUSTOM_BANK_A1.pag", "OTHER_EXPORT_99.pag"]) {
+    const ctx = base({ expectedFilename: filename });
+    const result = await ctx.saver.saveExport({ exportId: 7, filename });
+    assert.equal(ctx.pickerOptions[0].suggestedName, filename);
+    assert.equal(result.filename, filename);
+  }
 });
 
-test("confirmed replacement creates writable only after confirmation", async () => {
-  const order = [];
-  const ctx = base({ confirm: () => { order.push("confirm"); return true; } });
-  ctx.directory.getFileHandle = async () => ctx.fileHandle;
-  const original = ctx.fileHandle.createWritable;
-  ctx.fileHandle.createWritable = async () => { order.push("writable"); return original(); };
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.status, "saved");
-  assert.deepEqual(order, ["confirm", "writable"]);
-});
-
-test("stale stored handle is cleared and replaced", async () => {
-  let cleared = 0;
-  let saved = 0;
-  const stale = { async queryPermission() { throw new Error("stale"); } };
-  const ctx = base({
-    async loadDirectoryHandle() { return stale; },
-    async clearDirectoryHandle() { cleared += 1; },
-    async saveDirectoryHandle(handle) { assert.equal(handle, ctx.directory); saved += 1; },
-  });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.status, "saved");
-  assert.equal(cleared, 1);
-  assert.equal(saved, 1);
-});
-
-test("prompt permission is requested in readwrite mode", async () => {
-  const permissionCalls = [];
-  const ctx = base();
-  ctx.directory.queryPermission = async (descriptor) => {
-    permissionCalls.push(["query", descriptor]);
-    return "prompt";
-  };
-  ctx.directory.requestPermission = async (descriptor) => {
-    permissionCalls.push(["request", descriptor]);
-    return "granted";
-  };
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.status, "saved");
-  assert.deepEqual(permissionCalls, [
-    ["query", { mode: "readwrite" }],
-    ["request", { mode: "readwrite" }],
-  ]);
-});
-
-test("denied permission never creates a writable and falls back to ZIP", async () => {
-  let writableCalls = 0;
-  const ctx = base();
-  ctx.directory.queryPermission = async () => "denied";
-  ctx.fileHandle.createWritable = async () => { writableCalls += 1; throw new Error("must not run"); };
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.method, "zip");
-  assert.equal(writableCalls, 0);
-});
-
-test("IndexedDB stores only the directory handle value", async () => {
-  const puts = [];
-  const db = {
-    objectStoreNames: { contains: () => true },
-    transaction() {
-      return {
-        objectStore() {
-          return {
-            put(value, key) {
-              const request = {};
-              queueMicrotask(() => {
-                puts.push({ value, key });
-                request.result = key;
-                request.onsuccess();
-              });
-              return request;
-            },
-          };
-        },
-      };
-    },
-    close() {},
-  };
-  const indexedDB = {
-    open() {
-      const request = {};
-      queueMicrotask(() => {
-        request.result = db;
-        request.onsuccess();
-      });
-      return request;
-    },
-  };
-  const handle = { kind: "directory" };
-  await createIndexedDbHandleStore(indexedDB).save(handle);
-  assert.equal(puts.length, 1);
-  assert.equal(puts[0].value, handle);
-  assert.equal(puts[0].key, "banorte_pag_directory");
-  assert.deepEqual(Object.keys(puts[0]), ["value", "key"]);
-});
-
-test("picker cancellation does not start an unsolicited fallback", async () => {
+test("save picker cancellation performs no fetch, share, or download", async () => {
   const error = new Error("cancelled");
   error.name = "AbortError";
-  const ctx = base({ async showDirectoryPicker() { throw error; } });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
+  const ctx = base({
+    env: {
+      async showSaveFilePicker() { throw error; },
+      navigator: {
+        canShare() { throw new Error("must not share"); },
+        async share() { throw new Error("must not share"); },
+      },
+    },
+  });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
+  assert.equal(result.status, "cancelled");
+  assert.equal(ctx.events.some((value) => value.startsWith("fetch:")), false);
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("metadata filename mismatch blocks createWritable and fallback", async () => {
+  const ctx = base({
+    expectedFilename: "EXPECTED_01.pag",
+    metadataFilename: "DIFFERENT_01.pag",
+  });
+  await assert.rejects(
+    () => ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename }),
+    (error) => error && error.code === "integrity_mismatch",
+  );
+  assert.equal(ctx.events.includes("createWritable"), false);
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("file handle filename mismatch blocks createWritable and fallback", async () => {
+  const ctx = base({
+    expectedFilename: "EXPECTED_02.pag",
+    fileName: "RENAMED_BY_USER.pag",
+  });
+  await assert.rejects(
+    () => ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename }),
+    (error) => error && error.code === "integrity_mismatch",
+  );
+  assert.equal(ctx.events.includes("createWritable"), false);
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("pre-write SHA mismatch blocks every write and fallback", async () => {
+  const ctx = base({ env: { async sha256Hex() { return "b".repeat(64); } } });
+  await assert.rejects(
+    () => ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename }),
+    (error) => error && error.code === "integrity_mismatch",
+  );
+  assert.equal(ctx.events.includes("createWritable"), false);
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("post-write SHA mismatch is an integrity failure, not success or fallback", async () => {
+  let hashCalls = 0;
+  const ctx = base({
+    env: {
+      async sha256Hex() {
+        hashCalls += 1;
+        return hashCalls === 1 ? sha : "b".repeat(64);
+      },
+    },
+  });
+  await assert.rejects(
+    () => ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename }),
+    (error) => error && error.code === "post_write_mismatch",
+  );
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("unsupported save picker uses Web Share with the exact filename", async () => {
+  let shared;
+  const ctx = base({
+    env: {
+      showSaveFilePicker: undefined,
+      navigator: {
+        canShare: ({ files }) => files.length === 1,
+        async share(payload) { shared = payload; },
+      },
+    },
+  });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
+  assert.equal(result.method, "web-share");
+  assert.equal(shared.files[0].name, ctx.expectedFilename);
+  assert.deepEqual(ctx.downloads, []);
+});
+
+test("Web Share cancellation does not start conventional download", async () => {
+  const error = new Error("cancelled");
+  error.name = "AbortError";
+  const ctx = base({
+    env: {
+      showSaveFilePicker: undefined,
+      navigator: {
+        canShare: () => true,
+        async share() { throw error; },
+      },
+    },
+  });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
   assert.equal(result.status, "cancelled");
   assert.deepEqual(ctx.downloads, []);
 });
 
-test("pre-write hash mismatch blocks every save path", async () => {
-  let picker = 0;
-  const ctx = base({
-    async sha256Hex() { return "b".repeat(64); },
-    async showDirectoryPicker() { picker += 1; return ctx.directory; },
-  });
-  await assert.rejects(() => ctx.saver.saveExport({ exportId: 7 }), /SHA-256/);
-  assert.equal(picker, 0);
-  assert.deepEqual(ctx.downloads, []);
+test("browser without picker or share downloads the historical raw pag", async () => {
+  const ctx = base({ env: { showSaveFilePicker: undefined, navigator: {} } });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
+  assert.equal(result.method, "raw");
+  assert.deepEqual(ctx.downloads, ["/raw"]);
 });
 
-test("write failure falls back to ZIP", async () => {
+test("technical picker failure falls back to raw pag", async () => {
+  const ctx = base({
+    env: {
+      async showSaveFilePicker() { throw new Error("picker unavailable"); },
+      navigator: {},
+    },
+  });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
+  assert.equal(result.method, "raw");
+  assert.deepEqual(ctx.downloads, ["/raw"]);
+});
+
+test("technical write failure falls back to raw pag", async () => {
   const ctx = base();
   ctx.fileHandle.createWritable = async () => ({
     async write() { throw new Error("disk full"); },
     async abort() {},
   });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.method, "zip");
-  assert.deepEqual(ctx.downloads, ["/zip"]);
-});
-
-test("post-write hash mismatch is not reported as File System Access success", async () => {
-  let hashCalls = 0;
-  const ctx = base({
-    async sha256Hex() {
-      hashCalls += 1;
-      return hashCalls === 1 ? sha : "b".repeat(64);
-    },
-  });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.notEqual(result.method, "file-system-access");
-  assert.equal(result.method, "zip");
-});
-
-test("Web Share receives a File with the exact bank filename", async () => {
-  let shared;
-  const ctx = base({
-    showDirectoryPicker: undefined,
-    navigator: {
-      canShare: ({ files }) => files.length === 1,
-      async share(payload) { shared = payload; },
-    },
-  });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
-  assert.equal(result.method, "web-share");
-  assert.equal(shared.files[0].name, "NI6705907.pag");
-});
-
-test("ZIP and then raw are ordered fallbacks", async () => {
-  const ctx = base({
-    showDirectoryPicker: undefined,
-    navigator: {},
-    async navigateDownload(url) {
-      ctx.downloads.push(url);
-      return url !== "/zip";
-    },
-  });
-  const result = await ctx.saver.saveExport({ exportId: 7 });
+  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
   assert.equal(result.method, "raw");
-  assert.deepEqual(ctx.downloads, ["/zip", "/raw"]);
+  assert.deepEqual(ctx.downloads, ["/raw"]);
 });

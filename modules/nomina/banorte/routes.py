@@ -62,7 +62,6 @@ from modules.nomina.banorte.draft_repository import (
 )
 from modules.nomina.banorte.download_service import (
     ExportDownloadError,
-    build_single_entry_zip,
     load_historical_pag,
 )
 from modules.nomina.banorte.export_service import (
@@ -70,7 +69,6 @@ from modules.nomina.banorte.export_service import (
     ExportBlockedError,
     generate_export,
     generate_from_persistent_draft,
-    get_export_blob,
     normalize_consecutive,
     resolve_layout_date_monterrey,
 )
@@ -1179,11 +1177,15 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     def banorte_download(export_id: int):
-        filename, blob, _digest = get_export_blob(_db_path(), export_id)
+        try:
+            exported = load_historical_pag(_db_path(), export_id)
+        except ExportDownloadError as exc:
+            status = 404 if exc.code == "export_not_found" else 409
+            return _json_no_store({"ok": False, "code": exc.code}, status)
         resp = send_file(
-            BytesIO(blob),
+            BytesIO(exported.blob),
             as_attachment=True,
-            download_name=filename,
+            download_name=exported.filename,
             mimetype="application/octet-stream",
         )
         resp.headers.update(_NO_STORE)
@@ -1204,27 +1206,8 @@ def register_banorte_routes(bp) -> None:
                 "size_bytes": exported.size_bytes,
                 "sha256": exported.sha256,
                 "raw_url": url_for("nomina.banorte_download", export_id=exported.export_id),
-                "zip_url": url_for(
-                    "nomina.banorte_download_zip", export_id=exported.export_id
-                ),
             }
         )
-
-    @_banorte_access_required
-    def banorte_download_zip(export_id: int):
-        try:
-            exported = load_historical_pag(_db_path(), export_id)
-        except ExportDownloadError as exc:
-            status = 404 if exc.code == "export_not_found" else 409
-            return _json_no_store({"ok": False, "code": exc.code}, status)
-        resp = send_file(
-            BytesIO(build_single_entry_zip(exported)),
-            as_attachment=True,
-            download_name=f"{exported.filename}.zip",
-            mimetype="application/zip",
-        )
-        resp.headers.update(_NO_STORE)
-        return resp
 
     bp.add_url_rule("/exportaciones/banorte", endpoint="banorte_index", view_func=banorte_index, methods=["GET"])
     bp.add_url_rule(
@@ -1457,11 +1440,5 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/historial/<int:export_id>/metadata",
         endpoint="banorte_download_metadata",
         view_func=banorte_download_metadata,
-        methods=["GET"],
-    )
-    bp.add_url_rule(
-        "/exportaciones/banorte/historial/<int:export_id>/zip",
-        endpoint="banorte_download_zip",
-        view_func=banorte_download_zip,
         methods=["GET"],
     )

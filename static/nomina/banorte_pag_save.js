@@ -6,11 +6,6 @@
 })(typeof window !== "undefined" ? window : globalThis, function (root) {
   "use strict";
 
-  const DB_NAME = "proclean-banorte-pag-save";
-  const DB_VERSION = 1;
-  const STORE_NAME = "directory_handles";
-  const HANDLE_KEY = "banorte_pag_directory";
-
   class SaveError extends Error {
     constructor(message, code) {
       super(message);
@@ -26,43 +21,26 @@
     }
   }
 
-  function createIndexedDbHandleStore(indexedDB) {
-    function open() {
-      if (!indexedDB) return Promise.reject(new SaveError("IndexedDB no disponible.", "indexeddb_unavailable"));
-      return new Promise(function (resolve, reject) {
-        const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = function () {
-          const db = request.result;
-          if (!db.objectStoreNames.contains(STORE_NAME)) db.createObjectStore(STORE_NAME);
-        };
-        request.onsuccess = function () { resolve(request.result); };
-        request.onerror = function () { reject(request.error || new SaveError("No se pudo abrir IndexedDB.")); };
-      });
-    }
+  const SAFE_PAG_FILENAME = /^[^/\\\x00]+\.pag$/i;
 
-    async function operation(mode, callback) {
-      const db = await open();
-      try {
-        return await new Promise(function (resolve, reject) {
-          const tx = db.transaction(STORE_NAME, mode);
-          const request = callback(tx.objectStore(STORE_NAME));
-          request.onsuccess = function () { resolve(request.result); };
-          request.onerror = function () { reject(request.error || new SaveError("Falló IndexedDB.")); };
-          tx.onabort = function () { reject(tx.error || new SaveError("IndexedDB abortó la operación.")); };
-        });
-      } finally {
-        db.close();
-      }
-    }
+  function isCancelled(error) {
+    return error instanceof SaveCancelled || (error && error.code === "cancelled");
+  }
 
-    return {
-      load: function () { return operation("readonly", function (store) { return store.get(HANDLE_KEY); }); },
-      save: function (handle) {
-        // El valor persistido es exclusivamente el FileSystemDirectoryHandle.
-        return operation("readwrite", function (store) { return store.put(handle, HANDLE_KEY); });
-      },
-      clear: function () { return operation("readwrite", function (store) { return store.delete(HANDLE_KEY); }); },
-    };
+  function isIntegrityError(error) {
+    return !!error && (
+      error.code === "integrity_mismatch" ||
+      error.code === "post_write_mismatch" ||
+      error.code === "filename_unsafe"
+    );
+  }
+
+  function requireSafeFilename(filename) {
+    const value = String(filename || "");
+    if (!SAFE_PAG_FILENAME.test(value) || value !== value.trim()) {
+      throw new SaveError("El nombre bancario esperado no es válido.", "filename_unsafe");
+    }
+    return value;
   }
 
   function defaultNavigateDownload(url) {
@@ -81,19 +59,16 @@
   }
 
   function defaultEnvironment() {
-    const store = createIndexedDbHandleStore(root.indexedDB);
+    const savePickerSupported = "showSaveFilePicker" in root &&
+      typeof root.showSaveFilePicker === "function";
     return {
       fetch: root.fetch.bind(root),
       crypto: root.crypto,
       navigator: root.navigator || {},
       File: root.File,
-      showDirectoryPicker: typeof root.showDirectoryPicker === "function"
-        ? root.showDirectoryPicker.bind(root)
+      showSaveFilePicker: savePickerSupported
+        ? root.showSaveFilePicker.bind(root)
         : undefined,
-      loadDirectoryHandle: store.load,
-      saveDirectoryHandle: store.save,
-      clearDirectoryHandle: store.clear,
-      confirm: root.confirm.bind(root),
       navigateDownload: defaultNavigateDownload,
     };
   }
@@ -103,7 +78,9 @@
 
     async function sha256Hex(value) {
       if (typeof env.sha256Hex === "function") return String(await env.sha256Hex(value)).toLowerCase();
-      if (!env.crypto || !env.crypto.subtle) throw new SaveError("Web Crypto no disponible.", "crypto_unavailable");
+      if (!env.crypto || !env.crypto.subtle) {
+        throw new SaveError("Web Crypto no disponible.", "crypto_unavailable");
+      }
       const buffer = await value.arrayBuffer();
       const digest = await env.crypto.subtle.digest("SHA-256", buffer);
       return Array.from(new Uint8Array(digest), function (byte) {
@@ -112,7 +89,8 @@
     }
 
     function metadataUrl(exportId) {
-      return "/nomina/exportaciones/banorte/historial/" + encodeURIComponent(String(exportId)) + "/metadata";
+      return "/nomina/exportaciones/banorte/historial/" +
+        encodeURIComponent(String(exportId)) + "/metadata";
     }
 
     async function loadExport(options) {
@@ -123,19 +101,32 @@
       });
       const metadata = await response.json().catch(function () { return {}; });
       if (!response.ok || !metadata.ok) {
-        throw new SaveError("No fue posible obtener metadata autenticada.", metadata.code || "metadata_failed");
+        throw new SaveError(
+          "No fue posible obtener metadata autenticada.",
+          metadata.code || "metadata_failed",
+        );
       }
-      if (!/^[^/\\\x00]+\.pag$/i.test(metadata.filename || "")) {
-        throw new SaveError("El nombre histórico no es seguro.", "filename_unsafe");
-      }
-      if (options.filename && options.filename !== metadata.filename) {
+      const metadataFilename = requireSafeFilename(metadata.filename);
+      if (options.filename && options.filename !== metadataFilename) {
         throw new SaveError("El filename histórico no coincide.", "integrity_mismatch");
       }
+      if (!Number.isSafeInteger(metadata.size_bytes) || metadata.size_bytes < 0) {
+        throw new SaveError("El tamaño histórico no es válido.", "integrity_mismatch");
+      }
+      if (!/^[0-9a-f]{64}$/i.test(String(metadata.sha256 || ""))) {
+        throw new SaveError("El SHA-256 histórico no es válido.", "integrity_mismatch");
+      }
+      metadata.sha256 = String(metadata.sha256).toLowerCase();
       if (options.sha256 && String(options.sha256).toLowerCase() !== metadata.sha256) {
         throw new SaveError("El SHA-256 histórico no coincide.", "integrity_mismatch");
       }
-      const raw = await env.fetch(metadata.raw_url, { credentials: "same-origin", cache: "no-store" });
-      if (!raw.ok) throw new SaveError("No fue posible recuperar el BLOB histórico.", "raw_failed");
+      const raw = await env.fetch(metadata.raw_url, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!raw.ok) {
+        throw new SaveError("No fue posible recuperar el BLOB histórico.", "raw_failed");
+      }
       const historicalBlob = await raw.blob();
       if (historicalBlob.size !== metadata.size_bytes) {
         throw new SaveError("El tamaño del BLOB histórico no coincide.", "integrity_mismatch");
@@ -147,67 +138,31 @@
       return { metadata: metadata, blob: historicalBlob, beforeSha256: beforeSha256 };
     }
 
-    async function permissionGranted(handle) {
-      const descriptor = { mode: "readwrite" };
-      if (typeof handle.queryPermission === "function") {
-        const current = await handle.queryPermission(descriptor);
-        if (current === "granted") return true;
-        if (current === "denied") return false;
-      }
-      if (typeof handle.requestPermission === "function") {
-        return (await handle.requestPermission(descriptor)) === "granted";
-      }
-      return false;
-    }
-
-    async function acquireDirectoryHandle() {
-      let handle = null;
+    async function acquireFileHandle(expectedFilename) {
       try {
-        handle = await env.loadDirectoryHandle();
-      } catch (_error) {
-        handle = null;
-      }
-      if (handle) {
-        try {
-          if (await permissionGranted(handle)) return handle;
-        } catch (_error) {
-          // A structured-clone/stale handle is discarded and selected again.
+        return await env.showSaveFilePicker({
+          id: "proclean-banorte-pag",
+          suggestedName: expectedFilename,
+          types: [{
+            description: "Archivo Banorte (.pag)",
+            accept: { "application/octet-stream": [".pag"] },
+          }],
+          excludeAcceptAllOption: false,
+        });
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          throw new SaveCancelled("Selección de archivo cancelada.");
         }
-        try { await env.clearDirectoryHandle(); } catch (_error) {}
-      }
-      if (typeof env.showDirectoryPicker !== "function") {
-        throw new SaveError("File System Access no disponible.", "filesystem_unavailable");
-      }
-      try {
-        handle = await env.showDirectoryPicker({ id: "proclean-banorte-pag", mode: "readwrite" });
-      } catch (error) {
-        if (error && error.name === "AbortError") throw new SaveCancelled("Selección de carpeta cancelada.");
-        throw error;
-      }
-      if (!(await permissionGranted(handle))) {
-        throw new SaveError("Permiso de escritura denegado.", "permission_denied");
-      }
-      await env.saveDirectoryHandle(handle);
-      return handle;
-    }
-
-    async function findExistingFile(directory, filename) {
-      try {
-        return await directory.getFileHandle(filename);
-      } catch (error) {
-        if (error && error.name === "NotFoundError") return null;
         throw error;
       }
     }
 
-    async function saveWithFileSystem(loaded) {
-      const directory = await acquireDirectoryHandle();
-      let fileHandle = await findExistingFile(directory, loaded.metadata.filename);
-      if (fileHandle && !env.confirm("El archivo " + loaded.metadata.filename + " ya existe. ¿Desea reemplazarlo?")) {
-        throw new SaveCancelled("Reemplazo cancelado.");
-      }
-      if (!fileHandle) {
-        fileHandle = await directory.getFileHandle(loaded.metadata.filename, { create: true });
+    async function saveWithFileHandle(fileHandle, loaded, expectedFilename) {
+      if (!fileHandle || String(fileHandle.name || "") !== loaded.metadata.filename) {
+        throw new SaveError(
+          "El nombre elegido no coincide con el filename bancario exacto " + expectedFilename + ".",
+          "integrity_mismatch",
+        );
       }
       let writable = null;
       try {
@@ -223,11 +178,14 @@
       const written = await fileHandle.getFile();
       const afterSha256 = await sha256Hex(written);
       if (written.size !== loaded.metadata.size_bytes || afterSha256 !== loaded.beforeSha256) {
-        throw new SaveError("La verificación SHA-256 posterior a la escritura falló.", "post_write_mismatch");
+        throw new SaveError(
+          "La verificación posterior a la escritura falló.",
+          "post_write_mismatch",
+        );
       }
       return {
         status: "saved",
-        method: "file-system-access",
+        method: "save-file-picker",
         filename: loaded.metadata.filename,
         sizeBytes: written.size,
         sha256Before: loaded.beforeSha256,
@@ -238,55 +196,84 @@
     async function shareFile(loaded) {
       const nav = env.navigator || {};
       const FileCtor = env.File || root.File;
-      if (typeof FileCtor !== "function" || typeof nav.share !== "function" || typeof nav.canShare !== "function") {
+      if (
+        typeof FileCtor !== "function" ||
+        typeof nav.share !== "function" ||
+        typeof nav.canShare !== "function"
+      ) {
         return null;
       }
-      const file = new FileCtor([loaded.blob], loaded.metadata.filename, { type: "application/octet-stream" });
+      const file = new FileCtor(
+        [loaded.blob],
+        loaded.metadata.filename,
+        { type: "application/octet-stream" },
+      );
       const payload = { files: [file], title: loaded.metadata.filename };
       if (!nav.canShare(payload)) return null;
       try {
         await nav.share(payload);
       } catch (error) {
-        if (error && error.name === "AbortError") throw new SaveCancelled("Compartir cancelado.");
+        if (error && error.name === "AbortError") {
+          throw new SaveCancelled("Compartir cancelado.");
+        }
         throw error;
       }
       return { status: "shared", method: "web-share", filename: loaded.metadata.filename };
     }
 
-    async function downloadFallbacks(loaded) {
-      try {
-        if (await env.navigateDownload(loaded.metadata.zip_url)) {
-          return { status: "download-started", method: "zip", filename: loaded.metadata.filename };
-        }
-      } catch (_zipError) {}
-      try {
-        if (await env.navigateDownload(loaded.metadata.raw_url)) {
-          return { status: "download-started", method: "raw", filename: loaded.metadata.filename };
-        }
-      } catch (_rawError) {}
-      throw new SaveError("No fue posible iniciar ZIP ni descarga raw.", "fallback_failed");
+    async function downloadRaw(loaded) {
+      if (await env.navigateDownload(loaded.metadata.raw_url)) {
+        return {
+          status: "download-started",
+          method: "raw",
+          filename: loaded.metadata.filename,
+        };
+      }
+      throw new SaveError("No fue posible iniciar la descarga .pag.", "fallback_failed");
     }
 
     async function saveExport(options) {
-      const loaded = await loadExport(options || {});
-      if (typeof env.showDirectoryPicker === "function") {
+      const saveOptions = options || {};
+      let loaded = null;
+
+      if (typeof env.showSaveFilePicker === "function") {
+        const expectedFilename = requireSafeFilename(saveOptions.filename);
+        let fileHandle = null;
         try {
-          return await saveWithFileSystem(loaded);
+          // Esta debe ser la primera llamada asíncrona para conservar user activation.
+          fileHandle = await acquireFileHandle(expectedFilename);
         } catch (error) {
-          if (error instanceof SaveCancelled || (error && error.code === "cancelled")) {
-            return { status: "cancelled", method: "file-system-access", filename: loaded.metadata.filename };
+          if (isCancelled(error)) {
+            return { status: "cancelled", method: "save-file-picker", filename: expectedFilename };
+          }
+          // Un fallo técnico del picker permite continuar al fallback verificado.
+        }
+
+        if (fileHandle) {
+          loaded = await loadExport(saveOptions);
+          try {
+            return await saveWithFileHandle(fileHandle, loaded, expectedFilename);
+          } catch (error) {
+            if (isIntegrityError(error)) throw error;
+            // Fallos técnicos de escritura continúan con el BLOB ya verificado.
           }
         }
       }
+
+      if (!loaded) loaded = await loadExport(saveOptions);
       try {
         const shared = await shareFile(loaded);
         if (shared) return shared;
       } catch (error) {
-        if (error instanceof SaveCancelled || (error && error.code === "cancelled")) {
-          return { status: "cancelled", method: "web-share", filename: loaded.metadata.filename };
+        if (isCancelled(error)) {
+          return {
+            status: "cancelled",
+            method: "web-share",
+            filename: loaded.metadata.filename,
+          };
         }
       }
-      return downloadFallbacks(loaded);
+      return downloadRaw(loaded);
     }
 
     return { saveExport: saveExport, loadExport: loadExport };
@@ -294,11 +281,14 @@
 
   function describeResult(result, filename) {
     if (!result) return "Generado " + filename + ".";
-    if (result.status === "saved") return "Guardado y verificado " + filename + " (SHA-256 confirmado).";
+    if (result.status === "saved") {
+      return "Guardado y verificado " + filename + " (SHA-256 confirmado).";
+    }
     if (result.status === "shared") return "Compartido " + filename + ".";
-    if (result.status === "cancelled") return "Generado " + filename + "; guardado cancelado. Disponible en el historial.";
-    if (result.method === "zip") return "Generado " + filename + "; descarga ZIP iniciada.";
-    if (result.method === "raw") return "Generado " + filename + "; descarga directa iniciada.";
+    if (result.status === "cancelled") {
+      return "Guardado cancelado. " + filename + " sigue disponible en el historial.";
+    }
+    if (result.method === "raw") return "Descarga .pag iniciada para " + filename + ".";
     return "Generado " + filename + ".";
   }
 
@@ -316,9 +306,10 @@
       anchor.dataset.banortePagBound = "1";
       anchor.addEventListener("click", async function (event) {
         event.preventDefault();
+        if (anchor.getAttribute("aria-disabled") === "true") return;
         const originalText = anchor.textContent;
         anchor.setAttribute("aria-disabled", "true");
-        anchor.textContent = "Preparando…";
+        anchor.textContent = "Abriendo Guardar como…";
         try {
           const result = await getDefaultSaver().saveExport({
             exportId: anchor.dataset.exportId,
@@ -327,8 +318,10 @@
           });
           anchor.textContent = describeResult(result, anchor.dataset.filename || "archivo .pag");
         } catch (error) {
-          anchor.textContent = "No se pudo guardar";
-          if (!error || error.code !== "integrity_mismatch") {
+          if (isIntegrityError(error)) {
+            anchor.textContent = "No se guardó: verifique el nombre e integridad del .pag";
+          } else {
+            anchor.textContent = "No se pudo guardar; iniciando descarga .pag…";
             await defaultNavigateDownload(anchor.href);
           }
         } finally {
@@ -341,15 +334,17 @@
 
   if (root.document) {
     if (root.document.readyState === "loading") {
-      root.document.addEventListener("DOMContentLoaded", function () { bindSaveTriggers(root.document); });
+      root.document.addEventListener("DOMContentLoaded", function () {
+        bindSaveTriggers(root.document);
+      });
     } else {
       bindSaveTriggers(root.document);
     }
   }
 
   return {
+    SaveError: SaveError,
     createSaver: createSaver,
-    createIndexedDbHandleStore: createIndexedDbHandleStore,
     saveExport: function (options) { return getDefaultSaver().saveExport(options); },
     bindSaveTriggers: bindSaveTriggers,
     describeResult: describeResult,
