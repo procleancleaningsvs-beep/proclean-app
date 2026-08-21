@@ -413,3 +413,16 @@
   .banorte-manual-layout { grid-template-columns: 1fr; }
   .banorte-catalog-sidebar { max-height: 16rem; }
 }
+
+.banorte-payment-grid-wrap { display: flex; flex-direction: column; gap: .5rem; }
+.banorte-payment-grid-scroll { max-height: 24rem; outline: none; }
+.banorte-payment-grid input[type="text"] {
+  width: 100%;
+  min-width: 5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: .2rem .35rem;
+  font: inherit;
+}
+.banorte-grid-account { color: #64748b; font-size: .85rem; }
+.banorte-grid-state { font-size: .82rem; color: #92400e; max-width: 14rem; }

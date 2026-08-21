@@ -325,8 +325,24 @@
           <button type="button" class="btn btn-secondary btn-sm banorte-catalog-sidebar__more" id="banorte-catalog-sidebar-more" hidden>Cargar más</button>
         </aside>
         <div class="banorte-manual-main">
-          <label>Nombres<textarea id="manual-names" rows="8"></textarea></label>
-          <label>Importes<textarea id="manual-amounts" rows="8"></textarea></label>
+          <div class="banorte-payment-grid-wrap">
+            <div class="banorte-export-bar">
+              <button type="button" class="btn btn-secondary btn-sm" id="banorte-payment-grid-add">Agregar fila</button>
+              <span class="banorte-hint">Pegue filas en la tabla (TSV o una columna por línea).</span>
+            </div>
+            <div class="banorte-editor-scroll banorte-payment-grid-scroll" id="banorte-payment-grid-paste" tabindex="0">
+              <table class="banorte-table banorte-payment-grid" id="banorte-payment-grid">
+                <thead>
+                  <tr>
+                    <th>#</th><th>Nombre</th><th>Cuenta</th><th>Importe</th><th>Estado / observación</th><th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="banorte-payment-grid-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <textarea id="manual-names" rows="4" hidden aria-hidden="true"></textarea>
+          <textarea id="manual-amounts" rows="4" hidden aria-hidden="true"></textarea>
           <button type="button" class="btn btn-primary" id="manual-prepare">Preparar borrador</button>
           <p id="manual-choice" class="banorte-warn" hidden></p>
         </div>
@@ -395,5 +411,6 @@
 <script src="{{ url_for('static', filename='nomina/banorte_pag_save.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/banorte_export_history.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/banorte_catalog_sidebar.js') }}"></script>
+<script src="{{ url_for('static', filename='nomina/banorte_payment_grid.js') }}"></script>
 <script src="{{ url_for('static', filename='nomina/exportaciones_banorte_editor.js') }}"></script>
 {% endblock %}

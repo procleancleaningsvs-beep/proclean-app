@@ -996,10 +996,14 @@
 
   document.getElementById("manual-prepare").addEventListener("click", async function () {
     const choice = document.getElementById("manual-choice");
-    const out = await api("/nomina/exportaciones/banorte/drafts/manual", {
-      names: document.getElementById("manual-names").value,
-      amounts: document.getElementById("manual-amounts").value,
-    });
+    const payload = { force_new: false };
+    if (window.banortePaymentGrid && typeof window.banortePaymentGrid.getRowsPayload === "function") {
+      payload.rows = window.banortePaymentGrid.getRowsPayload();
+    } else {
+      payload.names = document.getElementById("manual-names").value;
+      payload.amounts = document.getElementById("manual-amounts").value;
+    }
+    const out = await api("/nomina/exportaciones/banorte/drafts/manual", payload);
     if (out.res.status === 409 && out.data.code === "manual_open_exists") {
       choice.hidden = false;
       choice.innerHTML =
@@ -1020,10 +1024,14 @@
           confirm: true,
         });
         if (!ab.data.ok) { alert(ab.data.code || "error"); return; }
-        const again = await api("/nomina/exportaciones/banorte/drafts/manual", {
-          names: document.getElementById("manual-names").value,
-          amounts: document.getElementById("manual-amounts").value,
-        });
+        const againPayload = { force_new: false };
+        if (window.banortePaymentGrid && typeof window.banortePaymentGrid.getRowsPayload === "function") {
+          againPayload.rows = window.banortePaymentGrid.getRowsPayload();
+        } else {
+          againPayload.names = document.getElementById("manual-names").value;
+          againPayload.amounts = document.getElementById("manual-amounts").value;
+        }
+        const again = await api("/nomina/exportaciones/banorte/drafts/manual", againPayload);
         if (again.data.ok) { showHub(); renderEditor(again.data.draft); }
         else alert(again.data.code || "error");
       };

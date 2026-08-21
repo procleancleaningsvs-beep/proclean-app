@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from modules.nomina.banorte.calculo_adapter import AdapterResult, origin_hash_for_manual_capture
+from modules.nomina.banorte.catalog_lifecycle import catalog_draft_binding
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 
@@ -245,12 +246,13 @@ def create_draft_from_adapter(
     conn = connect(db_path)
     try:
         ensure_banorte_tables(conn)
+        binding = catalog_draft_binding(conn)
         cur = conn.execute(
             """
             INSERT INTO nomina_banorte_export_drafts (
                 created_by, updated_by, created_at, updated_at, origin_kind, calculo_id,
-                origin_updated_at, origin_hash, status, revision
-            ) VALUES (?,?,?,?, 'CALCULO_RUN', ?,?,?, 'OPEN', 1)
+                origin_updated_at, origin_hash, status, revision, catalog_mode, catalog_version_id
+            ) VALUES (?,?,?,?, 'CALCULO_RUN', ?,?,?, 'OPEN', 1, ?, ?)
             """,
             (
                 user,
@@ -260,6 +262,8 @@ def create_draft_from_adapter(
                 adapted.calculo_id,
                 adapted.origin_updated_at,
                 adapted.origin_hash,
+                binding["catalog_mode"],
+                binding["catalog_version_id"],
             ),
         )
         draft_id = int(cur.lastrowid)
@@ -301,14 +305,23 @@ def create_manual_draft_shell(
     conn = connect(db_path)
     try:
         ensure_banorte_tables(conn)
+        binding = catalog_draft_binding(conn)
         cur = conn.execute(
             """
             INSERT INTO nomina_banorte_export_drafts (
                 created_by, updated_by, created_at, updated_at, origin_kind, calculo_id,
-                origin_updated_at, origin_hash, status, revision
-            ) VALUES (?,?,?,?, 'MANUAL_CAPTURE', NULL, NULL, ?, 'OPEN', 1)
+                origin_updated_at, origin_hash, status, revision, catalog_mode, catalog_version_id
+            ) VALUES (?,?,?,?, 'MANUAL_CAPTURE', NULL, NULL, ?, 'OPEN', 1, ?, ?)
             """,
-            (user, user, now, now, oh),
+            (
+                user,
+                user,
+                now,
+                now,
+                oh,
+                binding["catalog_mode"],
+                binding["catalog_version_id"],
+            ),
         )
         draft_id = int(cur.lastrowid)
         conn.commit()
@@ -413,6 +426,16 @@ def save_draft_rows(
                 json.dumps(r.get("user_decision") or {}, ensure_ascii=False),
                 r.get("excluded_at"),
                 r.get("excluded_by"),
+                r.get("catalog_person_id"),
+                r.get("catalog_reconciliation_id"),
+                r.get("catalog_match_method"),
+                json.dumps(
+                    r.get("catalog_observation_codes")
+                    or json.loads(r.get("catalog_observation_codes_json") or "[]"),
+                    ensure_ascii=False,
+                ),
+                r.get("beneficiary_material_fingerprint_version"),
+                r.get("beneficiary_material_fingerprint_seen"),
             )
             if rid is not None and int(rid) in existing:
                 seen.add(int(rid))
@@ -422,7 +445,10 @@ def save_draft_rows(
                         position=?, calculo_row_id=?, nombre_recibido=?, nss_snapshot=?, banco_snapshot=?,
                         beneficiary_id=?, employee_number_snapshot=?, account_number_snapshot=?,
                         amount_original_cents=?, amount_final_cents=?, included=?, match_kind=?, alias_id=?,
-                        row_state=?, warnings_json=?, user_decision_json=?, excluded_at=?, excluded_by=?
+                        row_state=?, warnings_json=?, user_decision_json=?, excluded_at=?, excluded_by=?,
+                        catalog_person_id=?, catalog_reconciliation_id=?, catalog_match_method=?,
+                        catalog_observation_codes_json=?, beneficiary_material_fingerprint_version=?,
+                        beneficiary_material_fingerprint_seen=?
                     WHERE id=? AND draft_id=?
                     """,
                     (*params, int(rid), int(draft_id)),
@@ -434,8 +460,11 @@ def save_draft_rows(
                         draft_id, position, calculo_row_id, nombre_recibido, nss_snapshot, banco_snapshot,
                         beneficiary_id, employee_number_snapshot, account_number_snapshot,
                         amount_original_cents, amount_final_cents, included, match_kind, alias_id,
-                        row_state, warnings_json, user_decision_json, excluded_at, excluded_by
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                        row_state, warnings_json, user_decision_json, excluded_at, excluded_by,
+                        catalog_person_id, catalog_reconciliation_id, catalog_match_method,
+                        catalog_observation_codes_json, beneficiary_material_fingerprint_version,
+                        beneficiary_material_fingerprint_seen
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     """,
                     (int(draft_id), *params),
                 )

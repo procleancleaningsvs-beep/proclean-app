@@ -106,6 +106,8 @@ from modules.nomina.banorte.import_service import (
 from modules.nomina.banorte.matching_service import match_name, save_alias
 from modules.nomina.banorte.paste_service import parse_paste_lists
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
+from modules.nomina.banorte.catalog_row_adapter import prepare_capture_rows
+from modules.nomina.banorte.rows_capture import parse_capture_input
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.roles_access import NOMINA_DASHBOARD_ROLES
@@ -781,30 +783,19 @@ def register_banorte_routes(bp) -> None:
                 },
                 409,
             )
-        # populate rows from paste
-        parsed = parse_paste_lists(data.get("names") or "", data.get("amounts") or "")
+        # populate rows from grid/paste adapter
+        capture_rows = parse_capture_input(
+            names_text=str(data.get("names") or ""),
+            amounts_text=str(data.get("amounts") or ""),
+            rows_payload=data.get("rows") if isinstance(data.get("rows"), list) else None,
+            tsv_text=str(data.get("tsv") or ""),
+        )
         draft = result["draft"]
-        rows = []
-        for i, r in enumerate(parsed.rows, start=1):
-            cents = 0
-            if r.amount_result and r.amount_result.ok and r.amount_result.amount is not None:
-                from modules.nomina.banorte.money import to_cents
-
-                cents = to_cents(r.amount_result.amount)
-            rows.append(
-                {
-                    "position": i,
-                    "nombre_recibido": r.raw_name or "",
-                    "amount_original_cents": max(0, cents),
-                    "amount_final_cents": cents if cents > 0 else 0,
-                    "included": 1 if cents > 0 else 0,
-                    "match_kind": "NONE",
-                    "row_state": "NEEDS_REVIEW" if cents > 0 else "EXCLUDED",
-                    "warnings": [],
-                    "user_decision": {},
-                }
-            )
-        prepared = prepare_draft_rows(_db_path(), rows, origin_kind="MANUAL_CAPTURE")
+        prepared = prepare_capture_rows(
+            _db_path(),
+            capture_rows,
+            origin_kind="MANUAL_CAPTURE",
+        )
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
         return _json_no_store({"ok": True, "draft": draft, "csrf_token": issue_csrf_token()})
 
