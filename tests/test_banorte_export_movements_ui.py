@@ -16,8 +16,11 @@ def test_both_histories_share_eye_action_modal_and_controller():
 
     for source in (embedded, standalone):
         assert "data-banorte-export-movements" in source
-        assert "Ver movimientos" in source
+        assert 'title="Ver movimientos"' in source
+        assert 'aria-label="Ver movimientos"' in source
         assert "<svg" in source
+        assert "<span>Ver movimientos</span>" not in source
+        assert "banorte-history-eye" in source
         assert '_banorte_export_movements_modal.html' in source
         assert "banorte_export_history.js" in source
 
@@ -33,8 +36,21 @@ def test_shared_modal_accessibility_contract():
         'id="banorte-movements-close"',
         'id="banorte-movements-state"',
         'id="banorte-movements-table-wrap"',
+        'id="banorte-movements-search"',
+        'id="banorte-movements-sort"',
     ):
         assert contract in modal
+    assert "Aplicar" not in modal
+    for value in (
+        "position",
+        "name_asc",
+        "name_desc",
+        "employee_asc",
+        "employee_desc",
+        "amount_asc",
+        "amount_desc",
+    ):
+        assert f'value="{value}"' in modal
 
 
 def test_history_controller_uses_safe_dom_and_no_live_data_contracts():

@@ -298,6 +298,69 @@
     return defaultSaver;
   }
 
+  function feedbackFor(anchor) {
+    const targetId = anchor && anchor.dataset && anchor.dataset.feedbackTarget;
+    const document = (anchor && anchor.ownerDocument) || root.document;
+    if (!targetId || !document || typeof document.getElementById !== "function") return null;
+    return document.getElementById(targetId);
+  }
+
+  function showFeedback(feedback, message, schedule) {
+    if (!feedback) return;
+    const sequence = Number(feedback._banorteFeedbackSequence || 0) + 1;
+    feedback._banorteFeedbackSequence = sequence;
+    feedback.textContent = message;
+    feedback.hidden = false;
+    schedule(function () {
+      if (feedback._banorteFeedbackSequence !== sequence) return;
+      feedback.hidden = true;
+      feedback.textContent = "";
+    }, 5000);
+  }
+
+  async function handleSaveTrigger(anchor, options) {
+    const settings = options || {};
+    const saver = settings.saver || getDefaultSaver();
+    const navigateDownload = settings.navigateDownload || defaultNavigateDownload;
+    const schedule = settings.schedule || root.setTimeout.bind(root);
+    const originalText = anchor.textContent;
+    const feedback = feedbackFor(anchor);
+
+    anchor.setAttribute("aria-disabled", "true");
+    anchor.setAttribute("aria-busy", "true");
+    try {
+      const result = await saver.saveExport({
+        exportId: anchor.dataset.exportId,
+        filename: anchor.dataset.filename || undefined,
+        sha256: anchor.dataset.sha256 || undefined,
+      });
+      showFeedback(
+        feedback,
+        describeResult(result, anchor.dataset.filename || "archivo .pag"),
+        schedule,
+      );
+    } catch (error) {
+      if (isIntegrityError(error)) {
+        showFeedback(
+          feedback,
+          "No se guardó: verifique el nombre e integridad del .pag.",
+          schedule,
+        );
+      } else {
+        showFeedback(
+          feedback,
+          "No se pudo guardar; iniciando descarga .pag…",
+          schedule,
+        );
+        await navigateDownload(anchor.href);
+      }
+    } finally {
+      anchor.textContent = originalText;
+      anchor.removeAttribute("aria-disabled");
+      anchor.removeAttribute("aria-busy");
+    }
+  }
+
   function bindSaveTriggers(container) {
     const host = container || root.document;
     if (!host || typeof host.querySelectorAll !== "function") return;
@@ -307,27 +370,7 @@
       anchor.addEventListener("click", async function (event) {
         event.preventDefault();
         if (anchor.getAttribute("aria-disabled") === "true") return;
-        const originalText = anchor.textContent;
-        anchor.setAttribute("aria-disabled", "true");
-        anchor.textContent = "Abriendo Guardar como…";
-        try {
-          const result = await getDefaultSaver().saveExport({
-            exportId: anchor.dataset.exportId,
-            filename: anchor.dataset.filename || undefined,
-            sha256: anchor.dataset.sha256 || undefined,
-          });
-          anchor.textContent = describeResult(result, anchor.dataset.filename || "archivo .pag");
-        } catch (error) {
-          if (isIntegrityError(error)) {
-            anchor.textContent = "No se guardó: verifique el nombre e integridad del .pag";
-          } else {
-            anchor.textContent = "No se pudo guardar; iniciando descarga .pag…";
-            await defaultNavigateDownload(anchor.href);
-          }
-        } finally {
-          anchor.removeAttribute("aria-disabled");
-          root.setTimeout(function () { anchor.textContent = originalText; }, 5000);
-        }
+        await handleSaveTrigger(anchor);
       });
     });
   }
@@ -346,6 +389,7 @@
     SaveError: SaveError,
     createSaver: createSaver,
     saveExport: function (options) { return getDefaultSaver().saveExport(options); },
+    handleSaveTrigger: handleSaveTrigger,
     bindSaveTriggers: bindSaveTriggers,
     describeResult: describeResult,
   };

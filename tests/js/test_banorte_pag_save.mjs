@@ -3,7 +3,10 @@ import test from "node:test";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { createSaver } = require("../../static/nomina/banorte_pag_save.js");
+const {
+  createSaver,
+  handleSaveTrigger,
+} = require("../../static/nomina/banorte_pag_save.js");
 
 const bytes = new TextEncoder().encode("HISTORICAL-PAG-BYTES");
 const blob = new Blob([bytes], { type: "application/octet-stream" });
@@ -248,4 +251,46 @@ test("technical write failure falls back to raw pag", async () => {
   const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
   assert.equal(result.method, "raw");
   assert.deepEqual(ctx.downloads, ["/raw"]);
+});
+
+test("cancelled picker restores the normal save action without replacing its label", async () => {
+  const attributes = new Map();
+  const feedback = { hidden: true, textContent: "" };
+  const anchor = {
+    dataset: {
+      exportId: "7",
+      filename: "EXPECTED_01.pag",
+      feedbackTarget: "banorte-history-save-feedback",
+    },
+    href: "/raw",
+    textContent: "Guardar .pag",
+    ownerDocument: {
+      getElementById(id) {
+        return id === "banorte-history-save-feedback" ? feedback : null;
+      },
+    },
+    getAttribute(name) { return attributes.get(name) || null; },
+    setAttribute(name, value) { attributes.set(name, String(value)); },
+    removeAttribute(name) { attributes.delete(name); },
+  };
+  const labelsSeen = [];
+  const saver = {
+    async saveExport() {
+      labelsSeen.push(anchor.textContent);
+      return { status: "cancelled", filename: "EXPECTED_01.pag" };
+    },
+  };
+
+  await handleSaveTrigger(anchor, {
+    saver,
+    schedule() {},
+    async navigateDownload() { throw new Error("unexpected fallback"); },
+  });
+
+  assert.deepEqual(labelsSeen, ["Guardar .pag"]);
+  assert.equal(anchor.textContent, "Guardar .pag");
+  assert.equal(anchor.getAttribute("aria-disabled"), null);
+  assert.equal(anchor.getAttribute("aria-busy"), null);
+  assert.equal(feedback.hidden, false);
+  assert.match(feedback.textContent, /^Guardado cancelado\./);
 });

@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const {
   createHistoryController,
+  filterAndSortMovements,
   formatAmountCents,
 } = require("../../static/nomina/banorte_export_history.js");
 
@@ -115,4 +116,83 @@ test("close delegates focus restoration to the shared view", () => {
   const ctx = setup(async () => ({ ok: true, async json() { return {}; } }));
   ctx.controller.close();
   assert.deepEqual(ctx.calls, [["close"]]);
+});
+
+const searchableItems = [
+  {
+    position: 7,
+    historical_name: "Álvaro Núñez",
+    employee_number: "0000000010",
+    account_number: "1321431243",
+    amount_cents: 230000,
+  },
+  {
+    position: 2,
+    historical_name: "beatriz López",
+    employee_number: "0000000002",
+    account_number: "1321431244",
+    amount_cents: 1925,
+  },
+  {
+    position: 9,
+    historical_name: "Carlos Pérez",
+    employee_number: "0000000100",
+    account_number: "1321431245",
+    amount_cents: 230000,
+  },
+];
+
+function positions(rows) {
+  return rows.map((item) => item.position);
+}
+
+test("live search matches historical names case- and accent-insensitively", () => {
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "ALVARO", "position")), [7]);
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "nunez", "position")), [7]);
+});
+
+test("live search matches complete and partial employee numbers without stripping zeros", () => {
+  assert.deepEqual(
+    positions(filterAndSortMovements(searchableItems, "0000000010", "position")),
+    [7],
+  );
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "0010", "position")), [7, 9]);
+});
+
+test("amount search treats common currency spellings as the same integer cents", () => {
+  for (const query of ["2300", "2300.00", "$2,300.00"]) {
+    assert.deepEqual(positions(filterAndSortMovements(searchableItems, query, "position")), [7, 9]);
+  }
+});
+
+test("name sorting supports A-Z and Z-A with Spanish base sensitivity", () => {
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "", "name_asc")), [7, 2, 9]);
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "", "name_desc")), [9, 2, 7]);
+});
+
+test("employee sorting compares numeric identifiers without changing their representation", () => {
+  const asc = filterAndSortMovements(searchableItems, "", "employee_asc");
+  const desc = filterAndSortMovements(searchableItems, "", "employee_desc");
+  assert.deepEqual(positions(asc), [2, 7, 9]);
+  assert.deepEqual(positions(desc), [9, 7, 2]);
+  assert.deepEqual(asc.map((item) => item.employee_number), ["0000000002", "0000000010", "0000000100"]);
+});
+
+test("amount sorting uses amount_cents in both directions", () => {
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "", "amount_asc")), [2, 7, 9]);
+  assert.deepEqual(positions(filterAndSortMovements(searchableItems, "", "amount_desc")), [7, 9, 2]);
+});
+
+test("original order restores position and never renumbers historical rows", () => {
+  const rows = filterAndSortMovements(searchableItems, "", "position");
+  assert.deepEqual(positions(rows), [2, 7, 9]);
+  assert.deepEqual(positions(searchableItems), [7, 2, 9]);
+});
+
+test("search is applied before sort and clearing it restores every item", () => {
+  assert.deepEqual(
+    positions(filterAndSortMovements(searchableItems, "2300", "name_desc")),
+    [9, 7],
+  );
+  assert.deepEqual(filterAndSortMovements(searchableItems, "", "position").length, 3);
 });

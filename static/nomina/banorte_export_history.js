@@ -30,6 +30,76 @@
       encodeURIComponent(String(exportId)) + "/movimientos";
   }
 
+  function normalizeSearchValue(value) {
+    return String(value == null ? "" : value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase("es-MX");
+  }
+
+  function parseAmountQueryCents(value) {
+    const compact = String(value == null ? "" : value)
+      .trim()
+      .replace(/\s/g, "")
+      .replace(/^\$/, "");
+    if (!compact) return null;
+    if (!/^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?$/.test(compact)) return null;
+    const parts = compact.replace(/,/g, "").split(".");
+    const whole = Number(parts[0]);
+    const fractional = (parts[1] || "").padEnd(2, "0");
+    if (!Number.isSafeInteger(whole)) return null;
+    const cents = whole * 100 + Number(fractional || "0");
+    return Number.isSafeInteger(cents) ? cents : null;
+  }
+
+  function compareEmployeeNumbers(left, right) {
+    const a = String(left == null ? "" : left);
+    const b = String(right == null ? "" : right);
+    const aNumeric = /^\d+$/.test(a);
+    const bNumeric = /^\d+$/.test(b);
+    if (aNumeric && bNumeric) {
+      const aKey = a.replace(/^0+(?=\d)/, "");
+      const bKey = b.replace(/^0+(?=\d)/, "");
+      if (aKey.length !== bKey.length) return aKey.length < bKey.length ? -1 : 1;
+      if (aKey !== bKey) return aKey < bKey ? -1 : 1;
+      return a.localeCompare(b, "es", { sensitivity: "variant" });
+    }
+    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+    return a.localeCompare(b, "es", { numeric: true, sensitivity: "base" });
+  }
+
+  function filterAndSortMovements(items, query, sort) {
+    const rawQuery = String(query == null ? "" : query).trim();
+    const normalizedQuery = normalizeSearchValue(rawQuery);
+    const amountQueryCents = parseAmountQueryCents(rawQuery);
+    const rows = (Array.isArray(items) ? items : []).filter(function (item) {
+      if (!rawQuery) return true;
+      const nameMatches = normalizeSearchValue(item.historical_name).includes(normalizedQuery);
+      const employeeMatches = String(item.employee_number == null ? "" : item.employee_number)
+        .includes(rawQuery);
+      const amountMatches = amountQueryCents !== null && item.amount_cents === amountQueryCents;
+      return nameMatches || employeeMatches || amountMatches;
+    });
+    const direction = /_desc$/.test(sort) ? -1 : 1;
+    rows.sort(function (a, b) {
+      let comparison = 0;
+      if (sort === "name_asc" || sort === "name_desc") {
+        comparison = String(a.historical_name || "").localeCompare(
+          String(b.historical_name || ""),
+          "es",
+          { sensitivity: "base" },
+        );
+      } else if (sort === "employee_asc" || sort === "employee_desc") {
+        comparison = compareEmployeeNumbers(a.employee_number, b.employee_number);
+      } else if (sort === "amount_asc" || sort === "amount_desc") {
+        comparison = a.amount_cents < b.amount_cents ? -1 : (a.amount_cents > b.amount_cents ? 1 : 0);
+      }
+      if (comparison) return comparison * direction;
+      return Number(a.position) - Number(b.position);
+    });
+    return rows;
+  }
+
   function createDomView(document) {
     const modal = document.getElementById("banorte-movements-modal");
     const closeButton = document.getElementById("banorte-movements-close");
@@ -39,9 +109,13 @@
     const count = document.getElementById("banorte-movements-count");
     const total = document.getElementById("banorte-movements-total");
     const state = document.getElementById("banorte-movements-state");
+    const controls = document.getElementById("banorte-movements-controls");
+    const search = document.getElementById("banorte-movements-search");
+    const sort = document.getElementById("banorte-movements-sort");
     const tableWrap = document.getElementById("banorte-movements-table-wrap");
     const tbody = document.getElementById("banorte-movements-body");
     let lastTrigger = null;
+    let currentItems = [];
 
     function setHeader(header) {
       title.textContent = "Movimientos de " + String(header.filename || "exportación Banorte");
@@ -64,6 +138,31 @@
       row.appendChild(cell);
     }
 
+    function renderCurrentItems() {
+      const rows = filterAndSortMovements(
+        currentItems,
+        search ? search.value : "",
+        sort ? sort.value : "position",
+      );
+      const fragment = document.createDocumentFragment();
+      rows.forEach(function (item) {
+        const row = document.createElement("tr");
+        appendCell(row, item.position, "banorte-mono");
+        appendCell(row, item.historical_name);
+        appendCell(row, item.employee_number, "banorte-mono");
+        appendCell(row, item.account_number, "banorte-mono");
+        appendCell(row, formatAmountCents(item.amount_cents), "banorte-movements-amount");
+        fragment.appendChild(row);
+      });
+      tbody.replaceChildren(fragment);
+      if (rows.length === 0) {
+        showState("No hay movimientos que coincidan con la búsqueda.");
+      } else {
+        state.hidden = true;
+        tableWrap.hidden = false;
+      }
+    }
+
     function close() {
       if (!modal || modal.hidden) return;
       modal.hidden = true;
@@ -80,6 +179,8 @@
     document.addEventListener("keydown", function (event) {
       if (event.key === "Escape" && modal && !modal.hidden) close();
     });
+    if (search) search.addEventListener("input", renderCurrentItems);
+    if (sort) sort.addEventListener("change", renderCurrentItems);
 
     return {
       open(trigger) {
@@ -88,31 +189,29 @@
         if (closeButton) closeButton.focus();
       },
       loading() {
+        currentItems = [];
+        if (search) search.value = "";
+        if (sort) sort.value = "position";
+        if (controls) controls.hidden = true;
         tbody.replaceChildren();
         showState("Cargando movimientos históricos…");
       },
       success(header, items) {
         setHeader(header);
-        const fragment = document.createDocumentFragment();
-        items.forEach(function (item) {
-          const row = document.createElement("tr");
-          appendCell(row, item.position, "banorte-mono");
-          appendCell(row, item.historical_name);
-          appendCell(row, item.employee_number, "banorte-mono");
-          appendCell(row, item.account_number, "banorte-mono");
-          appendCell(row, formatAmountCents(item.amount_cents), "banorte-movements-amount");
-          fragment.appendChild(row);
-        });
-        tbody.replaceChildren(fragment);
-        state.hidden = true;
-        tableWrap.hidden = false;
+        currentItems = items.slice();
+        if (controls) controls.hidden = false;
+        renderCurrentItems();
       },
       empty(header) {
         setHeader(header);
+        currentItems = [];
+        if (controls) controls.hidden = true;
         tbody.replaceChildren();
         showState("Este export no tiene movimientos históricos persistidos.");
       },
       error(message) {
+        currentItems = [];
+        if (controls) controls.hidden = true;
         tbody.replaceChildren();
         showState(message || "No fue posible consultar los movimientos históricos.");
       },
@@ -197,6 +296,7 @@
 
   return {
     createHistoryController: createHistoryController,
+    filterAndSortMovements: filterAndSortMovements,
     formatAmountCents: formatAmountCents,
     bindTriggers: bindTriggers,
   };

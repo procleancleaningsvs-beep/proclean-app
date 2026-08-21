@@ -144,7 +144,7 @@
       <p id="banorte-export-msg" class="banorte-warn" hidden></p>
       <p id="banorte-generated-save-wrap" hidden>
         <a id="banorte-generated-save" class="btn btn-primary" href="#"
-           data-banorte-pag-save>Guardar .pag</a>
+           data-banorte-pag-save data-feedback-target="banorte-export-msg">Guardar .pag</a>
       </p>
     </section>
 
@@ -342,12 +342,11 @@
               <td>{{ e.created_at }}</td>
               <td>
                 <div class="banorte-history-actions">
-                  <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e.id) }}" data-banorte-pag-save data-export-id="{{ e.id }}" data-filename="{{ e.filename }}">Guardar .pag</a>
-                  <button type="button" class="btn btn-secondary btn-sm" title="Ver movimientos"
-                          aria-label="Ver movimientos de {{ e.filename }}"
+                  <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_download', export_id=e.id) }}" data-banorte-pag-save data-export-id="{{ e.id }}" data-filename="{{ e.filename }}" data-feedback-target="banorte-history-save-feedback">Guardar .pag</a>
+                  <button type="button" class="btn btn-secondary btn-sm banorte-history-eye" title="Ver movimientos"
+                          aria-label="Ver movimientos"
                           data-banorte-export-movements data-export-id="{{ e.id }}">
                     <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>
-                    <span>Ver movimientos</span>
                   </button>
                 </div>
               </td>
@@ -358,6 +357,7 @@
           </tbody>
         </table>
       </div>
+      <p id="banorte-history-save-feedback" class="banorte-history-save-feedback" role="status" aria-live="polite" hidden></p>
     </section>
   </section>
 

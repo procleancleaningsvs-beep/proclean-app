@@ -58,3 +58,20 @@ def test_no_example_filename_or_javascript_filename_reconstruction():
     combined = source + "\n" + editor
     assert "NI6705903.pag" not in combined
     assert "emisora" not in combined.lower()
+
+
+def test_history_save_feedback_is_independent_from_compact_action_buttons():
+    index = (ROOT / "templates/nomina/exportaciones_banorte.html").read_text(
+        encoding="utf-8"
+    )
+    history = (
+        ROOT / "templates/nomina/exportaciones_banorte_historial.html"
+    ).read_text(encoding="utf-8")
+    saver = (ROOT / "static/nomina/banorte_pag_save.js").read_text(encoding="utf-8")
+
+    for source in (index, history):
+        assert 'data-feedback-target="banorte-history-save-feedback"' in source
+        assert 'id="banorte-history-save-feedback"' in source
+    assert 'anchor.textContent = "Abriendo Guardar como…"' not in saver
+    assert "anchor.textContent = describeResult" not in saver
+    assert "anchor.textContent = originalText" in saver

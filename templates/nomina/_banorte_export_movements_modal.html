@@ -17,6 +17,26 @@
       <div><dt>Total histórico</dt><dd id="banorte-movements-total">—</dd></div>
     </dl>
 
+    <div id="banorte-movements-controls" class="banorte-movements-controls" hidden>
+      <label class="banorte-movements-search">
+        <span>Buscar</span>
+        <input type="search" id="banorte-movements-search"
+               placeholder="Nombre, número o importe…" autocomplete="off">
+      </label>
+      <label class="banorte-movements-sort">
+        <span>Ordenar</span>
+        <select id="banorte-movements-sort">
+          <option value="position">Orden original</option>
+          <option value="name_asc">Nombre A → Z</option>
+          <option value="name_desc">Nombre Z → A</option>
+          <option value="employee_asc">No. empleado menor → mayor</option>
+          <option value="employee_desc">No. empleado mayor → menor</option>
+          <option value="amount_asc">Importe menor → mayor</option>
+          <option value="amount_desc">Importe mayor → menor</option>
+        </select>
+      </label>
+    </div>
+
     <p id="banorte-movements-state" class="banorte-empty" role="status" aria-live="polite">
       Cargando movimientos históricos…
     </p>
