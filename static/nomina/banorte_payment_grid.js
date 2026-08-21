@@ -1,173 +1,536 @@
-(function () {
-  const root = document.getElementById("banorte-root");
-  const gridBody = document.getElementById("banorte-payment-grid-body");
-  if (!root || !gridBody) return;
+(function (root, factory) {
+  "use strict";
+  const api = factory(root);
+  if (typeof module === "object" && module.exports) module.exports = api;
+  root.BanortePaymentGrid = api;
+})(typeof window !== "undefined" ? window : globalThis, function (root) {
+  "use strict";
 
-  const rows = [];
-  let nextPosition = 1;
+  const OBSERVATION_LABELS = {
+    LENGTH_MISMATCH: "Listas con distinta longitud.",
+    NAME_EMPTY: "Nombre vacío.",
+    AMOUNT_EMPTY: "Importe vacío.",
+    AMOUNT_INVALID: "Importe inválido.",
+    PASTE_AMBIGUOUS: "Estructura de pegado ambigua.",
+  };
 
-  function esc(s) {
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/"/g, "&quot;")
-      .replace(/</g, "&lt;");
+  const EDITABLE_COLUMNS = ["name", "amount"];
+
+  function trimCell(value) {
+    return String(value == null ? "" : value).replace(/\u00a0/g, " ").trim();
   }
 
-  function observationText(codes) {
-    const labels = {
-      LENGTH_MISMATCH: "Listas con distinta longitud.",
-      NAME_EMPTY: "Nombre vacío.",
-      AMOUNT_EMPTY: "Importe vacío.",
-      AMOUNT_INVALID: "Importe inválido.",
+  function splitClipboardLines(text) {
+    return String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  }
+
+  function splitRowCells(line) {
+    return String(line || "").split("\t").map(trimCell);
+  }
+
+  function rowIsFullyEmpty(cells) {
+    return cells.every(function (cell) { return !cell; });
+  }
+
+  function normalizeDecimalString(cleaned) {
+    if (cleaned.indexOf(",") >= 0 && cleaned.indexOf(".") >= 0) {
+      const lastComma = cleaned.lastIndexOf(",");
+      const lastDot = cleaned.lastIndexOf(".");
+      if (lastComma > lastDot) {
+        const intpart = cleaned.slice(0, lastComma).replace(/\./g, "");
+        const frac = cleaned.slice(lastComma + 1);
+        if (!/^\d+$/.test(frac) || !/^\d+$/.test(intpart)) return null;
+        return intpart + "." + frac;
+      }
+      const intpart = cleaned.slice(0, lastDot).replace(/,/g, "");
+      const frac = cleaned.slice(lastDot + 1);
+      if (!/^\d+$/.test(frac) || !/^\d+$/.test(intpart)) return null;
+      return intpart + "." + frac;
+    }
+    if (cleaned.indexOf(",") >= 0) {
+      const parts = cleaned.split(",");
+      if (parts.length === 2 && /^\d+$/.test(parts[1]) && parts[1].length <= 2) {
+        const left = parts[0].replace(/\./g, "");
+        if (!/^\d+$/.test(left)) return null;
+        return left + "." + parts[1];
+      }
+      if (parts.length > 1 && parts.slice(1).every(function (p) { return /^\d{3}$/.test(p); }) && /^\d+$/.test(parts[0])) {
+        return parts.join("");
+      }
+      if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d{3}$/.test(parts[1])) {
+        return parts[0] + parts[1];
+      }
+      return null;
+    }
+    if (cleaned.indexOf(".") >= 0) {
+      const parts = cleaned.split(".");
+      if (parts.length === 2 && /^\d+$/.test(parts[1]) && parts[1].length <= 2) {
+        if (parts[0] !== "" && !/^\d+$/.test(parts[0])) return null;
+        return parts[0] === "" ? "0." + parts[1] : cleaned;
+      }
+      if (parts.length > 2 && parts.slice(1).every(function (p) { return /^\d{3}$/.test(p); }) && /^\d+$/.test(parts[0])) {
+        return parts.join("");
+      }
+      if (parts.length === 2 && /^\d+$/.test(parts[0]) && /^\d+$/.test(parts[1]) && parts[1].length > 2) {
+        if (parts[0] === "" || /^\d+$/.test(parts[0])) return parts[0] === "" ? "0." + parts[1] : cleaned;
+      }
+      return null;
+    }
+    return /^\d+$/.test(cleaned) ? cleaned : null;
+  }
+
+  function parseMoney(raw) {
+    if (raw == null) return { ok: false };
+    const text = trimCell(raw);
+    if (!text) return { ok: false };
+    const lowered = text.toLowerCase();
+    if (["=", "nan", "inf", "#ref", "#value"].some(function (tok) { return lowered.indexOf(tok) >= 0; })) {
+      return { ok: false };
+    }
+    let cleaned = text;
+    ["$", "€", "£", "¥", "MXN", "USD", "EUR"].forEach(function (sym) {
+      cleaned = cleaned.split(sym).join("");
+    });
+    cleaned = cleaned.replace(/\u00a0/g, " ").trim().replace(/\s+/g, "");
+    if (!cleaned || ["-", "+", ".", ",", "-.", ",."].indexOf(cleaned) >= 0) return { ok: false };
+
+    let negative = false;
+    if (cleaned.charAt(0) === "(" && cleaned.charAt(cleaned.length - 1) === ")") {
+      negative = true;
+      cleaned = cleaned.slice(1, -1);
+    }
+    if (cleaned.charAt(0) === "+") cleaned = cleaned.slice(1);
+    if (cleaned.charAt(0) === "-") {
+      negative = true;
+      cleaned = cleaned.slice(1);
+    }
+    if (!cleaned) return { ok: false };
+    if (!/^[0-9.,]+$/.test(cleaned)) return { ok: false };
+
+    const normalized = normalizeDecimalString(cleaned);
+    if (normalized == null) return { ok: false };
+    if (negative) return { ok: false };
+    if (/^0+(?:\.0+)?$/.test(normalized)) return { ok: false };
+    return { ok: true };
+  }
+
+  function isMonetaryAmount(raw) {
+    return parseMoney(raw).ok;
+  }
+
+  function classifyCell(value) {
+    const trimmed = trimCell(value);
+    if (!trimmed) return "EMPTY";
+    if (isMonetaryAmount(trimmed)) return "AMOUNT";
+    return "NAME";
+  }
+
+  function rowFromSingleCell(value) {
+    const kind = classifyCell(value);
+    if (kind === "AMOUNT") return { name_raw: "", amount_raw: value };
+    return { name_raw: value, amount_raw: "" };
+  }
+
+  function rowFromTwoCells(left, right) {
+    const a = trimCell(left);
+    const b = trimCell(right);
+    const leftKind = classifyCell(a);
+    const rightKind = classifyCell(b);
+    if (leftKind === "NAME" && rightKind === "AMOUNT") {
+      return { name_raw: a, amount_raw: b };
+    }
+    if (leftKind === "AMOUNT" && rightKind === "NAME") {
+      return { name_raw: b, amount_raw: a };
+    }
+    if (leftKind === "EMPTY" && rightKind === "AMOUNT") {
+      return { name_raw: "", amount_raw: b };
+    }
+    if (leftKind === "AMOUNT" && rightKind === "EMPTY") {
+      return { name_raw: "", amount_raw: a };
+    }
+    if (leftKind === "NAME" && rightKind === "EMPTY") {
+      return { name_raw: a, amount_raw: "" };
+    }
+    if (leftKind === "EMPTY" && rightKind === "NAME") {
+      return { name_raw: b, amount_raw: "" };
+    }
+    if (leftKind === "NAME" && rightKind === "NAME") {
+      return { name_raw: a, amount_raw: b, paste_ambiguous: true };
+    }
+    if (leftKind === "AMOUNT" && rightKind === "AMOUNT") {
+      return { name_raw: a, amount_raw: b, paste_ambiguous: true };
+    }
+    return { name_raw: a, amount_raw: b, paste_ambiguous: true };
+  }
+
+  function rowFromMultiCells(cells) {
+    const trimmed = cells.map(trimCell);
+    if (trimmed.length <= 2) {
+      return rowFromTwoCells(trimmed[0] || "", trimmed[1] || "");
+    }
+    return {
+      name_raw: trimmed[0] || "",
+      amount_raw: trimmed[1] || "",
+      paste_ambiguous: true,
     };
-    return (codes || []).map(function (c) { return labels[c] || c; }).join(" ");
   }
 
-  function newKey() {
-    return "row-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+  function finalizeParsedRow(row) {
+    const out = {
+      name_raw: row.name_raw == null ? "" : String(row.name_raw),
+      amount_raw: row.amount_raw == null ? "" : String(row.amount_raw),
+      observation_codes: [],
+    };
+    if (row.paste_ambiguous) out.observation_codes.push("PASTE_AMBIGUOUS");
+    return out;
+  }
+
+  function parsePasteMatrix(text) {
+    const matrix = [];
+    splitClipboardLines(text).forEach(function (line) {
+      const cells = splitRowCells(line);
+      if (rowIsFullyEmpty(cells)) return;
+      matrix.push(cells);
+    });
+    return matrix.map(function (cells) {
+      let row;
+      if (cells.length === 1) row = rowFromSingleCell(cells[0]);
+      else if (cells.length === 2) row = rowFromTwoCells(cells[0], cells[1]);
+      else row = rowFromMultiCells(cells);
+      return finalizeParsedRow(row);
+    });
   }
 
   function evaluateRow(row) {
-    const codes = [];
+    const codes = Array.isArray(row.observation_codes)
+      ? row.observation_codes.slice()
+      : [];
     let state = "OK";
-    if (!String(row.name_raw || "").trim()) {
-      codes.push("NAME_EMPTY");
+    if (!trimCell(row.name_raw)) {
+      if (codes.indexOf("NAME_EMPTY") < 0) codes.push("NAME_EMPTY");
       state = "NEEDS_REVIEW";
     }
-    if (!String(row.amount_raw || "").trim()) {
-      codes.push("AMOUNT_EMPTY");
+    if (!trimCell(row.amount_raw)) {
+      if (codes.indexOf("AMOUNT_EMPTY") < 0) codes.push("AMOUNT_EMPTY");
       state = "NEEDS_REVIEW";
-    } else if (!/^\s*-?\d+(?:[.,]\d{1,2})?\s*$/.test(String(row.amount_raw))) {
-      codes.push("AMOUNT_INVALID");
+    } else if (!parseMoney(row.amount_raw).ok) {
+      if (codes.indexOf("AMOUNT_INVALID") < 0) codes.push("AMOUNT_INVALID");
       state = "NEEDS_REVIEW";
     }
+    if (codes.indexOf("PASTE_AMBIGUOUS") >= 0) state = "NEEDS_REVIEW";
     row.state = state;
     row.observation_codes = codes;
   }
 
-  function addRow(partial) {
-    partial = partial || {};
-    const row = {
-      client_row_key: partial.client_row_key || newKey(),
-      position: partial.position || nextPosition++,
-      name_raw: partial.name_raw || "",
-      catalog_person_id: partial.catalog_person_id || null,
-      amount_raw: partial.amount_raw || "",
-      account_display: partial.account_display || "",
-      state: partial.state || "OK",
-      observation_codes: partial.observation_codes || [],
-    };
-    evaluateRow(row);
-    rows.push(row);
-    render();
-    return row;
+  function observationText(codes) {
+    return (codes || []).map(function (c) { return OBSERVATION_LABELS[c] || c; }).join(" ");
   }
 
-  function removeRow(key) {
-    const idx = rows.findIndex(function (r) { return r.client_row_key === key; });
-    if (idx >= 0) rows.splice(idx, 1);
-    rows.forEach(function (r, i) { r.position = i + 1; });
-    nextPosition = rows.length + 1;
-    render();
+  function findFirstEmptyRowIndex(rows) {
+    for (let i = 0; i < rows.length; i += 1) {
+      if (!trimCell(rows[i].name_raw) && !trimCell(rows[i].amount_raw)) return i;
+    }
+    return rows.length;
   }
 
-  function render() {
-    gridBody.innerHTML = "";
-    rows.forEach(function (row) {
-      const tr = document.createElement("tr");
-      tr.dataset.rowKey = row.client_row_key;
-      tr.innerHTML =
-        "<td>" + row.position + "</td>" +
-        '<td><input type="text" class="banorte-grid-name" value="' + esc(row.name_raw) + '" autocomplete="off"></td>' +
-        '<td><span class="banorte-grid-account banorte-mono">' + esc(row.account_display || "—") + "</span></td>" +
-        '<td><input type="text" class="banorte-grid-amount" value="' + esc(row.amount_raw) + '" inputmode="decimal" autocomplete="off"></td>' +
-        '<td class="banorte-grid-state">' + esc(observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección")) + "</td>" +
-        '<td><button type="button" class="btn btn-secondary btn-sm banorte-grid-remove">Quitar</button></td>';
-      const nameInput = tr.querySelector(".banorte-grid-name");
-      const amountInput = tr.querySelector(".banorte-grid-amount");
-      nameInput.addEventListener("input", function () {
-        row.name_raw = nameInput.value;
-        row.catalog_person_id = null;
-        row.account_display = "";
-        evaluateRow(row);
-        tr.querySelector(".banorte-grid-state").textContent =
-          observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+  function resolveKeyboardMove(key, column, rowIndex, rowCount, caretStart, caretEnd, textLength) {
+    const atStart = caretStart === 0 && caretEnd === 0;
+    const atEnd = caretStart === textLength && caretEnd === textLength;
+    if (key === "ArrowUp") return { rowIndex: rowIndex - 1, column: column };
+    if (key === "ArrowDown" || key === "Enter") return { rowIndex: rowIndex + 1, column: column };
+    if (key === "ShiftEnter") return { rowIndex: rowIndex - 1, column: column };
+    if (key === "Tab") {
+      const colIdx = EDITABLE_COLUMNS.indexOf(column);
+      const nextIdx = colIdx + 1;
+      if (nextIdx < EDITABLE_COLUMNS.length) return { rowIndex: rowIndex, column: EDITABLE_COLUMNS[nextIdx] };
+      if (rowIndex + 1 < rowCount) return { rowIndex: rowIndex + 1, column: EDITABLE_COLUMNS[0] };
+      return null;
+    }
+    if (key === "ShiftTab") {
+      const colIdx = EDITABLE_COLUMNS.indexOf(column);
+      const nextIdx = colIdx - 1;
+      if (nextIdx >= 0) return { rowIndex: rowIndex, column: EDITABLE_COLUMNS[nextIdx] };
+      if (rowIndex > 0) return { rowIndex: rowIndex - 1, column: EDITABLE_COLUMNS[EDITABLE_COLUMNS.length - 1] };
+      return null;
+    }
+    if (key === "ArrowLeft" && atStart) {
+      const colIdx = EDITABLE_COLUMNS.indexOf(column);
+      if (colIdx > 0) return { rowIndex: rowIndex, column: EDITABLE_COLUMNS[colIdx - 1] };
+      if (rowIndex > 0) return { rowIndex: rowIndex - 1, column: EDITABLE_COLUMNS[EDITABLE_COLUMNS.length - 1] };
+      return null;
+    }
+    if (key === "ArrowRight" && atEnd) {
+      const colIdx = EDITABLE_COLUMNS.indexOf(column);
+      if (colIdx + 1 < EDITABLE_COLUMNS.length) return { rowIndex: rowIndex, column: EDITABLE_COLUMNS[colIdx + 1] };
+      if (rowIndex + 1 < rowCount) return { rowIndex: rowIndex + 1, column: EDITABLE_COLUMNS[0] };
+      return null;
+    }
+    return null;
+  }
+
+  function createGridController(options) {
+    options = options || {};
+    const gridBody = options.gridBody;
+    const pasteRoot = options.pasteRoot;
+    const gridTable = options.gridTable;
+    if (!gridBody) return null;
+
+    const rows = [];
+    let nextPosition = 1;
+
+    function esc(s) {
+      return String(s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;");
+    }
+
+    function newKey() {
+      return "row-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+
+    function createRowData(partial) {
+      partial = partial || {};
+      const row = {
+        client_row_key: partial.client_row_key || newKey(),
+        position: partial.position || nextPosition++,
+        name_raw: partial.name_raw || "",
+        catalog_person_id: partial.catalog_person_id || null,
+        amount_raw: partial.amount_raw || "",
+        account_display: partial.account_display || "",
+        state: partial.state || "OK",
+        observation_codes: partial.observation_codes || [],
+      };
+      evaluateRow(row);
+      return row;
+    }
+
+    function ensureRowCapacity(count) {
+      while (rows.length < count) rows.push(createRowData({}));
+    }
+
+    function mergeParsedRow(existing, parsed) {
+      existing.name_raw = parsed.name_raw;
+      existing.amount_raw = parsed.amount_raw;
+      existing.catalog_person_id = null;
+      existing.account_display = "";
+      existing.observation_codes = parsed.observation_codes.slice();
+      evaluateRow(existing);
+    }
+
+    function applyPaste(text, anchor) {
+      const parsed = parsePasteMatrix(text);
+      if (!parsed.length) return;
+      let startRow = anchor && anchor.rowIndex >= 0 ? anchor.rowIndex : findFirstEmptyRowIndex(rows);
+      ensureRowCapacity(startRow + parsed.length);
+      parsed.forEach(function (parsedRow, offset) {
+        mergeParsedRow(rows[startRow + offset], parsedRow);
       });
-      amountInput.addEventListener("input", function () {
-        row.amount_raw = amountInput.value;
-        evaluateRow(row);
-        tr.querySelector(".banorte-grid-state").textContent =
-          observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
-      });
-      tr.querySelector(".banorte-grid-remove").addEventListener("click", function () {
-        removeRow(row.client_row_key);
-      });
-      gridBody.appendChild(tr);
-    });
-  }
-
-  function parsePaste(text) {
-    const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
-    const tsvLike = lines.filter(function (l) { return String(l).trim(); }).every(function (l) {
-      return l.indexOf("\t") >= 0 && l.split("\t").length === 2;
-    });
-    lines.forEach(function (line) {
-      if (!String(line).trim()) {
-        addRow({ name_raw: "", amount_raw: "", state: "NEEDS_REVIEW", observation_codes: ["NAME_EMPTY", "AMOUNT_EMPTY"] });
-        return;
-      }
-      if (tsvLike) {
-        const parts = line.split("\t");
-        addRow({ name_raw: parts[0], amount_raw: parts[1] || "" });
-      } else {
-        addRow({ name_raw: line, amount_raw: "" });
-      }
-    });
-  }
-
-  const pasteArea = document.getElementById("banorte-payment-grid-paste");
-  if (pasteArea) {
-    pasteArea.addEventListener("paste", function (e) {
-      e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData("text");
-      parsePaste(text);
-    });
-  }
-
-  document.addEventListener("banorte:catalog-person-selected", function (e) {
-    const detail = e.detail || {};
-    addRow({
-      name_raw: "",
-      amount_raw: "",
-      catalog_person_id: detail.catalog_person_id,
-      account_display: "Catálogo",
-    });
-  });
-
-  document.getElementById("banorte-payment-grid-add")?.addEventListener("click", function () {
-    addRow({});
-  });
-
-  window.banortePaymentGrid = {
-    getRowsPayload: function () {
-      return rows.map(function (r) {
-        return {
-          client_row_key: r.client_row_key,
-          position: r.position,
-          name_raw: r.name_raw,
-          amount_raw: r.amount_raw,
-          catalog_person_id: r.catalog_person_id,
-          state: r.state,
-          observation_codes: r.observation_codes,
-        };
-      });
-    },
-    clear: function () {
-      rows.length = 0;
-      nextPosition = 1;
+      rows.forEach(function (row, index) { row.position = index + 1; });
+      nextPosition = rows.length + 1;
       render();
-    },
-  };
+      const focusRow = Math.min(startRow + parsed.length - 1, rows.length - 1);
+      focusEditableCell(focusRow, (anchor && anchor.column) || "name");
+    }
 
-  addRow({});
-})();
+    function resolvePasteAnchor(target) {
+      if (target && target.matches && target.matches(".banorte-grid-name, .banorte-grid-amount")) {
+        const tr = target.closest("tr");
+        const rowIndex = tr ? Array.from(gridBody.children).indexOf(tr) : findFirstEmptyRowIndex(rows);
+        return {
+          rowIndex: rowIndex < 0 ? findFirstEmptyRowIndex(rows) : rowIndex,
+          column: target.classList.contains("banorte-grid-amount") ? "amount" : "name",
+        };
+      }
+      const active = gridBody.querySelector(".banorte-grid-name:focus, .banorte-grid-amount:focus");
+      if (active) return resolvePasteAnchor(active);
+      return { rowIndex: findFirstEmptyRowIndex(rows), column: "name" };
+    }
+
+    function focusEditableCell(rowIndex, column) {
+      const tr = gridBody.children[rowIndex];
+      if (!tr) return;
+      const selector = column === "amount" ? ".banorte-grid-amount" : ".banorte-grid-name";
+      const input = tr.querySelector(selector);
+      if (input) input.focus();
+    }
+
+    function handlePasteEvent(e) {
+      const text = (e.clipboardData || root.clipboardData || { getData: function () { return ""; } }).getData("text");
+      if (!String(text).length) return;
+      e.preventDefault();
+      applyPaste(text, resolvePasteAnchor(e.target));
+    }
+
+    function handleInputKeydown(e) {
+      const input = e.target;
+      if (!input.matches(".banorte-grid-name, .banorte-grid-amount")) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const column = input.classList.contains("banorte-grid-amount") ? "amount" : "name";
+      const tr = input.closest("tr");
+      const rowIndex = tr ? Array.from(gridBody.children).indexOf(tr) : -1;
+      if (rowIndex < 0) return;
+      let key = e.key;
+      if (key === "Enter" && e.shiftKey) key = "ShiftEnter";
+      if (key === "Tab" && e.shiftKey) key = "ShiftTab";
+      const move = resolveKeyboardMove(
+        key,
+        column,
+        rowIndex,
+        rows.length,
+        input.selectionStart == null ? 0 : input.selectionStart,
+        input.selectionEnd == null ? 0 : input.selectionEnd,
+        String(input.value || "").length
+      );
+      if (!move) return;
+      if (move.rowIndex < 0 || move.rowIndex >= rows.length) return;
+      e.preventDefault();
+      focusEditableCell(move.rowIndex, move.column);
+    }
+
+    function addRow(partial) {
+      rows.push(createRowData(partial));
+      render();
+      return rows[rows.length - 1];
+    }
+
+    function addRowsBatch(partials) {
+      partials.forEach(function (partial) { rows.push(createRowData(partial)); });
+      render();
+    }
+
+    function removeRow(key) {
+      const idx = rows.findIndex(function (r) { return r.client_row_key === key; });
+      if (idx >= 0) rows.splice(idx, 1);
+      rows.forEach(function (r, i) { r.position = i + 1; });
+      nextPosition = rows.length + 1;
+      render();
+    }
+
+    function render() {
+      gridBody.innerHTML = "";
+      rows.forEach(function (row) {
+        const tr = document.createElement("tr");
+        tr.dataset.rowKey = row.client_row_key;
+        tr.innerHTML =
+          "<td>" + row.position + "</td>" +
+          '<td><input type="text" class="banorte-grid-name" value="' + esc(row.name_raw) + '" autocomplete="off"></td>' +
+          '<td><span class="banorte-grid-account banorte-mono" tabindex="-1">' + esc(row.account_display || "—") + "</span></td>" +
+          '<td><input type="text" class="banorte-grid-amount" value="' + esc(row.amount_raw) + '" inputmode="decimal" autocomplete="off"></td>' +
+          '<td class="banorte-grid-state">' + esc(observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección")) + "</td>" +
+          '<td><button type="button" class="btn btn-secondary btn-sm banorte-grid-remove" tabindex="0">Quitar</button></td>';
+        const nameInput = tr.querySelector(".banorte-grid-name");
+        const amountInput = tr.querySelector(".banorte-grid-amount");
+        nameInput.addEventListener("input", function () {
+          row.name_raw = nameInput.value;
+          row.catalog_person_id = null;
+          row.account_display = "";
+          evaluateRow(row);
+          tr.querySelector(".banorte-grid-state").textContent =
+            observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+        });
+        amountInput.addEventListener("input", function () {
+          row.amount_raw = amountInput.value;
+          evaluateRow(row);
+          tr.querySelector(".banorte-grid-state").textContent =
+            observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+        });
+        nameInput.addEventListener("keydown", handleInputKeydown);
+        amountInput.addEventListener("keydown", handleInputKeydown);
+        tr.querySelector(".banorte-grid-remove").addEventListener("click", function () {
+          removeRow(row.client_row_key);
+        });
+        gridBody.appendChild(tr);
+      });
+    }
+
+    const pasteTargets = [pasteRoot, gridTable, gridBody].filter(Boolean);
+    pasteTargets.forEach(function (node) {
+      node.addEventListener("paste", handlePasteEvent, true);
+    });
+
+    return {
+      rows: rows,
+      addRow: addRow,
+      addRowsBatch: addRowsBatch,
+      removeRow: removeRow,
+      applyPaste: applyPaste,
+      render: render,
+      focusEditableCell: focusEditableCell,
+      getRowsPayload: function () {
+        return rows.map(function (r) {
+          return {
+            client_row_key: r.client_row_key,
+            position: r.position,
+            name_raw: r.name_raw,
+            amount_raw: r.amount_raw,
+            catalog_person_id: r.catalog_person_id,
+            state: r.state,
+            observation_codes: r.observation_codes,
+          };
+        });
+      },
+      clear: function () {
+        rows.length = 0;
+        nextPosition = 1;
+        render();
+      },
+    };
+  }
+
+  function mount() {
+    const pageRoot = root.document && root.document.getElementById("banorte-root");
+    const gridBody = root.document && root.document.getElementById("banorte-payment-grid-body");
+    if (!pageRoot || !gridBody) return null;
+    const controller = createGridController({
+      gridBody: gridBody,
+      pasteRoot: root.document.getElementById("banorte-payment-grid-paste"),
+      gridTable: root.document.getElementById("banorte-payment-grid"),
+    });
+    if (!controller) return null;
+
+    root.document.addEventListener("banorte:catalog-person-selected", function (e) {
+      const detail = e.detail || {};
+      controller.addRow({
+        name_raw: "",
+        amount_raw: "",
+        catalog_person_id: detail.catalog_person_id,
+        account_display: "Catálogo",
+      });
+    });
+
+    const addBtn = root.document.getElementById("banorte-payment-grid-add");
+    if (addBtn) addBtn.addEventListener("click", function () { controller.addRow({}); });
+
+    controller.addRow({});
+    root.banortePaymentGrid = {
+      getRowsPayload: controller.getRowsPayload.bind(controller),
+      clear: controller.clear.bind(controller),
+    };
+    return controller;
+  }
+
+  if (root.document) {
+    if (root.document.readyState === "loading") {
+      root.document.addEventListener("DOMContentLoaded", mount);
+    } else {
+      mount();
+    }
+  }
+
+  return {
+    trimCell: trimCell,
+    splitClipboardLines: splitClipboardLines,
+    splitRowCells: splitRowCells,
+    rowIsFullyEmpty: rowIsFullyEmpty,
+    parseMoney: parseMoney,
+    isMonetaryAmount: isMonetaryAmount,
+    classifyCell: classifyCell,
+    parsePasteMatrix: parsePasteMatrix,
+    evaluateRow: evaluateRow,
+    resolveKeyboardMove: resolveKeyboardMove,
+    EDITABLE_COLUMNS: EDITABLE_COLUMNS,
+    createGridController: createGridController,
+    mount: mount,
+  };
+});
