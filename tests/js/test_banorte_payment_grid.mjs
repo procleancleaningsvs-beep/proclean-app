@@ -13,7 +13,51 @@ const {
   evaluateRow,
   resolveKeyboardMove,
   EDITABLE_COLUMNS,
+  applySingleColumnPasteToModel,
+  isSingleColumnPaste,
+  extractPasteMatrix,
 } = grid;
+
+function makeRow(partial) {
+  const row = {
+    client_row_key: "k-" + Math.random(),
+    position: 1,
+    name_raw: partial.name_raw || "",
+    amount_raw: partial.amount_raw || "",
+    catalog_person_id: null,
+    account_display: partial.account_display || "",
+    state: "OK",
+    observation_codes: partial.observation_codes || [],
+  };
+  evaluateRow(row);
+  return row;
+}
+
+function createRowFactory() {
+  let position = 1;
+  return function createRow(partial) {
+    const row = makeRow(partial || {});
+    row.position = position++;
+    return row;
+  };
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function buildNames(count, prefix) {
+  prefix = prefix || "Nombre";
+  const lines = [];
+  for (let i = 1; i <= count; i += 1) lines.push(prefix + " " + pad2(i));
+  return lines;
+}
+
+function buildAmounts(start, count) {
+  const lines = [];
+  for (let i = 0; i < count; i += 1) lines.push(String(start + i));
+  return lines;
+}
 
 function rowAt(text, index) {
   const rows = parsePasteMatrix(text);
@@ -193,4 +237,112 @@ test("whitespace-only cells trim to empty but keep row alignment", () => {
   const row = rowAt("\t2500", 0);
   assert.equal(row.name_raw, "");
   assert.equal(row.amount_raw, "2500");
+});
+
+test("mandatory: 16 names then 16 amounts remain 16 rows aligned by index", () => {
+  const rows = [];
+  const createRow = createRowFactory();
+  const names = buildNames(16);
+  const amounts = buildAmounts(1001, 16);
+
+  applySingleColumnPasteToModel(rows, names, { rowIndex: 0, column: "name", explicit: true }, createRow);
+  assert.equal(rows.length, 16);
+  assert.equal(rows.filter(function (r) { return trimCell(r.name_raw); }).length, 16);
+  assert.equal(rows.filter(function (r) { return trimCell(r.amount_raw); }).length, 0);
+
+  applySingleColumnPasteToModel(rows, amounts, { rowIndex: 0, column: "amount", explicit: true }, createRow);
+  assert.equal(rows.length, 16);
+  assert.equal(rows.filter(function (r) { return trimCell(r.name_raw); }).length, 16);
+  assert.equal(rows.filter(function (r) { return trimCell(r.amount_raw); }).length, 16);
+  for (let i = 0; i < 16; i += 1) {
+    assert.equal(rows[i].name_raw, "Nombre " + pad2(i + 1));
+    assert.equal(rows[i].amount_raw, String(1001 + i));
+  }
+});
+
+test("5 names then 5 amounts fill existing rows", () => {
+  const rows = [];
+  const createRow = createRowFactory();
+  applySingleColumnPasteToModel(rows, buildNames(5), { rowIndex: 0, column: "name", explicit: true }, createRow);
+  applySingleColumnPasteToModel(rows, buildAmounts(500, 5), { rowIndex: 0, column: "amount", explicit: false }, createRow);
+  assert.equal(rows.length, 5);
+  for (let i = 0; i < 5; i += 1) {
+    assert.equal(rows[i].name_raw, "Nombre " + pad2(i + 1));
+    assert.equal(rows[i].amount_raw, String(500 + i));
+  }
+});
+
+test("more amounts than rows completes existing then creates only surplus", () => {
+  const rows = [makeRow({ name_raw: "A", amount_raw: "" }), makeRow({ name_raw: "B", amount_raw: "" })];
+  applySingleColumnPasteToModel(rows, ["10", "20", "30"], { rowIndex: 0, column: "amount", explicit: false }, createRowFactory());
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].amount_raw, "10");
+  assert.equal(rows[1].amount_raw, "20");
+  assert.equal(rows[2].amount_raw, "30");
+});
+
+test("fewer amounts than names leaves trailing names without amount", () => {
+  const rows = [];
+  const createRow = createRowFactory();
+  applySingleColumnPasteToModel(rows, buildNames(4), { rowIndex: 0, column: "name", explicit: true }, createRow);
+  applySingleColumnPasteToModel(rows, ["10", "20"], { rowIndex: 0, column: "amount", explicit: false }, createRow);
+  assert.equal(rows.length, 4);
+  assert.equal(rows[0].amount_raw, "10");
+  assert.equal(rows[1].amount_raw, "20");
+  assert.equal(rows[2].amount_raw, "");
+  assert.equal(rows[3].amount_raw, "");
+});
+
+test("amount paste from row 5 starts at row 5 when anchored", () => {
+  const rows = [];
+  const createRow = createRowFactory();
+  applySingleColumnPasteToModel(rows, buildNames(10), { rowIndex: 0, column: "name", explicit: true }, createRow);
+  applySingleColumnPasteToModel(rows, ["9001", "9002"], { rowIndex: 5, column: "amount", explicit: true }, createRow);
+  assert.equal(rows[5].amount_raw, "9001");
+  assert.equal(rows[6].amount_raw, "9002");
+  assert.equal(rows[0].amount_raw, "");
+});
+
+test("name paste targets name column on anchored paste", () => {
+  const rows = [makeRow({ name_raw: "", amount_raw: "" })];
+  applySingleColumnPasteToModel(rows, ["Alice", "Bob"], { rowIndex: 0, column: "name", explicit: true }, createRowFactory());
+  assert.equal(rows[0].name_raw, "Alice");
+  assert.equal(rows[1].name_raw, "Bob");
+  assert.equal(rows[0].amount_raw, "");
+});
+
+test("inferred amount paste skips rows that already have amount", () => {
+  const rows = [
+    makeRow({ name_raw: "A", amount_raw: "999" }),
+    makeRow({ name_raw: "B", amount_raw: "" }),
+  ];
+  applySingleColumnPasteToModel(rows, ["100", "200"], { rowIndex: 0, column: "amount", explicit: false }, createRowFactory());
+  assert.equal(rows[0].amount_raw, "999");
+  assert.equal(rows[1].amount_raw, "100");
+  assert.equal(rows.length, 3);
+  assert.equal(rows[2].amount_raw, "200");
+});
+
+test("explicit anchored amount paste replaces existing amount", () => {
+  const rows = [makeRow({ name_raw: "A", amount_raw: "999" })];
+  applySingleColumnPasteToModel(rows, ["1234"], { rowIndex: 0, column: "amount", explicit: true }, createRowFactory());
+  assert.equal(rows[0].amount_raw, "1234");
+});
+
+test("single column paste detection", () => {
+  const matrix = extractPasteMatrix("A\nB\nC");
+  assert.equal(isSingleColumnPaste(matrix), true);
+  const matrixTsv = extractPasteMatrix("A\t1\nB\t2");
+  assert.equal(isSingleColumnPaste(matrixTsv), false);
+});
+
+test("inferred amount paste after names from container anchor", () => {
+  const rows = [];
+  const createRow = createRowFactory();
+  applySingleColumnPasteToModel(rows, buildNames(16), { rowIndex: 0, column: "name", explicit: true }, createRow);
+  applySingleColumnPasteToModel(rows, buildAmounts(1001, 16), { rowIndex: 0, column: "name", explicit: false }, createRow);
+  assert.equal(rows.length, 16);
+  for (let i = 0; i < 16; i += 1) {
+    assert.equal(rows[i].amount_raw, String(1001 + i));
+  }
 });

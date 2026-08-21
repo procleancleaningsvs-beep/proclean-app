@@ -185,14 +185,177 @@
     return out;
   }
 
-  function parsePasteMatrix(text) {
+  function extractPasteMatrix(text) {
     const matrix = [];
     splitClipboardLines(text).forEach(function (line) {
       const cells = splitRowCells(line);
       if (rowIsFullyEmpty(cells)) return;
       matrix.push(cells);
     });
-    return matrix.map(function (cells) {
+    return matrix;
+  }
+
+  function isSingleColumnPaste(matrix) {
+    return matrix.length > 0 && matrix.every(function (cells) { return cells.length === 1; });
+  }
+
+  function singleColumnValues(matrix) {
+    return matrix.map(function (cells) { return cells[0]; });
+  }
+
+  function inferTargetColumnFromValues(values) {
+    if (!values.length) return null;
+    let sawName = false;
+    let sawAmount = false;
+    values.forEach(function (value) {
+      const kind = classifyCell(value);
+      if (kind === "NAME") sawName = true;
+      if (kind === "AMOUNT") sawAmount = true;
+    });
+    if (sawName && !sawAmount) return "name";
+    if (sawAmount && !sawName) return "amount";
+    return null;
+  }
+
+  function findFirstEmptyNameRow(rows, fromIndex) {
+    for (let i = Math.max(0, fromIndex || 0); i < rows.length; i += 1) {
+      if (!trimCell(rows[i].name_raw)) return i;
+    }
+    return -1;
+  }
+
+  function findInferredAmountTargetRow(rows, fromIndex) {
+    for (let i = Math.max(0, fromIndex || 0); i < rows.length; i += 1) {
+      if (trimCell(rows[i].name_raw) && !trimCell(rows[i].amount_raw)) return i;
+    }
+    for (let i = Math.max(0, fromIndex || 0); i < rows.length; i += 1) {
+      if (!trimCell(rows[i].name_raw) && !trimCell(rows[i].amount_raw)) return i;
+    }
+    return -1;
+  }
+
+  function planSingleColumnPaste(rows, values, anchor) {
+    anchor = anchor || {};
+    const explicit = !!anchor.explicit;
+    let targetColumn = anchor.column || "name";
+    const startRow = anchor.rowIndex >= 0 ? anchor.rowIndex : 0;
+    const ops = [];
+
+    if (!explicit) {
+      const inferred = inferTargetColumnFromValues(values);
+      if (inferred) targetColumn = inferred;
+      else {
+        values.forEach(function (value) {
+          const parsed = finalizeParsedRow(rowFromSingleCell(value));
+          ops.push({ create: true, name_raw: parsed.name_raw, amount_raw: parsed.amount_raw, observation_codes: parsed.observation_codes });
+        });
+        return ops;
+      }
+    }
+
+    if (targetColumn === "name") {
+      if (explicit) {
+        values.forEach(function (value, offset) {
+          ops.push({
+            rowIndex: startRow + offset,
+            field: "name_raw",
+            value: value,
+            overwrite: true,
+            ensureCapacity: true,
+          });
+        });
+        return ops;
+      }
+      let cursor = findFirstEmptyNameRow(rows, 0);
+      values.forEach(function (value) {
+        if (cursor < 0) {
+          ops.push({ create: true, name_raw: value, amount_raw: "", observation_codes: [] });
+          return;
+        }
+        ops.push({ rowIndex: cursor, field: "name_raw", value: value, overwrite: false });
+        cursor = findFirstEmptyNameRow(rows, cursor + 1);
+      });
+      return ops;
+    }
+
+    if (explicit) {
+      values.forEach(function (value, offset) {
+        ops.push({
+          rowIndex: startRow + offset,
+          field: "amount_raw",
+          value: value,
+          overwrite: true,
+          ensureCapacity: true,
+        });
+      });
+      return ops;
+    }
+
+    let searchFrom = 0;
+    values.forEach(function (value) {
+      let target = -1;
+      for (let i = searchFrom; i < rows.length; i += 1) {
+        if (trimCell(rows[i].name_raw) && !trimCell(rows[i].amount_raw)) {
+          target = i;
+          break;
+        }
+      }
+      if (target < 0) {
+        for (let i = searchFrom; i < rows.length; i += 1) {
+          if (!trimCell(rows[i].name_raw) && !trimCell(rows[i].amount_raw)) {
+            target = i;
+            break;
+          }
+        }
+      }
+      if (target < 0) {
+        ops.push({ create: true, name_raw: "", amount_raw: value, observation_codes: [] });
+        return;
+      }
+      ops.push({ rowIndex: target, field: "amount_raw", value: value, overwrite: false });
+      searchFrom = target + 1;
+    });
+    return ops;
+  }
+
+  function applyPastePlan(rows, ops, createRow) {
+    ops.forEach(function (op) {
+      if (op.create) {
+        const row = createRow({
+          name_raw: op.name_raw || "",
+          amount_raw: op.amount_raw || "",
+          observation_codes: op.observation_codes || [],
+        });
+        rows.push(row);
+        return;
+      }
+      if (op.ensureCapacity) {
+        while (rows.length <= op.rowIndex) rows.push(createRow({}));
+      }
+      const row = rows[op.rowIndex];
+      if (!row) return;
+      if (op.field === "name_raw") {
+        if (op.overwrite || !trimCell(row.name_raw)) row.name_raw = op.value;
+      } else if (op.field === "amount_raw") {
+        if (op.overwrite || !trimCell(row.amount_raw)) row.amount_raw = op.value;
+      }
+      row.catalog_person_id = null;
+      row.account_display = "";
+      if (Array.isArray(op.observation_codes) && op.observation_codes.length) {
+        row.observation_codes = op.observation_codes.slice();
+      }
+      evaluateRow(row);
+    });
+  }
+
+  function applySingleColumnPasteToModel(rows, values, anchor, createRow) {
+    const ops = planSingleColumnPaste(rows, values, anchor);
+    applyPastePlan(rows, ops, createRow);
+    return ops;
+  }
+
+  function parsePasteMatrix(text) {
+    return extractPasteMatrix(text).map(function (cells) {
       let row;
       if (cells.length === 1) row = rowFromSingleCell(cells[0]);
       else if (cells.length === 2) row = rowFromTwoCells(cells[0], cells[1]);
@@ -309,9 +472,13 @@
       while (rows.length < count) rows.push(createRowData({}));
     }
 
-    function mergeParsedRow(existing, parsed) {
-      existing.name_raw = parsed.name_raw;
-      existing.amount_raw = parsed.amount_raw;
+    function mergeParsedRow(existing, parsed, overwrite) {
+      if (overwrite || parsed.name_raw !== "" || !trimCell(existing.name_raw)) {
+        existing.name_raw = parsed.name_raw;
+      }
+      if (overwrite || parsed.amount_raw !== "" || !trimCell(existing.amount_raw)) {
+        existing.amount_raw = parsed.amount_raw;
+      }
       existing.catalog_person_id = null;
       existing.account_display = "";
       existing.observation_codes = parsed.observation_codes.slice();
@@ -319,18 +486,41 @@
     }
 
     function applyPaste(text, anchor) {
-      const parsed = parsePasteMatrix(text);
-      if (!parsed.length) return;
-      let startRow = anchor && anchor.rowIndex >= 0 ? anchor.rowIndex : findFirstEmptyRowIndex(rows);
+      anchor = anchor || {};
+      const matrix = extractPasteMatrix(text);
+      if (!matrix.length) return;
+
+      if (isSingleColumnPaste(matrix)) {
+        const values = singleColumnValues(matrix);
+        applySingleColumnPasteToModel(rows, values, anchor, createRowData);
+        rows.forEach(function (row, index) { row.position = index + 1; });
+        nextPosition = rows.length + 1;
+        render();
+        const focusRow = Math.min(
+          (anchor.rowIndex >= 0 ? anchor.rowIndex : 0) + values.length - 1,
+          rows.length - 1
+        );
+        focusEditableCell(focusRow, anchor.column || inferTargetColumnFromValues(values) || "name");
+        return;
+      }
+
+      const parsed = matrix.map(function (cells) {
+        let row;
+        if (cells.length === 1) row = rowFromSingleCell(cells[0]);
+        else if (cells.length === 2) row = rowFromTwoCells(cells[0], cells[1]);
+        else row = rowFromMultiCells(cells);
+        return finalizeParsedRow(row);
+      });
+      let startRow = anchor.rowIndex >= 0 ? anchor.rowIndex : findFirstEmptyRowIndex(rows);
       ensureRowCapacity(startRow + parsed.length);
       parsed.forEach(function (parsedRow, offset) {
-        mergeParsedRow(rows[startRow + offset], parsedRow);
+        mergeParsedRow(rows[startRow + offset], parsedRow, !!anchor.explicit);
       });
       rows.forEach(function (row, index) { row.position = index + 1; });
       nextPosition = rows.length + 1;
       render();
       const focusRow = Math.min(startRow + parsed.length - 1, rows.length - 1);
-      focusEditableCell(focusRow, (anchor && anchor.column) || "name");
+      focusEditableCell(focusRow, anchor.column || "name");
     }
 
     function resolvePasteAnchor(target) {
@@ -340,11 +530,12 @@
         return {
           rowIndex: rowIndex < 0 ? findFirstEmptyRowIndex(rows) : rowIndex,
           column: target.classList.contains("banorte-grid-amount") ? "amount" : "name",
+          explicit: true,
         };
       }
       const active = gridBody.querySelector(".banorte-grid-name:focus, .banorte-grid-amount:focus");
       if (active) return resolvePasteAnchor(active);
-      return { rowIndex: findFirstEmptyRowIndex(rows), column: "name" };
+      return { rowIndex: findFirstEmptyRowIndex(rows), column: "name", explicit: false };
     }
 
     function focusEditableCell(rowIndex, column) {
@@ -526,6 +717,11 @@
     parseMoney: parseMoney,
     isMonetaryAmount: isMonetaryAmount,
     classifyCell: classifyCell,
+    extractPasteMatrix: extractPasteMatrix,
+    isSingleColumnPaste: isSingleColumnPaste,
+    inferTargetColumnFromValues: inferTargetColumnFromValues,
+    planSingleColumnPaste: planSingleColumnPaste,
+    applySingleColumnPasteToModel: applySingleColumnPasteToModel,
     parsePasteMatrix: parsePasteMatrix,
     evaluateRow: evaluateRow,
     resolveKeyboardMove: resolveKeyboardMove,
