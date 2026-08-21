@@ -19,6 +19,7 @@ from modules.nomina.banorte.catalog_legacy_sync import (
 )
 from modules.nomina.banorte.catalog_parser import CATALOG_HEADER_V1
 from modules.nomina.banorte.catalog_reconciliation import pre_reconcile_catalog_version
+from modules.nomina.banorte.payment_authority import evaluate_payment_authority
 from modules.nomina.banorte.catalog_service import analyze_catalog_version, stage_catalog_version
 from modules.nomina.banorte.catalog_row_adapter import prepare_capture_rows
 from modules.nomina.banorte.draft_repository import create_manual_draft_shell, save_draft_rows
@@ -226,7 +227,121 @@ def test_sync_plan_account_mismatch_supersede(sync_db):
     assert plan.aggregates["SUPERSEDE"] == 1
 
 
-def test_sync_plan_identity_conflict_catalog_wins(sync_db):
+def test_keep_when_rfc_differs_from_curp_but_birth_compatible(sync_db):
+    """A: RFC != CURP string must not alone force SUPERSEDE."""
+    version_id = _ready_version(
+        sync_db,
+        _catalog_row(
+            employee="0000000070", name="RFC CURP OK", rfc="RFC900101XX1", account="7070707070"
+        ),
+        beneficiaries=[
+            {
+                "employee": "0000000070",
+                "account": "7070707070",
+                "name": "RFC CURP OK",
+                "curp": "LEG900101HDFRRC09",
+            }
+        ],
+    )
+    conn = connect(sync_db)
+    plan = build_catalog_legacy_sync_plan(conn, version_id)
+    conn.close()
+    assert plan.valid
+    assert plan.actions[0].action == "KEEP"
+
+
+def test_keep_when_curp_absent_and_pair_exact(sync_db):
+    """B: missing CURP must not force identity SUPERSEDE."""
+    version_id = _ready_version(
+        sync_db,
+        _catalog_row(
+            employee="0000000071", name="NO CURP LEGACY", rfc="NCR900101AA1", account="7171717171"
+        ),
+        beneficiaries=[
+            {
+                "employee": "0000000071",
+                "account": "7171717171",
+                "name": "NO CURP LEGACY",
+                "curp": None,
+            }
+        ],
+    )
+    conn = connect(sync_db)
+    plan = build_catalog_legacy_sync_plan(conn, version_id)
+    conn.close()
+    assert plan.valid
+    assert plan.actions[0].action == "KEEP"
+
+
+def test_manual_legacy_exact_pair_supersedes_to_payment_enabled(sync_db):
+    """C: manual legacy residue must not survive KEEP."""
+    version_id = _ready_version(
+        sync_db,
+        _catalog_row(
+            employee="0000000072",
+            name="MANUAL LEGACY",
+            rfc="MNL900101AA1",
+            account="7272727272",
+        ),
+        beneficiaries=[
+            {
+                "employee": "0000000072",
+                "account": "7272727272",
+                "name": "MANUAL LEGACY",
+                "validation": "MANUAL_PENDIENTE_VALIDACION",
+                "manual_effective": 1,
+            }
+        ],
+    )
+    conn = connect(sync_db)
+    plan = build_catalog_legacy_sync_plan(conn, version_id)
+    assert plan.actions[0].action == "SUPERSEDE"
+    conn.execute("BEGIN IMMEDIATE")
+    apply_catalog_legacy_sync(conn, version_id, actor="admin")
+    conn.execute(
+        """
+        UPDATE nomina_banorte_catalog_versions
+        SET status='ACTIVE', activated_by='admin', activated_at='t'
+        WHERE id=?
+        """,
+        (version_id,),
+    )
+    conn.commit()
+    person = conn.execute(
+        """
+        SELECT p.id, p.version_id, p.person_status, r.eligibility,
+               r.employee_number_normalized, r.account_number_normalized
+        FROM nomina_banorte_catalog_persons p
+        JOIN nomina_banorte_catalog_rows r ON r.id=p.current_row_id
+        WHERE p.version_id=? AND p.person_status='CATALOG_READY'
+        """,
+        (version_id,),
+    ).fetchone()
+    rec = conn.execute(
+        "SELECT * FROM nomina_banorte_catalog_reconciliations WHERE person_id=? AND is_current=1",
+        (int(person["id"]),),
+    ).fetchone()
+    beneficiary = dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(rec["beneficiary_id"]),),
+        ).fetchone()
+    )
+    auth = evaluate_payment_authority(
+        conn=conn,
+        person=dict(person),
+        reconciliation=dict(rec),
+        beneficiary=beneficiary,
+        active_version_id=version_id,
+    )
+    conn.close()
+    assert beneficiary["validation_status"] == "IMPORTADO_EXITOSO"
+    assert int(beneficiary["manual_effective_from_account"] or 0) == 0
+    assert auth["payment_enabled"] is True
+
+
+def test_real_birth_identity_conflict_supersedes_catalog_wins(sync_db):
+    """D: CURP birth digits conflicting with catalog birth force SUPERSEDE."""
     version_id = _ready_version(
         sync_db,
         _catalog_row(
@@ -237,20 +352,23 @@ def test_sync_plan_identity_conflict_catalog_wins(sync_db):
                 "employee": "0000000050",
                 "account": "5050505050",
                 "name": "IDENTITY OFFICIAL",
-                "curp": "ZZZ850101ZZ9",
+                "curp": "ABCD850101HDFXXX01",
             }
         ],
     )
     conn = connect(sync_db)
+    plan = build_catalog_legacy_sync_plan(conn, version_id)
+    assert plan.actions[0].action == "SUPERSEDE"
     conn.execute("BEGIN IMMEDIATE")
     apply_catalog_legacy_sync(conn, version_id, actor="admin")
     conn.commit()
     row = conn.execute(
-        "SELECT nombre_original,curp FROM nomina_banorte_beneficiaries WHERE record_status='ACTIVO'"
+        "SELECT curp, validation_status, source_kind FROM nomina_banorte_beneficiaries WHERE record_status='ACTIVO'"
     ).fetchone()
     conn.close()
-    assert row["nombre_original"] == "IDENTITY OFFICIAL"
     assert row["curp"] == "OFF900101AA1"
+    assert row["validation_status"] == "IMPORTADO_EXITOSO"
+    assert row["source_kind"] == "ALTAS_NOMINA_BANORTE"
 
 
 def test_sync_plan_identifiers_both_mismatch_catalog_wins(sync_db):

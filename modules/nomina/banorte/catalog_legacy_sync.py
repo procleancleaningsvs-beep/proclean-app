@@ -124,6 +124,29 @@ def _resolve_match_method(name_original: str, beneficiary_name: str) -> str:
     return method or "EXACT_EMPLOYEE_ACCOUNT_RAW_NAME"
 
 
+def _operational_canonical(beneficiary: dict[str, Any]) -> bool:
+    """Legacy manual-validation residue must not survive KEEP under catalog authority."""
+    if str(beneficiary.get("validation_status") or "") == "MANUAL_PENDIENTE_VALIDACION":
+        return False
+    if int(beneficiary.get("manual_effective_from_account") or 0) == 1:
+        return False
+    return True
+
+
+def _identity_compatible_with_catalog(
+    *,
+    name_original: str,
+    birth_date_iso: str,
+    beneficiary: dict[str, Any],
+) -> tuple[bool, str | None]:
+    method = _name_method(name_original, str(beneficiary["nombre_original"]))
+    if method is None:
+        return False, None
+    if _curp_birth_conflicts(beneficiary.get("curp"), birth_date_iso):
+        return False, method
+    return True, method
+
+
 def _classify_person(
     person: dict[str, Any],
     actives: list[dict[str, Any]],
@@ -158,13 +181,12 @@ def _classify_person(
         )
     if len(exact_usable) == 1:
         beneficiary = exact_usable[0]
-        method = _name_method(name_original, str(beneficiary["nombre_original"]))
-        identity_compatible = method is not None and not _curp_birth_conflicts(
-            beneficiary.get("curp"), birth_date_iso
+        identity_compatible, method = _identity_compatible_with_catalog(
+            name_original=name_original,
+            birth_date_iso=birth_date_iso,
+            beneficiary=beneficiary,
         )
-        if rfc and beneficiary.get("curp"):
-            identity_compatible = identity_compatible and str(beneficiary["curp"]).upper() == rfc
-        if identity_compatible:
+        if identity_compatible and _operational_canonical(beneficiary) and method is not None:
             return PersonSyncAction(
                 person_id=person_id,
                 action="KEEP",
