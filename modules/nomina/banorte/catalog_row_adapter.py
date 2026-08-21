@@ -6,7 +6,7 @@ from typing import Any
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
 from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
-from modules.nomina.banorte.payment_authority import evaluate_payment_authority
+from modules.nomina.banorte.payment_authority import apply_authority_to_mutable_row, evaluate_payment_authority
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.rows_capture import CaptureRow, capture_rows_to_prepare_inputs
@@ -160,13 +160,14 @@ def prepare_capture_rows(
         return prepared
     conn = connect(db_path)
     try:
+        draft_meta = {"catalog_mode": "CATALOG", "catalog_version_id": active_id}
         prepared: list[dict[str, Any]] = []
         for base in base_rows:
             person_id = base.get("catalog_person_id")
             if person_id is None:
                 legacy_one = prepare_draft_rows(db_path, [base], origin_kind=origin_kind)[0]
-                legacy_one["catalog_observation_codes_json"] = json.dumps(
-                    base.get("catalog_observation_codes") or [], ensure_ascii=False
+                legacy_one = apply_authority_to_mutable_row(
+                    conn, draft=draft_meta, row=legacy_one
                 )
                 prepared.append(legacy_one)
                 continue

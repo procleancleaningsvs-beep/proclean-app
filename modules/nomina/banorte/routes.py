@@ -114,6 +114,7 @@ from modules.nomina.banorte.matching_service import match_name, save_alias
 from modules.nomina.banorte.paste_service import parse_paste_lists
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.catalog_row_adapter import prepare_capture_rows
+from modules.nomina.banorte.payment_authority import enforce_prepared_rows_catalog_authority
 from modules.nomina.banorte.rows_capture import parse_capture_input
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
@@ -512,6 +513,7 @@ def register_banorte_routes(bp) -> None:
             return _json_no_store({"ok": False, "code": str(exc)}, 400)
         draft = create_draft_from_adapter(_db_path(), _username(), adapted)
         prepared = prepare_draft_rows(_db_path(), draft["rows"], origin_kind="CALCULO_RUN")
+        prepared = enforce_prepared_rows_catalog_authority(_db_path(), draft, prepared)
         draft = save_draft_rows(_db_path(), int(draft["id"]), _username(), int(draft["revision"]), prepared)
         return _json_no_store(
             {
@@ -670,6 +672,9 @@ def register_banorte_routes(bp) -> None:
                 amount_final=str(data.get("amount_final") or data.get("amount") or ""),
                 request_nonce=str(data.get("request_nonce") or "") or None,
                 confirm_duplicate_beneficiary=bool(data.get("confirm_duplicate_beneficiary")),
+                catalog_person_id=int(data["catalog_person_id"])
+                if data.get("catalog_person_id") not in (None, "")
+                else None,
             )
         except DraftStaleError as exc:
             return _stale_response(exc)
@@ -681,6 +686,7 @@ def register_banorte_routes(bp) -> None:
                 "beneficiary_not_found": "Seleccione un beneficiario Banorte válido.",
                 "beneficiary_not_active": "El beneficiario no está activo.",
                 "beneficiary_not_usable": "El beneficiario no está listo para pago.",
+                "catalog_authority_required": "Se requiere selección desde catálogo oficial.",
                 "draft_not_open": "El borrador no está abierto.",
                 "duplicate_beneficiary_payment_confirmation_required": (
                     "Este beneficiario ya tiene un pago en el borrador. "

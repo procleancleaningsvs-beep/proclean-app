@@ -14,6 +14,8 @@ from modules.nomina.banorte.calculo_adapter import origin_hash_for_manual_captur
 from modules.nomina.banorte.draft_repository import save_draft_rows
 from modules.nomina.banorte.excel_token import issue_excel_token, verify_excel_token
 from modules.nomina.banorte.money import parse_money, to_cents
+from modules.nomina.banorte.catalog_lifecycle import catalog_draft_binding
+from modules.nomina.banorte.payment_authority import enforce_prepared_rows_catalog_authority
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
@@ -260,21 +262,41 @@ def prepare_excel_draft(
 
         now = datetime.now(ZoneInfo("America/Monterrey")).isoformat(timespec="seconds")
         origin_hash = origin_hash_for_manual_capture(digest, sheet)
+        binding = catalog_draft_binding(conn)
         cur = conn.execute(
             """
             INSERT INTO nomina_banorte_export_drafts (
                 created_by, updated_by, created_at, updated_at, origin_kind, calculo_id,
                 origin_updated_at, origin_hash, status, revision,
-                source_filename, source_sha256, source_sheet, source_file_size
-            ) VALUES (?,?,?,?, 'EXCEL_NOMINA', NULL, ?, ?, 'OPEN', 1, ?, ?, ?, ?)
+                source_filename, source_sha256, source_sheet, source_file_size,
+                catalog_mode, catalog_version_id
+            ) VALUES (?,?,?,?, 'EXCEL_NOMINA', NULL, ?, ?, 'OPEN', 1, ?, ?, ?, ?, ?, ?)
             """,
-            (user, user, now, now, now, origin_hash, filename, digest, sheet, len(file_bytes)),
+            (
+                user,
+                user,
+                now,
+                now,
+                now,
+                origin_hash,
+                filename,
+                digest,
+                sheet,
+                len(file_bytes),
+                binding["catalog_mode"],
+                binding["catalog_version_id"],
+            ),
         )
         draft_id = int(cur.lastrowid)
         conn.commit()
     finally:
         conn.close()
-    draft_shell = {"id": draft_id, "revision": 1}
+    draft_shell = {
+        "id": draft_id,
+        "revision": 1,
+        "catalog_mode": binding["catalog_mode"],
+        "catalog_version_id": binding["catalog_version_id"],
+    }
     rows = []
     amount_errors: list[dict[str, Any]] = []
     omitted: list[dict[str, Any]] = []
@@ -343,6 +365,7 @@ def prepare_excel_draft(
         )
     omitted = list(omit_agg.values())
     prepared = prepare_draft_rows(db_path, rows, origin_kind="EXCEL_NOMINA")
+    prepared = enforce_prepared_rows_catalog_authority(db_path, draft_shell, prepared)
     draft = save_draft_rows(db_path, draft_id, user, int(draft_shell["revision"]), prepared)
     draft["amount_errors"] = amount_errors
     draft["omitted"] = omitted

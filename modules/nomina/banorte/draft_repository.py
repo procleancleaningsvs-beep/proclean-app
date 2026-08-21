@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 from modules.nomina.banorte.calculo_adapter import AdapterResult, origin_hash_for_manual_capture
 from modules.nomina.banorte.catalog_lifecycle import catalog_draft_binding
+from modules.nomina.banorte.payment_authority import apply_authority_to_mutable_row
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 
@@ -56,6 +57,86 @@ class Reconciliation:
 
 def _is_manual_add(row: dict[str, Any]) -> bool:
     return str(row.get("row_origin") or "") == "MANUAL_ADD"
+
+
+def _load_draft_meta(conn: sqlite3.Connection, draft_id: int) -> dict[str, Any]:
+    row = conn.execute(
+        "SELECT * FROM nomina_banorte_export_drafts WHERE id=?",
+        (int(draft_id),),
+    ).fetchone()
+    if row is None:
+        raise ValueError("draft_not_found")
+    return dict(row)
+
+
+def _write_authoritative_row(
+    conn: sqlite3.Connection,
+    *,
+    draft_id: int,
+    row_id: int,
+    row: dict[str, Any],
+    warnings_json: str | None = None,
+    user_decision_json: str | None = None,
+    match_kind: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE nomina_banorte_export_draft_rows SET
+            nombre_recibido=?,
+            beneficiary_id=?,
+            employee_number_snapshot=?,
+            account_number_snapshot=?,
+            amount_final_cents=?,
+            included=?,
+            row_state=?,
+            warnings_json=?,
+            user_decision_json=?,
+            match_kind=?,
+            catalog_person_id=?,
+            catalog_reconciliation_id=?,
+            catalog_match_method=?,
+            catalog_observation_codes_json=?,
+            beneficiary_material_fingerprint_version=?,
+            beneficiary_material_fingerprint_seen=?,
+            excluded_at=?,
+            excluded_by=?
+        WHERE id=? AND draft_id=?
+        """,
+        (
+            str(row.get("nombre_recibido") or ""),
+            row.get("beneficiary_id"),
+            row.get("employee_number_snapshot"),
+            row.get("account_number_snapshot"),
+            int(row.get("amount_final_cents") or 0),
+            int(row.get("included") or 0),
+            str(row.get("row_state") or "NEEDS_REVIEW"),
+            warnings_json if warnings_json is not None else json.dumps(row.get("warnings") or [], ensure_ascii=False),
+            user_decision_json
+            if user_decision_json is not None
+            else json.dumps(row.get("user_decision") or {}, ensure_ascii=False),
+            match_kind if match_kind is not None else str(row.get("match_kind") or "NONE"),
+            row.get("catalog_person_id"),
+            row.get("catalog_reconciliation_id"),
+            row.get("catalog_match_method"),
+            row.get("catalog_observation_codes_json") or "[]",
+            row.get("beneficiary_material_fingerprint_version"),
+            row.get("beneficiary_material_fingerprint_seen"),
+            row.get("excluded_at"),
+            row.get("excluded_by"),
+            int(row_id),
+            int(draft_id),
+        ),
+    )
+
+
+def _finalize_row_with_authority(
+    conn: sqlite3.Connection,
+    *,
+    draft_id: int,
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    draft = _load_draft_meta(conn, draft_id)
+    return apply_authority_to_mutable_row(conn, draft=draft, row=row)
 
 
 def is_pag_included_row(row: dict[str, Any]) -> bool:
@@ -707,12 +788,7 @@ def apply_draft_row(
     try:
         ensure_banorte_tables(conn)
         conn.execute("BEGIN IMMEDIATE")
-        draft_meta = conn.execute(
-            "SELECT origin_kind FROM nomina_banorte_export_drafts WHERE id=?",
-            (int(draft_id),),
-        ).fetchone()
-        if draft_meta is None:
-            raise ValueError("draft_not_found")
+        draft_meta = _load_draft_meta(conn, int(draft_id))
         origin_kind = str(draft_meta["origin_kind"])
         row = conn.execute(
             "SELECT * FROM nomina_banorte_export_draft_rows WHERE id=? AND draft_id=?",
@@ -777,38 +853,31 @@ def apply_draft_row(
         if ben:
             emp = ben["employee_number_effective"]
             acct = ben["account_number"]
-        conn.execute(
-            """
-            UPDATE nomina_banorte_export_draft_rows
-            SET nombre_recibido=?,
-                beneficiary_id=?,
-                employee_number_snapshot=?,
-                account_number_snapshot=?,
-                amount_final_cents=?,
-                included=?,
-                row_state=?,
-                warnings_json=?,
-                user_decision_json=?,
-                match_kind=?,
-                excluded_at=NULL,
-                excluded_by=NULL
-            WHERE id=? AND draft_id=?
-            """,
-            (
-                nombre,
-                bid,
-                emp,
-                acct,
-                int(state["amount_final_cents"]),
-                int(state["included"]),
-                str(state["row_state"]),
-                json.dumps(warnings, ensure_ascii=False),
-                json.dumps(user_decision, ensure_ascii=False),
-                "MANUAL_SELECT" if bid and benef_touch else (
-                    "EXACT" if bid and int(state["included"]) == 1 else (row["match_kind"] or "NONE")
-                ),
-                int(row_id),
-                int(draft_id),
+        candidate = dict(row)
+        candidate["nombre_recibido"] = nombre
+        candidate["beneficiary_id"] = bid
+        candidate["employee_number_snapshot"] = emp
+        candidate["account_number_snapshot"] = acct
+        candidate["amount_final_cents"] = int(state["amount_final_cents"])
+        candidate["included"] = int(state["included"])
+        candidate["row_state"] = str(state["row_state"])
+        candidate["warnings"] = warnings
+        candidate["user_decision"] = user_decision
+        candidate["excluded_at"] = None
+        candidate["excluded_by"] = None
+        authorized = _finalize_row_with_authority(conn, draft_id=int(draft_id), row=candidate)
+        if int(authorized.get("included") or 0) != 1 and int(state.get("included") or 0) == 1:
+            authorized["included"] = 0
+            authorized["row_state"] = "NEEDS_REVIEW"
+        _write_authoritative_row(
+            conn,
+            draft_id=int(draft_id),
+            row_id=int(row_id),
+            row=authorized,
+            warnings_json=json.dumps(warnings, ensure_ascii=False),
+            user_decision_json=json.dumps(user_decision, ensure_ascii=False),
+            match_kind="MANUAL_SELECT" if bid and benef_touch else (
+                "EXACT" if bid and int(authorized["included"]) == 1 else (row["match_kind"] or "NONE")
             ),
         )
         after_row = conn.execute(
@@ -850,6 +919,7 @@ def add_draft_payment(
     amount_final: str,
     request_nonce: str | None = None,
     confirm_duplicate_beneficiary: bool = False,
+    catalog_person_id: int | None = None,
 ) -> dict[str, Any]:
     """Append a MANUAL_ADD payment row (ADD_ROW event) from an active beneficiary."""
     from modules.nomina.banorte.money import parse_money, to_cents
@@ -884,15 +954,14 @@ def add_draft_payment(
                     raise ValueError("draft_not_found")
                 return out
 
-        draft_meta = conn.execute(
-            "SELECT origin_kind, status, revision FROM nomina_banorte_export_drafts WHERE id=?",
-            (int(draft_id),),
-        ).fetchone()
-        if draft_meta is None:
-            raise ValueError("draft_not_found")
+        draft_meta = _load_draft_meta(conn, int(draft_id))
         if draft_meta["status"] != "OPEN":
             raise ValueError("draft_not_open")
         origin_kind = str(draft_meta["origin_kind"])
+        from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
+
+        if not legacy_authority_allowed(conn) and catalog_person_id is None:
+            raise ValueError("catalog_authority_required")
         ben_row = conn.execute(
             "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
             (int(beneficiary_id),),
@@ -912,7 +981,23 @@ def add_draft_payment(
             banco_snapshot="Banorte",
             user_decision=user_decision,
         )
-        if int(state.get("included") or 0) != 1:
+        candidate = {
+            "nombre_recibido": str(ben["nombre_original"]),
+            "beneficiary_id": int(beneficiary_id),
+            "employee_number_snapshot": ben["employee_number_effective"],
+            "account_number_snapshot": ben["account_number"],
+            "amount_final_cents": cents,
+            "amount_original_cents": cents,
+            "included": int(state["included"]),
+            "row_state": str(state["row_state"]),
+            "warnings": list(state.get("warnings") or []),
+            "user_decision": user_decision,
+            "catalog_person_id": catalog_person_id,
+            "banco_snapshot": "Banorte",
+            "match_kind": "EXACT",
+        }
+        authorized = _finalize_row_with_authority(conn, draft_id=int(draft_id), row=candidate)
+        if int(authorized.get("included") or 0) != 1:
             raise ValueError("beneficiary_not_usable")
 
         dup = conn.execute(
@@ -941,22 +1026,33 @@ def add_draft_payment(
                 draft_id, position, calculo_row_id, nombre_recibido, nss_snapshot, banco_snapshot,
                 beneficiary_id, employee_number_snapshot, account_number_snapshot,
                 amount_original_cents, amount_final_cents, included, match_kind, alias_id,
-                row_state, warnings_json, user_decision_json, excluded_at, excluded_by, row_origin
-            ) VALUES (?,?,NULL,?,NULL,?,?,?,?,?,?,1,'EXACT',NULL,?,?,?,NULL,NULL,'MANUAL_ADD')
+                row_state, warnings_json, user_decision_json, excluded_at, excluded_by, row_origin,
+                catalog_person_id, catalog_reconciliation_id, catalog_match_method,
+                catalog_observation_codes_json, beneficiary_material_fingerprint_version,
+                beneficiary_material_fingerprint_seen
+            ) VALUES (?,?,NULL,?,NULL,?,?,?,?,?,?,?,?,NULL,?,?,?,NULL,NULL,'MANUAL_ADD',?,?,?,?,?,?)
             """,
             (
                 int(draft_id),
                 pos,
-                str(ben["nombre_original"]),
+                str(authorized["nombre_recibido"]),
                 "Banorte",
-                int(beneficiary_id),
-                ben["employee_number_effective"],
-                ben["account_number"],
+                int(authorized["beneficiary_id"]),
+                authorized["employee_number_snapshot"],
+                authorized["account_number_snapshot"],
                 cents,
-                cents,
-                str(state["row_state"]),
-                json.dumps(state.get("warnings") or [], ensure_ascii=False),
+                int(authorized["amount_final_cents"]),
+                int(authorized["included"]),
+                str(authorized.get("match_kind") or "EXACT"),
+                str(authorized["row_state"]),
+                json.dumps(authorized.get("warnings") or [], ensure_ascii=False),
                 json.dumps(user_decision, ensure_ascii=False),
+                authorized.get("catalog_person_id"),
+                authorized.get("catalog_reconciliation_id"),
+                authorized.get("catalog_match_method"),
+                authorized.get("catalog_observation_codes_json") or "[]",
+                authorized.get("beneficiary_material_fingerprint_version"),
+                authorized.get("beneficiary_material_fingerprint_seen"),
             ),
         )
         row_id = int(cur.lastrowid)
@@ -1052,11 +1148,7 @@ def undo_last_draft_mutation(
         current = dict(before_row)
         _bump_or_stale(conn, draft_id, expected_revision, user)
 
-        draft_meta = conn.execute(
-            "SELECT origin_kind FROM nomina_banorte_export_drafts WHERE id=?",
-            (int(draft_id),),
-        ).fetchone()
-        origin_kind = str(draft_meta["origin_kind"]) if draft_meta else "MANUAL_CAPTURE"
+        draft_meta = _load_draft_meta(conn, int(draft_id))
 
         nombre = tgt["before_nombre_recibido"]
         bid = tgt["before_beneficiary_id"]
@@ -1073,74 +1165,43 @@ def undo_last_draft_mutation(
             if ben_row is not None:
                 ben = dict(ben_row)
 
-        if excluded_at is not None:
-            # Restore manual exclusion snapshot without forcing OK.
-            conn.execute(
-                """
-                UPDATE nomina_banorte_export_draft_rows
-                SET nombre_recibido=?,
-                    beneficiary_id=?,
-                    amount_final_cents=?,
-                    included=?,
-                    row_state=?,
-                    excluded_at=?,
-                    excluded_by=?
-                WHERE id=? AND draft_id=?
-                """,
-                (
-                    nombre if nombre is not None else current["nombre_recibido"],
-                    bid,
-                    cents,
-                    int(tgt["before_included"] or 0),
-                    str(tgt["before_row_state"] or "EXCLUDED"),
-                    excluded_at,
-                    excluded_by,
-                    row_id,
-                    int(draft_id),
-                ),
+        candidate = dict(current)
+        candidate["nombre_recibido"] = (
+            nombre if nombre is not None else (
+                str(ben["nombre_original"]) if ben else current["nombre_recibido"]
             )
+        )
+        candidate["beneficiary_id"] = bid
+        candidate["amount_final_cents"] = cents
+        candidate["excluded_at"] = excluded_at
+        candidate["excluded_by"] = excluded_by
+        if excluded_at is not None:
+            candidate["included"] = int(tgt["before_included"] or 0)
+            candidate["row_state"] = str(tgt["before_row_state"] or "EXCLUDED")
         else:
             state = compute_row_state_from_beneficiary(
                 amount_final_cents=cents,
                 beneficiary=ben,
-                origin_kind=origin_kind,
+                origin_kind=str(draft_meta["origin_kind"]),
                 banco_snapshot=current.get("banco_snapshot"),
             )
-            emp = current.get("employee_number_snapshot")
-            acct = current.get("account_number_snapshot")
+            candidate["included"] = int(state["included"])
+            candidate["row_state"] = str(state["row_state"])
+            candidate["warnings"] = list(state.get("warnings") or [])
+            candidate["excluded_at"] = None
+            candidate["excluded_by"] = None
             if ben:
-                emp = ben["employee_number_effective"]
-                acct = ben["account_number"]
-            conn.execute(
-                """
-                UPDATE nomina_banorte_export_draft_rows
-                SET nombre_recibido=?,
-                    beneficiary_id=?,
-                    employee_number_snapshot=?,
-                    account_number_snapshot=?,
-                    amount_final_cents=?,
-                    included=?,
-                    row_state=?,
-                    warnings_json=?,
-                    excluded_at=NULL,
-                    excluded_by=NULL
-                WHERE id=? AND draft_id=?
-                """,
-                (
-                    nombre if nombre is not None else (
-                        str(ben["nombre_original"]) if ben else current["nombre_recibido"]
-                    ),
-                    bid,
-                    emp,
-                    acct,
-                    int(state["amount_final_cents"]),
-                    int(state["included"]),
-                    str(state["row_state"]),
-                    json.dumps(state.get("warnings") or [], ensure_ascii=False),
-                    row_id,
-                    int(draft_id),
-                ),
-            )
+                candidate["employee_number_snapshot"] = ben["employee_number_effective"]
+                candidate["account_number_snapshot"] = ben["account_number"]
+
+        authorized = _finalize_row_with_authority(conn, draft_id=int(draft_id), row=candidate)
+        _write_authoritative_row(
+            conn,
+            draft_id=int(draft_id),
+            row_id=row_id,
+            row=authorized,
+            warnings_json=json.dumps(authorized.get("warnings") or [], ensure_ascii=False),
+        )
 
         after_row = conn.execute(
             "SELECT * FROM nomina_banorte_export_draft_rows WHERE id=? AND draft_id=?",
@@ -1188,7 +1249,7 @@ def restore_last_excluded(
         _bump_or_stale(conn, draft_id, expected_revision, user)
         row = conn.execute(
             """
-            SELECT id, beneficiary_id, amount_final_cents
+            SELECT *
             FROM nomina_banorte_export_draft_rows
             WHERE draft_id=? AND excluded_at IS NOT NULL
             ORDER BY excluded_at DESC LIMIT 1
@@ -1205,37 +1266,31 @@ def restore_last_excluded(
             ).fetchone()
             if ben_row is not None:
                 ben = dict(ben_row)
-        draft_meta = conn.execute(
-            "SELECT origin_kind FROM nomina_banorte_export_drafts WHERE id=?",
-            (int(draft_id),),
-        ).fetchone()
-        origin_kind = str(draft_meta["origin_kind"]) if draft_meta else "MANUAL_CAPTURE"
+        draft_meta = _load_draft_meta(conn, int(draft_id))
         from modules.nomina.banorte.prepare_service import compute_row_state_from_beneficiary
 
         state = compute_row_state_from_beneficiary(
             amount_final_cents=int(row["amount_final_cents"] or 0),
             beneficiary=ben,
-            origin_kind=origin_kind,
+            origin_kind=str(draft_meta["origin_kind"]),
             banco_snapshot=None,
         )
-        conn.execute(
-            """
-            UPDATE nomina_banorte_export_draft_rows
-            SET included=?, row_state=?, warnings_json=?,
-                employee_number_snapshot=COALESCE(?, employee_number_snapshot),
-                account_number_snapshot=COALESCE(?, account_number_snapshot),
-                excluded_at=NULL, excluded_by=NULL
-            WHERE id=? AND draft_id=?
-            """,
-            (
-                int(state["included"]),
-                str(state["row_state"]),
-                json.dumps(state.get("warnings") or [], ensure_ascii=False),
-                state.get("employee_number_snapshot"),
-                state.get("account_number_snapshot"),
-                int(row["id"]),
-                int(draft_id),
-            ),
+        candidate = dict(row)
+        candidate["included"] = int(state["included"])
+        candidate["row_state"] = str(state["row_state"])
+        candidate["warnings"] = list(state.get("warnings") or [])
+        candidate["excluded_at"] = None
+        candidate["excluded_by"] = None
+        if ben:
+            candidate["employee_number_snapshot"] = ben["employee_number_effective"]
+            candidate["account_number_snapshot"] = ben["account_number"]
+        authorized = _finalize_row_with_authority(conn, draft_id=int(draft_id), row=candidate)
+        _write_authoritative_row(
+            conn,
+            draft_id=int(draft_id),
+            row_id=int(row["id"]),
+            row=authorized,
+            warnings_json=json.dumps(authorized.get("warnings") or [], ensure_ascii=False),
         )
         conn.commit()
     except DraftStaleError:

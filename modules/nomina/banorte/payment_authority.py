@@ -211,6 +211,87 @@ def load_catalog_authority_bundle(
     return person, reconciliation, beneficiary
 
 
+def resolve_catalog_person_id_for_beneficiary(
+    conn: sqlite3.Connection,
+    active_version_id: int,
+    beneficiary_id: int,
+) -> int | None:
+    row = conn.execute(
+        """
+        SELECT r.person_id
+        FROM nomina_banorte_catalog_reconciliations r
+        JOIN nomina_banorte_catalog_persons p ON p.id=r.person_id
+        WHERE r.version_id=? AND r.beneficiary_id=? AND r.is_current=1
+          AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+          AND p.version_id=?
+        LIMIT 1
+        """,
+        (int(active_version_id), int(beneficiary_id), int(active_version_id)),
+    ).fetchone()
+    return int(row["person_id"]) if row is not None else None
+
+
+def _attach_catalog_provenance(
+    out: dict[str, Any],
+    *,
+    person: dict[str, Any] | None,
+    reconciliation: dict[str, Any] | None,
+    beneficiary: dict[str, Any] | None,
+    authority: dict[str, Any],
+) -> None:
+    if person is not None:
+        out["catalog_person_id"] = int(person["id"])
+    if reconciliation is not None:
+        out["catalog_reconciliation_id"] = int(reconciliation["id"])
+        out["catalog_match_method"] = str(reconciliation.get("match_method") or "")
+    if beneficiary is not None:
+        fp = beneficiary_material_fingerprint(beneficiary)
+        out["beneficiary_material_fingerprint_version"] = fp.version
+        out["beneficiary_material_fingerprint_seen"] = fp.sha256
+    codes = list(authority.get("reason_codes") or [])
+    out["catalog_observation_codes_json"] = json.dumps(codes, ensure_ascii=False)
+
+
+def apply_authority_to_mutable_row(
+    conn: sqlite3.Connection,
+    *,
+    draft: dict[str, Any],
+    row: dict[str, Any],
+) -> dict[str, Any]:
+    """Revalidate a mutable draft row against catalog authority when required."""
+    if legacy_authority_allowed(conn):
+        return dict(row)
+    hydrated = rehydrate_row_authority(conn, draft=draft, row=row)
+    authority = hydrated.pop("catalog_authority", {})
+    out = hydrated
+    codes = list(authority.get("reason_codes") or [])
+    out["catalog_observation_codes_json"] = json.dumps(codes, ensure_ascii=False)
+    cents = int(out.get("amount_final_cents") or 0)
+    excluded = out.get("excluded_at") not in (None, "")
+    wants_included = cents > 0 and not excluded
+    if not authority.get("payment_enabled"):
+        out["included"] = 0
+        out["row_state"] = "NEEDS_REVIEW"
+    elif wants_included:
+        out["included"] = 1
+        out["row_state"] = "OK"
+    return out
+
+
+def enforce_prepared_rows_catalog_authority(
+    db_path: str | Path,
+    draft: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    conn = connect(db_path)
+    try:
+        if legacy_authority_allowed(conn):
+            return rows
+        return [apply_authority_to_mutable_row(conn, draft=draft, row=dict(row)) for row in rows]
+    finally:
+        conn.close()
+
+
 def rehydrate_row_authority(
     conn: sqlite3.Connection,
     *,
@@ -233,6 +314,11 @@ def rehydrate_row_authority(
             out["employee_number_snapshot"] = str(beneficiary["employee_number_effective"])
     person = reconciliation = None
     cpid = row.get("catalog_person_id")
+    if cpid is None and active_id is not None and bid is not None:
+        resolved = resolve_catalog_person_id_for_beneficiary(conn, int(active_id), int(bid))
+        if resolved is not None:
+            cpid = resolved
+            out["catalog_person_id"] = resolved
     if cpid is not None and active_id is not None:
         person, reconciliation, cat_beneficiary = load_catalog_authority_bundle(
             conn, catalog_person_id=int(cpid), active_version_id=int(active_id)
@@ -244,6 +330,14 @@ def rehydrate_row_authority(
             out["employee_number_snapshot"] = str(cat_beneficiary["employee_number_effective"])
         if person is not None:
             out["nombre_recibido"] = str(person.get("name_original") or out.get("nombre_recibido") or "")
+        if person is not None or reconciliation is not None or beneficiary is not None:
+            _attach_catalog_provenance(
+                out,
+                person=person,
+                reconciliation=reconciliation,
+                beneficiary=beneficiary,
+                authority={"reason_codes": []},
+            )
     authority = evaluate_payment_authority(
         conn=conn,
         draft=draft,
@@ -252,6 +346,13 @@ def rehydrate_row_authority(
         reconciliation=reconciliation,
         beneficiary=beneficiary,
         active_version_id=active_id,
+    )
+    _attach_catalog_provenance(
+        out,
+        person=person if cpid is not None and active_id is not None else None,
+        reconciliation=reconciliation if cpid is not None and active_id is not None else None,
+        beneficiary=beneficiary,
+        authority=authority,
     )
     out["catalog_authority"] = authority
     return out
