@@ -30,6 +30,11 @@
       encodeURIComponent(String(exportId)) + "/movimientos";
   }
 
+  function movementsExcelUrl(exportId) {
+    return "/nomina/exportaciones/banorte/historial/" +
+      encodeURIComponent(String(exportId)) + "/movimientos.xlsx";
+  }
+
   function normalizeSearchValue(value) {
     return String(value == null ? "" : value)
       .normalize("NFD")
@@ -103,6 +108,7 @@
   function createDomView(document) {
     const modal = document.getElementById("banorte-movements-modal");
     const closeButton = document.getElementById("banorte-movements-close");
+    const exportButton = document.getElementById("banorte-movements-export");
     const title = document.getElementById("banorte-movements-title");
     const filename = document.getElementById("banorte-movements-filename");
     const date = document.getElementById("banorte-movements-date");
@@ -116,6 +122,7 @@
     const tbody = document.getElementById("banorte-movements-body");
     let lastTrigger = null;
     let currentItems = [];
+    let currentExportId = null;
 
     function setHeader(header) {
       title.textContent = "Movimientos de " + String(header.filename || "exportación Banorte");
@@ -171,6 +178,12 @@
     }
 
     if (closeButton) closeButton.addEventListener("click", close);
+    if (exportButton) {
+      exportButton.addEventListener("click", function () {
+        if (!/^\d+$/.test(String(currentExportId || ""))) return;
+        root.location.assign(movementsExcelUrl(currentExportId));
+      });
+    }
     if (modal) {
       modal.addEventListener("click", function (event) {
         if (event.target === modal) close();
@@ -188,8 +201,10 @@
         modal.hidden = false;
         if (closeButton) closeButton.focus();
       },
-      loading() {
+      loading(exportId) {
+        currentExportId = exportId;
         currentItems = [];
+        if (exportButton) exportButton.hidden = true;
         if (search) search.value = "";
         if (sort) sort.value = "position";
         if (controls) controls.hidden = true;
@@ -199,6 +214,7 @@
       success(header, items) {
         setHeader(header);
         currentItems = items.slice();
+        if (exportButton) exportButton.hidden = items.length === 0;
         if (controls) controls.hidden = false;
         renderCurrentItems();
       },
@@ -225,7 +241,7 @@
 
     async function open(trigger) {
       view.open(trigger);
-      view.loading();
+      view.loading(exportId);
       const exportId = trigger && trigger.dataset && trigger.dataset.exportId;
       if (!/^\d+$/.test(String(exportId || ""))) {
         view.error("El identificador del export no es válido.");

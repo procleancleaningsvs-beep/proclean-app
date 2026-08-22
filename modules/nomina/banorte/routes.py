@@ -90,6 +90,7 @@ from modules.nomina.banorte.catalog_service import (
 )
 from modules.nomina.banorte.history_service import (
     HistoricalExportNotFound,
+    build_historical_export_excel,
     load_historical_export_movements,
 )
 from modules.nomina.banorte.export_service import (
@@ -1285,6 +1286,22 @@ def register_banorte_routes(bp) -> None:
             return _json_no_store({"ok": False, "code": "export_not_found"}, 404)
         return _json_no_store({"ok": True, **historical})
 
+    @_banorte_access_required
+    def banorte_export_movements_excel(export_id: int):
+        try:
+            payload = build_historical_export_excel(_db_path(), export_id)
+        except HistoricalExportNotFound:
+            return _json_no_store({"ok": False, "code": "export_not_found"}, 404)
+        resp = Response(
+            payload["data"],
+            mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        resp.headers["Content-Disposition"] = (
+            f'attachment; filename="{payload["filename"]}"'
+        )
+        resp.headers["Cache-Control"] = "private, no-store"
+        return resp
+
     def _catalog_redirect(version_id: int | None = None):
         if version_id is None:
             return redirect(url_for("nomina.banorte_catalog_index"))
@@ -1783,5 +1800,11 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/historial/<int:export_id>/movimientos",
         endpoint="banorte_export_movements",
         view_func=banorte_export_movements,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/historial/<int:export_id>/movimientos.xlsx",
+        endpoint="banorte_export_movements_excel",
+        view_func=banorte_export_movements_excel,
         methods=["GET"],
     )
