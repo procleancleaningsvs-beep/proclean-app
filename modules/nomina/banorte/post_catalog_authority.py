@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 
@@ -34,11 +34,12 @@ _AUTHORIZED_SOURCES = frozenset({"REPORTE_DETALLADO", "ALTA_MANUAL"})
 
 
 class ActiveCatalogContext:
-    __slots__ = ("version_id", "activated_at")
+    __slots__ = ("version_id", "activated_at", "report_date")
 
-    def __init__(self, version_id: int, activated_at: str) -> None:
+    def __init__(self, version_id: int, activated_at: str, report_date: str) -> None:
         self.version_id = int(version_id)
         self.activated_at = str(activated_at)
+        self.report_date = str(report_date)
 
 
 def parse_utc_timestamp(value: str | None) -> datetime | None:
@@ -59,27 +60,48 @@ def parse_utc_timestamp(value: str | None) -> datetime | None:
 def load_active_catalog_context(conn: sqlite3.Connection) -> ActiveCatalogContext | None:
     row = conn.execute(
         """
-        SELECT id, activated_at
+        SELECT id, activated_at, report_date
         FROM nomina_banorte_catalog_versions
         WHERE status='ACTIVE'
         LIMIT 1
         """
     ).fetchone()
-    if row is None or not row["activated_at"]:
+    if row is None or not row["activated_at"] or not row["report_date"]:
         return None
-    return ActiveCatalogContext(int(row["id"]), str(row["activated_at"]))
+    return ActiveCatalogContext(
+        int(row["id"]),
+        str(row["activated_at"]),
+        str(row["report_date"]),
+    )
 
 
-def beneficiary_created_after_activation(
+def parse_catalog_report_date(value: str | None) -> date | None:
+    """Parse ACTIVE catalog report_date (ISO date or parseable timestamp)."""
+    if value in (None, ""):
+        return None
+    text = str(value).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        try:
+            return date.fromisoformat(text)
+        except ValueError:
+            return None
+    parsed = parse_utc_timestamp(text)
+    if parsed is not None:
+        return parsed.date()
+    return None
+
+
+def beneficiary_created_after_snapshot(
     beneficiary: dict[str, Any],
     *,
-    activated_at: str,
+    report_date: str,
 ) -> bool:
+    """True when beneficiary was created strictly after the ACTIVE TXT snapshot date."""
     created = parse_utc_timestamp(str(beneficiary.get("created_at") or ""))
-    activated = parse_utc_timestamp(activated_at)
-    if created is None or activated is None:
+    snapshot = parse_catalog_report_date(report_date)
+    if created is None or snapshot is None:
         return False
-    return created >= activated
+    return created.date() > snapshot
 
 
 def is_pre_catalog_legacy_orphan(
@@ -91,7 +113,7 @@ def is_pre_catalog_legacy_orphan(
     bid = int(beneficiary["id"])
     if _resolve_catalog_person_id_for_beneficiary(conn, ctx.version_id, bid) is not None:
         return False
-    if beneficiary_created_after_activation(beneficiary, activated_at=ctx.activated_at):
+    if beneficiary_created_after_snapshot(beneficiary, report_date=ctx.report_date):
         return False
     return True
 
@@ -213,7 +235,7 @@ def evaluate_post_catalog_addition(
         reason_codes.append("LEGACY_NOT_USABLE")
     ok_source, source_codes = post_catalog_source_operational(beneficiary)
     reason_codes.extend(source_codes)
-    if not beneficiary_created_after_activation(beneficiary, activated_at=ctx.activated_at):
+    if not beneficiary_created_after_snapshot(beneficiary, report_date=ctx.report_date):
         if "PRE_CATALOG_LEGACY_EXCLUDED" not in reason_codes:
             reason_codes.append("PRE_CATALOG_LEGACY_EXCLUDED")
     emp = str(beneficiary.get("employee_number_effective") or "")
@@ -335,7 +357,7 @@ def search_post_catalog_additions(
     base_from = """
         FROM nomina_banorte_beneficiaries b
         WHERE b.record_status='ACTIVO'
-          AND b.created_at >= ?
+          AND date(b.created_at) > date(?)
           AND b.source_kind IN ('REPORTE_DETALLADO','ALTA_MANUAL')
           AND b.validation_status='IMPORTADO_EXITOSO'
           AND NOT EXISTS (
@@ -346,7 +368,7 @@ def search_post_catalog_additions(
               AND p.version_id=?
           )
     """
-    params: list[Any] = [ctx.activated_at, ctx.version_id, ctx.version_id]
+    params: list[Any] = [ctx.report_date, ctx.version_id, ctx.version_id]
     if where_sql:
         base_from += f" AND {where_sql}"
         params.extend(where_params)

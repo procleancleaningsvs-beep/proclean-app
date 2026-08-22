@@ -24,7 +24,10 @@ from modules.nomina.banorte.payment_authority import (
     rehydrate_row_authority,
 )
 from modules.nomina.banorte.post_catalog_authority import (
+    beneficiary_created_after_snapshot,
     evaluate_post_catalog_addition,
+    parse_catalog_report_date,
+    parse_utc_timestamp,
     resolve_beneficiary_payment_authority,
 )
 from modules.nomina.banorte.repository import connect
@@ -163,6 +166,61 @@ def _insert_beneficiary(
     conn.commit()
     conn.close()
     return bid
+
+
+def test_post_snapshot_before_technical_activation_enabled(tmp_path):
+    """Delta after TXT report_date qualifies even if created before activated_at."""
+    db = str(tmp_path / "snapshot_boundary.db")
+    version_id, activated_at = _seed_and_activate(db)
+    conn = connect(db)
+    report_date = str(
+        conn.execute(
+            "SELECT report_date FROM nomina_banorte_catalog_versions WHERE id=?",
+            (version_id,),
+        ).fetchone()["report_date"]
+    )
+    conn.close()
+    bid = _insert_beneficiary(
+        db,
+        name="DELTA PRE ACTIVATION",
+        employee="0000000770",
+        account="7707707707",
+        source_kind="REPORTE_DETALLADO",
+        validation_status="IMPORTADO_EXITOSO",
+        created_at="2026-08-21T10:00:00+00:00",
+    )
+    conn = connect(db)
+    row = dict(conn.execute("SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (bid,)).fetchone())
+    auth = evaluate_post_catalog_addition(conn, row)
+    activated = parse_utc_timestamp(activated_at)
+    created = parse_utc_timestamp(str(row["created_at"]))
+    conn.close()
+    assert parse_catalog_report_date(report_date) == parse_catalog_report_date("2026-08-20")
+    assert created is not None and activated is not None
+    assert created < activated, "fixture must predate technical activation"
+    assert beneficiary_created_after_snapshot(row, report_date=report_date)
+    assert auth["payment_enabled"] is True
+
+
+def test_same_snapshot_day_creation_not_post_snapshot(tmp_path):
+    db = str(tmp_path / "same_day.db")
+    _seed_and_activate(db)
+    bid = _insert_beneficiary(
+        db,
+        name="SAME DAY DELTA",
+        employee="0000000769",
+        account="7697697697",
+        source_kind="REPORTE_DETALLADO",
+        validation_status="IMPORTADO_EXITOSO",
+        created_at="2026-08-20T23:59:59+00:00",
+    )
+    conn = connect(db)
+    auth = evaluate_post_catalog_addition(
+        conn, dict(conn.execute("SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (bid,)).fetchone())
+    )
+    conn.close()
+    assert auth["payment_enabled"] is False
+    assert "PRE_CATALOG_LEGACY_EXCLUDED" in auth["reason_codes"]
 
 
 def test_active_catalog_member_still_payment_enabled(tmp_path):
