@@ -11,6 +11,10 @@ from modules.nomina.banorte.catalog_search_cursor import (
     parse_catalog_search_cursor,
 )
 from modules.nomina.banorte.payment_authority import evaluate_payment_authority
+from modules.nomina.banorte.post_catalog_authority import (
+    AUTHORITY_KIND_POST_CATALOG,
+    search_post_catalog_additions,
+)
 from modules.nomina.banorte.repository import connect
 
 _MAX_Q = 100
@@ -43,6 +47,10 @@ _BENEFICIARY_BLOCK_LABELS: dict[str, str] = {
     "account_mismatch": "Cuenta no coincide.",
     "fingerprint_mismatch": "Huella material desactualizada.",
     "manual_effective_confirmation_required": "Requiere confirmación manual.",
+    "PRE_CATALOG_LEGACY_EXCLUDED": "Beneficiario anterior al catálogo activo.",
+    "POST_CATALOG_SOURCE_NOT_AUTHORIZED": "Alta no autorizada post-catálogo.",
+    "CATALOG_EMPLOYEE_COLLISION": "Número de empleado ocupado por catálogo.",
+    "CATALOG_ACCOUNT_COLLISION": "Cuenta ocupada por catálogo.",
 }
 
 
@@ -93,6 +101,8 @@ def _evaluate_sidebar_person(
     block_reason = _human_block_reason(reason_codes, person_status, reconciliation, beneficiary)
     return {
         "catalog_person_id": int(person["id"]),
+        "authority_kind": "CATALOG",
+        "beneficiary_id": int(beneficiary["id"]) if beneficiary is not None else None,
         "employee_number": str(person.get("employee_number_normalized") or ""),
         "display_name": str(person.get("name_original") or person.get("name_normalized") or ""),
         "account_masked": _mask_account(str(person.get("account_number_normalized") or "")),
@@ -210,7 +220,11 @@ def search_catalog_sidebar(
             base_from += f" AND {where_sql}"
             params.extend(where_params)
         count_sql = f"SELECT COUNT(*) {base_from}"
-        total = int(conn.execute(count_sql, params).fetchone()[0])
+        catalog_total = int(conn.execute(count_sql, params).fetchone()[0])
+        post_items, post_total = search_post_catalog_additions(
+            conn, q=q_norm, limit=5000, offset=0
+        )
+        total = catalog_total + post_total
         query_sql = f"""
             SELECT p.id, p.version_id, p.person_status,
                    r.employee_number_normalized, r.account_number_normalized,
@@ -229,13 +243,10 @@ def search_catalog_sidebar(
                    b.replaces_id, b.updated_at
             {base_from}
             ORDER BY {_order_clause(sort)}
-            LIMIT ? OFFSET ?
         """
-        rows = conn.execute(query_sql, params + [limit + 1, offset]).fetchall()
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
+        rows = conn.execute(query_sql, params).fetchall()
         items: list[dict[str, Any]] = []
-        for row in page_rows:
+        for row in rows:
             raw = dict(row)
             person = {
                 "id": raw["id"],
@@ -288,6 +299,26 @@ def search_catalog_sidebar(
             if role != "admin":
                 evaluated.pop("reason_codes", None)
             items.append(evaluated)
+        for post_item in post_items:
+            block_reason = _human_block_reason(
+                list(post_item.get("reason_codes") or []),
+                "CATALOG_READY",
+                None,
+                None,
+            )
+            post_item["block_reason"] = block_reason
+            if role != "admin":
+                post_item.pop("reason_codes", None)
+            items.append(post_item)
+        items.sort(
+            key=lambda it: (
+                str(it.get("employee_number") or ""),
+                str(it.get("display_name") or ""),
+                int(it.get("catalog_person_id") or it.get("beneficiary_id") or 0),
+            )
+        )
+        page_items = items[offset : offset + limit]
+        has_more = len(items) > offset + limit
         next_cursor = None
         if has_more:
             next_cursor = issue_catalog_search_cursor(
@@ -301,7 +332,7 @@ def search_catalog_sidebar(
             "catalog_active": True,
             "active_version_id": version_id,
             "message": None,
-            "items": items,
+            "items": page_items,
             "next_cursor": next_cursor,
             "total_estimate": total,
         }

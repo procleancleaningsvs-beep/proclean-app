@@ -10,6 +10,14 @@ from modules.nomina.banorte.catalog_lifecycle import (
     has_ever_had_catalog_activation,
     legacy_authority_allowed,
 )
+from modules.nomina.banorte.post_catalog_authority import (
+    AUTHORITY_KIND_POST_CATALOG,
+    evaluate_post_catalog_addition,
+    is_pre_catalog_legacy_orphan,
+    load_active_catalog_context,
+    load_beneficiary_row,
+    resolve_beneficiary_payment_authority,
+)
 from modules.nomina.banorte.repository import connect
 
 
@@ -50,12 +58,19 @@ def evaluate_payment_authority(
             elif not legacy_authority_allowed(conn):
                 reason_codes.append("CATALOG_ACTIVE_REQUIRED")
         if row is not None:
-            if str(draft.get("catalog_mode") if draft else "") == "CATALOG" or (
+            catalog_required = str(draft.get("catalog_mode") if draft else "") == "CATALOG" or (
                 active_version_id is not None and not legacy_authority_allowed(conn)
-            ):
-                if row.get("catalog_person_id") is None:
+            )
+            if catalog_required:
+                post_catalog_ok = False
+                if row.get("catalog_person_id") is None and beneficiary is not None:
+                    ctx = load_active_catalog_context(conn)
+                    if ctx is not None:
+                        post = evaluate_post_catalog_addition(conn, beneficiary, ctx=ctx)
+                        post_catalog_ok = bool(post.get("payment_enabled"))
+                if row.get("catalog_person_id") is None and not post_catalog_ok:
                     reason_codes.append("CATALOG_PROVENANCE_MISSING")
-                if row.get("catalog_reconciliation_id") is None:
+                if row.get("catalog_reconciliation_id") is None and row.get("catalog_person_id") is not None:
                     reason_codes.append("RECONCILIATION_MISSING")
                 fp_version = row.get("beneficiary_material_fingerprint_version")
                 fp_seen = row.get("beneficiary_material_fingerprint_seen")
@@ -99,27 +114,44 @@ def evaluate_payment_authority(
             person is not None or (row and row.get("catalog_person_id"))
         ):
             reason_codes.append("LEGACY_NOT_USABLE")
+        elif beneficiary is None and row and row.get("beneficiary_id") and active_version_id is not None:
+            loaded = load_beneficiary_row(conn, int(row["beneficiary_id"]))
+            if loaded is not None:
+                beneficiary = loaded
         elif beneficiary is not None:
+            ctx = load_active_catalog_context(conn) if active_version_id is not None else None
+            if person is None and ctx is not None and active_version_id is not None:
+                if is_pre_catalog_legacy_orphan(conn, beneficiary, ctx=ctx):
+                    reason_codes.append("PRE_CATALOG_LEGACY_EXCLUDED")
+                elif row is not None and row.get("catalog_person_id") is None:
+                    post = evaluate_post_catalog_addition(conn, beneficiary, ctx=ctx)
+                    for code in post.get("reason_codes") or []:
+                        if code not in reason_codes:
+                            reason_codes.append(code)
             if str(beneficiary.get("record_status") or "") != "ACTIVO":
                 reason_codes.append("LEGACY_NOT_USABLE")
             employee = str(
                 (person or {}).get("employee_number_normalized")
                 or (row or {}).get("employee_number_snapshot")
+                or beneficiary.get("employee_number_effective")
                 or ""
             )
             account = str(
                 (person or {}).get("account_number_normalized")
                 or (row or {}).get("account_number_snapshot")
+                or beneficiary.get("account_number")
                 or ""
             )
-            if employee and str(beneficiary.get("employee_number_effective") or "") != employee:
-                reason_codes.append("EMPLOYEE_MISMATCH")
-            if account and str(beneficiary.get("account_number") or "") != account:
-                reason_codes.append("ACCOUNT_MISMATCH")
+            if person is not None:
+                if employee and str(beneficiary.get("employee_number_effective") or "") != employee:
+                    reason_codes.append("EMPLOYEE_MISMATCH")
+                if account and str(beneficiary.get("account_number") or "") != account:
+                    reason_codes.append("ACCOUNT_MISMATCH")
             if int(beneficiary.get("manual_effective_from_account") or 0) == 1:
                 check_row = row or {"user_decision": {}}
                 if not _manual_effective_confirmed(check_row):
-                    reason_codes.append("MANUAL_PENDIENTE_VALIDACION")
+                    if "MANUAL_PENDIENTE_VALIDACION" not in reason_codes:
+                        reason_codes.append("MANUAL_PENDIENTE_VALIDACION")
         enabled = not reason_codes
         return {
             "payment_enabled": enabled,
@@ -338,6 +370,21 @@ def rehydrate_row_authority(
                 beneficiary=beneficiary,
                 authority={"reason_codes": []},
             )
+    elif bid is not None and active_id is not None and beneficiary is not None:
+        from modules.nomina.banorte.post_catalog_authority import (
+            apply_post_catalog_provenance_to_row,
+        )
+
+        bundle = resolve_beneficiary_payment_authority(conn, int(bid), row=out)
+        if bundle.get("authority_kind") == AUTHORITY_KIND_POST_CATALOG:
+            out = apply_post_catalog_provenance_to_row(
+                out,
+                beneficiary=bundle["beneficiary"] or beneficiary,
+                authority=bundle,
+            )
+            person = None
+            reconciliation = None
+            beneficiary = bundle["beneficiary"] or beneficiary
     authority = evaluate_payment_authority(
         conn=conn,
         draft=draft,

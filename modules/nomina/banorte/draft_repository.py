@@ -959,9 +959,15 @@ def add_draft_payment(
             raise ValueError("draft_not_open")
         origin_kind = str(draft_meta["origin_kind"])
         from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
+        from modules.nomina.banorte.post_catalog_authority import resolve_beneficiary_payment_authority
 
         if not legacy_authority_allowed(conn) and catalog_person_id is None:
-            raise ValueError("catalog_authority_required")
+            bundle = resolve_beneficiary_payment_authority(conn, int(beneficiary_id))
+            if not bundle.get("payment_enabled"):
+                raise ValueError("catalog_authority_required")
+            resolved_cpid = bundle.get("catalog_person_id")
+            if resolved_cpid is not None:
+                catalog_person_id = int(resolved_cpid)
         ben_row = conn.execute(
             "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
             (int(beneficiary_id),),

@@ -29,6 +29,7 @@ class CaptureRow:
     catalog_person_id: int | None
     amount_raw: str | None
     state: str
+    beneficiary_id: int | None = None
     observation_codes: list[str] = field(default_factory=list)
 
     def observation_text(self) -> str:
@@ -158,6 +159,8 @@ def parse_rows_from_payload(payload: list[dict]) -> list[CaptureRow]:
         key = str(item.get("client_row_key") or _new_key())
         catalog_person_id = item.get("catalog_person_id")
         cpid = int(catalog_person_id) if catalog_person_id not in (None, "") else None
+        bid = item.get("beneficiary_id")
+        beneficiary_id = int(bid) if bid not in (None, "") else None
         row = _capture_from_parts(
             position,
             item.get("name_raw"),
@@ -165,6 +168,7 @@ def parse_rows_from_payload(payload: list[dict]) -> list[CaptureRow]:
         )
         row.client_row_key = key
         row.catalog_person_id = cpid
+        row.beneficiary_id = beneficiary_id
         if cpid is not None and row.state == "OK":
             row.observation_codes = list(row.observation_codes)
         rows.append(row)
@@ -222,6 +226,7 @@ def capture_rows_to_prepare_inputs(rows: list[CaptureRow]) -> list[dict]:
                 "warnings": warnings,
                 "user_decision": {},
                 "catalog_person_id": row.catalog_person_id,
+                "beneficiary_id": row.beneficiary_id,
                 "catalog_observation_codes": list(row.observation_codes),
                 "client_row_key": row.client_row_key,
             }

@@ -340,6 +340,7 @@
         if (op.overwrite || !trimCell(row.amount_raw)) row.amount_raw = op.value;
       }
       row.catalog_person_id = null;
+      row.beneficiary_id = null;
       row.account_display = "";
       if (Array.isArray(op.observation_codes) && op.observation_codes.length) {
         row.observation_codes = op.observation_codes.slice();
@@ -481,6 +482,7 @@
         position: partial.position || nextPosition++,
         name_raw: partial.name_raw || "",
         catalog_person_id: partial.catalog_person_id || null,
+        beneficiary_id: partial.beneficiary_id || null,
         amount_raw: partial.amount_raw || "",
         account_display: partial.account_display || "",
         state: partial.state || "OK",
@@ -502,6 +504,7 @@
         existing.amount_raw = parsed.amount_raw;
       }
       existing.catalog_person_id = null;
+      existing.beneficiary_id = null;
       existing.account_display = "";
       existing.observation_codes = parsed.observation_codes.slice();
       evaluateRow(existing);
@@ -639,6 +642,7 @@
         nameInput.addEventListener("input", function () {
           row.name_raw = nameInput.value;
           row.catalog_person_id = null;
+          row.beneficiary_id = null;
           row.account_display = "";
           evaluateRow(row);
           tr.querySelector(".banorte-grid-state").textContent =
@@ -677,6 +681,7 @@
             name_raw: r.name_raw,
             amount_raw: r.amount_raw,
             catalog_person_id: r.catalog_person_id,
+            beneficiary_id: r.beneficiary_id,
             state: r.state,
             observation_codes: r.observation_codes,
           };
@@ -707,11 +712,15 @@
 
     root.document.addEventListener("banorte:catalog-person-selected", function (e) {
       const detail = e.detail || {};
+      const accountLabel = detail.account_masked
+        ? detail.account_masked
+        : (detail.catalog_person_id ? "Catálogo" : "—");
       controller.addRow({
-        name_raw: "",
+        name_raw: detail.display_name || "",
         amount_raw: "",
-        catalog_person_id: detail.catalog_person_id,
-        account_display: "Catálogo",
+        catalog_person_id: detail.catalog_person_id || null,
+        beneficiary_id: detail.beneficiary_id || null,
+        account_display: accountLabel,
       });
     });
 

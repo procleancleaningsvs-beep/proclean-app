@@ -6,7 +6,14 @@ from typing import Any
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
 from modules.nomina.banorte.catalog_lifecycle import legacy_authority_allowed
-from modules.nomina.banorte.payment_authority import apply_authority_to_mutable_row, evaluate_payment_authority
+from modules.nomina.banorte.post_catalog_authority import (
+    apply_post_catalog_provenance_to_row,
+    resolve_beneficiary_payment_authority,
+)
+from modules.nomina.banorte.payment_authority import (
+    apply_authority_to_mutable_row,
+    evaluate_payment_authority,
+)
 from modules.nomina.banorte.prepare_service import prepare_draft_rows
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.rows_capture import CaptureRow, capture_rows_to_prepare_inputs
@@ -164,6 +171,23 @@ def prepare_capture_rows(
         prepared: list[dict[str, Any]] = []
         for base in base_rows:
             person_id = base.get("catalog_person_id")
+            beneficiary_id = base.get("beneficiary_id")
+            if person_id is None and beneficiary_id is not None:
+                bundle = resolve_beneficiary_payment_authority(
+                    conn, int(beneficiary_id), row=base
+                )
+                cpid = bundle.get("catalog_person_id")
+                if cpid is not None:
+                    person_id = int(cpid)
+                    base["catalog_person_id"] = person_id
+                elif bundle.get("beneficiary") is not None:
+                    merged = apply_post_catalog_provenance_to_row(
+                        base,
+                        beneficiary=bundle["beneficiary"],
+                        authority=bundle,
+                    )
+                    prepared.append(merged)
+                    continue
             if person_id is None:
                 legacy_one = prepare_draft_rows(db_path, [base], origin_kind=origin_kind)[0]
                 legacy_one = apply_authority_to_mutable_row(

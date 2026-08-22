@@ -64,6 +64,8 @@
     btn.className = "banorte-catalog-sidebar-item";
     btn.disabled = !item.payment_enabled;
     btn.dataset.catalogPersonId = String(item.catalog_person_id || "");
+    btn.dataset.beneficiaryId = String(item.beneficiary_id || "");
+    btn.dataset.authorityKind = String(item.authority_kind || "CATALOG");
     const statusClass = item.payment_enabled ? "banorte-status--ok" : "banorte-status--muted";
     const statusText = item.payment_enabled ? "Habilitado" : "Bloqueado";
     btn.innerHTML =
@@ -76,7 +78,14 @@
     if (item.payment_enabled) {
       btn.addEventListener("click", function () {
         document.dispatchEvent(new CustomEvent("banorte:catalog-person-selected", {
-          detail: { catalog_person_id: Number(item.catalog_person_id) },
+          detail: {
+            catalog_person_id: item.catalog_person_id ? Number(item.catalog_person_id) : null,
+            beneficiary_id: item.beneficiary_id ? Number(item.beneficiary_id) : null,
+            authority_kind: item.authority_kind || "CATALOG",
+            display_name: item.display_name || "",
+            employee_number: item.employee_number || "",
+            account_masked: item.account_masked || "",
+          },
         }));
       });
     }

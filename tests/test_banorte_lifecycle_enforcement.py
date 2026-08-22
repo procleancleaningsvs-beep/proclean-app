@@ -294,16 +294,30 @@ def test_post_activation_calculo_rows_require_catalog_authority(tmp_path):
 
 def test_add_payment_post_activation_requires_catalog(tmp_path):
     db = str(tmp_path / "addpay.db")
-    _, beneficiary_id = _active_catalog(db)
+    _active_catalog(db)
+    conn = sqlite3.connect(db)
+    cur = conn.execute(
+        """
+        INSERT INTO nomina_banorte_beneficiaries (
+            nombre_original,nombre_normalizado,employee_number_effective,account_number,
+            source_kind,validation_status,record_status,manual_effective_from_account,
+            imported_at,imported_by,created_at,updated_at
+        ) VALUES (?,?,?,?, 'ALTA_MANUAL','IMPORTADO_EXITOSO','ACTIVO',0,'t','u','2026-01-01T00:00:00+00:00','2026-01-01T00:00:00+00:00')
+        """,
+        ("LEGACY PRE ACTIVATION", normalize_name("LEGACY PRE ACTIVATION"), "0000000311", "3111111111"),
+    )
+    legacy_id = int(cur.lastrowid)
+    conn.commit()
+    conn.close()
     shell = create_manual_draft_shell(db, "nomina", names_text="", amounts_text="")
     draft_id = int(shell["draft"]["id"])
-    with pytest.raises(ValueError, match="catalog_authority_required"):
+    with pytest.raises(ValueError, match="catalog_authority_required|beneficiary_not_usable"):
         add_draft_payment(
             db,
             draft_id,
             "nomina",
             1,
-            beneficiary_id=beneficiary_id,
+            beneficiary_id=legacy_id,
             amount_final="100.00",
         )
 
