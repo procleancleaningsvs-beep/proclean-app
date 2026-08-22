@@ -65,6 +65,11 @@ def test_history_controller_uses_safe_dom_and_no_live_data_contracts():
     assert "createElement" in controller
     assert "Escape" in controller
     assert "lastTrigger.focus" in controller
+    open_block = controller[controller.index("async function open(trigger)") : controller.index("async function open(trigger)") + 400]
+    export_decl = open_block.index("const exportId")
+    loading_call = open_block.index("view.loading(exportId)")
+    assert export_decl < loading_call, "exportId must be read before loading state"
+    assert "movementsExcelUrl" in controller
     assert "ORDER BY position" in service
     assert "nomina_banorte_exports" in service
     assert "nomina_banorte_export_items" in service

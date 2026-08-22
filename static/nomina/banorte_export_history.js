@@ -241,8 +241,8 @@
 
     async function open(trigger) {
       view.open(trigger);
-      view.loading(exportId);
       const exportId = trigger && trigger.dataset && trigger.dataset.exportId;
+      view.loading(exportId);
       if (!/^\d+$/.test(String(exportId || ""))) {
         view.error("El identificador del export no es válido.");
         return;
