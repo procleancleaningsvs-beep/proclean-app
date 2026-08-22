@@ -17,6 +17,8 @@ const {
   isSingleColumnPaste,
   extractPasteMatrix,
   installGridPasteListener,
+  filterEnabledSuggestions,
+  resolveNameAutocompleteKeydown,
 } = grid;
 
 function makeRow(partial) {
@@ -521,4 +523,28 @@ test("no name-only duplicate rows after names then amounts", () => {
     return trimCell(row.name_raw) && !trimCell(row.amount_raw);
   });
   assert.equal(nameOnly.length, 0);
+});
+
+test("autocomplete filters to payment-enabled suggestions only", () => {
+  const items = filterEnabledSuggestions([
+    { display_name: "A", payment_enabled: true },
+    { display_name: "B", payment_enabled: false },
+  ]);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].display_name, "A");
+});
+
+test("autocomplete keyboard resolves highlight and select when open", () => {
+  const down = resolveNameAutocompleteKeydown("ArrowDown", true, 0, 3);
+  assert.equal(down.action, "highlight");
+  assert.equal(down.index, 1);
+  const select = resolveNameAutocompleteKeydown("Enter", true, 1, 3);
+  assert.equal(select.action, "select");
+  assert.equal(select.index, 1);
+  assert.equal(resolveNameAutocompleteKeydown("ArrowDown", false, 0, 3), null);
+});
+
+test("spreadsheet arrow navigation unchanged when autocomplete closed", () => {
+  const move = resolveKeyboardMove("ArrowDown", "name", 0, 3, 0, 0, 5);
+  assert.deepEqual(move, { rowIndex: 1, column: "name" });
 });

@@ -426,3 +426,29 @@
 }
 .banorte-grid-account { color: #64748b; font-size: .85rem; }
 .banorte-grid-state { font-size: .82rem; color: #92400e; max-width: 14rem; }
+.banorte-grid-name-cell { position: relative; }
+.banorte-grid-name-suggest {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 20;
+  margin: 0;
+  padding: .25rem 0;
+  list-style: none;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, .12);
+  max-height: 12rem;
+  overflow-y: auto;
+}
+.banorte-grid-name-suggest__item {
+  padding: .35rem .5rem;
+  font-size: .85rem;
+  cursor: pointer;
+}
+.banorte-grid-name-suggest__item.is-active,
+.banorte-grid-name-suggest__item:hover {
+  background: #eff6ff;
+}

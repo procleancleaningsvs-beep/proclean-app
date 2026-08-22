@@ -15,6 +15,39 @@
   };
 
   const EDITABLE_COLUMNS = ["name", "amount"];
+  const NAME_AUTOCOMPLETE_MIN_CHARS = 2;
+  const NAME_AUTOCOMPLETE_DEBOUNCE_MS = 275;
+  const NAME_AUTOCOMPLETE_MAX = 15;
+
+  function filterEnabledSuggestions(items) {
+    return (items || []).filter(function (item) { return item && item.payment_enabled; });
+  }
+
+  function resolveNameAutocompleteKeydown(key, dropdownOpen, activeIndex, suggestionCount) {
+    if (!dropdownOpen || suggestionCount <= 0) return null;
+    if (key === "ArrowDown") {
+      return {
+        handled: true,
+        action: "highlight",
+        index: activeIndex < suggestionCount - 1 ? activeIndex + 1 : 0,
+      };
+    }
+    if (key === "ArrowUp") {
+      return {
+        handled: true,
+        action: "highlight",
+        index: activeIndex > 0 ? activeIndex - 1 : suggestionCount - 1,
+      };
+    }
+    if (key === "Enter") {
+      if (activeIndex >= 0) return { handled: true, action: "select", index: activeIndex };
+      return { handled: true, action: "close" };
+    }
+    if (key === "Escape") {
+      return { handled: true, action: "close" };
+    }
+    return null;
+  }
 
   function trimCell(value) {
     return String(value == null ? "" : value).replace(/\u00a0/g, " ").trim();
@@ -459,6 +492,7 @@
     options = options || {};
     const gridBody = options.gridBody;
     const pasteRoot = options.pasteRoot;
+    const nameSearch = options.nameSearch || null;
     if (!gridBody) return null;
 
     const rows = [];
@@ -580,6 +614,158 @@
 
     const pasteBinding = installGridPasteListener(pasteRoot, handlePasteEvent);
 
+    function updateStateCell(tr, row) {
+      const cell = tr.querySelector(".banorte-grid-state");
+      if (cell) {
+        cell.textContent =
+          observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+      }
+    }
+
+    function attachNameAutocomplete(input, row, tr) {
+      if (!nameSearch || typeof nameSearch.searchNames !== "function") {
+        return {
+          scheduleSearch: function () {},
+          closeDropdown: function () {},
+          handleNameKeydown: handleInputKeydown,
+          teardown: function () {},
+        };
+      }
+      const minChars = nameSearch.minChars || NAME_AUTOCOMPLETE_MIN_CHARS;
+      const debounceMs = nameSearch.debounceMs || NAME_AUTOCOMPLETE_DEBOUNCE_MS;
+      const maxSuggestions = nameSearch.maxSuggestions || NAME_AUTOCOMPLETE_MAX;
+      let dropdown = null;
+      let debounceTimer = null;
+      let searchSeq = 0;
+      let suggestions = [];
+      let activeIndex = -1;
+      let dropdownOpen = false;
+
+      function closeDropdown() {
+        dropdownOpen = false;
+        activeIndex = -1;
+        suggestions = [];
+        if (dropdown) {
+          dropdown.remove();
+          dropdown = null;
+        }
+      }
+
+      function highlightDropdown() {
+        if (!dropdown) return;
+        Array.from(dropdown.children).forEach(function (node, idx) {
+          node.classList.toggle("is-active", idx === activeIndex);
+        });
+      }
+
+      function applySuggestion(item) {
+        row.name_raw = item.display_name || "";
+        row.catalog_person_id = item.catalog_person_id || null;
+        row.beneficiary_id = item.beneficiary_id || null;
+        row.account_display = item.account_masked
+          ? item.account_masked
+          : (item.catalog_person_id ? "Catálogo" : "—");
+        input.value = row.name_raw;
+        evaluateRow(row);
+        const accountCell = tr.querySelector(".banorte-grid-account");
+        if (accountCell) accountCell.textContent = row.account_display || "—";
+        updateStateCell(tr, row);
+        closeDropdown();
+      }
+
+      function renderDropdown() {
+        closeDropdown();
+        if (!suggestions.length) return;
+        dropdown = root.document.createElement("ul");
+        dropdown.className = "banorte-grid-name-suggest";
+        dropdown.setAttribute("role", "listbox");
+        suggestions.forEach(function (item, idx) {
+          const li = root.document.createElement("li");
+          li.className = "banorte-grid-name-suggest__item" + (idx === activeIndex ? " is-active" : "");
+          li.setAttribute("role", "option");
+          li.textContent = item.display_name || "";
+          li.addEventListener("mousedown", function (e) {
+            e.preventDefault();
+            applySuggestion(item);
+          });
+          dropdown.appendChild(li);
+        });
+        const wrap = input.closest(".banorte-grid-name-cell") || input.parentElement;
+        if (wrap) wrap.appendChild(dropdown);
+        dropdownOpen = true;
+      }
+
+      async function runSearch(q) {
+        const trimmed = trimCell(q);
+        if (trimmed.length < minChars) {
+          closeDropdown();
+          return;
+        }
+        const seq = ++searchSeq;
+        try {
+          const data = await nameSearch.searchNames(trimmed);
+          if (seq !== searchSeq) return;
+          if (typeof nameSearch.setCsrf === "function" && data && data.csrf_token) {
+            nameSearch.setCsrf(data.csrf_token);
+          }
+          suggestions = filterEnabledSuggestions(data && data.items).slice(0, maxSuggestions);
+          activeIndex = suggestions.length ? 0 : -1;
+          if (suggestions.length) renderDropdown();
+          else closeDropdown();
+        } catch (_err) {
+          closeDropdown();
+        }
+      }
+
+      function scheduleSearch(q) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () {
+          debounceTimer = null;
+          runSearch(q);
+        }, debounceMs);
+      }
+
+      function handleNameKeydown(e) {
+        const resolved = resolveNameAutocompleteKeydown(
+          e.key,
+          dropdownOpen,
+          activeIndex,
+          suggestions.length
+        );
+        if (resolved && resolved.handled) {
+          e.preventDefault();
+          if (resolved.action === "highlight") {
+            activeIndex = resolved.index;
+            highlightDropdown();
+            return;
+          }
+          if (resolved.action === "select") {
+            applySuggestion(suggestions[resolved.index]);
+            return;
+          }
+          if (resolved.action === "close") {
+            closeDropdown();
+            return;
+          }
+        }
+        handleInputKeydown(e);
+      }
+
+      input.addEventListener("blur", function () {
+        setTimeout(closeDropdown, 150);
+      });
+
+      return {
+        scheduleSearch: scheduleSearch,
+        closeDropdown: closeDropdown,
+        handleNameKeydown: handleNameKeydown,
+        teardown: function () {
+          if (debounceTimer) clearTimeout(debounceTimer);
+          closeDropdown();
+        },
+      };
+    }
+
     function handleInputKeydown(e) {
       const input = e.target;
       if (!input.matches(".banorte-grid-name, .banorte-grid-amount")) return;
@@ -632,29 +818,31 @@
         tr.dataset.rowKey = row.client_row_key;
         tr.innerHTML =
           "<td>" + row.position + "</td>" +
-          '<td><input type="text" class="banorte-grid-name" value="' + esc(row.name_raw) + '" autocomplete="off"></td>' +
+          '<td><div class="banorte-grid-name-cell"><input type="text" class="banorte-grid-name" value="' + esc(row.name_raw) + '" autocomplete="off"></div></td>' +
           '<td><span class="banorte-grid-account banorte-mono" tabindex="-1">' + esc(row.account_display || "—") + "</span></td>" +
           '<td><input type="text" class="banorte-grid-amount" value="' + esc(row.amount_raw) + '" inputmode="decimal" autocomplete="off"></td>' +
           '<td class="banorte-grid-state">' + esc(observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección")) + "</td>" +
           '<td><button type="button" class="btn btn-secondary btn-sm banorte-grid-remove" tabindex="0">Quitar</button></td>';
         const nameInput = tr.querySelector(".banorte-grid-name");
         const amountInput = tr.querySelector(".banorte-grid-amount");
+        const accountCell = tr.querySelector(".banorte-grid-account");
+        const nameAutocomplete = attachNameAutocomplete(nameInput, row, tr);
         nameInput.addEventListener("input", function () {
           row.name_raw = nameInput.value;
           row.catalog_person_id = null;
           row.beneficiary_id = null;
           row.account_display = "";
           evaluateRow(row);
-          tr.querySelector(".banorte-grid-state").textContent =
-            observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+          if (accountCell) accountCell.textContent = "—";
+          updateStateCell(tr, row);
+          nameAutocomplete.scheduleSearch(nameInput.value);
         });
         amountInput.addEventListener("input", function () {
           row.amount_raw = amountInput.value;
           evaluateRow(row);
-          tr.querySelector(".banorte-grid-state").textContent =
-            observationText(row.observation_codes) || (row.state === "OK" ? "Listo" : "Requiere corrección");
+          updateStateCell(tr, row);
         });
-        nameInput.addEventListener("keydown", handleInputKeydown);
+        nameInput.addEventListener("keydown", nameAutocomplete.handleNameKeydown);
         amountInput.addEventListener("keydown", handleInputKeydown);
         tr.querySelector(".banorte-grid-remove").addEventListener("click", function () {
           removeRow(row.client_row_key);
@@ -704,9 +892,36 @@
       return root.__banortePaymentGridController || null;
     }
     pasteRoot.dataset.banortePaymentGridMounted = "1";
+    let csrf = pageRoot.dataset.csrf || "";
+    const SEARCH_URL = "/nomina/exportaciones/banorte/catalogo/sidebar/search";
     const controller = createGridController({
       gridBody: gridBody,
       pasteRoot: pasteRoot,
+      nameSearch: {
+        minChars: NAME_AUTOCOMPLETE_MIN_CHARS,
+        debounceMs: NAME_AUTOCOMPLETE_DEBOUNCE_MS,
+        maxSuggestions: NAME_AUTOCOMPLETE_MAX,
+        setCsrf: function (token) {
+          if (token) csrf = token;
+        },
+        searchNames: async function (q) {
+          const res = await root.fetch(SEARCH_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-CSRF-Token": csrf,
+            },
+            body: JSON.stringify({
+              csrf_token: csrf,
+              q: q,
+              sort: "name_asc",
+              limit: NAME_AUTOCOMPLETE_MAX,
+            }),
+            credentials: "same-origin",
+          });
+          return res.json().catch(function () { return {}; });
+        },
+      },
     });
     if (!controller) return null;
 
@@ -764,5 +979,9 @@
     installGridPasteListener: installGridPasteListener,
     createGridController: createGridController,
     mount: mount,
+    filterEnabledSuggestions: filterEnabledSuggestions,
+    resolveNameAutocompleteKeydown: resolveNameAutocompleteKeydown,
+    NAME_AUTOCOMPLETE_MIN_CHARS: NAME_AUTOCOMPLETE_MIN_CHARS,
+    NAME_AUTOCOMPLETE_DEBOUNCE_MS: NAME_AUTOCOMPLETE_DEBOUNCE_MS,
   };
 });

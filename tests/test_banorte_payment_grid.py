@@ -73,3 +73,14 @@ def test_single_row_invalid_amount_stays_needs_review(tmp_path):
     rows = parse_capture_input(rows_payload=[{"name_raw": "JUAN", "amount_raw": "abc"}])
     prepared = prepare_capture_rows(db, rows, origin_kind="MANUAL_CAPTURE")
     assert prepared[0]["row_state"] == "NEEDS_REVIEW"
+
+
+def test_manual_grid_wires_catalog_sidebar_autocomplete():
+    root = Path(__file__).resolve().parents[1]
+    grid_js = (root / "static/nomina/banorte_payment_grid.js").read_text(encoding="utf-8")
+    css = (root / "static/nomina/exportaciones_banorte.css").read_text(encoding="utf-8")
+    assert "catalogo/sidebar/search" in grid_js
+    assert "banorte-grid-name-suggest" in grid_js
+    assert "filterEnabledSuggestions" in grid_js
+    assert "resolveNameAutocompleteKeydown" in grid_js
+    assert ".banorte-grid-name-suggest" in css
