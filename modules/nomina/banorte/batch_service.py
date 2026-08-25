@@ -199,6 +199,14 @@ def add_batch_rows_bulk(
         ensure_banorte_tables(conn)
         conn.execute("BEGIN IMMEDIATE")
         _bump_batch(conn, batch_id, expected_revision, user)
+        occupied = collect_occupied_employee_numbers(conn)
+        accepted_effective: set[str] = set()
+        for row in rows:
+            effective = _batch_effective_employee(row)
+            if len(effective) == 10 and effective != "0000000000":
+                if effective in occupied or effective in accepted_effective:
+                    raise ValueError("duplicate_employee_number")
+                accepted_effective.add(effective)
         pos = int(
             conn.execute(
                 "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM nomina_banorte_beneficiary_batch_rows WHERE batch_id=?",
@@ -251,6 +259,9 @@ def add_batch_row(
         ensure_banorte_tables(conn)
         conn.execute("BEGIN IMMEDIATE")
         _bump_batch(conn, batch_id, expected_revision, user)
+        effective = acct if use_acct else emp
+        if effective and effective in collect_occupied_employee_numbers(conn):
+            raise ValueError("duplicate_employee_number")
         pos = int(
             conn.execute(
                 "SELECT COALESCE(MAX(position), 0) + 1 AS p FROM nomina_banorte_beneficiary_batch_rows WHERE batch_id=?",
@@ -390,7 +401,7 @@ def confirm_batch(
         ]
         if not rows:
             raise ValueError("batch_empty")
-        occupied = collect_occupied_employee_numbers(conn)
+        occupied = collect_occupied_employee_numbers(conn, exclude_batch_id=batch_id)
         active_accounts = {
             str(r["account_number"])
             for r in conn.execute(

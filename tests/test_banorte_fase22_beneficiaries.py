@@ -12,7 +12,12 @@ from modules.nomina.banorte.beneficiary_service import (
     create_manual_beneficiary,
     list_beneficiaries,
 )
-from modules.nomina.banorte.employee_number_service import list_available_employee_numbers
+from modules.nomina.banorte.catalog_parser import CATALOG_HEADER_V1
+from modules.nomina.banorte.catalog_service import stage_catalog_version
+from modules.nomina.banorte.employee_number_service import (
+    collect_occupied_employee_numbers,
+    list_available_employee_numbers,
+)
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.db import ensure_nomina_tables
@@ -26,6 +31,78 @@ def _db(tmp_path, name="b.db"):
     conn.commit()
     conn.close()
     return path
+
+
+def _catalog_row(
+    employee: str,
+    *,
+    account: str = "9999999999",
+    internal_status: str = "APLICADO",
+) -> list[str]:
+    return [
+        employee,
+        f"PERSONA {employee}",
+        "01/01/2026",
+        "20/08/2026",
+        "ADMIN",
+        "01/01/1990",
+        f"RFC{employee[-4:]}01AA1",
+        "1000",
+        "900",
+        "NUEVO LEON",
+        "01/01/2020",
+        "SEMANAL",
+        "NUEVO LEON",
+        "CUENTA BANORTE",
+        account,
+        "0",
+        "ALTA",
+        "INDIVIDUAL",
+        internal_status,
+        "REGISTRO ACEPTADO",
+        "ADMIN",
+        "",
+        "",
+        "",
+    ]
+
+
+def _stage_catalog(
+    db: str,
+    employee: str,
+    *,
+    status: str,
+    report_date: str = "20/ago./2026",
+    suffix: str = "a",
+    internal_status: str = "APLICADO",
+) -> int:
+    payload = "\n".join(
+        [
+            f"FECHA: {report_date}",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(_catalog_row(employee, internal_status=internal_status)) + "|",
+        ]
+    ).encode("utf-8")
+    version = stage_catalog_version(
+        db,
+        raw=payload,
+        filename=f"catalog-{suffix}.txt",
+        actor="tester",
+    )
+    conn = connect(db)
+    conn.execute(
+        """
+        UPDATE nomina_banorte_catalog_versions
+        SET status=?, activated_at=CASE WHEN ?='ACTIVE' THEN ? ELSE activated_at END
+        WHERE id=?
+        """,
+        (status, status, "2026-08-21T00:00:00+00:00", int(version["id"])),
+    )
+    conn.commit()
+    conn.close()
+    return int(version["id"])
 
 
 def test_record_status_allows_inactivo_manual(tmp_path):
@@ -186,31 +263,76 @@ def test_list_page_size_is_15(tmp_path):
     assert len(listing["rows"]) == 15
 
 
-def test_available_numbers_skip_requested_effective_and_export_snapshot(tmp_path):
+def test_current_active_catalog_occupies_and_superseded_does_not(tmp_path):
     db = _db(tmp_path)
+    _stage_catalog(db, "0000000001", status="SUPERSEDED", suffix="old")
+    _stage_catalog(
+        db,
+        "0000000002",
+        status="ACTIVE",
+        suffix="current",
+        internal_status="CAPTURADO",
+    )
+
     conn = connect(db)
-    ensure_banorte_tables(conn)
-    # requested 1, effective 2 (substituted)
+    occupied = collect_occupied_employee_numbers(conn)
+    conn.close()
+
+    assert "0000000001" not in occupied
+    assert "0000000002" in occupied
+    assert "0000000001" in list_available_employee_numbers(db, limit=2)["numbers"]
+
+
+def test_post_snapshot_active_occupies_effective_not_requested_even_without_authority(tmp_path):
+    db = _db(tmp_path)
+    _stage_catalog(db, "0000000099", status="ACTIVE", suffix="current")
+    conn = connect(db)
     conn.execute(
         """
         INSERT INTO nomina_banorte_beneficiaries (
-            nombre_original, nombre_normalizado, employee_number_requested, employee_number_effective,
-            account_number, source_kind, validation_status, record_status,
-            imported_at, imported_by, created_at, updated_at
-        ) VALUES ('R','R','0000000001','0000000002','9991','ALTA_MANUAL','IMPORTADO_EXITOSO','ACTIVO','t','u','t','t')
+            nombre_original, nombre_normalizado, employee_number_requested,
+            employee_number_effective, account_number, source_kind,
+            validation_status, record_status, imported_at, imported_by,
+            created_at, updated_at
+        ) VALUES (
+            'POST SNAPSHOT','POST SNAPSHOT','0000000003','0000000004','4444444444',
+            'ALTA_MANUAL','MANUAL_PENDIENTE_VALIDACION','ACTIVO','t','u',
+            '2026-08-21T12:00:00+00:00','2026-08-21T12:00:00+00:00'
+        )
         """
     )
-    # replaced still occupies effective 3
+    conn.commit()
+    occupied = collect_occupied_employee_numbers(conn)
+    conn.close()
+
+    assert "0000000004" in occupied
+    assert "0000000003" not in occupied
+
+
+def test_history_and_inactive_sources_release_but_active_constraint_guard_is_closed(tmp_path):
+    db = _db(tmp_path)
+    _stage_catalog(db, "0000000004", status="SUPERSEDED", suffix="old")
+    _stage_catalog(db, "0000000099", status="ACTIVE", suffix="current")
+    conn = connect(db)
+    ensure_banorte_tables(conn)
     conn.execute(
         """
         INSERT INTO nomina_banorte_beneficiaries (
             nombre_original, nombre_normalizado, employee_number_effective, account_number,
-            source_kind, validation_status, record_status,
-            imported_at, imported_by, created_at, updated_at
-        ) VALUES ('Old','OLD','0000000003','9992','ALTA_MANUAL','IMPORTADO_EXITOSO','INACTIVO_REEMPLAZADO','t','u','t','t')
+            source_kind, validation_status, record_status, imported_at, imported_by,
+            created_at, updated_at
+        ) VALUES
+            ('Inactive','INACTIVE','0000000001','1111111111','ALTA_MANUAL',
+             'IMPORTADO_EXITOSO','INACTIVO_MANUAL','t','u','t','t'),
+            ('Replaced','REPLACED','0000000002','2222222222','ALTA_MANUAL',
+             'IMPORTADO_EXITOSO','INACTIVO_REEMPLAZADO','t','u','t','t'),
+            ('Conflict','CONFLICT','0000000003','3333333333','ALTA_MANUAL',
+             'IMPORTADO_EXITOSO','CONFLICTO_CRITICO','t','u','t','t'),
+            ('Residual','RESIDUAL','0000000006','6666666666','ALTAS_NOMINA_BANORTE',
+             'IMPORTADO_EXITOSO','ACTIVO','t','u','2026-08-19T00:00:00+00:00',
+             '2026-08-19T00:00:00+00:00')
         """
     )
-    # historical export snapshot only: 4
     conn.execute(
         """
         INSERT INTO nomina_banorte_exports (
@@ -231,16 +353,15 @@ def test_available_numbers_skip_requested_effective_and_export_snapshot(tmp_path
             export_id, position, nombre_recibido, beneficiary_id, employee_number_effective,
             account_number, amount_cents, match_kind, validation_status, record_status,
             is_manual_beneficiary, warnings_json, user_decision_json
-        ) VALUES (?,1,'H',NULL,'0000000004','9993',100,'MANUAL_SELECT','IMPORTADO_EXITOSO','ACTIVO',0,'[]','{}')
+        ) VALUES (?,1,'H',NULL,'0000000005','5555555555',100,'MANUAL_SELECT','IMPORTADO_EXITOSO','ACTIVO',0,'[]','{}')
         """,
         (eid,),
     )
     conn.commit()
+    occupied = collect_occupied_employee_numbers(conn)
     conn.close()
-    avail = list_available_employee_numbers(db, limit=5)
-    nums = set(avail["numbers"])
-    assert "0000000001" not in nums
-    assert "0000000002" not in nums
-    assert "0000000003" not in nums
-    assert "0000000004" not in nums
-    assert "0000000005" in nums
+
+    assert occupied.isdisjoint(
+        {"0000000001", "0000000002", "0000000003", "0000000004", "0000000005"}
+    )
+    assert "0000000006" in occupied
