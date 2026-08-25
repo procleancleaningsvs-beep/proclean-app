@@ -6,6 +6,10 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
+from modules.nomina.banorte.post_catalog_authority import (
+    beneficiary_created_after_snapshot,
+)
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.banorte.validators import (
@@ -36,13 +40,26 @@ BENEFICIARY_ACTION_MESSAGES = {
     "invalid_action": "La acción no es válida.",
     "not_active": "El registro no admite esta operación en su estado actual.",
     "stale": "El registro fue actualizado por otra operación. Recarga e inténtalo nuevamente.",
+    "beneficiary_action_disallowed_for_provenance": (
+        "La procedencia de este beneficiario no permite esa acción."
+    ),
+    "identity_fields_only_allowed_for_replace": (
+        "Nombre, cuenta y número de empleado sólo pueden cambiarse al crear una versión nueva."
+    ),
 }
 
 
 class BeneficiaryError(Exception):
-    def __init__(self, code: str, message: str | None = None):
+    def __init__(
+        self,
+        code: str,
+        message: str | None = None,
+        *,
+        reason_code: str | None = None,
+    ):
         super().__init__(code)
         self.code = code
+        self.reason_code = reason_code
         self.message = message or BENEFICIARY_ACTION_MESSAGES.get(
             code, "No se pudo completar la operación."
         )
@@ -58,6 +75,232 @@ def _now() -> str:
 
 def _digits(value: str) -> str:
     return "".join(ch for ch in str(value or "") if ch.isdigit())
+
+
+_PROVENANCE_LABELS = {
+    "A": "Empleados.txt ACTIVE",
+    "B": "Alta operacional post-snapshot",
+    "C": "Legacy / histórico",
+    "D": "Versión reemplazada / inactiva",
+}
+
+_BENEFICIARY_MUTATIONS = (
+    "replace",
+    "mark_usable_manual",
+    "keep_pending",
+    "deactivate",
+    "resolve_duplicate",
+)
+
+
+def _load_beneficiary_provenance(conn, beneficiary: Any) -> dict[str, Any]:
+    beneficiary_data = dict(beneficiary)
+    if "curp" not in beneficiary_data:
+        full = conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(beneficiary_data["id"]),),
+        ).fetchone()
+        if full is None:
+            raise BeneficiaryError("not_found")
+        beneficiary_data = dict(full)
+
+    active_catalog = conn.execute(
+        """
+        SELECT id,source_filename,report_date
+        FROM nomina_banorte_catalog_versions
+        WHERE status='ACTIVE'
+        LIMIT 1
+        """
+    ).fetchone()
+    active_relation = conn.execute(
+        """
+        SELECT v.id AS catalog_version_id,v.status AS catalog_version_status,
+               v.source_filename,v.report_date,
+               p.id AS catalog_person_id,p.person_status,
+               cr.name_original AS official_name,
+               cr.employee_number_normalized AS official_employee_number,
+               cr.account_number_normalized AS official_account_number,
+               rec.id AS catalog_reconciliation_id,
+               rec.reconciliation_status,rec.match_method,
+               rec.beneficiary_material_fingerprint
+        FROM nomina_banorte_catalog_reconciliations rec
+        JOIN nomina_banorte_catalog_versions v
+          ON v.id=rec.version_id AND v.status='ACTIVE'
+        JOIN nomina_banorte_catalog_persons p
+          ON p.id=rec.person_id AND p.version_id=v.id
+        JOIN nomina_banorte_catalog_rows cr
+          ON cr.id=p.current_row_id AND cr.version_id=v.id
+        WHERE rec.beneficiary_id=? AND rec.is_current=1
+          AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+          AND p.person_status='CATALOG_READY'
+        LIMIT 1
+        """,
+        (int(beneficiary_data["id"]),),
+    ).fetchone()
+    historical_relation = None
+    if active_relation is None:
+        historical_relation = conn.execute(
+            """
+            SELECT v.id AS catalog_version_id,v.status AS catalog_version_status,
+                   v.source_filename,v.report_date,
+                   p.id AS catalog_person_id,p.person_status,
+                   rec.id AS catalog_reconciliation_id,
+                   rec.reconciliation_status,rec.match_method,
+                   rec.beneficiary_material_fingerprint
+            FROM nomina_banorte_catalog_reconciliations rec
+            JOIN nomina_banorte_catalog_versions v
+              ON v.id=rec.version_id AND v.status='SUPERSEDED'
+            JOIN nomina_banorte_catalog_persons p
+              ON p.id=rec.person_id AND p.version_id=v.id
+            WHERE rec.beneficiary_id=? AND rec.is_current=1
+              AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+            ORDER BY v.id DESC,rec.id DESC
+            LIMIT 1
+            """,
+            (int(beneficiary_data["id"]),),
+        ).fetchone()
+
+    post_snapshot: bool | None = None
+    if active_catalog is not None:
+        post_snapshot = (
+            str(beneficiary_data.get("source_kind") or "")
+            in {"ALTA_MANUAL", "REPORTE_DETALLADO"}
+            and beneficiary_created_after_snapshot(
+                beneficiary_data,
+                report_date=str(active_catalog["report_date"]),
+            )
+        )
+
+    record_status = str(beneficiary_data.get("record_status") or "")
+    if active_relation is not None:
+        category = "A"
+    elif record_status in {"INACTIVO_REEMPLAZADO", "INACTIVO_MANUAL"}:
+        category = "D"
+    elif historical_relation is not None:
+        category = "C"
+    elif post_snapshot:
+        category = "B"
+    else:
+        category = "C"
+
+    relation = active_relation or historical_relation
+    relation_data = dict(relation) if relation is not None else {}
+    reconciliation_fresh: bool | None = None
+    if relation is not None:
+        expected = str(relation_data.get("beneficiary_material_fingerprint") or "")
+        reconciliation_fresh = bool(expected) and (
+            beneficiary_material_fingerprint(beneficiary_data).sha256 == expected
+        )
+
+    catalog_scope = "NONE"
+    if active_relation is not None:
+        catalog_scope = "ACTIVE"
+    elif historical_relation is not None:
+        catalog_scope = "SUPERSEDED"
+
+    return {
+        "provenance_category": category,
+        "provenance_label": _PROVENANCE_LABELS[category],
+        "catalog_scope": catalog_scope,
+        "active_catalog_version_id": (
+            int(active_catalog["id"]) if active_catalog is not None else None
+        ),
+        "active_catalog_source_filename": (
+            str(active_catalog["source_filename"]) if active_catalog is not None else None
+        ),
+        "active_catalog_report_date": (
+            str(active_catalog["report_date"]) if active_catalog is not None else None
+        ),
+        "catalog_version_id": (
+            int(relation_data["catalog_version_id"])
+            if relation_data.get("catalog_version_id") is not None
+            else None
+        ),
+        "catalog_version_status": relation_data.get("catalog_version_status"),
+        "catalog_person_id": (
+            int(relation_data["catalog_person_id"])
+            if relation_data.get("catalog_person_id") is not None
+            else None
+        ),
+        "catalog_reconciliation_id": (
+            int(relation_data["catalog_reconciliation_id"])
+            if relation_data.get("catalog_reconciliation_id") is not None
+            else None
+        ),
+        "catalog_reconciliation_status": relation_data.get("reconciliation_status"),
+        "catalog_match_method": relation_data.get("match_method"),
+        "reconciliation_fresh": reconciliation_fresh,
+        "post_snapshot": post_snapshot,
+        "source_kind": beneficiary_data.get("source_kind"),
+        "validation_status": beneficiary_data.get("validation_status"),
+        "record_status": beneficiary_data.get("record_status"),
+        "official_name": relation_data.get("official_name") if active_relation else None,
+        "official_employee_number": (
+            relation_data.get("official_employee_number") if active_relation else None
+        ),
+        "official_account_number": (
+            relation_data.get("official_account_number") if active_relation else None
+        ),
+    }
+
+
+def _beneficiary_action_policy(
+    beneficiary: Any,
+    provenance: dict[str, Any],
+) -> dict[str, Any]:
+    data = dict(beneficiary)
+    category = str(provenance["provenance_category"])
+    record_status = str(data.get("record_status") or "")
+    allowed: list[str] = []
+    if category == "B":
+        if record_status == "ACTIVO":
+            allowed = ["replace", "mark_usable_manual", "keep_pending", "deactivate"]
+        elif record_status == "CONFLICTO_CRITICO":
+            allowed = ["mark_usable_manual", "keep_pending", "deactivate"]
+
+    if category == "A":
+        default_reason = "CURRENT_CATALOG_IDENTITY_READ_ONLY"
+    elif category == "C":
+        default_reason = "LEGACY_RECORD_READ_ONLY"
+    elif category == "D":
+        default_reason = "HISTORICAL_RECORD_READ_ONLY"
+    else:
+        default_reason = "ACTION_NOT_VALID_FOR_CURRENT_STATE"
+    blocked = {
+        action: (
+            "DUPLICATE_CROSS_PROVENANCE_REQUIRES_DESIGN"
+            if action == "resolve_duplicate"
+            else (
+                "CURRENT_CATALOG_DEACTIVATION_REQUIRES_DESIGN"
+                if category == "A" and action == "deactivate"
+                else default_reason
+            )
+        )
+        for action in _BENEFICIARY_MUTATIONS
+        if action not in allowed
+    }
+    return {
+        "identity_fields_read_only": "replace" not in allowed,
+        "allowed_actions": allowed,
+        "blocked_action_reasons": blocked,
+    }
+
+
+def _assert_provenance_action_allowed(
+    beneficiary: Any,
+    provenance: dict[str, Any],
+    *,
+    action: str,
+) -> None:
+    policy = _beneficiary_action_policy(beneficiary, provenance)
+    if action in policy["allowed_actions"]:
+        return
+    raise BeneficiaryError(
+        "beneficiary_action_disallowed_for_provenance",
+        reason_code=policy["blocked_action_reasons"].get(
+            action, "ACTION_NOT_VALID_FOR_PROVENANCE"
+        ),
+    )
 
 
 _SORT_ALLOWLIST: dict[str, str] = {
@@ -158,7 +401,7 @@ def list_beneficiaries(
             SELECT id, nombre_original, employee_number_effective, account_number,
                    employee_number_requested, validation_status, record_status,
                    manual_effective_from_account, banorte_employee_substituted,
-                   replaces_id, updated_at, banorte_comment
+                   replaces_id, updated_at, banorte_comment,source_kind,created_at
             FROM nomina_banorte_beneficiaries
             WHERE {where}
             ORDER BY {order_sql}
@@ -179,6 +422,21 @@ def list_beneficiaries(
             item["last_event_reason"] = last["reason"] if last else None
             item["last_event_action"] = last["action"] if last else None
             item["status_explanation"] = _status_explanation(item)
+            provenance = _load_beneficiary_provenance(conn, item)
+            action_policy = _beneficiary_action_policy(item, provenance)
+            item["provenance"] = provenance
+            item["action_policy"] = action_policy
+            item["provenance_category"] = provenance["provenance_category"]
+            item["provenance_label"] = provenance["provenance_label"]
+            item["identity_fields_read_only"] = action_policy["identity_fields_read_only"]
+            item["display_name"] = provenance.get("official_name") or item["nombre_original"]
+            item["display_employee_number"] = (
+                provenance.get("official_employee_number")
+                or item["employee_number_effective"]
+            )
+            item["display_account_number"] = (
+                provenance.get("official_account_number") or item["account_number"]
+            )
             out_rows.append(item)
         start_index = 0 if total == 0 else offset + 1
         end_index = 0 if total == 0 else offset + len(out_rows)
@@ -334,78 +592,16 @@ def replace_beneficiary(
     employee_number_effective: str | None = None,
     reason: str,
 ) -> dict[str, Any]:
-    if not (reason or "").strip():
-        raise BeneficiaryError("reason_required")
-    now = _now()
-    conn = connect(db_path)
-    try:
-        ensure_banorte_tables(conn)
-        old = conn.execute(
-            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
-            (int(beneficiary_id),),
-        ).fetchone()
-        if old is None:
-            raise BeneficiaryError("not_found")
-        if old["record_status"] != "ACTIVO":
-            raise BeneficiaryError("not_active")
-
-        new_name = (nombre or old["nombre_original"]).strip()
-        new_acct = _digits(account) if account is not None else str(old["account_number"])
-        new_emp = (
-            _digits(employee_number_effective)
-            if employee_number_effective is not None
-            else str(old["employee_number_effective"])
-        )
-        if not new_acct or len(new_acct) > 18:
-            raise BeneficiaryError("account_invalid")
-        if not new_emp or len(new_emp) > 10:
-            raise BeneficiaryError("employee_invalid")
-
-        # inactivate old
-        conn.execute(
-            """
-            UPDATE nomina_banorte_beneficiaries
-            SET record_status='INACTIVO_REEMPLAZADO', replace_reason=?, replaced_by=?, replaced_at=?, updated_at=?
-            WHERE id=?
-            """,
-            (reason.strip(), user, now, now, int(beneficiary_id)),
-        )
-        cur = conn.execute(
-            """
-            INSERT INTO nomina_banorte_beneficiaries (
-                nombre_original, nombre_normalizado, curp,
-                employee_number_requested, employee_number_effective, account_number,
-                source_kind, validation_status, record_status,
-                banorte_employee_substituted, manual_effective_from_account,
-                imported_at, imported_by, replaces_id, created_at, updated_at
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            (
-                new_name,
-                normalize_name(new_name),
-                old["curp"],
-                old["employee_number_requested"],
-                new_emp,
-                new_acct,
-                "ALTA_MANUAL",
-                old["validation_status"],
-                "ACTIVO",
-                0,
-                0,
-                now,
-                user,
-                int(beneficiary_id),
-                now,
-                now,
-            ),
-        )
-        conn.commit()
-        return {"id": int(cur.lastrowid), "replaces_id": int(beneficiary_id)}
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    return apply_beneficiary_action(
+        db_path,
+        user,
+        beneficiary_id,
+        action="replace",
+        reason=reason,
+        nombre=nombre,
+        account=account,
+        employee_number_effective=employee_number_effective,
+    )
 
 
 def replacement_history(db_path: str, beneficiary_id: int) -> list[dict[str, Any]]:
@@ -470,6 +666,45 @@ def list_beneficiary_events(db_path: str, beneficiary_id: int) -> list[dict[str,
         return [dict(r) for r in rows]
     finally:
         conn.close()
+
+
+def beneficiary_management_detail(db_path: str, beneficiary_id: int) -> dict[str, Any]:
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        row = conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(beneficiary_id),),
+        ).fetchone()
+        if row is None:
+            raise BeneficiaryError("not_found")
+        beneficiary = dict(row)
+        provenance = _load_beneficiary_provenance(conn, beneficiary)
+        action_policy = _beneficiary_action_policy(beneficiary, provenance)
+        detail = {
+            "beneficiary": {
+                "id": int(beneficiary["id"]),
+                "nombre_original": beneficiary["nombre_original"],
+                "employee_number_effective": beneficiary["employee_number_effective"],
+                "account_number": beneficiary["account_number"],
+                "display_name": provenance.get("official_name")
+                or beneficiary["nombre_original"],
+                "display_employee_number": provenance.get("official_employee_number")
+                or beneficiary["employee_number_effective"],
+                "display_account_number": provenance.get("official_account_number")
+                or beneficiary["account_number"],
+                "source_kind": beneficiary["source_kind"],
+                "validation_status": beneficiary["validation_status"],
+                "record_status": beneficiary["record_status"],
+            },
+            "provenance": provenance,
+            "action_policy": action_policy,
+        }
+    finally:
+        conn.close()
+    detail["chain"] = replacement_history(db_path, int(beneficiary_id))
+    detail["events"] = list_beneficiary_events(db_path, int(beneficiary_id))
+    return detail
 
 
 def _insert_event(
@@ -570,7 +805,7 @@ def _insert_successor_version(
     if int(old_d.get("replaces_id") or 0) == old_id:
         raise BeneficiaryError("already_has_active_successor")
     _validate_account_emp(acct, emp)
-    _assert_no_active_dupes(conn, acct=acct, emp=emp, exclude_id=None)
+    _assert_no_active_dupes(conn, acct=acct, emp=emp, exclude_id=old_id)
     # Keep prior as replaced (idempotent if already)
     conn.execute(
         """
@@ -668,6 +903,10 @@ def apply_beneficiary_action(
     }
     if action not in allowed:
         raise BeneficiaryError("invalid_action")
+    if action != "replace" and any(
+        value is not None for value in (nombre, account, employee_number_effective)
+    ):
+        raise BeneficiaryError("identity_fields_only_allowed_for_replace")
 
     now = _now()
     conn = connect(db_path)
@@ -680,6 +919,8 @@ def apply_beneficiary_action(
         ).fetchone()
         if row is None:
             raise BeneficiaryError("not_found")
+        provenance = _load_beneficiary_provenance(conn, row)
+        _assert_provenance_action_allowed(row, provenance, action=action)
         prev_val = row["validation_status"]
         prev_rec = str(row["record_status"])
         name = (nombre if nombre is not None else row["nombre_original"] or "").strip()
@@ -721,27 +962,6 @@ def apply_beneficiary_action(
                 "message": beneficiary_action_message("deactivate"),
             }
 
-        if action in {"mark_usable_manual", "keep_pending", "replace"} and prev_rec == "INACTIVO_REEMPLAZADO":
-            validation = "MANUAL_PENDIENTE_VALIDACION"
-            manual_eff = 1 if action == "mark_usable_manual" else 0
-            if action == "replace":
-                manual_eff = 1 if int(row["manual_effective_from_account"] or 0) else 0
-                validation = "MANUAL_PENDIENTE_VALIDACION"
-            out = _insert_successor_version(
-                conn,
-                row,
-                user=user,
-                reason=reason,
-                nombre=name or str(row["nombre_original"]),
-                acct=acct,
-                emp=emp,
-                validation_status=validation,
-                manual_effective_from_account=manual_eff,
-                action=action,
-            )
-            conn.commit()
-            return out
-
         if action == "mark_usable_manual":
             if prev_rec not in {"ACTIVO", "CONFLICTO_CRITICO"}:
                 raise BeneficiaryError("not_active")
@@ -753,14 +973,10 @@ def apply_beneficiary_action(
                 SET validation_status='MANUAL_PENDIENTE_VALIDACION',
                     record_status='ACTIVO',
                     manual_effective_from_account=1,
-                    account_number=?,
-                    employee_number_effective=?,
-                    nombre_original=?,
-                    nombre_normalizado=?,
                     updated_at=?
                 WHERE id=?
                 """,
-                (acct, emp, name, normalize_name(name), now, int(beneficiary_id)),
+                (now, int(beneficiary_id)),
             )
             _insert_event(
                 conn,
@@ -817,39 +1033,22 @@ def apply_beneficiary_action(
         if action == "replace":
             if prev_rec != "ACTIVO":
                 raise BeneficiaryError("not_active")
-            conn.rollback()
-            conn.close()
-            created = replace_beneficiary(
-                db_path,
-                user,
-                int(beneficiary_id),
-                nombre=nombre,
-                account=account,
-                employee_number_effective=employee_number_effective,
-                reason=reason,
-            )
-            conn = connect(db_path)
-            ensure_banorte_tables(conn)
-            _insert_event(
+            out = _insert_successor_version(
                 conn,
-                beneficiary_id=int(beneficiary_id),
-                action=action,
-                reason=reason,
+                row,
                 user=user,
-                previous_validation_status=prev_val,
-                new_validation_status=prev_val,
-                previous_record_status=prev_rec,
-                new_record_status="INACTIVO_REEMPLAZADO",
-                replacement_beneficiary_id=int(created["id"]),
+                reason=reason,
+                nombre=name or str(row["nombre_original"]),
+                acct=acct,
+                emp=emp,
+                validation_status="MANUAL_PENDIENTE_VALIDACION",
+                manual_effective_from_account=0,
+                action="replace",
             )
             conn.commit()
-            return {
-                "id": int(created["id"]),
-                "replaces_id": int(beneficiary_id),
-                "previous_record_status": "INACTIVO_REEMPLAZADO",
-                "record_status": "ACTIVO",
-                "message": beneficiary_action_message("replace"),
-            }
+            out["previous_record_status"] = "INACTIVO_REEMPLAZADO"
+            out["message"] = beneficiary_action_message("replace")
+            return out
 
         # resolve_duplicate
         if winner_id is None:

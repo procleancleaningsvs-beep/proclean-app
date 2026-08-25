@@ -33,11 +33,10 @@ from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
     apply_beneficiary_action,
     beneficiary_action_message,
+    beneficiary_management_detail,
     create_manual_beneficiary,
     list_beneficiaries,
-    list_beneficiary_events,
     replace_beneficiary,
-    replacement_history,
     search_by_account,
     search_by_name,
 )
@@ -148,12 +147,12 @@ def _banorte_access_required(view: Callable):
     return wrapped
 
 
-def _banorte_admin_required(view: Callable):
+def _banorte_operator_required(view: Callable):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if g.user is None:
             return redirect(url_for("login"))
-        if _current_role() != "admin":
+        if _current_role() not in NOMINA_DASHBOARD_ROLES:
             abort(403)
         return view(*args, **kwargs)
 
@@ -281,7 +280,7 @@ def register_banorte_routes(bp) -> None:
         return resp
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_import_altas():
         require_csrf()
         wants_json = (
@@ -345,7 +344,7 @@ def register_banorte_routes(bp) -> None:
         return redirect(url_for("nomina.banorte_index"))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_import_reporte():
         """Legacy form path — prefer JSON prepare-batch + confirm staging."""
         require_csrf()
@@ -371,7 +370,7 @@ def register_banorte_routes(bp) -> None:
         return redirect(url_for("nomina.banorte_index"))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_reporte_prepare_batch():
         require_csrf()
         f = request.files.get("file")
@@ -439,7 +438,7 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_alias():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -965,7 +964,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "listing": listing, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_beneficiarios_available_numbers():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -978,7 +977,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **out, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_beneficiarios_actions(beneficiary_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -997,14 +996,20 @@ def register_banorte_routes(bp) -> None:
                 loser_mode=data.get("loser_mode"),
             )
         except BeneficiaryError as exc:
+            status = (
+                409
+                if exc.code == "beneficiary_action_disallowed_for_provenance"
+                else 400
+            )
             return _json_no_store(
                 {
                     "ok": False,
                     "code": exc.code,
                     "error_code": exc.code,
+                    "reason_code": getattr(exc, "reason_code", None),
                     "message": getattr(exc, "message", None) or beneficiary_action_message(exc.code),
                 },
-                400,
+                status,
             )
         return _json_no_store(
             {
@@ -1052,7 +1057,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "rows": rows, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_beneficiarios_create():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1083,7 +1088,7 @@ def register_banorte_routes(bp) -> None:
         )
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_get_or_create():
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1093,7 +1098,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_get(batch_id: int):
         batch = get_batch(_db_path(), int(batch_id))
         if batch is None:
@@ -1101,7 +1106,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_add_row(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1125,7 +1130,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_delete_row(batch_id: int, row_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1145,7 +1150,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_confirm(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1161,7 +1166,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_batch_abandon(batch_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1177,7 +1182,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_beneficiarios_replace(beneficiary_id: int):
         require_csrf()
         data = request.get_json(silent=True) or {}
@@ -1193,15 +1198,34 @@ def register_banorte_routes(bp) -> None:
                 reason=str(data.get("reason") or ""),
             )
         except BeneficiaryError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
+            status = (
+                409
+                if exc.code == "beneficiary_action_disallowed_for_provenance"
+                else 400
+            )
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "error_code": exc.code,
+                    "reason_code": getattr(exc, "reason_code", None),
+                    "message": getattr(exc, "message", None)
+                    or beneficiary_action_message(exc.code),
+                },
+                status,
+            )
         return _json_no_store({"ok": True, "beneficiary": out, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     def banorte_beneficiarios_history(beneficiary_id: int):
-        chain = replacement_history(_db_path(), int(beneficiary_id))
-        events = list_beneficiary_events(_db_path(), int(beneficiary_id))
+        try:
+            detail = beneficiary_management_detail(_db_path(), int(beneficiary_id))
+        except BeneficiaryError as exc:
+            return _json_no_store(
+                {"ok": False, "code": exc.code, "message": exc.message}, 404
+            )
         return _json_no_store(
-            {"ok": True, "chain": chain, "events": events, "csrf_token": issue_csrf_token()}
+            {"ok": True, **detail, "csrf_token": issue_csrf_token()}
         )
 
     @_banorte_access_required
@@ -1308,7 +1332,7 @@ def register_banorte_routes(bp) -> None:
         return redirect(url_for("nomina.banorte_catalog_index", version_id=int(version_id)))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_index():
         versions = list_catalog_versions(_db_path())
         selected = None
@@ -1338,7 +1362,7 @@ def register_banorte_routes(bp) -> None:
         return resp
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_upload():
         require_csrf()
         file = request.files.get("file")
@@ -1359,7 +1383,7 @@ def register_banorte_routes(bp) -> None:
         return _catalog_redirect(int(version["id"]))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_detail(version_id: int):
         try:
             detail = get_catalog_version(_db_path(), int(version_id))
@@ -1368,7 +1392,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "version": detail})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_analyze(version_id: int):
         require_csrf()
         try:
@@ -1380,7 +1404,7 @@ def register_banorte_routes(bp) -> None:
         return _catalog_redirect(int(version_id))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_diff(version_id: int):
         try:
             diff = catalog_version_diff(_db_path(), int(version_id))
@@ -1389,7 +1413,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, "diff": diff})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_pre_reconcile(version_id: int):
         require_csrf()
         try:
@@ -1407,7 +1431,7 @@ def register_banorte_routes(bp) -> None:
         return _catalog_redirect(int(version_id))
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_ready(version_id: int):
         require_csrf()
         try:
@@ -1440,7 +1464,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_activate(version_id: int):
         require_csrf()
         try:
@@ -1451,7 +1475,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_rollback(version_id: int):
         require_csrf()
         try:
@@ -1462,7 +1486,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_activation_check(version_id: int):
         try:
             check = catalog_activation_check(_db_path(), int(version_id))
@@ -1471,7 +1495,7 @@ def register_banorte_routes(bp) -> None:
         return _json_no_store({"ok": True, **check})
 
     @_banorte_access_required
-    @_banorte_admin_required
+    @_banorte_operator_required
     def banorte_catalog_manual_reconcile():
         require_csrf()
         try:

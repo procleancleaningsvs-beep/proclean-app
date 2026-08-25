@@ -7,17 +7,29 @@ from pathlib import Path
 import pytest
 from flask import Flask, g
 
-from modules.nomina.banorte.catalog_activation import catalog_activation_check
+from modules.nomina.banorte.beneficiary_service import (
+    BeneficiaryError,
+    apply_beneficiary_action,
+    beneficiary_management_detail,
+    replace_beneficiary,
+)
+from modules.nomina.banorte.catalog_activation import (
+    activate_catalog_version,
+    catalog_activation_check,
+)
 from modules.nomina.banorte.catalog_parser import CATALOG_HEADER_V1
+from modules.nomina.banorte.catalog_reconciliation import pre_reconcile_catalog_version
 from modules.nomina.banorte.catalog_service import (
     analyze_catalog_version,
     stage_catalog_version,
 )
+from modules.nomina.banorte.repository import connect
+from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.blueprint import register_nomina
 from modules.nomina.db import ensure_nomina_tables
 
 
-def _make_app(tmp_path: Path, role: str) -> Flask:
+def _make_app(tmp_path: Path, role: str, *, db_path: str | None = None) -> Flask:
     repo = Path(__file__).resolve().parents[1]
     app = Flask(
         __name__,
@@ -27,7 +39,7 @@ def _make_app(tmp_path: Path, role: str) -> Flask:
     app.config.update(
         TESTING=True,
         SECRET_KEY="catalog-admin-test",
-        DATABASE=str(tmp_path / f"{role}.db"),
+        DATABASE=db_path or str(tmp_path / f"{role}.db"),
     )
     conn = sqlite3.connect(app.config["DATABASE"])
     ensure_nomina_tables(conn)
@@ -35,7 +47,8 @@ def _make_app(tmp_path: Path, role: str) -> Flask:
         "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, role TEXT, password_hash TEXT, created_at TEXT)"
     )
     conn.execute(
-        "INSERT INTO users (id,username,role,password_hash,created_at) VALUES (1,'tester',?,'x','t')",
+        "INSERT OR REPLACE INTO users (id,username,role,password_hash,created_at) "
+        "VALUES (1,'tester',?,'x','t')",
         (role,),
     )
     conn.commit()
@@ -104,49 +117,444 @@ def _payload() -> bytes:
     ).encode("utf-8")
 
 
-@pytest.mark.parametrize(
-    ("method", "path"),
-    [
-        ("post", "/nomina/exportaciones/banorte/import/altas"),
-        ("post", "/nomina/exportaciones/banorte/import/reporte"),
-        ("post", "/nomina/exportaciones/banorte/import/reporte/prepare-batch"),
-        ("post", "/nomina/exportaciones/banorte/aliases"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/available-employee-numbers"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/create"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/1/actions"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/1/replace"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/batches"),
-        ("get", "/nomina/exportaciones/banorte/beneficiarios/batches/1"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/batches/1/rows"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/batches/1/rows/1/delete"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/batches/1/confirm"),
-        ("post", "/nomina/exportaciones/banorte/beneficiarios/batches/1/abandon"),
-    ],
-)
-def test_nomina_gets_403_on_legacy_identity_admin_routes(tmp_path, method, path):
-    client = _make_app(tmp_path, "nomina").test_client()
-    response = getattr(client, method)(path)
-    assert response.status_code == 403
+def _catalog_payload(
+    *,
+    report_header: str,
+    employee: str,
+    name: str,
+    rfc: str,
+    account: str,
+) -> bytes:
+    row = _row()
+    row[0] = employee
+    row[1] = name
+    row[6] = rfc
+    row[14] = account
+    return "\n".join(
+        [
+            f"FECHA: {report_header}",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(row) + "|",
+        ]
+    ).encode("utf-8")
 
 
-def test_nomina_keeps_normal_banorte_operations_but_admin_controls_are_hidden(tmp_path):
-    client = _make_app(tmp_path, "nomina").test_client()
-    page = client.get("/nomina/exportaciones/banorte")
-    assert page.status_code == 200
-    html = page.data.decode("utf-8")
-    assert "Cargar pagos" in html
-    assert "Historial" in html
-    assert "Generar .pag" in html
-    assert "Importar base" not in html
-    assert "Agregar beneficiarios" not in html
-    assert "banorte-ben-edit" not in html
-    token = _token(page.data)
-    paste = client.post(
-        "/nomina/exportaciones/banorte/paste",
-        json={"csrf_token": token, "names": "Persona\n", "amounts": "10\n"},
-        headers={"X-CSRF-Token": token},
+def _insert_beneficiary(
+    db_path: str,
+    *,
+    name: str,
+    employee: str,
+    account: str,
+    source_kind: str = "ALTA_MANUAL",
+    validation_status: str = "IMPORTADO_EXITOSO",
+    record_status: str = "ACTIVO",
+    created_at: str = "2026-01-01T12:00:00+00:00",
+) -> int:
+    conn = connect(db_path)
+    ensure_banorte_tables(conn)
+    cur = conn.execute(
+        """
+        INSERT INTO nomina_banorte_beneficiaries (
+            nombre_original,nombre_normalizado,curp,employee_number_requested,
+            employee_number_effective,account_number,source_kind,validation_status,
+            record_status,banorte_employee_substituted,manual_effective_from_account,
+            imported_at,imported_by,replaces_id,created_at,updated_at
+        ) VALUES (?,?,NULL,?,?,?,?,?,?,0,0,?,'tester',NULL,?,?)
+        """,
+        (
+            name,
+            name.upper(),
+            employee,
+            employee,
+            account,
+            source_kind,
+            validation_status,
+            record_status,
+            created_at,
+            created_at,
+            created_at,
+        ),
     )
-    assert paste.status_code == 200
+    conn.commit()
+    beneficiary_id = int(cur.lastrowid)
+    conn.close()
+    return beneficiary_id
+
+
+def _activate_catalog(db_path: str) -> tuple[int, int]:
+    staged = stage_catalog_version(
+        db_path,
+        raw=_catalog_payload(
+            report_header="20/ago./2026",
+            employee="0000000001",
+            name="PERSONA OFICIAL",
+            rfc="OFIC900101AA1",
+            account="1111111111",
+        ),
+        filename="empleados-current.txt",
+        actor="tester",
+    )
+    version_id = int(staged["id"])
+    analyze_catalog_version(db_path, version_id, actor="tester")
+    pre_reconcile_catalog_version(db_path, version_id, actor="tester")
+    conn = connect(db_path)
+    conn.execute(
+        "UPDATE nomina_banorte_catalog_versions SET status='READY_FOR_REVIEW' WHERE id=?",
+        (version_id,),
+    )
+    conn.commit()
+    conn.close()
+    activate_catalog_version(db_path, version_id, actor="tester")
+    conn = connect(db_path)
+    mirror_id = int(
+        conn.execute(
+            "SELECT beneficiary_id FROM nomina_banorte_catalog_reconciliations "
+            "WHERE version_id=? AND is_current=1",
+            (version_id,),
+        ).fetchone()[0]
+    )
+    conn.close()
+    return version_id, mirror_id
+
+
+def _provenance_fixture(tmp_path: Path) -> tuple[str, dict[str, int]]:
+    db_path = str(tmp_path / "provenance.db")
+    conn = connect(db_path)
+    ensure_nomina_tables(conn)
+    ensure_banorte_tables(conn)
+    conn.commit()
+    conn.close()
+    active_version_id, mirror_id = _activate_catalog(db_path)
+
+    historical_id = _insert_beneficiary(
+        db_path,
+        name="PERSONA HISTORICA",
+        employee="0000000002",
+        account="2222222222",
+    )
+    historical = stage_catalog_version(
+        db_path,
+        raw=_catalog_payload(
+            report_header="19/ago./2026",
+            employee="0000000002",
+            name="PERSONA HISTORICA",
+            rfc="HIST900101AA1",
+            account="2222222222",
+        ),
+        filename="empleados-superseded.txt",
+        actor="tester",
+    )
+    analyze_catalog_version(db_path, int(historical["id"]), actor="tester")
+    pre_reconcile_catalog_version(db_path, int(historical["id"]), actor="tester")
+    conn = connect(db_path)
+    conn.execute(
+        "UPDATE nomina_banorte_catalog_versions SET status='SUPERSEDED' WHERE id=?",
+        (int(historical["id"]),),
+    )
+    # Deliberate drift: the ACTIVE relationship must still dominate classification.
+    conn.execute(
+        "UPDATE nomina_banorte_beneficiaries "
+        "SET nombre_original='MIRROR ALTERADO',nombre_normalizado='MIRROR ALTERADO' "
+        "WHERE id=?",
+        (mirror_id,),
+    )
+    conn.commit()
+    conn.close()
+
+    post_id = _insert_beneficiary(
+        db_path,
+        name="ALTA POST SNAPSHOT",
+        employee="0000000003",
+        account="3333333333",
+        source_kind="REPORTE_DETALLADO",
+        created_at="2026-08-21T12:00:00+00:00",
+    )
+    legacy_id = _insert_beneficiary(
+        db_path,
+        name="LEGACY INFORMATIVO",
+        employee="0000000004",
+        account="4444444444",
+        created_at="2026-08-20T12:00:00+00:00",
+    )
+    inactive_id = _insert_beneficiary(
+        db_path,
+        name="VERSION INACTIVA",
+        employee="0000000005",
+        account="5555555555",
+        record_status="INACTIVO_REEMPLAZADO",
+        created_at="2026-08-22T12:00:00+00:00",
+    )
+    return db_path, {
+        "active_version": active_version_id,
+        "mirror": mirror_id,
+        "post": post_id,
+        "legacy": legacy_id,
+        "inactive": inactive_id,
+        "historical": historical_id,
+    }
+
+
+def test_provenance_classifies_active_post_legacy_inactive_and_superseded(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+
+    mirror = beneficiary_management_detail(db_path, ids["mirror"])
+    post = beneficiary_management_detail(db_path, ids["post"])
+    legacy = beneficiary_management_detail(db_path, ids["legacy"])
+    inactive = beneficiary_management_detail(db_path, ids["inactive"])
+    historical = beneficiary_management_detail(db_path, ids["historical"])
+
+    assert mirror["provenance"]["provenance_category"] == "A"
+    assert mirror["provenance"]["catalog_scope"] == "ACTIVE"
+    assert mirror["provenance"]["active_catalog_version_id"] == ids["active_version"]
+    assert mirror["provenance"]["active_catalog_report_date"] == "2026-08-20"
+    assert mirror["provenance"]["reconciliation_fresh"] is False
+    assert mirror["beneficiary"]["display_name"] == "PERSONA OFICIAL"
+    assert post["provenance"]["provenance_category"] == "B"
+    assert post["provenance"]["post_snapshot"] is True
+    assert legacy["provenance"]["provenance_category"] == "C"
+    assert inactive["provenance"]["provenance_category"] == "D"
+    assert historical["provenance"]["provenance_category"] == "C"
+    assert historical["provenance"]["catalog_scope"] == "SUPERSEDED"
+
+
+def test_current_active_mirror_is_fail_closed_through_both_replace_routes(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    mirror_id = ids["mirror"]
+    conn = connect(db_path)
+    before = dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (mirror_id,)
+        ).fetchone()
+    )
+    event_count = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_beneficiary_events WHERE beneficiary_id=?",
+            (mirror_id,),
+        ).fetchone()[0]
+    )
+    reconciliation = dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_catalog_reconciliations WHERE beneficiary_id=?",
+            (mirror_id,),
+        ).fetchone()
+    )
+    beneficiary_count = int(
+        conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries").fetchone()[0]
+    )
+    conn.close()
+
+    for action in ("mark_usable_manual", "keep_pending", "deactivate", "resolve_duplicate"):
+        with pytest.raises(BeneficiaryError, match="beneficiary_action_disallowed_for_provenance"):
+            apply_beneficiary_action(
+                db_path,
+                "tester",
+                mirror_id,
+                action=action,
+                reason="intento bloqueado",
+                winner_id=ids["post"] if action == "resolve_duplicate" else None,
+            )
+    with pytest.raises(BeneficiaryError, match="beneficiary_action_disallowed_for_provenance"):
+        replace_beneficiary(
+            db_path,
+            "tester",
+            mirror_id,
+            nombre="NOMBRE ALTERADO",
+            account="9999999999",
+            employee_number_effective="9999999999",
+            reason="intento directo",
+        )
+
+    client = _make_app(tmp_path, "admin", db_path=db_path).test_client()
+    token = _token(client.get("/nomina/exportaciones/banorte").data)
+    payload = {
+        "csrf_token": token,
+        "action": "replace",
+        "reason": "intento route",
+        "nombre": "NOMBRE ROUTE",
+        "account": "8888888888",
+        "employee_number_effective": "8888888888",
+    }
+    headers = {"X-CSRF-Token": token}
+    actions_response = client.post(
+        f"/nomina/exportaciones/banorte/beneficiarios/{mirror_id}/actions",
+        json=payload,
+        headers=headers,
+    )
+    direct_response = client.post(
+        f"/nomina/exportaciones/banorte/beneficiarios/{mirror_id}/replace",
+        json=payload,
+        headers=headers,
+    )
+    assert actions_response.status_code == 409
+    assert direct_response.status_code == 409, direct_response.get_json()
+
+    conn = connect(db_path)
+    assert dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (mirror_id,)
+        ).fetchone()
+    ) == before
+    assert int(conn.execute("SELECT COUNT(*) FROM nomina_banorte_beneficiaries").fetchone()[0]) == beneficiary_count
+    assert int(
+        conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_beneficiary_events WHERE beneficiary_id=?",
+            (mirror_id,),
+        ).fetchone()[0]
+    ) == event_count
+    assert dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_catalog_reconciliations WHERE beneficiary_id=?",
+            (mirror_id,),
+        ).fetchone()
+    ) == reconciliation
+    conn.close()
+
+
+def test_post_snapshot_actions_work_and_replace_requires_revalidation(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    replaced = apply_beneficiary_action(
+        db_path,
+        "tester",
+        ids["post"],
+        action="replace",
+        reason="cambio de identidad operacional",
+        nombre="ALTA POST CORREGIDA",
+        account="3333333399",
+        employee_number_effective="0000000099",
+    )
+    conn = connect(db_path)
+    old = dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (ids["post"],)
+        ).fetchone()
+    )
+    successor = dict(
+        conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?", (replaced["id"],)
+        ).fetchone()
+    )
+    events = conn.execute(
+        "SELECT beneficiary_id,action,replacement_beneficiary_id FROM "
+        "nomina_banorte_beneficiary_events WHERE beneficiary_id IN (?,?) ORDER BY id",
+        (ids["post"], int(replaced["id"])),
+    ).fetchall()
+    conn.close()
+    assert old["record_status"] == "INACTIVO_REEMPLAZADO"
+    assert successor["source_kind"] == "ALTA_MANUAL"
+    assert successor["validation_status"] == "MANUAL_PENDIENTE_VALIDACION"
+    assert successor["manual_effective_from_account"] == 0
+    assert successor["replaces_id"] == ids["post"]
+    assert len(events) == 2
+
+    usable_id = _insert_beneficiary(
+        db_path,
+        name="POST USABLE",
+        employee="0000000006",
+        account="6666666666",
+        created_at="2026-08-22T12:00:00+00:00",
+    )
+    pending_id = _insert_beneficiary(
+        db_path,
+        name="POST PENDING",
+        employee="0000000007",
+        account="7777777777",
+        created_at="2026-08-22T12:00:00+00:00",
+    )
+    deactivate_id = _insert_beneficiary(
+        db_path,
+        name="POST DEACTIVATE",
+        employee="0000000008",
+        account="8888888888",
+        created_at="2026-08-22T12:00:00+00:00",
+    )
+    with pytest.raises(BeneficiaryError, match="identity_fields_only_allowed_for_replace"):
+        apply_beneficiary_action(
+            db_path,
+            "tester",
+            usable_id,
+            action="mark_usable_manual",
+            reason="payload oculto",
+            nombre="CAMBIO OCULTO",
+        )
+    assert apply_beneficiary_action(
+        db_path, "tester", usable_id, action="mark_usable_manual", reason="revisión manual"
+    )["record_status"] == "ACTIVO"
+    assert apply_beneficiary_action(
+        db_path, "tester", pending_id, action="keep_pending", reason="continúa pendiente"
+    )["validation_status"] == "MANUAL_PENDIENTE_VALIDACION"
+    assert apply_beneficiary_action(
+        db_path, "tester", deactivate_id, action="deactivate", reason="baja operacional"
+    )["record_status"] == "INACTIVO_MANUAL"
+
+
+def test_legacy_and_inactive_are_read_only_and_cannot_be_resurrected(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for beneficiary_id in (ids["legacy"], ids["inactive"]):
+        detail = beneficiary_management_detail(db_path, beneficiary_id)
+        assert detail["action_policy"]["allowed_actions"] == []
+        assert detail["chain"]
+        for action in ("replace", "mark_usable_manual", "keep_pending", "deactivate", "resolve_duplicate"):
+            with pytest.raises(BeneficiaryError, match="beneficiary_action_disallowed_for_provenance"):
+                apply_beneficiary_action(
+                    db_path,
+                    "tester",
+                    beneficiary_id,
+                    action=action,
+                    reason="intento bloqueado",
+                    winner_id=ids["post"] if action == "resolve_duplicate" else None,
+                )
+    conn = connect(db_path)
+    assert conn.execute(
+        "SELECT record_status FROM nomina_banorte_beneficiaries WHERE id=?",
+        (ids["legacy"],),
+    ).fetchone()[0] == "ACTIVO"
+    assert conn.execute(
+        "SELECT COUNT(*) FROM nomina_banorte_beneficiaries WHERE replaces_id=?",
+        (ids["inactive"],),
+    ).fetchone()[0] == 0
+    conn.close()
+
+
+def test_admin_nomina_operator_parity_and_other_role_denied(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    second_post_id = _insert_beneficiary(
+        db_path,
+        name="SEGUNDA ALTA POST",
+        employee="0000000009",
+        account="9999999999",
+        created_at="2026-08-22T12:00:00+00:00",
+    )
+    admin = _make_app(tmp_path, "admin", db_path=db_path).test_client()
+    nomina = _make_app(tmp_path, "nomina", db_path=db_path).test_client()
+    for client, beneficiary_id in ((admin, ids["post"]), (nomina, second_post_id)):
+        page = client.get("/nomina/exportaciones/banorte")
+        assert page.status_code == 200
+        html = page.get_data(as_text=True)
+        assert "Importar base" in html
+        assert "Agregar beneficiarios" in html
+        assert "Catálogo oficial" in html
+        assert "banorte-ben-edit" in html
+        token = _token(page.data)
+        response = client.post(
+            f"/nomina/exportaciones/banorte/beneficiarios/{beneficiary_id}/actions",
+            json={
+                "csrf_token": token,
+                "action": "keep_pending",
+                "reason": "paridad operativa",
+            },
+            headers={"X-CSRF-Token": token},
+        )
+        assert response.status_code == 200
+    assert nomina.get("/nomina/exportaciones/banorte/catalogo").status_code == 200
+
+    other = _make_app(tmp_path, "supervisor", db_path=db_path).test_client()
+    assert other.get("/nomina/exportaciones/banorte").status_code == 403
+    assert other.post(
+        f"/nomina/exportaciones/banorte/beneficiarios/{second_post_id}/actions",
+        json={"action": "keep_pending", "reason": "sin permiso"},
+    ).status_code == 403
 
 
 def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):
@@ -212,36 +620,6 @@ def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):
     assert activate.status_code in {200, 400}
     if activate.status_code == 200:
         assert activate.get_json()["active_version_id"] == version_id
-
-
-def test_catalog_routes_are_admin_only(tmp_path):
-    client = _make_app(tmp_path, "nomina").test_client()
-    assert client.get("/nomina/exportaciones/banorte/catalogo").status_code == 403
-    assert client.post("/nomina/exportaciones/banorte/catalogo/versions").status_code == 403
-
-
-def test_admin_keeps_legacy_identity_access_and_controls(tmp_path):
-    client = _make_app(tmp_path, "admin").test_client()
-    page = client.get("/nomina/exportaciones/banorte")
-    assert page.status_code == 200
-    html = page.data.decode("utf-8")
-    assert "Importar base" in html
-    assert "Agregar beneficiarios" in html
-    assert "Catálogo oficial" in html
-    assert "banorte-ben-edit" not in html  # empty fixture has no row to edit
-    token = _token(page.data)
-    numbers = client.post(
-        "/nomina/exportaciones/banorte/beneficiarios/available-employee-numbers",
-        json={"csrf_token": token, "limit": 5},
-        headers={"X-CSRF-Token": token},
-    )
-    assert numbers.status_code == 200
-    batch = client.post(
-        "/nomina/exportaciones/banorte/beneficiarios/batches",
-        json={"csrf_token": token, "origin_kind": "MANUAL"},
-        headers={"X-CSRF-Token": token},
-    )
-    assert batch.status_code == 200
 
 
 def test_activation_check_counts_only_open_legacy_drafts_and_never_activates(tmp_path):

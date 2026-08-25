@@ -2,6 +2,7 @@
   const root = document.getElementById("banorte-root");
   if (!root) return;
   let csrf = root.dataset.csrf || "";
+  const canOperate = root.dataset.canOperate === "1";
   let draft = null;
   const editorPanel = document.getElementById("banorte-editor-panel");
 
@@ -1064,26 +1065,55 @@
     const hist = await fetch("/nomina/exportaciones/banorte/beneficiarios/" + ben.id + "/history");
     const histData = await hist.json().catch(function () { return {}; });
     setCsrf(histData.csrf_token);
+    if (!hist.ok || !histData.ok) {
+      alert(histData.message || "No se pudo cargar el beneficiario.");
+      return;
+    }
+    const fresh = histData.beneficiary || {};
+    const provenance = histData.provenance || {};
+    const policy = histData.action_policy || { allowed_actions: [], identity_fields_read_only: true };
+    const allowed = canOperate ? (policy.allowed_actions || []) : [];
     const events = (histData.events || []).slice(0, 8);
     const editTr = document.createElement("tr");
     editTr.id = "banorte-ben-edit-row";
     const td = document.createElement("td");
     td.colSpan = 6;
-    const canDeactivate = ben.record_status !== "INACTIVO_REEMPLAZADO";
+    const readOnly = policy.identity_fields_read_only ? " readonly" : "";
+    const actionLabels = {
+      replace: "Guardar cambios (versión nueva)",
+      mark_usable_manual: "Marcar utilizable",
+      keep_pending: "Mantener pendiente",
+      deactivate: "Desactivar",
+    };
+    const actionButtons = allowed.map(function (action) {
+      const primary = action === "replace" ? "btn-primary" : "btn-secondary";
+      return '<button type="button" class="btn ' + primary +
+        ' btn-sm" data-ben-act="' + esc(action) + '">' +
+        esc(actionLabels[action] || action) + "</button>";
+    }).join("");
+    let provenanceMeta = esc(provenance.provenance_label || "Procedencia no disponible");
+    if (provenance.catalog_scope === "ACTIVE") {
+      provenanceMeta += " · TXT #" + esc(provenance.active_catalog_version_id || "—") +
+        " · corte " + esc(provenance.active_catalog_report_date || "—") +
+        " · conciliación " + esc(provenance.catalog_reconciliation_status || "—") +
+        " · " + (provenance.reconciliation_fresh === false ? "drift detectado" : "conciliación vigente");
+    } else if (provenance.post_snapshot) {
+      provenanceMeta += " · posterior al corte " + esc(provenance.active_catalog_report_date || "—");
+    }
     td.innerHTML =
       '<div class="banorte-ben-edit-panel" data-ben-id="' + ben.id + '">' +
-      "<p class=\"banorte-hint\">" + esc(ben.status_explanation || "Edición administrativa") + "</p>" +
-      '<label>Nombre <input id="ben-edit-nombre" value="' + esc(ben.nombre_original || "") + '"></label>' +
-      '<label>Cuenta <input id="ben-edit-cuenta" class="banorte-mono" value="' + esc(ben.account_number || "") + '"></label>' +
-      '<label>Número de empleado <input id="ben-edit-emp" class="banorte-mono" value="' + esc(ben.employee_number_effective || "") + '"></label>' +
-      '<label>Motivo / comentario <input id="ben-edit-reason" required placeholder="Obligatorio"></label>' +
+      '<p class="banorte-hint">' + provenanceMeta + "</p>" +
+      '<p class="banorte-hint">Fuente ' + esc(provenance.source_kind || "—") +
+      " · validación " + esc(provenance.validation_status || "—") +
+      " · ciclo " + esc(provenance.record_status || "—") + "</p>" +
+      '<label>Nombre <input id="ben-edit-nombre" value="' + esc(fresh.display_name || "") + '"' + readOnly + "></label>" +
+      '<label>Cuenta <input id="ben-edit-cuenta" class="banorte-mono" value="' + esc(fresh.display_account_number || "") + '"' + readOnly + "></label>" +
+      '<label>Número de empleado <input id="ben-edit-emp" class="banorte-mono" value="' + esc(fresh.display_employee_number || "") + '"' + readOnly + "></label>" +
+      (allowed.length
+        ? '<label>Motivo / comentario <input id="ben-edit-reason" required placeholder="Obligatorio"></label>'
+        : '<p class="banorte-hint">Registro disponible únicamente para consulta.</p>') +
       '<div class="banorte-ben-edit-actions">' +
-      '<button type="button" class="btn btn-primary btn-sm" data-ben-act="replace">Guardar cambios (versión nueva)</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="mark_usable_manual">Marcar utilizable</button>' +
-      '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="keep_pending">Mantener pendiente</button>' +
-      (canDeactivate
-        ? '<button type="button" class="btn btn-secondary btn-sm" data-ben-act="deactivate">Desactivar</button>'
-        : "") +
+      actionButtons +
       '<button type="button" class="btn btn-secondary btn-sm" id="ben-edit-close">Cerrar</button>' +
       "</div>" +
       "<h4 class=\"pc-panel-title\">Historial</h4>" +
@@ -1103,7 +1133,8 @@
     td.querySelectorAll("[data-ben-act]").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         const action = btn.getAttribute("data-ben-act");
-        const reason = (document.getElementById("ben-edit-reason").value || "").trim();
+        const reasonInput = document.getElementById("ben-edit-reason");
+        const reason = ((reasonInput && reasonInput.value) || "").trim();
         if (!reason) {
           alert("Indique un motivo.");
           return;
@@ -1120,6 +1151,10 @@
         );
         if (!out.data.ok) {
           alert(out.data.message || "No se pudo aplicar la acción");
+          if (out.res.status === 409) {
+            closeBenEditPanel();
+            loadBenefListing(benPage);
+          }
           return;
         }
         if (out.data.message) {
@@ -1137,16 +1172,7 @@
       btn.dataset.bound = "1";
       btn.addEventListener("click", function () {
         const id = Number(btn.getAttribute("data-ben-id"));
-        const tr = btn.closest("tr");
-        const cells = tr ? tr.querySelectorAll("td") : [];
-        openBenEdit({
-          id: id,
-          nombre_original: cells[1] ? cells[1].childNodes[0].textContent.trim() : "",
-          employee_number_effective: cells[2] ? cells[2].textContent.trim() : "",
-          account_number: cells[3] ? cells[3].textContent.trim() : "",
-          status_explanation: (tr && tr.querySelector(".banorte-hint") && tr.querySelector(".banorte-hint").textContent) || "",
-          record_status: (tr && tr.getAttribute("data-record-status")) || "",
-        });
+        openBenEdit({ id: id });
       });
     });
   }
@@ -1173,14 +1199,19 @@
         st = '<span class="banorte-status banorte-status--bad">Conflicto</span>';
       }
       const note = b.status_explanation || b.last_event_reason || b.banorte_comment || "";
+      const provenance = b.provenance_label || "Procedencia no disponible";
+      const editButton = canOperate
+        ? '<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="' +
+          b.id + '">Editar</button>'
+        : "";
       tr.innerHTML =
-        "<td>" + b.id + "</td><td>" + esc(b.nombre_original) +
+        "<td>" + b.id + "</td><td>" + esc(b.display_name || b.nombre_original) +
+        '<div class="banorte-hint">' + esc(provenance) + "</div>" +
         (note ? ('<div class="banorte-hint">' + esc(note) + "</div>") : "") +
         "</td>" +
-        "<td>" + esc(b.employee_number_effective) + "</td>" +
-        '<td class="banorte-mono">' + esc(b.account_number) + "</td><td>" + st + "</td>" +
-        '<td><button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="' +
-        b.id + '">Editar</button></td>';
+        "<td>" + esc(b.display_employee_number || b.employee_number_effective) + "</td>" +
+        '<td class="banorte-mono">' + esc(b.display_account_number || b.account_number) +
+        "</td><td>" + st + "</td><td>" + editButton + "</td>";
       tbody.appendChild(tr);
     });
     bindBenEditButtons(tbody);

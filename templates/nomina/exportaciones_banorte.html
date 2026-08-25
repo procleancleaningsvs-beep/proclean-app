@@ -3,6 +3,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
 {% endblock %}
 {% block content %}
+{% set banorte_can_operate = g.user and g.user.role in ['admin', 'nomina'] %}
 <section class="page-head pc-hub-hero pc-form-hero banorte-hero">
   <div class="pc-hub-hero__main">
     <span class="pc-page-eyebrow">Nóminas · Exportaciones</span>
@@ -10,7 +11,7 @@
     <p class="pc-page-subtitle">Nóminas listas para exportar a Banorte</p>
   </div>
   <div class="page-head-actions pc-hub-hero__actions banorte-actions">
-    {% if g.user and g.user.role == 'admin' %}
+    {% if banorte_can_operate %}
     <button type="button" class="btn btn-secondary" data-banorte-tab="import-base">Importar base</button>
     <button type="button" class="btn btn-secondary" data-banorte-tab="agregar-benef">Agregar beneficiarios</button>
     <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_catalog_index') }}">Catálogo oficial</a>
@@ -20,7 +21,8 @@
   </div>
 </section>
 
-<div class="pc-safe-zone banorte-wrap" id="banorte-root" data-csrf="{{ csrf_token }}">
+<div class="pc-safe-zone banorte-wrap" id="banorte-root" data-csrf="{{ csrf_token }}"
+     data-can-operate="{{ 1 if banorte_can_operate else 0 }}">
 
   {# —— Hub: Exportar pagos (default) —— #}
   <section class="banorte-tab-panel" id="banorte-tab-hub" data-banorte-panel="hub">
@@ -195,9 +197,12 @@
             {% for b in benef_listing.rows %}
             <tr data-ben-id="{{ b.id }}" data-record-status="{{ b.record_status }}">
               <td>{{ b.id }}</td>
-              <td>{{ b.nombre_original }}{% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}</td>
-              <td>{{ b.employee_number_effective }}</td>
-              <td class="banorte-mono">{{ b.account_number }}</td>
+              <td>{{ b.display_name }}
+                <div class="banorte-hint">{{ b.provenance_label }}</div>
+                {% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}
+              </td>
+              <td>{{ b.display_employee_number }}</td>
+              <td class="banorte-mono">{{ b.display_account_number }}</td>
               <td>
                 {% if b.validation_status == 'IMPORTADO_EXITOSO' and b.record_status == 'ACTIVO' %}
                 <span class="banorte-status banorte-status--ok">Validado Banorte</span>
@@ -213,7 +218,7 @@
                 <span class="banorte-status banorte-status--warn">Pendiente</span>
                 {% endif %}
               </td>
-              <td>{% if g.user and g.user.role == 'admin' %}<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="{{ b.id }}">Editar</button>{% endif %}</td>
+              <td>{% if banorte_can_operate %}<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="{{ b.id }}">Editar</button>{% endif %}</td>
             </tr>
             {% else %}
             <tr><td colspan="6" class="banorte-empty">Sin beneficiarios.</td></tr>
@@ -235,7 +240,7 @@
     </section>
   </section>
 
-  {% if g.user and g.user.role == 'admin' %}
+  {% if banorte_can_operate %}
   {# —— Importar base (ALTAS) —— #}
   <section class="banorte-tab-panel" id="banorte-tab-import-base" data-banorte-panel="import-base" hidden>
     <div class="banorte-tab-back">
