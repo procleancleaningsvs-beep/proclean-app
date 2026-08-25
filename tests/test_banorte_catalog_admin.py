@@ -11,6 +11,7 @@ from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
     apply_beneficiary_action,
     beneficiary_management_detail,
+    list_beneficiaries,
     replace_beneficiary,
 )
 from modules.nomina.banorte.catalog_activation import (
@@ -555,6 +556,136 @@ def test_admin_nomina_operator_parity_and_other_role_denied(tmp_path):
         f"/nomina/exportaciones/banorte/beneficiarios/{second_post_id}/actions",
         json={"action": "keep_pending", "reason": "sin permiso"},
     ).status_code == 403
+
+
+def test_a5c_current_scope_contains_only_current_a_and_b_before_pagination(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for index in range(20):
+        _insert_beneficiary(
+            db_path,
+            name=f"LEGACY PAGINACION {index:02d}",
+            employee=f"{100 + index:010d}",
+            account=f"{7000000000 + index:010d}",
+            created_at="2026-08-20T12:00:00+00:00",
+        )
+
+    listing = list_beneficiaries(db_path, scope="current", page=1)
+
+    assert listing["scope"] == "current"
+    assert listing["total"] == 2
+    assert {row["id"] for row in listing["rows"]} == {ids["mirror"], ids["post"]}
+    assert {row["provenance_category"] for row in listing["rows"]} == {"A", "B"}
+    mirror = next(row for row in listing["rows"] if row["id"] == ids["mirror"])
+    assert mirror["display_name"] == "PERSONA OFICIAL"
+    assert mirror["provenance"]["reconciliation_fresh"] is False
+    empty = list_beneficiaries(db_path, scope="current", q_name="NO EXISTE")
+    assert empty["total"] == 0
+    assert empty["rows"] == []
+    with pytest.raises(ValueError, match="invalid_scope"):
+        list_beneficiaries(db_path, scope="mixed")
+
+
+def test_a5c_historical_scope_contains_only_c_and_d(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for index in range(20):
+        _insert_beneficiary(
+            db_path,
+            name=f"ALTA VIGENTE {index:02d}",
+            employee=f"{300 + index:010d}",
+            account=f"{8000000000 + index:010d}",
+            created_at="2026-08-22T12:00:00+00:00",
+        )
+
+    listing = list_beneficiaries(db_path, scope="historical", page=1)
+
+    assert listing["scope"] == "historical"
+    assert listing["total"] == 3
+    assert {row["id"] for row in listing["rows"]} == {
+        ids["legacy"],
+        ids["inactive"],
+        ids["historical"],
+    }
+    assert {row["provenance_category"] for row in listing["rows"]} == {"C", "D"}
+    assert ids["mirror"] not in {row["id"] for row in listing["rows"]}
+    assert ids["post"] not in {row["id"] for row in listing["rows"]}
+    empty = list_beneficiaries(db_path, scope="historical", q_name="NO EXISTE")
+    assert empty["total"] == 0
+    assert empty["rows"] == []
+
+
+def test_a5c_replacement_moves_old_b_to_history_and_keeps_successor_current(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    successor = apply_beneficiary_action(
+        db_path,
+        "tester",
+        ids["post"],
+        action="replace",
+        reason="nueva identidad vigente",
+        nombre="ALTA POST SUCESORA",
+        account="3333333399",
+        employee_number_effective="0000000099",
+    )
+
+    current_ids = {
+        row["id"] for row in list_beneficiaries(db_path, scope="current")["rows"]
+    }
+    historical_ids = {
+        row["id"] for row in list_beneficiaries(db_path, scope="historical")["rows"]
+    }
+
+    assert int(successor["id"]) in current_ids
+    assert ids["post"] not in current_ids
+    assert ids["post"] in historical_ids
+    assert int(successor["id"]) not in historical_ids
+    chain = beneficiary_management_detail(db_path, int(successor["id"]))["chain"]
+    assert [version["id"] for version in chain] == [int(successor["id"]), ids["post"]]
+
+
+def test_a5c_history_is_read_only_for_admin_and_nomina_and_other_role_denied(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for role in ("admin", "nomina"):
+        client = _make_app(tmp_path, role, db_path=db_path).test_client()
+        page = client.get("/nomina/exportaciones/banorte")
+        assert page.status_code == 200
+        html = page.get_data(as_text=True)
+        assert "Beneficiarios vigentes" in html
+        assert "Legacy / Datos históricos anteriores" in html
+        assert "banorte-hist-view" in html
+        token = _token(page.data)
+        historical = client.post(
+            "/nomina/exportaciones/banorte/beneficiarios/search",
+            json={"csrf_token": token, "scope": "historical", "page": 1},
+            headers={"X-CSRF-Token": token},
+        )
+        assert historical.status_code == 200
+        rows = historical.get_json()["listing"]["rows"]
+        assert rows
+        assert all(row["action_policy"]["allowed_actions"] == [] for row in rows)
+        blocked = client.post(
+            f"/nomina/exportaciones/banorte/beneficiarios/{ids['legacy']}/actions",
+            json={
+                "csrf_token": token,
+                "action": "deactivate",
+                "reason": "histórico no mutable",
+            },
+            headers={"X-CSRF-Token": token},
+        )
+        assert blocked.status_code == 409
+
+    other = _make_app(tmp_path, "supervisor", db_path=db_path).test_client()
+    assert other.get("/nomina/exportaciones/banorte").status_code == 403
+    assert other.post(
+        "/nomina/exportaciones/banorte/beneficiarios/search",
+        json={"scope": "historical", "page": 1},
+    ).status_code == 403
+    editor_js = (
+        Path(__file__).resolve().parents[1]
+        / "static"
+        / "nomina"
+        / "exportaciones_banorte_editor.js"
+    ).read_text(encoding="utf-8")
+    assert "Cadena de versiones" in editor_js
+    assert "No hay datos históricos anteriores." in editor_js
 
 
 def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):

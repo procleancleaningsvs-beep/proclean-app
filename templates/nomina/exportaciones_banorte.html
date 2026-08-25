@@ -18,6 +18,7 @@
     {% endif %}
     <button type="button" class="btn btn-secondary" data-banorte-tab="cargar-pagos">Cargar pagos</button>
     <button type="button" class="btn btn-secondary" data-banorte-tab="historial">Historial</button>
+    <button type="button" class="btn btn-secondary" data-banorte-tab="legacy-beneficiarios">Legacy / Datos históricos anteriores</button>
   </div>
 </section>
 
@@ -154,8 +155,8 @@
     </section>
 
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
-      <h3 class="pc-panel-title">Beneficiarios operacionales legacy</h3>
-      <p class="banorte-hint">Mantenimiento del maestro legacy. La captura operacional futura usa el catálogo oficial en el panel lateral.</p>
+      <h3 class="pc-panel-title">Beneficiarios vigentes</h3>
+      <p class="banorte-hint">Realidad bancaria vigente: personas del Empleados.txt ACTIVE y altas post-snapshot que continúan operacionales.</p>
       <div class="banorte-export-bar" id="banorte-ben-filters">
         <label>Búsqueda por nombre
           <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Desde 1 carácter">
@@ -183,8 +184,6 @@
           <select id="banorte-ben-rec">
             <option value="">Todos</option>
             <option value="ACTIVO">Activo</option>
-            <option value="INACTIVO_MANUAL">Inactivo manual</option>
-            <option value="INACTIVO_REEMPLAZADO">Reemplazado</option>
             <option value="CONFLICTO_CRITICO">Conflicto</option>
           </select>
         </label>
@@ -195,7 +194,7 @@
           <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {% for b in benef_listing.rows %}
-            <tr data-ben-id="{{ b.id }}" data-record-status="{{ b.record_status }}">
+            <tr data-ben-id="{{ b.id }}" data-ben-scope="current" data-record-status="{{ b.record_status }}">
               <td>{{ b.id }}</td>
               <td>{{ b.display_name }}
                 <div class="banorte-hint">{{ b.provenance_label }}</div>
@@ -218,10 +217,10 @@
                 <span class="banorte-status banorte-status--warn">Pendiente</span>
                 {% endif %}
               </td>
-              <td>{% if banorte_can_operate %}<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="{{ b.id }}">Editar</button>{% endif %}</td>
+              <td>{% if banorte_can_operate %}<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="{{ b.id }}" data-ben-scope="current">Editar</button>{% endif %}</td>
             </tr>
             {% else %}
-            <tr><td colspan="6" class="banorte-empty">Sin beneficiarios.</td></tr>
+            <tr><td colspan="6" class="banorte-empty">No hay beneficiarios vigentes para mostrar.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -236,6 +235,92 @@
         <span class="banorte-hint"> Página {{ benef_listing.page }} de {{ benef_listing.total_pages }} </span>
         <button type="button" class="btn btn-secondary btn-sm" {% if not benef_listing.has_next %}disabled{% endif %}>Siguiente</button>
         <button type="button" class="btn btn-secondary btn-sm" {% if not benef_listing.has_next %}disabled{% endif %}>Última</button>
+      </div>
+    </section>
+  </section>
+
+  {# —— Consulta secundaria: Legacy / históricos —— #}
+  <section class="banorte-tab-panel" id="banorte-tab-legacy-beneficiarios" data-banorte-panel="legacy-beneficiarios" hidden>
+    <div class="banorte-tab-back">
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
+    </div>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Legacy / Datos históricos anteriores</h3>
+      <p class="banorte-hint">Consulta separada de registros Legacy y versiones inactivas o reemplazadas. Esta información no representa la realidad bancaria vigente.</p>
+      <div class="banorte-export-bar" id="banorte-hist-filters">
+        <label>Búsqueda por nombre
+          <input type="search" id="banorte-hist-q" autocomplete="off" placeholder="Desde 1 carácter">
+        </label>
+        <label>Número de empleado
+          <input type="search" id="banorte-hist-emp" autocomplete="off" placeholder="Desde 1 carácter">
+        </label>
+        <label>Orden
+          <select id="banorte-hist-sort">
+            <option value="id_desc">Recientes</option>
+            <option value="name_asc">Nombre A–Z</option>
+            <option value="name_desc">Nombre Z–A</option>
+            <option value="emp_asc">Número menor–mayor</option>
+            <option value="emp_desc">Número mayor–menor</option>
+          </select>
+        </label>
+        <label>Validación
+          <select id="banorte-hist-val">
+            <option value="">Todas</option>
+            <option value="IMPORTADO_EXITOSO">Validado Banorte</option>
+            <option value="MANUAL_PENDIENTE_VALIDACION">Pendiente</option>
+          </select>
+        </label>
+        <label>Ciclo
+          <select id="banorte-hist-rec">
+            <option value="">Todos</option>
+            <option value="ACTIVO">Legacy activo informativo</option>
+            <option value="INACTIVO_MANUAL">Inactivo manual</option>
+            <option value="INACTIVO_REEMPLAZADO">Reemplazado</option>
+            <option value="CONFLICTO_CRITICO">Conflicto histórico</option>
+          </select>
+        </label>
+      </div>
+      <p class="banorte-hint" id="banorte-hist-meta">Mostrando {{ historical_benef_listing.start_index }}–{{ historical_benef_listing.end_index }} de {{ historical_benef_listing.total }} históricos</p>
+      <div class="pc-table-shell">
+        <table class="banorte-table" id="banorte-hist-table">
+          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+          <tbody>
+            {% for b in historical_benef_listing.rows %}
+            <tr data-ben-id="{{ b.id }}" data-ben-scope="historical" data-record-status="{{ b.record_status }}">
+              <td>{{ b.id }}</td>
+              <td>{{ b.display_name }}
+                <div class="banorte-hint">{{ b.provenance_label }}</div>
+                {% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}
+              </td>
+              <td>{{ b.display_employee_number }}</td>
+              <td class="banorte-mono">{{ b.display_account_number }}</td>
+              <td>
+                {% if b.provenance_category == 'C' %}
+                <span class="banorte-status banorte-status--muted">Legacy</span>
+                {% elif b.record_status == 'INACTIVO_MANUAL' %}
+                <span class="banorte-status banorte-status--muted">Inactivo manual</span>
+                {% else %}
+                <span class="banorte-status banorte-status--muted">Reemplazado / inactivo</span>
+                {% endif %}
+              </td>
+              <td><button type="button" class="btn btn-secondary btn-sm banorte-hist-view" data-ben-id="{{ b.id }}" data-ben-scope="historical">Ver detalle</button></td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6" class="banorte-empty">No hay datos históricos anteriores.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="banorte-export-bar" id="banorte-hist-pager"
+           data-page="{{ historical_benef_listing.page }}"
+           data-total-pages="{{ historical_benef_listing.total_pages }}"
+           data-has-previous="{{ 1 if historical_benef_listing.has_previous else 0 }}"
+           data-has-next="{{ 1 if historical_benef_listing.has_next else 0 }}">
+        <button type="button" class="btn btn-secondary btn-sm" disabled>Primera</button>
+        <button type="button" class="btn btn-secondary btn-sm" disabled>Anterior</button>
+        <span class="banorte-hint"> Página {{ historical_benef_listing.page }} de {{ historical_benef_listing.total_pages }} </span>
+        <button type="button" class="btn btn-secondary btn-sm" {% if not historical_benef_listing.has_next %}disabled{% endif %}>Siguiente</button>
+        <button type="button" class="btn btn-secondary btn-sm" {% if not historical_benef_listing.has_next %}disabled{% endif %}>Última</button>
       </div>
     </section>
   </section>

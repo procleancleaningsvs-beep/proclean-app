@@ -1046,7 +1046,24 @@
     renderEditor(out.data.draft);
   });
 
-  let benPage = 1;
+  const beneficiaryViews = {
+    current: {
+      scope: "current",
+      prefix: "banorte-ben",
+      page: 1,
+      searchSeq: 0,
+      searchTimer: null,
+      emptyMessage: "No hay beneficiarios vigentes para mostrar.",
+    },
+    historical: {
+      scope: "historical",
+      prefix: "banorte-hist",
+      page: 1,
+      searchSeq: 0,
+      searchTimer: null,
+      emptyMessage: "No hay datos históricos anteriores.",
+    },
+  };
   let openBenEditId = null;
 
   function closeBenEditPanel() {
@@ -1056,7 +1073,8 @@
   }
 
   async function openBenEdit(ben) {
-    const tbody = document.querySelector("#banorte-ben-table tbody");
+    const view = beneficiaryViews[ben.scope] || beneficiaryViews.current;
+    const tbody = document.querySelector("#" + view.prefix + "-table tbody");
     if (!tbody) return;
     closeBenEditPanel();
     openBenEditId = ben.id;
@@ -1074,6 +1092,7 @@
     const policy = histData.action_policy || { allowed_actions: [], identity_fields_read_only: true };
     const allowed = canOperate ? (policy.allowed_actions || []) : [];
     const events = (histData.events || []).slice(0, 8);
+    const chain = histData.chain || [];
     const editTr = document.createElement("tr");
     editTr.id = "banorte-ben-edit-row";
     const td = document.createElement("td");
@@ -1116,6 +1135,18 @@
       actionButtons +
       '<button type="button" class="btn btn-secondary btn-sm" id="ben-edit-close">Cerrar</button>' +
       "</div>" +
+      "<h4 class=\"pc-panel-title\">Cadena de versiones</h4>" +
+      '<ul class="banorte-ben-history">' +
+      (chain.length
+        ? chain.map(function (version) {
+            return "<li>#" + esc(version.id || "") + " · " +
+              esc(version.record_status || "") + " · " +
+              esc(version.nombre_original || "") +
+              (version.replace_reason ? (": " + esc(version.replace_reason)) : "") +
+              "</li>";
+          }).join("")
+        : "<li>Sin cadena de reemplazo.</li>") +
+      "</ul>" +
       "<h4 class=\"pc-panel-title\">Historial</h4>" +
       '<ul class="banorte-ben-history">' +
       (events.length
@@ -1153,7 +1184,7 @@
           alert(out.data.message || "No se pudo aplicar la acción");
           if (out.res.status === 409) {
             closeBenEditPanel();
-            loadBenefListing(benPage);
+            loadBenefListing(view.page, view.scope);
           }
           return;
         }
@@ -1161,33 +1192,42 @@
           /* soft confirm */
         }
         closeBenEditPanel();
-        loadBenefListing(benPage);
+        loadBenefListing(view.page, view.scope);
       });
     });
   }
 
-  function bindBenEditButtons(scope) {
-    (scope || document).querySelectorAll(".banorte-ben-edit").forEach(function (btn) {
+  function bindBenDetailButtons(scope) {
+    (scope || document).querySelectorAll(".banorte-ben-edit, .banorte-hist-view").forEach(function (btn) {
       if (btn.dataset.bound) return;
       btn.dataset.bound = "1";
       btn.addEventListener("click", function () {
         const id = Number(btn.getAttribute("data-ben-id"));
-        openBenEdit({ id: id });
+        openBenEdit({
+          id: id,
+          scope: btn.getAttribute("data-ben-scope") || "current",
+        });
       });
     });
   }
 
-  function renderBenefRows(listing) {
-    const tbody = document.querySelector("#banorte-ben-table tbody");
+  function renderBenefRows(listing, scope) {
+    const view = beneficiaryViews[scope] || beneficiaryViews.current;
+    const tbody = document.querySelector("#" + view.prefix + "-table tbody");
     if (!tbody) return;
     closeBenEditPanel();
     tbody.innerHTML = "";
     (listing.rows || []).forEach(function (b) {
       const tr = document.createElement("tr");
       tr.setAttribute("data-ben-id", String(b.id));
+      tr.setAttribute("data-ben-scope", view.scope);
       tr.setAttribute("data-record-status", String(b.record_status || ""));
       let st = '<span class="banorte-status banorte-status--warn">Pendiente</span>';
-      if (b.validation_status === "IMPORTADO_EXITOSO" && b.record_status === "ACTIVO") {
+      if (view.scope === "historical" && b.provenance_category === "C") {
+        st = '<span class="banorte-status banorte-status--muted">Legacy</span>';
+      } else if (view.scope === "historical") {
+        st = '<span class="banorte-status banorte-status--muted">Reemplazado / inactivo</span>';
+      } else if (b.validation_status === "IMPORTADO_EXITOSO" && b.record_status === "ACTIVO") {
         st = '<span class="banorte-status banorte-status--ok">Validado Banorte</span>';
       } else if (b.manual_effective_from_account && b.record_status === "ACTIVO") {
         st = '<span class="banorte-status banorte-status--ok">Utilizable (manual)</span>';
@@ -1200,9 +1240,12 @@
       }
       const note = b.status_explanation || b.last_event_reason || b.banorte_comment || "";
       const provenance = b.provenance_label || "Procedencia no disponible";
+      const buttonClass = view.scope === "historical" ? "banorte-hist-view" : "banorte-ben-edit";
+      const buttonLabel = view.scope === "historical" ? "Ver detalle" : "Editar";
       const editButton = canOperate
-        ? '<button type="button" class="btn btn-secondary btn-sm banorte-ben-edit" data-ben-id="' +
-          b.id + '">Editar</button>'
+        ? '<button type="button" class="btn btn-secondary btn-sm ' + buttonClass +
+          '" data-ben-id="' + b.id + '" data-ben-scope="' + view.scope + '">' +
+          buttonLabel + "</button>"
         : "";
       tr.innerHTML =
         "<td>" + b.id + "</td><td>" + esc(b.display_name || b.nombre_original) +
@@ -1214,11 +1257,16 @@
         "</td><td>" + st + "</td><td>" + editButton + "</td>";
       tbody.appendChild(tr);
     });
-    bindBenEditButtons(tbody);
-    document.getElementById("banorte-ben-meta").textContent =
+    if (!(listing.rows || []).length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="banorte-empty">' +
+        view.emptyMessage + "</td></tr>";
+    }
+    bindBenDetailButtons(tbody);
+    document.getElementById(view.prefix + "-meta").textContent =
       "Mostrando " + (listing.start_index || 0) + "–" + (listing.end_index || 0) +
-      " de " + (listing.total || 0) + " beneficiarios";
-    const pager = document.getElementById("banorte-ben-pager");
+      " de " + (listing.total || 0) +
+      (view.scope === "historical" ? " históricos" : " beneficiarios vigentes");
+    const pager = document.getElementById(view.prefix + "-pager");
     if (pager) {
       pager.innerHTML = "";
       function mk(label, page, disabled) {
@@ -1227,7 +1275,7 @@
         btn.className = "btn btn-secondary btn-sm";
         btn.textContent = label;
         btn.disabled = !!disabled;
-        btn.addEventListener("click", function () { loadBenefListing(page); });
+        btn.addEventListener("click", function () { loadBenefListing(page, view.scope); });
         pager.appendChild(btn);
       }
       mk("Primera", 1, !listing.has_previous);
@@ -1239,43 +1287,58 @@
       mk("Siguiente", (listing.page || 1) + 1, !listing.has_next);
       mk("Última", listing.total_pages || 1, !listing.has_next);
     }
-    benPage = listing.page || 1;
+    view.page = listing.page || 1;
   }
 
-  let benSearchSeq = 0;
-  let benSearchTimer = null;
-  async function loadBenefListing(page) {
-    const seq = ++benSearchSeq;
+  async function loadBenefListing(page, scope) {
+    const view = beneficiaryViews[scope] || beneficiaryViews.current;
+    const seq = ++view.searchSeq;
     const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
+      scope: view.scope,
       page: page || 1,
-      q_name: (document.getElementById("banorte-ben-q").value || "").trim(),
-      q_emp: (document.getElementById("banorte-ben-emp") && document.getElementById("banorte-ben-emp").value || "").trim(),
-      validation_status: document.getElementById("banorte-ben-val").value,
-      record_status: document.getElementById("banorte-ben-rec").value,
-      sort: (document.getElementById("banorte-ben-sort") || {}).value || "id_desc",
+      q_name: (document.getElementById(view.prefix + "-q").value || "").trim(),
+      q_emp: (document.getElementById(view.prefix + "-emp").value || "").trim(),
+      validation_status: document.getElementById(view.prefix + "-val").value,
+      record_status: document.getElementById(view.prefix + "-rec").value,
+      sort: document.getElementById(view.prefix + "-sort").value || "id_desc",
     });
-    if (seq !== benSearchSeq) return;
-    if (out.data.ok) renderBenefRows(out.data.listing);
+    if (seq !== view.searchSeq) return;
+    if (out.data.ok) renderBenefRows(out.data.listing, view.scope);
   }
 
-  function scheduleBenefSearch() {
-    clearTimeout(benSearchTimer);
-    benSearchTimer = setTimeout(function () { loadBenefListing(1); }, 300);
+  function scheduleBenefSearch(scope) {
+    const view = beneficiaryViews[scope] || beneficiaryViews.current;
+    clearTimeout(view.searchTimer);
+    view.searchTimer = setTimeout(function () {
+      loadBenefListing(1, view.scope);
+    }, 300);
   }
 
-  ["banorte-ben-q", "banorte-ben-emp", "banorte-ben-val", "banorte-ben-rec", "banorte-ben-sort"].forEach(function (id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener(el.tagName === "SELECT" ? "change" : "input", scheduleBenefSearch);
+  Object.keys(beneficiaryViews).forEach(function (scope) {
+    const view = beneficiaryViews[scope];
+    ["q", "emp", "val", "rec", "sort"].forEach(function (suffix) {
+      const el = document.getElementById(view.prefix + "-" + suffix);
+      if (!el) return;
+      el.addEventListener(el.tagName === "SELECT" ? "change" : "input", function () {
+        scheduleBenefSearch(view.scope);
+      });
+    });
   });
-  bindBenEditButtons(document.getElementById("banorte-ben-table"));
+  bindBenDetailButtons(document.getElementById("banorte-ben-table"));
+  bindBenDetailButtons(document.getElementById("banorte-hist-table"));
 
-  function hydrateBenefListing() {
-    const pager = document.getElementById("banorte-ben-pager");
+  function hydrateBenefListing(scope) {
+    const view = beneficiaryViews[scope] || beneficiaryViews.current;
+    const pager = document.getElementById(view.prefix + "-pager");
     const page = pager ? Number(pager.getAttribute("data-page") || 1) : 1;
-    loadBenefListing(page || 1);
+    loadBenefListing(page || 1, view.scope);
   }
-  hydrateBenefListing();
+  hydrateBenefListing("current");
+  document.querySelectorAll('[data-banorte-tab="legacy-beneficiarios"]').forEach(function (button) {
+    button.addEventListener("click", function () {
+      hydrateBenefListing("historical");
+    });
+  });
 
   function refreshAddPayBeneficiaries() {
     /* autocomplete hydrates on demand */

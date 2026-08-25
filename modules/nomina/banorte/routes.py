@@ -262,7 +262,12 @@ def register_banorte_routes(bp) -> None:
                 """
             ).fetchall()
             historial = [dict(e) for e in exports]
-            benef_listing = list_beneficiaries(_db_path(), page=1, page_size=15)
+            benef_listing = list_beneficiaries(
+                _db_path(), scope="current", page=1, page_size=15
+            )
+            historical_benef_listing = list_beneficiaries(
+                _db_path(), scope="historical", page=1, page_size=15
+            )
         finally:
             conn.close()
         _, application_date_display = resolve_layout_date_monterrey()
@@ -272,6 +277,7 @@ def register_banorte_routes(bp) -> None:
                 runs=runs,
                 historial=historial,
                 benef_listing=benef_listing,
+                historical_benef_listing=historical_benef_listing,
                 application_date_display=application_date_display,
                 csrf_token=issue_csrf_token(),
             )
@@ -932,8 +938,15 @@ def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_beneficiarios_list_json():
         page = int(request.args.get("page") or 1)
+        scope = str(request.args.get("scope") or "current")
+        if scope not in {"current", "historical"}:
+            return _json_no_store(
+                {"ok": False, "code": "invalid_scope", "message": "Vista no válida."},
+                400,
+            )
         data = list_beneficiaries(
             _db_path(),
+            scope=scope,
             page=page,
             page_size=15,
             q_name="",
@@ -951,6 +964,7 @@ def register_banorte_routes(bp) -> None:
         try:
             listing = list_beneficiaries(
                 _db_path(),
+                scope=str(data.get("scope") or "current"),
                 page=int(data.get("page") or 1),
                 page_size=15,
                 q_name=str(data.get("q_name") or ""),
@@ -960,7 +974,10 @@ def register_banorte_routes(bp) -> None:
                 sort=str(data.get("sort") or "id_desc"),
             )
         except ValueError as exc:
-            return _json_no_store({"ok": False, "code": str(exc), "message": "Orden no válido."}, 400)
+            message = "Vista no válida." if str(exc) == "invalid_scope" else "Orden no válido."
+            return _json_no_store(
+                {"ok": False, "code": str(exc), "message": message}, 400
+            )
         return _json_no_store({"ok": True, "listing": listing, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
@@ -1023,8 +1040,12 @@ def register_banorte_routes(bp) -> None:
     @_banorte_access_required
     def banorte_beneficiarios_page():
         page = int(request.args.get("page") or 1)
+        scope = str(request.args.get("scope") or "current")
+        if scope not in {"current", "historical"}:
+            abort(400)
         data = list_beneficiaries(
             _db_path(),
+            scope=scope,
             page=page,
             q_name=str(request.args.get("q_name") or ""),
             q_emp=str(request.args.get("q_emp") or ""),
@@ -1040,6 +1061,7 @@ def register_banorte_routes(bp) -> None:
                 q_emp=request.args.get("q_emp") or "",
                 validation_status=request.args.get("validation_status") or "",
                 record_status=request.args.get("record_status") or "",
+                scope=scope,
             )
         )
         resp.headers.update(_NO_STORE)

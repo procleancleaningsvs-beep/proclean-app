@@ -7,9 +7,6 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
-from modules.nomina.banorte.post_catalog_authority import (
-    beneficiary_created_after_snapshot,
-)
 from modules.nomina.banorte.repository import connect
 from modules.nomina.banorte.schema import ensure_banorte_tables
 from modules.nomina.banorte.validators import (
@@ -93,155 +90,162 @@ _BENEFICIARY_MUTATIONS = (
 )
 
 
-def _load_beneficiary_provenance(conn, beneficiary: Any) -> dict[str, Any]:
-    beneficiary_data = dict(beneficiary)
-    if "curp" not in beneficiary_data:
-        full = conn.execute(
-            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
-            (int(beneficiary_data["id"]),),
-        ).fetchone()
-        if full is None:
-            raise BeneficiaryError("not_found")
-        beneficiary_data = dict(full)
+_BENEFICIARY_PROVENANCE_CTE = """
+WITH active_catalog AS (
+    SELECT id,source_filename,report_date
+    FROM nomina_banorte_catalog_versions
+    WHERE status='ACTIVE'
+    LIMIT 1
+),
+active_relations_ranked AS (
+    SELECT rec.beneficiary_id,
+           v.id AS catalog_version_id,v.status AS catalog_version_status,
+           p.id AS catalog_person_id,p.person_status,
+           cr.name_original AS official_name,
+           cr.employee_number_normalized AS official_employee_number,
+           cr.account_number_normalized AS official_account_number,
+           rec.id AS catalog_reconciliation_id,
+           rec.reconciliation_status,rec.match_method,
+           rec.beneficiary_material_fingerprint,
+           ROW_NUMBER() OVER (
+               PARTITION BY rec.beneficiary_id ORDER BY rec.id DESC
+           ) AS relation_rank
+    FROM nomina_banorte_catalog_reconciliations rec
+    JOIN nomina_banorte_catalog_versions v
+      ON v.id=rec.version_id AND v.status='ACTIVE'
+    JOIN nomina_banorte_catalog_persons p
+      ON p.id=rec.person_id AND p.version_id=v.id
+    JOIN nomina_banorte_catalog_rows cr
+      ON cr.id=p.current_row_id AND cr.version_id=v.id
+    WHERE rec.is_current=1
+      AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+      AND p.person_status='CATALOG_READY'
+),
+active_relations AS (
+    SELECT * FROM active_relations_ranked WHERE relation_rank=1
+),
+historical_relations_ranked AS (
+    SELECT rec.beneficiary_id,
+           v.id AS catalog_version_id,v.status AS catalog_version_status,
+           p.id AS catalog_person_id,p.person_status,
+           rec.id AS catalog_reconciliation_id,
+           rec.reconciliation_status,rec.match_method,
+           rec.beneficiary_material_fingerprint,
+           ROW_NUMBER() OVER (
+               PARTITION BY rec.beneficiary_id
+               ORDER BY v.id DESC,rec.id DESC
+           ) AS relation_rank
+    FROM nomina_banorte_catalog_reconciliations rec
+    JOIN nomina_banorte_catalog_versions v
+      ON v.id=rec.version_id AND v.status='SUPERSEDED'
+    JOIN nomina_banorte_catalog_persons p
+      ON p.id=rec.person_id AND p.version_id=v.id
+    WHERE rec.is_current=1
+      AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+),
+historical_relations AS (
+    SELECT * FROM historical_relations_ranked WHERE relation_rank=1
+),
+beneficiary_provenance AS (
+    SELECT b.*,
+           ac.id AS active_catalog_version_id,
+           ac.source_filename AS active_catalog_source_filename,
+           ac.report_date AS active_catalog_report_date,
+           COALESCE(ar.catalog_version_id,hr.catalog_version_id) AS catalog_version_id,
+           COALESCE(ar.catalog_version_status,hr.catalog_version_status)
+             AS catalog_version_status,
+           COALESCE(ar.catalog_person_id,hr.catalog_person_id) AS catalog_person_id,
+           COALESCE(ar.catalog_reconciliation_id,hr.catalog_reconciliation_id)
+             AS catalog_reconciliation_id,
+           COALESCE(ar.reconciliation_status,hr.reconciliation_status)
+             AS catalog_reconciliation_status,
+           COALESCE(ar.match_method,hr.match_method) AS catalog_match_method,
+           COALESCE(
+               ar.beneficiary_material_fingerprint,
+               hr.beneficiary_material_fingerprint
+           ) AS catalog_material_fingerprint,
+           ar.official_name,
+           ar.official_employee_number,
+           ar.official_account_number,
+           CASE
+             WHEN ar.beneficiary_id IS NOT NULL THEN 'ACTIVE'
+             WHEN hr.beneficiary_id IS NOT NULL THEN 'SUPERSEDED'
+             ELSE 'NONE'
+           END AS catalog_scope,
+           CASE
+             WHEN ac.id IS NULL THEN NULL
+             WHEN b.source_kind IN ('ALTA_MANUAL','REPORTE_DETALLADO')
+              AND date(b.created_at) > date(ac.report_date) THEN 1
+             ELSE 0
+           END AS post_snapshot,
+           CASE
+             WHEN ar.beneficiary_id IS NOT NULL THEN 'A'
+             WHEN b.record_status IN ('INACTIVO_REEMPLAZADO','INACTIVO_MANUAL') THEN 'D'
+             WHEN hr.beneficiary_id IS NOT NULL THEN 'C'
+             WHEN ac.id IS NOT NULL
+              AND b.source_kind IN ('ALTA_MANUAL','REPORTE_DETALLADO')
+              AND date(b.created_at) > date(ac.report_date) THEN 'B'
+             ELSE 'C'
+           END AS provenance_category
+    FROM nomina_banorte_beneficiaries b
+    LEFT JOIN active_catalog ac ON 1=1
+    LEFT JOIN active_relations ar ON ar.beneficiary_id=b.id
+    LEFT JOIN historical_relations hr ON hr.beneficiary_id=b.id
+)
+"""
 
-    active_catalog = conn.execute(
-        """
-        SELECT id,source_filename,report_date
-        FROM nomina_banorte_catalog_versions
-        WHERE status='ACTIVE'
-        LIMIT 1
-        """
-    ).fetchone()
-    active_relation = conn.execute(
-        """
-        SELECT v.id AS catalog_version_id,v.status AS catalog_version_status,
-               v.source_filename,v.report_date,
-               p.id AS catalog_person_id,p.person_status,
-               cr.name_original AS official_name,
-               cr.employee_number_normalized AS official_employee_number,
-               cr.account_number_normalized AS official_account_number,
-               rec.id AS catalog_reconciliation_id,
-               rec.reconciliation_status,rec.match_method,
-               rec.beneficiary_material_fingerprint
-        FROM nomina_banorte_catalog_reconciliations rec
-        JOIN nomina_banorte_catalog_versions v
-          ON v.id=rec.version_id AND v.status='ACTIVE'
-        JOIN nomina_banorte_catalog_persons p
-          ON p.id=rec.person_id AND p.version_id=v.id
-        JOIN nomina_banorte_catalog_rows cr
-          ON cr.id=p.current_row_id AND cr.version_id=v.id
-        WHERE rec.beneficiary_id=? AND rec.is_current=1
-          AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
-          AND p.person_status='CATALOG_READY'
-        LIMIT 1
-        """,
-        (int(beneficiary_data["id"]),),
-    ).fetchone()
-    historical_relation = None
-    if active_relation is None:
-        historical_relation = conn.execute(
-            """
-            SELECT v.id AS catalog_version_id,v.status AS catalog_version_status,
-                   v.source_filename,v.report_date,
-                   p.id AS catalog_person_id,p.person_status,
-                   rec.id AS catalog_reconciliation_id,
-                   rec.reconciliation_status,rec.match_method,
-                   rec.beneficiary_material_fingerprint
-            FROM nomina_banorte_catalog_reconciliations rec
-            JOIN nomina_banorte_catalog_versions v
-              ON v.id=rec.version_id AND v.status='SUPERSEDED'
-            JOIN nomina_banorte_catalog_persons p
-              ON p.id=rec.person_id AND p.version_id=v.id
-            WHERE rec.beneficiary_id=? AND rec.is_current=1
-              AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
-            ORDER BY v.id DESC,rec.id DESC
-            LIMIT 1
-            """,
-            (int(beneficiary_data["id"]),),
-        ).fetchone()
 
-    post_snapshot: bool | None = None
-    if active_catalog is not None:
-        post_snapshot = (
-            str(beneficiary_data.get("source_kind") or "")
-            in {"ALTA_MANUAL", "REPORTE_DETALLADO"}
-            and beneficiary_created_after_snapshot(
-                beneficiary_data,
-                report_date=str(active_catalog["report_date"]),
-            )
-        )
-
-    record_status = str(beneficiary_data.get("record_status") or "")
-    if active_relation is not None:
-        category = "A"
-    elif record_status in {"INACTIVO_REEMPLAZADO", "INACTIVO_MANUAL"}:
-        category = "D"
-    elif historical_relation is not None:
-        category = "C"
-    elif post_snapshot:
-        category = "B"
-    else:
-        category = "C"
-
-    relation = active_relation or historical_relation
-    relation_data = dict(relation) if relation is not None else {}
+def _provenance_from_projection(beneficiary: Any) -> dict[str, Any]:
+    data = dict(beneficiary)
+    category = str(data["provenance_category"])
+    expected = str(data.get("catalog_material_fingerprint") or "")
     reconciliation_fresh: bool | None = None
-    if relation is not None:
-        expected = str(relation_data.get("beneficiary_material_fingerprint") or "")
+    if data.get("catalog_reconciliation_id") is not None:
         reconciliation_fresh = bool(expected) and (
-            beneficiary_material_fingerprint(beneficiary_data).sha256 == expected
+            beneficiary_material_fingerprint(data).sha256 == expected
         )
-
-    catalog_scope = "NONE"
-    if active_relation is not None:
-        catalog_scope = "ACTIVE"
-    elif historical_relation is not None:
-        catalog_scope = "SUPERSEDED"
-
     return {
         "provenance_category": category,
         "provenance_label": _PROVENANCE_LABELS[category],
-        "catalog_scope": catalog_scope,
-        "active_catalog_version_id": (
-            int(active_catalog["id"]) if active_catalog is not None else None
-        ),
-        "active_catalog_source_filename": (
-            str(active_catalog["source_filename"]) if active_catalog is not None else None
-        ),
-        "active_catalog_report_date": (
-            str(active_catalog["report_date"]) if active_catalog is not None else None
-        ),
-        "catalog_version_id": (
-            int(relation_data["catalog_version_id"])
-            if relation_data.get("catalog_version_id") is not None
-            else None
-        ),
-        "catalog_version_status": relation_data.get("catalog_version_status"),
-        "catalog_person_id": (
-            int(relation_data["catalog_person_id"])
-            if relation_data.get("catalog_person_id") is not None
-            else None
-        ),
-        "catalog_reconciliation_id": (
-            int(relation_data["catalog_reconciliation_id"])
-            if relation_data.get("catalog_reconciliation_id") is not None
-            else None
-        ),
-        "catalog_reconciliation_status": relation_data.get("reconciliation_status"),
-        "catalog_match_method": relation_data.get("match_method"),
+        "catalog_scope": data["catalog_scope"],
+        "active_catalog_version_id": data.get("active_catalog_version_id"),
+        "active_catalog_source_filename": data.get("active_catalog_source_filename"),
+        "active_catalog_report_date": data.get("active_catalog_report_date"),
+        "catalog_version_id": data.get("catalog_version_id"),
+        "catalog_version_status": data.get("catalog_version_status"),
+        "catalog_person_id": data.get("catalog_person_id"),
+        "catalog_reconciliation_id": data.get("catalog_reconciliation_id"),
+        "catalog_reconciliation_status": data.get("catalog_reconciliation_status"),
+        "catalog_match_method": data.get("catalog_match_method"),
         "reconciliation_fresh": reconciliation_fresh,
-        "post_snapshot": post_snapshot,
-        "source_kind": beneficiary_data.get("source_kind"),
-        "validation_status": beneficiary_data.get("validation_status"),
-        "record_status": beneficiary_data.get("record_status"),
-        "official_name": relation_data.get("official_name") if active_relation else None,
+        "post_snapshot": (
+            bool(data["post_snapshot"])
+            if data.get("post_snapshot") is not None
+            else None
+        ),
+        "source_kind": data.get("source_kind"),
+        "validation_status": data.get("validation_status"),
+        "record_status": data.get("record_status"),
+        "official_name": data.get("official_name") if category == "A" else None,
         "official_employee_number": (
-            relation_data.get("official_employee_number") if active_relation else None
+            data.get("official_employee_number") if category == "A" else None
         ),
         "official_account_number": (
-            relation_data.get("official_account_number") if active_relation else None
+            data.get("official_account_number") if category == "A" else None
         ),
     }
+
+
+def _load_beneficiary_provenance(conn, beneficiary: Any) -> dict[str, Any]:
+    beneficiary_data = dict(beneficiary)
+    projection = conn.execute(
+        f"{_BENEFICIARY_PROVENANCE_CTE} "
+        "SELECT * FROM beneficiary_provenance WHERE id=?",
+        (int(beneficiary_data["id"]),),
+    ).fetchone()
+    if projection is None:
+        raise BeneficiaryError("not_found")
+    return _provenance_from_projection(projection)
 
 
 def _beneficiary_action_policy(
@@ -321,6 +325,28 @@ _SORT_ALLOWLIST: dict[str, str] = {
     ),
 }
 
+_BENEFICIARY_SCOPE_CATEGORIES = {
+    "current": ("A", "B"),
+    "historical": ("C", "D"),
+}
+
+_BENEFICIARY_LIST_FIELDS = (
+    "id",
+    "nombre_original",
+    "employee_number_effective",
+    "account_number",
+    "employee_number_requested",
+    "validation_status",
+    "record_status",
+    "manual_effective_from_account",
+    "banorte_employee_substituted",
+    "replaces_id",
+    "updated_at",
+    "banorte_comment",
+    "source_kind",
+    "created_at",
+)
+
 
 def _status_explanation(item: dict[str, Any]) -> str:
     if item.get("last_event_reason"):
@@ -350,6 +376,7 @@ def _status_explanation(item: dict[str, Any]) -> str:
 def list_beneficiaries(
     db_path: str,
     *,
+    scope: str = "current",
     page: int = 1,
     page_size: int = 15,
     q_name: str = "",
@@ -361,12 +388,15 @@ def list_beneficiaries(
     page = max(1, int(page))
     page_size = 15  # contract: exactly 15 per page
     offset = (page - 1) * page_size
+    scope_key = str(scope or "current").strip().lower()
+    if scope_key not in _BENEFICIARY_SCOPE_CATEGORIES:
+        raise ValueError("invalid_scope")
     sort_key = str(sort or "id_desc").strip()
     if sort_key not in _SORT_ALLOWLIST:
         raise ValueError("invalid_sort")
     order_sql = _SORT_ALLOWLIST[sort_key]
-    clauses = ["1=1"]
-    params: list[Any] = []
+    clauses = ["provenance_category IN (?,?)"]
+    params: list[Any] = list(_BENEFICIARY_SCOPE_CATEGORIES[scope_key])
     if q_name.strip():
         clauses.append("nombre_normalizado LIKE ?")
         params.append(f"%{normalize_name(q_name)}%")
@@ -385,7 +415,8 @@ def list_beneficiaries(
         ensure_banorte_tables(conn)
         total = int(
             conn.execute(
-                f"SELECT COUNT(*) AS c FROM nomina_banorte_beneficiaries WHERE {where}",
+                f"{_BENEFICIARY_PROVENANCE_CTE} "
+                f"SELECT COUNT(*) AS c FROM beneficiary_provenance WHERE {where}",
                 params,
             ).fetchone()["c"]
         )
@@ -398,11 +429,9 @@ def list_beneficiaries(
             offset = (page - 1) * page_size
         rows = conn.execute(
             f"""
-            SELECT id, nombre_original, employee_number_effective, account_number,
-                   employee_number_requested, validation_status, record_status,
-                   manual_effective_from_account, banorte_employee_substituted,
-                   replaces_id, updated_at, banorte_comment,source_kind,created_at
-            FROM nomina_banorte_beneficiaries
+            {_BENEFICIARY_PROVENANCE_CTE}
+            SELECT *
+            FROM beneficiary_provenance
             WHERE {where}
             ORDER BY {order_sql}
             LIMIT ? OFFSET ?
@@ -411,7 +440,8 @@ def list_beneficiaries(
         ).fetchall()
         out_rows = []
         for r in rows:
-            item = dict(r)
+            projection = dict(r)
+            item = {key: projection.get(key) for key in _BENEFICIARY_LIST_FIELDS}
             last = conn.execute(
                 """
                 SELECT reason, action, created_at FROM nomina_banorte_beneficiary_events
@@ -422,7 +452,7 @@ def list_beneficiaries(
             item["last_event_reason"] = last["reason"] if last else None
             item["last_event_action"] = last["action"] if last else None
             item["status_explanation"] = _status_explanation(item)
-            provenance = _load_beneficiary_provenance(conn, item)
+            provenance = _provenance_from_projection(projection)
             action_policy = _beneficiary_action_policy(item, provenance)
             item["provenance"] = provenance
             item["action_policy"] = action_policy
@@ -441,6 +471,7 @@ def list_beneficiaries(
         start_index = 0 if total == 0 else offset + 1
         end_index = 0 if total == 0 else offset + len(out_rows)
         return {
+            "scope": scope_key,
             "page": page,
             "page_size": page_size,
             "total": total,
