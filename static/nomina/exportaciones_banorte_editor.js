@@ -784,6 +784,65 @@
   let stagingBatch = null;
   let availableAfter = null;
 
+  function recentStatusMarkup(beneficiary) {
+    if (beneficiary.provenance_category === "A") {
+      return '<span class="banorte-status banorte-status--ok">TXT activo</span>';
+    }
+    if (beneficiary.validation_status === "IMPORTADO_EXITOSO" && beneficiary.record_status === "ACTIVO") {
+      return '<span class="banorte-status banorte-status--ok">Alta posterior · Validada</span>';
+    }
+    return '<span class="banorte-status banorte-status--warn">Alta posterior · Pendiente de validación</span>';
+  }
+
+  function renderRecentBeneficiaries(listing) {
+    const tbody = document.querySelector("#banorte-recent-table tbody");
+    if (!tbody) return;
+    const rows = (listing.rows || []).slice(0, 6);
+    tbody.innerHTML = "";
+    rows.forEach(function (beneficiary) {
+      const tr = document.createElement("tr");
+      tr.setAttribute("data-recent-ben-id", String(beneficiary.id));
+      tr.setAttribute("data-provenance-category", String(beneficiary.provenance_category || ""));
+      tr.innerHTML =
+        '<td class="banorte-mono">' + esc(beneficiary.display_employee_number || beneficiary.employee_number_effective) + "</td>" +
+        "<td>" + esc(beneficiary.display_name || beneficiary.nombre_original) +
+        "<div>" + recentStatusMarkup(beneficiary) + "</div></td>" +
+        '<td class="banorte-mono">' + esc(beneficiary.display_account_number || beneficiary.account_number) + "</td>";
+      tbody.appendChild(tr);
+    });
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="banorte-empty">' +
+        "No hay beneficiarios vigentes recientes para mostrar.</td></tr>";
+    }
+  }
+
+  async function loadRecentBeneficiaries() {
+    const out = await api("/nomina/exportaciones/banorte/beneficiarios/search", {
+      scope: "current",
+      page: 1,
+      q_name: "",
+      q_emp: "",
+      validation_status: "",
+      record_status: "",
+      sort: "id_desc",
+    });
+    if (out.data.ok) {
+      const listing = Object.assign({}, out.data.listing, {
+        rows: (out.data.listing.rows || []).slice(0, 6),
+      });
+      renderRecentBeneficiaries(listing);
+    }
+  }
+
+  function stagingStatusLabel(state) {
+    if (state === "ERROR") return "Error";
+    return "Pendiente";
+  }
+
+  function stagingStatusClass(state) {
+    return state === "ERROR" ? "banorte-status--bad" : "banorte-status--warn";
+  }
+
   function syncUseAccountCheckbox() {
     const cb = document.getElementById("batch-use-acct");
     const acct = document.getElementById("batch-cuenta");
@@ -824,15 +883,21 @@
     tbody.innerHTML = "";
     (batch.rows || []).forEach(function (r) {
       const tr = document.createElement("tr");
+      tr.className = r.row_state === "ERROR" ? "banorte-warn" : "banorte-hint";
       tr.innerHTML =
         "<td>" + esc(r.nombre) + "</td>" +
         '<td class="banorte-mono">' + esc(r.cuenta) + "</td>" +
         '<td class="banorte-mono">' + esc(batchEffectiveEmployee(r)) + "</td>" +
-        "<td>" + esc(r.row_state) + "</td>" +
+        '<td><span class="banorte-status ' + stagingStatusClass(r.row_state) + '">' +
+        esc(stagingStatusLabel(r.row_state)) + "</span></td>" +
         "<td>" + esc(r.error_message || r.comment || "") + "</td>" +
         "<td><button type='button' class='btn btn-secondary btn-sm' data-del='" + r.id + "'>Eliminar</button></td>";
       tbody.appendChild(tr);
     });
+    if (!(batch.rows || []).length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="banorte-empty">' +
+        "Agrega nuevos beneficiarios para comenzar.</td></tr>";
+    }
     tbody.querySelectorAll("[data-del]").forEach(function (btn) {
       btn.addEventListener("click", async function () {
         if (!stagingBatch) return;
@@ -840,7 +905,11 @@
           "/nomina/exportaciones/banorte/beneficiarios/batches/" + stagingBatch.id + "/rows/" + btn.getAttribute("data-del") + "/delete",
           { expected_revision: stagingBatch.revision }
         );
-        if (out.data.ok) renderBatchTable(out.data.batch);
+        if (out.data.ok) {
+          renderBatchTable(out.data.batch);
+          availableAfter = null;
+          loadAvailableNumbers(false);
+        }
         else alert(out.data.message || out.data.code || "error");
       });
     });
@@ -874,6 +943,8 @@
         return;
       }
       renderBatchTable(out.data.batch);
+      availableAfter = null;
+      loadAvailableNumbers(false);
       document.getElementById("batch-nombre").value = "";
       document.getElementById("batch-cuenta").value = "";
       document.getElementById("batch-emp").value = "";
@@ -899,11 +970,12 @@
       if (out.data.batch) renderBatchTable(out.data.batch);
       return;
     }
+    renderBatchTable({ rows: [], revision: 0, id: 0, status: "OPEN" });
     stagingBatch = null;
     msg.hidden = false;
     msg.textContent = "Beneficiarios guardados.";
-    showHub();
-    loadBenefListing(1);
+    availableAfter = null;
+    await Promise.all([loadRecentBeneficiaries(), loadAvailableNumbers(false)]);
   });
   const batchAbandon = document.getElementById("banorte-batch-abandon");
   if (batchAbandon) batchAbandon.addEventListener("click", async function () {
@@ -1497,6 +1569,7 @@
   if (altaTabBtn) altaTabBtn.addEventListener("click", function () {
     availableAfter = null;
     loadAvailableNumbers(false);
+    loadRecentBeneficiaries();
     ensureStagingBatch().catch(function () {});
   });
   const moreBtn = document.getElementById("banorte-available-more");

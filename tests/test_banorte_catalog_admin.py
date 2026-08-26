@@ -688,6 +688,105 @@ def test_a5c_history_is_read_only_for_admin_and_nomina_and_other_role_denied(tmp
     assert "No hay datos históricos anteriores." in editor_js
 
 
+def test_a2a_recent_hub_uses_six_current_a_b_with_truthful_badges(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for index in range(3):
+        _insert_beneficiary(
+            db_path,
+            name=f"ALTA VALIDADA RECIENTE {index}",
+            employee=f"{40 + index:010d}",
+            account=f"{4000000000 + index:010d}",
+            created_at="2026-08-23T12:00:00+00:00",
+        )
+    pending_id = _insert_beneficiary(
+        db_path,
+        name="ALTA PENDIENTE RECIENTE",
+        employee="0000000049",
+        account="4900000000",
+        validation_status="MANUAL_PENDIENTE_VALIDACION",
+        created_at="2026-08-24T12:00:00+00:00",
+    )
+
+    page = _make_app(tmp_path, "admin", db_path=db_path).test_client().get(
+        "/nomina/exportaciones/banorte"
+    )
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    recent = html.split('id="banorte-recent-table"', 1)[1].split("</table>", 1)[0]
+    expected = list_beneficiaries(
+        db_path, scope="current", page=1, sort="id_desc"
+    )["rows"][:6]
+
+    assert recent.count("data-recent-ben-id=") == 6
+    assert [row["id"] for row in expected] == [
+        pending_id,
+        pending_id - 1,
+        pending_id - 2,
+        pending_id - 3,
+        ids["post"],
+        ids["mirror"],
+    ]
+    assert all(f'data-recent-ben-id="{row["id"]}"' in recent for row in expected)
+    assert "PERSONA OFICIAL" in recent
+    assert "TXT activo" in recent
+    assert "Alta posterior · Validada" in recent
+    assert "Alta posterior · Pendiente de validación" in recent
+    assert "LEGACY SIN CATALOGO" not in recent
+    assert "INACTIVO HISTORICO" not in recent
+
+
+def test_a2a_open_batch_is_presented_as_pending_without_changing_capture_contract(tmp_path):
+    html = _make_app(tmp_path, "admin").test_client().get(
+        "/nomina/exportaciones/banorte"
+    ).get_data(as_text=True)
+    js = (
+        Path(__file__).resolve().parents[1]
+        / "static"
+        / "nomina"
+        / "exportaciones_banorte_editor.js"
+    ).read_text(encoding="utf-8")
+
+    assert "Beneficiarios recientes" in html
+    assert "No hay beneficiarios vigentes recientes para mostrar." in html
+    assert "Nuevos beneficiarios pendientes" in html
+    assert "Agrega nuevos beneficiarios para comenzar." in html
+    assert ">GUARDAR BENEFICIARIOS<" in html
+    assert 'r.row_state === "ERROR"' in js
+    assert 'stagingStatusLabel(r.row_state)' in js
+    assert 'return "Pendiente"' in js
+    assert "r.error_message || r.comment || \"\"" in js
+    assert '"/nomina/exportaciones/banorte/beneficiarios/batches/" + stagingBatch.id + "/rows"' in js
+    assert "expected_revision: stagingBatch.revision" in js
+    assert 'nombre: document.getElementById("batch-nombre").value' in js
+    assert 'cuenta: document.getElementById("batch-cuenta").value' in js
+    assert 'employee_number: document.getElementById("batch-emp").value' in js
+
+
+def test_a2a_confirm_clears_staging_stays_in_hub_and_refreshes_dependencies():
+    js = (
+        Path(__file__).resolve().parents[1]
+        / "static"
+        / "nomina"
+        / "exportaciones_banorte_editor.js"
+    ).read_text(encoding="utf-8")
+    confirm_flow = js.split('const batchConfirm = document.getElementById("banorte-batch-confirm")', 1)[1]
+    confirm_flow = confirm_flow.split('const batchAbandon = document.getElementById("banorte-batch-abandon")', 1)[0]
+    recent_flow = js.split("async function loadRecentBeneficiaries()", 1)[1]
+    recent_flow = recent_flow.split("function stagingStatusLabel", 1)[0]
+
+    assert "{ expected_revision: stagingBatch.revision }" in confirm_flow
+    assert "stagingBatch = null" in confirm_flow
+    assert "renderBatchTable({ rows: [], revision: 0, id: 0, status: \"OPEN\" })" in confirm_flow
+    assert "loadRecentBeneficiaries()" in confirm_flow
+    assert "availableAfter = null" in confirm_flow
+    assert "loadAvailableNumbers(false)" in confirm_flow
+    assert "showHub()" not in confirm_flow
+    assert 'scope: "current"' in recent_flow
+    assert "page: 1" in recent_flow
+    assert 'sort: "id_desc"' in recent_flow
+    assert ".slice(0, 6)" in recent_flow
+
+
 def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):
     app = _make_app(tmp_path, "admin")
     client = app.test_client()

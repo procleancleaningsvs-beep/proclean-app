@@ -348,7 +348,38 @@
       <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
     </div>
     <section class="banorte-panel pc-card">
-      <h3 class="pc-panel-title">Agregar beneficiarios</h3>
+      <h3 class="pc-panel-title">Beneficiarios recientes</h3>
+      <p class="banorte-hint">Últimos beneficiarios operacionales vigentes. La validación bancaria se muestra por separado.</p>
+      <div class="pc-table-shell">
+        <table class="banorte-table" id="banorte-recent-table">
+          <thead><tr><th>Número de empleado</th><th>Nombre</th><th>Número de cuenta</th></tr></thead>
+          <tbody>
+            {% for b in benef_listing.rows[:6] %}
+            <tr data-recent-ben-id="{{ b.id }}" data-provenance-category="{{ b.provenance_category }}">
+              <td class="banorte-mono">{{ b.display_employee_number }}</td>
+              <td>{{ b.display_name }}
+                <div>
+                  {% if b.provenance_category == 'A' %}
+                  <span class="banorte-status banorte-status--ok">TXT activo</span>
+                  {% elif b.validation_status == 'IMPORTADO_EXITOSO' and b.record_status == 'ACTIVO' %}
+                  <span class="banorte-status banorte-status--ok">Alta posterior · Validada</span>
+                  {% else %}
+                  <span class="banorte-status banorte-status--warn">Alta posterior · Pendiente de validación</span>
+                  {% endif %}
+                </div>
+              </td>
+              <td class="banorte-mono">{{ b.display_account_number }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="3" class="banorte-empty">No hay beneficiarios vigentes recientes para mostrar.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="banorte-panel pc-card">
+      <h3 class="pc-panel-title">Nuevos beneficiarios pendientes</h3>
+      <p class="banorte-hint">Estas filas pertenecen al lote abierto y aún no son beneficiarios confirmados.</p>
       <div class="banorte-alta-layout">
         <form id="banorte-alta-form" class="banorte-alta-form-h">
           <label>Nombre completo<input name="nombre" id="batch-nombre" required autocomplete="off"></label>
@@ -366,11 +397,11 @@
       <div class="pc-table-shell">
         <table class="banorte-table" id="banorte-batch-table">
           <thead><tr><th>Nombre</th><th>Cuenta</th><th>Número</th><th>Estado</th><th>Comentario</th><th></th></tr></thead>
-          <tbody></tbody>
+          <tbody><tr><td colspan="6" class="banorte-empty">Agrega nuevos beneficiarios para comenzar.</td></tr></tbody>
         </table>
       </div>
       <div class="banorte-export-bar">
-        <button type="button" class="btn btn-primary" id="banorte-batch-confirm">Guardar beneficiarios</button>
+        <button type="button" class="btn btn-primary" id="banorte-batch-confirm">GUARDAR BENEFICIARIOS</button>
         <button type="button" class="btn btn-secondary" id="banorte-batch-abandon">Abandonar lista</button>
       </div>
       <p id="banorte-batch-msg" class="banorte-warn" hidden></p>
