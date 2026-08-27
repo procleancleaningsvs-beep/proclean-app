@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 from pathlib import Path
 
@@ -785,6 +786,135 @@ def test_a2a_confirm_clears_staging_stays_in_hub_and_refreshes_dependencies():
     assert "page: 1" in recent_flow
     assert 'sort: "id_desc"' in recent_flow
     assert ".slice(0, 6)" in recent_flow
+
+
+def test_a5d_current_visible_ids_and_metric_follow_scoped_pagination(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for index in range(16):
+        _insert_beneficiary(
+            db_path,
+            name=f"ALTA VIGENTE A5D {index:02d}",
+            employee=f"{500 + index:010d}",
+            account=f"{8500000000 + index:010d}",
+            created_at="2026-08-22T12:00:00+00:00",
+        )
+
+    first = list_beneficiaries(db_path, scope="current", page=1, sort="id_desc")
+    second = list_beneficiaries(db_path, scope="current", page=2, sort="id_desc")
+    filtered = list_beneficiaries(
+        db_path, scope="current", page=1, q_name="A5D 0", sort="id_desc"
+    )
+    historical = list_beneficiaries(db_path, scope="historical", page=1)
+
+    assert first["total"] == 18
+    assert (first["start_index"], first["end_index"]) == (1, 15)
+    assert (second["start_index"], second["end_index"]) == (16, 18)
+    assert filtered["total"] == 10
+    assert (filtered["start_index"], filtered["end_index"]) == (1, 10)
+    assert historical["total"] == 3
+    assert ids["legacy"] not in {row["id"] for row in first["rows"] + second["rows"]}
+
+    html = _make_app(tmp_path, "admin", db_path=db_path).test_client().get(
+        "/nomina/exportaciones/banorte"
+    ).get_data(as_text=True)
+    current_table = html.split('id="banorte-ben-table"', 1)[1].split("</table>", 1)[0]
+    assert re.findall(r'data-visible-id="(\d+)"', current_table) == [
+        str(value) for value in range(1, 16)
+    ]
+    assert "Beneficiarios vigentes: 18" in html
+
+    editor_js = (
+        Path(__file__).resolve().parents[1]
+        / "static"
+        / "nomina"
+        / "exportaciones_banorte_editor.js"
+    ).read_text(encoding="utf-8")
+    assert "const visibleId = (listing.start_index || 0) + index" in editor_js
+    assert '"Beneficiarios vigentes: " + (listing.total || 0)' in editor_js
+
+
+def test_a5d_legacy_control_is_visible_for_admin_and_nomina_and_switches_scope(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    for role in ("admin", "nomina"):
+        client = _make_app(tmp_path, role, db_path=db_path).test_client()
+        page = client.get("/nomina/exportaciones/banorte")
+        assert page.status_code == 200
+        html = page.get_data(as_text=True)
+        current_card = html.split('id="banorte-beneficiarios-embed"', 1)[1].split(
+            "</section>", 1
+        )[0]
+        legacy_panel = html.split('id="banorte-tab-legacy-beneficiarios"', 1)[1].split(
+            "</section>", 1
+        )[0]
+        assert 'data-banorte-tab="legacy-beneficiarios"' in current_card
+        assert "Legacy / Datos históricos anteriores" in current_card
+        assert 'data-banorte-tab="hub"' in legacy_panel
+        assert "Volver a Beneficiarios vigentes" in legacy_panel
+
+        token = _token(page.data)
+        response = client.post(
+            "/nomina/exportaciones/banorte/beneficiarios/search",
+            json={"csrf_token": token, "scope": "historical", "page": 1},
+            headers={"X-CSRF-Token": token},
+        )
+        assert response.status_code == 200
+        rows = response.get_json()["listing"]["rows"]
+        assert {row["provenance_category"] for row in rows} == {"C", "D"}
+        assert ids["mirror"] not in {row["id"] for row in rows}
+        assert ids["post"] not in {row["id"] for row in rows}
+
+
+def test_a5d_historical_interface_is_detail_only_and_keeps_a5a_guard(tmp_path):
+    db_path, ids = _provenance_fixture(tmp_path)
+    client = _make_app(tmp_path, "admin", db_path=db_path).test_client()
+    page = client.get("/nomina/exportaciones/banorte")
+    html = page.get_data(as_text=True)
+    legacy_panel = html.split('id="banorte-tab-legacy-beneficiarios"', 1)[1].split(
+        'data-banorte-panel="import-base"', 1
+    )[0]
+
+    assert "Referencia técnica" in legacy_panel
+    assert "Ver detalle" in legacy_panel
+    assert "Editar" not in legacy_panel
+    assert "Marcar utilizable" not in legacy_panel
+    assert "Mantener pendiente" not in legacy_panel
+    assert "Desactivar" not in legacy_panel
+    assert "Resolver duplicado" not in legacy_panel
+
+    token = _token(page.data)
+    listing = client.post(
+        "/nomina/exportaciones/banorte/beneficiarios/search",
+        json={"csrf_token": token, "scope": "historical", "page": 1},
+        headers={"X-CSRF-Token": token},
+    ).get_json()["listing"]
+    assert all(row["action_policy"]["allowed_actions"] == [] for row in listing["rows"])
+
+    detail = client.get(
+        f"/nomina/exportaciones/banorte/beneficiarios/{ids['legacy']}/history"
+    )
+    assert detail.status_code == 200
+    detail_json = detail.get_json()
+    assert detail_json["action_policy"]["allowed_actions"] == []
+    assert "events" in detail_json
+    assert "chain" in detail_json
+
+    blocked = client.post(
+        f"/nomina/exportaciones/banorte/beneficiarios/{ids['legacy']}/actions",
+        json={
+            "csrf_token": token,
+            "action": "deactivate",
+            "reason": "histórico no mutable",
+        },
+        headers={"X-CSRF-Token": token},
+    )
+    assert blocked.status_code == 409
+
+    other = _make_app(tmp_path, "supervisor", db_path=db_path).test_client()
+    assert other.get("/nomina/exportaciones/banorte").status_code == 403
+    assert other.post(
+        "/nomina/exportaciones/banorte/beneficiarios/search",
+        json={"scope": "historical", "page": 1},
+    ).status_code == 403
 
 
 def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):

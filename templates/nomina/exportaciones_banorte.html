@@ -18,7 +18,6 @@
     {% endif %}
     <button type="button" class="btn btn-secondary" data-banorte-tab="cargar-pagos">Cargar pagos</button>
     <button type="button" class="btn btn-secondary" data-banorte-tab="historial">Historial</button>
-    <button type="button" class="btn btn-secondary" data-banorte-tab="legacy-beneficiarios">Legacy / Datos históricos anteriores</button>
   </div>
 </section>
 
@@ -157,6 +156,9 @@
     <section class="banorte-panel pc-card" id="banorte-beneficiarios-embed">
       <h3 class="pc-panel-title">Beneficiarios vigentes</h3>
       <p class="banorte-hint">Realidad bancaria vigente: personas del Empleados.txt ACTIVE y altas post-snapshot que continúan operacionales.</p>
+      <div class="banorte-export-bar">
+        <button type="button" class="btn btn-secondary" data-banorte-tab="legacy-beneficiarios">Legacy / Datos históricos anteriores</button>
+      </div>
       <div class="banorte-export-bar" id="banorte-ben-filters">
         <label>Búsqueda por nombre
           <input type="search" id="banorte-ben-q" autocomplete="off" placeholder="Desde 1 carácter">
@@ -188,14 +190,14 @@
           </select>
         </label>
       </div>
-      <p class="banorte-hint" id="banorte-ben-meta">Mostrando {{ benef_listing.start_index }}–{{ benef_listing.end_index }} de {{ benef_listing.total }} beneficiarios</p>
+      <p class="banorte-hint" id="banorte-ben-meta">Beneficiarios vigentes: {{ benef_listing.total }} · Mostrando {{ benef_listing.start_index }}–{{ benef_listing.end_index }}</p>
       <div class="pc-table-shell">
         <table class="banorte-table" id="banorte-ben-table">
-          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>ID vigente</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {% for b in benef_listing.rows %}
-            <tr data-ben-id="{{ b.id }}" data-ben-scope="current" data-record-status="{{ b.record_status }}">
-              <td>{{ b.id }}</td>
+            <tr data-ben-id="{{ b.id }}" data-visible-id="{{ benef_listing.start_index + loop.index0 }}" data-ben-scope="current" data-record-status="{{ b.record_status }}">
+              <td>{{ benef_listing.start_index + loop.index0 }}</td>
               <td>{{ b.display_name }}
                 <div class="banorte-hint">{{ b.provenance_label }}</div>
                 {% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}
@@ -242,7 +244,7 @@
   {# —— Consulta secundaria: Legacy / históricos —— #}
   <section class="banorte-tab-panel" id="banorte-tab-legacy-beneficiarios" data-banorte-panel="legacy-beneficiarios" hidden>
     <div class="banorte-tab-back">
-      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Exportar pagos</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-banorte-tab="hub">← Volver a Beneficiarios vigentes</button>
     </div>
     <section class="banorte-panel pc-card">
       <h3 class="pc-panel-title">Legacy / Datos históricos anteriores</h3>
@@ -283,11 +285,11 @@
       <p class="banorte-hint" id="banorte-hist-meta">Mostrando {{ historical_benef_listing.start_index }}–{{ historical_benef_listing.end_index }} de {{ historical_benef_listing.total }} históricos</p>
       <div class="pc-table-shell">
         <table class="banorte-table" id="banorte-hist-table">
-          <thead><tr><th>ID</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Referencia técnica</th><th>Nombre</th><th>Emp.</th><th>Cuenta</th><th>Estado</th><th></th></tr></thead>
           <tbody>
             {% for b in historical_benef_listing.rows %}
             <tr data-ben-id="{{ b.id }}" data-ben-scope="historical" data-record-status="{{ b.record_status }}">
-              <td>{{ b.id }}</td>
+              <td>#{{ b.id }}</td>
               <td>{{ b.display_name }}
                 <div class="banorte-hint">{{ b.provenance_label }}</div>
                 {% if b.status_explanation %}<div class="banorte-hint">{{ b.status_explanation }}</div>{% endif %}

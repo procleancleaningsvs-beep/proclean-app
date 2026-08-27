@@ -1289,9 +1289,11 @@
     if (!tbody) return;
     closeBenEditPanel();
     tbody.innerHTML = "";
-    (listing.rows || []).forEach(function (b) {
+    (listing.rows || []).forEach(function (b, index) {
       const tr = document.createElement("tr");
+      const visibleId = (listing.start_index || 0) + index;
       tr.setAttribute("data-ben-id", String(b.id));
+      if (view.scope === "current") tr.setAttribute("data-visible-id", String(visibleId));
       tr.setAttribute("data-ben-scope", view.scope);
       tr.setAttribute("data-record-status", String(b.record_status || ""));
       let st = '<span class="banorte-status banorte-status--warn">Pendiente</span>';
@@ -1319,8 +1321,9 @@
           '" data-ben-id="' + b.id + '" data-ben-scope="' + view.scope + '">' +
           buttonLabel + "</button>"
         : "";
+      const idLabel = view.scope === "historical" ? ("#" + esc(b.id)) : String(visibleId);
       tr.innerHTML =
-        "<td>" + b.id + "</td><td>" + esc(b.display_name || b.nombre_original) +
+        "<td>" + idLabel + "</td><td>" + esc(b.display_name || b.nombre_original) +
         '<div class="banorte-hint">' + esc(provenance) + "</div>" +
         (note ? ('<div class="banorte-hint">' + esc(note) + "</div>") : "") +
         "</td>" +
@@ -1334,10 +1337,11 @@
         view.emptyMessage + "</td></tr>";
     }
     bindBenDetailButtons(tbody);
-    document.getElementById(view.prefix + "-meta").textContent =
-      "Mostrando " + (listing.start_index || 0) + "–" + (listing.end_index || 0) +
-      " de " + (listing.total || 0) +
-      (view.scope === "historical" ? " históricos" : " beneficiarios vigentes");
+    const rangeLabel = "Mostrando " + (listing.start_index || 0) + "–" +
+      (listing.end_index || 0);
+    document.getElementById(view.prefix + "-meta").textContent = view.scope === "historical"
+      ? rangeLabel + " de " + (listing.total || 0) + " históricos"
+      : "Beneficiarios vigentes: " + (listing.total || 0) + " · " + rangeLabel;
     const pager = document.getElementById(view.prefix + "-pager");
     if (pager) {
       pager.innerHTML = "";
