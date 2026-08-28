@@ -20,14 +20,18 @@ from flask import (
 )
 
 from modules.nomina.banorte.batch_service import (
+    BatchAccessError,
     BatchStaleError,
+    ManualBatchValidationError,
     abandon_batch,
     add_batch_row,
     confirm_batch,
     create_batch,
     delete_batch_row,
+    find_open_manual_batch,
     get_batch,
     prepare_reporte_batch,
+    save_manual_beneficiaries,
 )
 from modules.nomina.banorte.beneficiary_service import (
     BeneficiaryError,
@@ -1109,6 +1113,60 @@ def register_banorte_routes(bp) -> None:
             409,
         )
 
+    def _owned_batch(batch_id: int) -> tuple[dict[str, Any] | None, Response | None]:
+        batch = get_batch(_db_path(), int(batch_id))
+        if batch is None:
+            return None, _json_no_store({"ok": False, "code": "batch_not_found"}, 404)
+        if str(batch.get("created_by") or "") != _username():
+            return None, _json_no_store({"ok": False, "code": "batch_not_owned"}, 403)
+        return batch, None
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_manual_batch_open():
+        batch = find_open_manual_batch(_db_path(), _username())
+        return _json_no_store(
+            {"ok": True, "batch": batch, "csrf_token": issue_csrf_token()}
+        )
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_manual_batch_save():
+        require_csrf()
+        data = request.get_json(silent=True) or {}
+        require_csrf(data)
+        context = data.get("batch_context") or {}
+        try:
+            batch = save_manual_beneficiaries(
+                _db_path(),
+                _username(),
+                data.get("rows"),
+                batch_id=int(context["id"]) if context.get("id") is not None else None,
+                expected_revision=(
+                    int(context["expected_revision"])
+                    if context.get("expected_revision") is not None
+                    else None
+                ),
+            )
+        except ManualBatchValidationError as exc:
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": exc.code,
+                    "errors": exc.errors,
+                    "message": "Revise las filas marcadas antes de guardar.",
+                    "csrf_token": issue_csrf_token(),
+                },
+                422,
+            )
+        except BatchAccessError as exc:
+            return _json_no_store({"ok": False, "code": exc.code}, 403)
+        except BatchStaleError as exc:
+            return _batch_stale(exc)
+        return _json_no_store(
+            {"ok": True, "batch": batch, "csrf_token": issue_csrf_token()}
+        )
+
     @_banorte_access_required
     @_banorte_operator_required
     def banorte_batch_get_or_create():
@@ -1116,15 +1174,19 @@ def register_banorte_routes(bp) -> None:
         data = request.get_json(silent=True) or {}
         require_csrf(data)
         origin = str(data.get("origin_kind") or "MANUAL")
+        if origin == "MANUAL":
+            return _json_no_store(
+                {"ok": False, "code": "manual_batch_atomic_save_required"}, 409
+            )
         batch = create_batch(_db_path(), _username(), origin_kind=origin)
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
     @_banorte_operator_required
     def banorte_batch_get(batch_id: int):
-        batch = get_batch(_db_path(), int(batch_id))
-        if batch is None:
-            return _json_no_store({"ok": False, "code": "batch_not_found"}, 404)
+        batch, error = _owned_batch(batch_id)
+        if error is not None:
+            return error
         return _json_no_store({"ok": True, "batch": batch, "csrf_token": issue_csrf_token()})
 
     @_banorte_access_required
@@ -1133,6 +1195,13 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        owned, error = _owned_batch(batch_id)
+        if error is not None:
+            return error
+        if owned and owned.get("origin_kind") == "MANUAL":
+            return _json_no_store(
+                {"ok": False, "code": "manual_batch_atomic_save_required"}, 409
+            )
         try:
             batch = add_batch_row(
                 _db_path(),
@@ -1157,6 +1226,13 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        owned, error = _owned_batch(batch_id)
+        if error is not None:
+            return error
+        if owned and owned.get("origin_kind") == "MANUAL":
+            return _json_no_store(
+                {"ok": False, "code": "manual_batch_atomic_save_required"}, 409
+            )
         try:
             batch = delete_batch_row(
                 _db_path(),
@@ -1177,6 +1253,13 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        owned, error = _owned_batch(batch_id)
+        if error is not None:
+            return error
+        if owned and owned.get("origin_kind") == "MANUAL":
+            return _json_no_store(
+                {"ok": False, "code": "manual_batch_atomic_save_required"}, 409
+            )
         try:
             batch = confirm_batch(
                 _db_path(), int(batch_id), _username(), int(data.get("expected_revision"))
@@ -1193,6 +1276,9 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         data = request.get_json(silent=True) or {}
         require_csrf(data)
+        _, error = _owned_batch(batch_id)
+        if error is not None:
+            return error
         if not data.get("confirm"):
             return _json_no_store({"ok": False, "code": "confirm_required"}, 400)
         try:
@@ -1632,6 +1718,18 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/beneficiarios/batches",
         endpoint="banorte_batch_get_or_create",
         view_func=banorte_batch_get_or_create,
+        methods=["POST"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/batches/open",
+        endpoint="banorte_manual_batch_open",
+        view_func=banorte_manual_batch_open,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/beneficiarios/manual-save",
+        endpoint="banorte_manual_batch_save",
+        view_func=banorte_manual_batch_save,
         methods=["POST"],
     )
     bp.add_url_rule(

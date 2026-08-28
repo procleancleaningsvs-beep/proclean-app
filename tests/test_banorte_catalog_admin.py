@@ -689,7 +689,7 @@ def test_a5c_history_is_read_only_for_admin_and_nomina_and_other_role_denied(tmp
     assert "No hay datos históricos anteriores." in editor_js
 
 
-def test_a2a_recent_hub_uses_six_current_a_b_with_truthful_badges(tmp_path):
+def test_a2b_current_scroll_uses_current_a_b_official_values_without_visual_pager(tmp_path):
     db_path, ids = _provenance_fixture(tmp_path)
     for index in range(3):
         _insert_beneficiary(
@@ -713,12 +713,17 @@ def test_a2a_recent_hub_uses_six_current_a_b_with_truthful_badges(tmp_path):
     )
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    recent = html.split('id="banorte-recent-table"', 1)[1].split("</table>", 1)[0]
+    workspace = html.split('id="banorte-beneficiary-workspace"', 1)[1].split(
+        'id="banorte-reporte-form"', 1
+    )[0]
+    current = workspace.split('id="banorte-beneficiary-history-viewport"', 1)[1].split(
+        'id="banorte-beneficiary-pending-rows"', 1
+    )[0]
     expected = list_beneficiaries(
         db_path, scope="current", page=1, sort="id_desc"
     )["rows"][:6]
 
-    assert recent.count("data-recent-ben-id=") == 6
+    assert current.count("data-history-ben-id=") == 6
     assert [row["id"] for row in expected] == [
         pending_id,
         pending_id - 1,
@@ -727,65 +732,82 @@ def test_a2a_recent_hub_uses_six_current_a_b_with_truthful_badges(tmp_path):
         ids["post"],
         ids["mirror"],
     ]
-    assert all(f'data-recent-ben-id="{row["id"]}"' in recent for row in expected)
-    assert "PERSONA OFICIAL" in recent
-    assert "TXT activo" in recent
-    assert "Alta posterior · Validada" in recent
-    assert "Alta posterior · Pendiente de validación" in recent
-    assert "LEGACY SIN CATALOGO" not in recent
-    assert "INACTIVO HISTORICO" not in recent
+    assert all(f'data-history-ben-id="{row["id"]}"' in current for row in expected)
+    assert "PERSONA OFICIAL" in current
+    assert "TXT activo" in current
+    assert "Alta posterior · Validada" in current
+    assert "Alta posterior · Pendiente de validación" in current
+    assert "LEGACY SIN CATALOGO" not in current
+    assert "INACTIVO HISTORICO" not in current
+    assert 'data-next-page="2"' in current
+    assert 'data-has-next="0"' in current
+    assert "Anterior" not in workspace
+    assert "Siguiente" not in workspace
+    assert "Página " not in workspace
+
+    editor_js = (
+        Path(__file__).resolve().parents[1]
+        / "static"
+        / "nomina"
+        / "exportaciones_banorte_editor.js"
+    ).read_text(encoding="utf-8")
+    assert 'scope: "current"' in editor_js
+    assert 'sort: "id_desc"' in editor_js
+    assert "historyGeneration" in editor_js
+    assert "historyLoadedPages" in editor_js
+    assert "historyHasNext" in editor_js
+    assert "banorte-beneficiary-history-viewport" in editor_js
 
 
-def test_a2a_open_batch_is_presented_as_pending_without_changing_capture_contract(tmp_path):
+def test_a2b_unified_workspace_has_one_entry_and_no_legacy_manual_sections(tmp_path):
     html = _make_app(tmp_path, "admin").test_client().get(
         "/nomina/exportaciones/banorte"
     ).get_data(as_text=True)
-    js = (
-        Path(__file__).resolve().parents[1]
-        / "static"
-        / "nomina"
-        / "exportaciones_banorte_editor.js"
-    ).read_text(encoding="utf-8")
+    workspace = html.split('id="banorte-beneficiary-workspace"', 1)[1].split(
+        'id="banorte-reporte-form"', 1
+    )[0]
 
-    assert "Beneficiarios recientes" in html
-    assert "No hay beneficiarios vigentes recientes para mostrar." in html
-    assert "Nuevos beneficiarios pendientes" in html
-    assert "Agrega nuevos beneficiarios para comenzar." in html
+    assert "Número de empleado" in workspace
+    assert "Nombre completo" in workspace
+    assert "Número de cuenta" in workspace
+    assert workspace.count('data-beneficiary-entry-row="1"') == 1
+    assert 'id="banorte-beneficiary-history-viewport"' in workspace
+    assert 'id="banorte-beneficiary-pending-rows"' in workspace
+    assert 'id="banorte-beneficiary-entry-row"' in workspace
+    assert 'id="banorte-available-emps"' in workspace
+    assert ">AÑADIR BENEFICIARIO A LA LISTA<" in workspace
     assert ">GUARDAR BENEFICIARIOS<" in html
-    assert 'r.row_state === "ERROR"' in js
-    assert 'stagingStatusLabel(r.row_state)' in js
-    assert 'return "Pendiente"' in js
-    assert "r.error_message || r.comment || \"\"" in js
-    assert '"/nomina/exportaciones/banorte/beneficiarios/batches/" + stagingBatch.id + "/rows"' in js
-    assert "expected_revision: stagingBatch.revision" in js
-    assert 'nombre: document.getElementById("batch-nombre").value' in js
-    assert 'cuenta: document.getElementById("batch-cuenta").value' in js
-    assert 'employee_number: document.getElementById("batch-emp").value' in js
+    assert "Usar cuenta como número" in workspace
+    assert "Beneficiarios recientes" not in workspace
+    assert "Nuevos beneficiarios pendientes" not in workspace
+    assert 'id="banorte-alta-form"' not in workspace
+    assert 'id="banorte-batch-table"' not in workspace
+    assert 'id="banorte-ben-pager"' not in workspace
 
 
-def test_a2a_confirm_clears_staging_stays_in_hub_and_refreshes_dependencies():
+def test_a2b_local_actions_use_grid_controller_and_only_save_can_post():
+    root = Path(__file__).resolve().parents[1]
     js = (
-        Path(__file__).resolve().parents[1]
+        root
         / "static"
         / "nomina"
         / "exportaciones_banorte_editor.js"
     ).read_text(encoding="utf-8")
-    confirm_flow = js.split('const batchConfirm = document.getElementById("banorte-batch-confirm")', 1)[1]
-    confirm_flow = confirm_flow.split('const batchAbandon = document.getElementById("banorte-batch-abandon")', 1)[0]
-    recent_flow = js.split("async function loadRecentBeneficiaries()", 1)[1]
-    recent_flow = recent_flow.split("function stagingStatusLabel", 1)[0]
+    grid_js = (
+        root / "static" / "nomina" / "banorte_beneficiary_grid.js"
+    ).read_text(encoding="utf-8")
 
-    assert "{ expected_revision: stagingBatch.revision }" in confirm_flow
-    assert "stagingBatch = null" in confirm_flow
-    assert "renderBatchTable({ rows: [], revision: 0, id: 0, status: \"OPEN\" })" in confirm_flow
-    assert "loadRecentBeneficiaries()" in confirm_flow
-    assert "availableAfter = null" in confirm_flow
-    assert "loadAvailableNumbers(false)" in confirm_flow
-    assert "showHub()" not in confirm_flow
-    assert 'scope: "current"' in recent_flow
-    assert "page: 1" in recent_flow
-    assert 'sort: "id_desc"' in recent_flow
-    assert ".slice(0, 6)" in recent_flow
+    assert "BanorteBeneficiaryGrid" in js
+    assert "getPendingPayload" in js
+    assert "entryHasAnyValue" in js
+    assert "Añade primero el beneficiario activo a la lista antes de guardar." in js
+    assert "/nomina/exportaciones/banorte/beneficiarios/manual-save" in js
+    assert "/nomina/exportaciones/banorte/beneficiarios/batches/open" in js
+    assert "ensureStagingBatch" not in js
+    assert "/rows/" not in grid_js
+    assert "fetch(" not in grid_js
+    assert "locallyUsedEffectiveEmployees" in grid_js
+    assert "applyAvailableNumber" in grid_js
 
 
 def test_a5d_current_visible_ids_and_metric_follow_scoped_pagination(tmp_path):

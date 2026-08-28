@@ -33,6 +33,19 @@ class BatchStaleError(Exception):
         self.code = "batch_stale"
 
 
+class BatchAccessError(Exception):
+    def __init__(self, code: str = "batch_not_owned"):
+        super().__init__(code)
+        self.code = code
+
+
+class ManualBatchValidationError(Exception):
+    def __init__(self, errors: list[dict[str, Any]]):
+        super().__init__("beneficiary_rows_invalid")
+        self.code = "beneficiary_rows_invalid"
+        self.errors = errors
+
+
 def _now() -> str:
     return datetime.now(TZ).isoformat(timespec="seconds")
 
@@ -63,6 +76,24 @@ def get_batch(db_path: str, batch_id: int) -> dict[str, Any] | None:
         return payload
     finally:
         conn.close()
+
+
+def find_open_manual_batch(db_path: str, user: str) -> dict[str, Any] | None:
+    """Return only the authenticated actor's transitional MANUAL batch."""
+    conn = connect(db_path)
+    try:
+        ensure_banorte_tables(conn)
+        row = conn.execute(
+            """
+            SELECT id FROM nomina_banorte_beneficiary_batches
+            WHERE created_by=? AND origin_kind='MANUAL' AND status='OPEN'
+            ORDER BY id DESC LIMIT 1
+            """,
+            (user,),
+        ).fetchone()
+    finally:
+        conn.close()
+    return get_batch(db_path, int(row["id"])) if row is not None else None
 
 
 def create_batch(
@@ -372,6 +403,318 @@ def abandon_batch(
     return get_batch(db_path, batch_id)  # type: ignore[return-value]
 
 
+def _canonicalize_batch_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    canonical: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        account = _digits(row.get("cuenta") if "cuenta" in row else row.get("account"))
+        use_account = bool(row.get("use_account_as_employee_number"))
+        requested = _digits(row.get("employee_number"))
+        if use_account and not requested:
+            requested = account
+        canonical.append(
+            {
+                "row_id": int(row["id"]) if row.get("id") is not None else None,
+                "row_index": index,
+                "client_row_key": str(row.get("client_row_key") or f"row-{index + 1}"),
+                "nombre": str(row.get("nombre") or "").strip(),
+                "cuenta": account,
+                "employee_number": requested,
+                "employee_number_effective": account if use_account else requested,
+                "use_account_as_employee_number": 1 if use_account else 0,
+                "comment": row.get("comment"),
+                "source_row": row.get("source_row"),
+            }
+        )
+    return canonical
+
+
+def _validate_batch_rows_conn(
+    conn,
+    rows: list[dict[str, Any]],
+    *,
+    exclude_batch_id: int | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    canonical = _canonicalize_batch_rows(rows)
+    occupied = collect_occupied_employee_numbers(conn, exclude_batch_id=exclude_batch_id)
+    active_accounts = {
+        str(r["account_number"])
+        for r in conn.execute(
+            "SELECT account_number FROM nomina_banorte_beneficiaries WHERE record_status='ACTIVO'"
+        )
+    }
+    seen_employees: set[str] = set()
+    seen_accounts: set[str] = set()
+    errors: list[dict[str, Any]] = []
+    for row in canonical:
+        name = row["nombre"]
+        account = row["cuenta"]
+        requested = row["employee_number"]
+        effective = row["employee_number_effective"]
+        use_account = bool(row["use_account_as_employee_number"])
+        code = ""
+        message = ""
+        field = ""
+        if not name:
+            field, code, message = "nombre", "nombre_required", "Nombre obligatorio."
+        elif not account:
+            field, code, message = "account", "account_required", "Cuenta obligatoria."
+        elif len(account) > 18:
+            field, code, message = "account", "account_too_long", "La cuenta no puede exceder 18 dígitos."
+        elif use_account and len(account) != 10:
+            field, code, message = (
+                "account",
+                "account_must_be_exactly_10_digits",
+                "La cuenta debe tener exactamente 10 dígitos.",
+            )
+        elif len(requested) != 10 or requested == "0000000000":
+            field, code, message = (
+                "employee_number",
+                "employee_number_must_be_exactly_10_digits",
+                "El número debe tener exactamente 10 dígitos.",
+            )
+        elif len(effective) != 10 or effective == "0000000000":
+            field, code, message = (
+                "employee_number",
+                "employee_number_must_be_exactly_10_digits",
+                "El número efectivo debe tener exactamente 10 dígitos.",
+            )
+        elif effective in seen_employees or effective in occupied:
+            field, code, message = (
+                "employee_number",
+                "duplicate_employee_number",
+                "Número de empleado no disponible.",
+            )
+        elif account in seen_accounts:
+            field, code, message = (
+                "account",
+                "duplicate_account_in_batch",
+                "Cuenta duplicada en el lote.",
+            )
+        elif account in active_accounts:
+            field, code, message = (
+                "account",
+                "duplicate_active_account",
+                "Ya existe una cuenta activa igual.",
+            )
+        if code:
+            errors.append(
+                {
+                    "row_id": row["row_id"],
+                    "row_index": row["row_index"],
+                    "client_row_key": row["client_row_key"],
+                    "field": field,
+                    "error_code": code,
+                    "message": message,
+                    "error_message": message,
+                }
+            )
+            continue
+        seen_employees.add(effective)
+        seen_accounts.add(account)
+        occupied.add(effective)
+    return canonical, errors
+
+
+def _persist_confirmed_beneficiaries_conn(
+    conn,
+    batch: dict[str, Any],
+    rows: list[dict[str, Any]],
+    *,
+    user: str,
+    now: str,
+) -> None:
+    batch_id = int(batch["id"])
+    origin = str(batch.get("origin_kind") or "MANUAL")
+    source_kind = "ALTA_MANUAL" if origin == "MANUAL" else "REPORTE_DETALLADO"
+    validation = (
+        "MANUAL_PENDIENTE_VALIDACION" if origin == "MANUAL" else "IMPORTADO_EXITOSO"
+    )
+    for row in rows:
+        requested = row["employee_number"]
+        effective = row["employee_number_effective"]
+        use_account = bool(row["use_account_as_employee_number"])
+        substituted = 1 if use_account and requested != effective else 0
+        manual_effective = 1 if use_account and substituted == 0 else 0
+        comment = row.get("comment") or f"batch:{batch_id}"
+        conn.execute(
+            """
+            INSERT INTO nomina_banorte_beneficiaries (
+                nombre_original, nombre_normalizado, curp,
+                employee_number_requested, employee_number_effective, account_number,
+                source_kind, validation_status, record_status,
+                banorte_employee_substituted, manual_effective_from_account,
+                banorte_comment, imported_at, imported_by, created_at, updated_at
+            ) VALUES (?,?,NULL,?,?,?,?,?,'ACTIVO',?,?,?,?,?,?,?)
+            """,
+            (
+                row["nombre"],
+                normalize_name(row["nombre"]),
+                requested,
+                effective,
+                row["cuenta"],
+                source_kind,
+                validation,
+                substituted,
+                manual_effective,
+                comment,
+                now,
+                user,
+                now,
+                now,
+            ),
+        )
+    if origin == "REPORTE_DETALLADO" and batch.get("source_sha256"):
+        conn.execute(
+            """
+            INSERT INTO nomina_banorte_import_batches (
+                file_name, file_sha256, file_size, detected_type, imported_by, imported_at,
+                rows_processed, count_exitosos, count_manuales, count_fallidos_estatus,
+                count_fallidos_hoja_sin_estatus, count_excluidos_hoja_fallidos_total,
+                count_duplicados_reemplazados, count_conflictos, count_omitidos,
+                summary_json, reimport_confirmed
+            ) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0,0,0,?,0)
+            """,
+            (
+                batch.get("source_filename") or f"batch-{batch_id}.xlsx",
+                batch["source_sha256"],
+                0,
+                "REPORTE_DETALLADO",
+                user,
+                now,
+                len(rows),
+                len(rows),
+                '{"via":"beneficiary_batch"}',
+            ),
+        )
+
+
+def save_manual_beneficiaries(
+    db_path: str,
+    user: str,
+    rows: list[dict[str, Any]],
+    *,
+    batch_id: int | None = None,
+    expected_revision: int | None = None,
+) -> dict[str, Any]:
+    """Persist one complete MANUAL snapshot in one all-or-nothing transaction."""
+    if not isinstance(rows, list) or not rows:
+        raise ManualBatchValidationError(
+            [{
+                "row_id": None,
+                "row_index": 0,
+                "client_row_key": "",
+                "field": "rows",
+                "error_code": "beneficiary_rows_required",
+                "message": "Añada al menos un beneficiario.",
+            }]
+        )
+    if len(rows) > 200:
+        raise ManualBatchValidationError(
+            [{
+                "row_id": None,
+                "row_index": 200,
+                "client_row_key": "",
+                "field": "rows",
+                "error_code": "beneficiary_rows_limit",
+                "message": "El lote excede el máximo de 200 beneficiarios.",
+            }]
+        )
+
+    conn = connect(db_path)
+    created_batch_id: int | None = None
+    try:
+        ensure_banorte_tables(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        batch: dict[str, Any] | None = None
+        if batch_id is not None:
+            raw_batch = conn.execute(
+                "SELECT * FROM nomina_banorte_beneficiary_batches WHERE id=?",
+                (int(batch_id),),
+            ).fetchone()
+            if raw_batch is None:
+                raise BatchStaleError(int(batch_id), int(expected_revision or 0))
+            batch = dict(raw_batch)
+            if str(batch["created_by"]) != user:
+                raise BatchAccessError()
+            if str(batch["origin_kind"]) != "MANUAL":
+                raise BatchAccessError("batch_not_manual")
+            if str(batch["status"]) != "OPEN":
+                raise BatchStaleError(int(batch_id), int(batch["revision"]))
+            if expected_revision is None or int(batch["revision"]) != int(expected_revision):
+                raise BatchStaleError(int(batch_id), int(batch["revision"]))
+        else:
+            existing = conn.execute(
+                """
+                SELECT id, revision FROM nomina_banorte_beneficiary_batches
+                WHERE created_by=? AND origin_kind='MANUAL' AND status='OPEN'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (user,),
+            ).fetchone()
+            if existing is not None:
+                raise BatchStaleError(int(existing["id"]), int(existing["revision"]))
+
+        canonical, errors = _validate_batch_rows_conn(
+            conn, rows, exclude_batch_id=int(batch_id) if batch_id is not None else None
+        )
+        if errors:
+            raise ManualBatchValidationError(errors)
+
+        now = _now()
+        if batch is None:
+            cur = conn.execute(
+                """
+                INSERT INTO nomina_banorte_beneficiary_batches (
+                    origin_kind, status, revision, created_by, created_at, updated_at
+                ) VALUES ('MANUAL', 'OPEN', 1, ?, ?, ?)
+                """,
+                (user, now, now),
+            )
+            created_batch_id = int(cur.lastrowid)
+            batch = dict(
+                conn.execute(
+                    "SELECT * FROM nomina_banorte_beneficiary_batches WHERE id=?",
+                    (created_batch_id,),
+                ).fetchone()
+            )
+        else:
+            conn.execute(
+                "DELETE FROM nomina_banorte_beneficiary_batch_rows WHERE batch_id=?",
+                (int(batch["id"]),),
+            )
+
+        _insert_batch_rows_conn(
+            conn,
+            int(batch["id"]),
+            start_position=1,
+            rows=canonical,
+            now=now,
+        )
+        _persist_confirmed_beneficiaries_conn(conn, batch, canonical, user=user, now=now)
+        revision = int(batch["revision"])
+        cur = conn.execute(
+            """
+            UPDATE nomina_banorte_beneficiary_batches
+            SET status='CONFIRMED', revision=revision+1, updated_at=?, confirmed_at=?
+            WHERE id=? AND revision=? AND status='OPEN'
+            """,
+            (now, now, int(batch["id"]), revision),
+        )
+        if cur.rowcount != 1:
+            raise BatchStaleError(int(batch["id"]), revision)
+        conn.commit()
+        created_batch_id = int(batch["id"])
+    except (BatchAccessError, BatchStaleError, ManualBatchValidationError):
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    return get_batch(db_path, int(created_batch_id))  # type: ignore[return-value]
+
+
 def confirm_batch(
     db_path: str,
     batch_id: int,
@@ -401,47 +744,9 @@ def confirm_batch(
         ]
         if not rows:
             raise ValueError("batch_empty")
-        occupied = collect_occupied_employee_numbers(conn, exclude_batch_id=batch_id)
-        active_accounts = {
-            str(r["account_number"])
-            for r in conn.execute(
-                "SELECT account_number FROM nomina_banorte_beneficiaries WHERE record_status='ACTIVO'"
-            )
-        }
-        seen_emp: set[str] = set()
-        seen_acct: set[str] = set()
-        errors: list[dict[str, Any]] = []
-        for r in rows:
-            rid = int(r["id"])
-            name = (r.get("nombre") or "").strip()
-            acct = _digits(r.get("cuenta"))
-            requested = _batch_requested_employee(r)
-            effective = _batch_effective_employee(r)
-            use_acct = int(r.get("use_account_as_employee_number") or 0) == 1
-            code = None
-            msg = None
-            if not name:
-                code, msg = "nombre_required", "Nombre obligatorio."
-            elif not acct:
-                code, msg = "account_required", "Cuenta obligatoria."
-            elif use_acct and len(acct) != 10:
-                code, msg = "account_must_be_exactly_10_digits", "La cuenta debe tener exactamente 10 dígitos."
-            elif len(requested) != 10 or requested == "0000000000":
-                code, msg = "employee_number_must_be_exactly_10_digits", "El número debe tener exactamente 10 dígitos."
-            elif len(effective) != 10 or effective == "0000000000":
-                code, msg = "employee_number_must_be_exactly_10_digits", "El número efectivo debe tener exactamente 10 dígitos."
-            elif effective in seen_emp or effective in occupied:
-                code, msg = "duplicate_employee_number", "Número de empleado no disponible."
-            elif acct in seen_acct:
-                code, msg = "duplicate_account_in_batch", "Cuenta duplicada en el lote."
-            elif acct in active_accounts:
-                code, msg = "duplicate_active_account", "Ya existe una cuenta activa igual."
-            if code:
-                errors.append({"row_id": rid, "error_code": code, "error_message": msg})
-            else:
-                seen_emp.add(effective)
-                seen_acct.add(acct)
-                occupied.add(effective.zfill(10) if len(effective) <= 10 else effective)
+        canonical, errors = _validate_batch_rows_conn(
+            conn, rows, exclude_batch_id=int(batch_id)
+        )
         if errors:
             for e in errors:
                 conn.execute(
@@ -455,72 +760,10 @@ def confirm_batch(
             conn.commit()
             raise ValueError("batch_row_errors:" + ",".join(e["error_code"] for e in errors))
 
-        # Insert outside nested transactions via create_manual on same db — use direct insert
         now = _now()
-        origin = str(batch["origin_kind"] or "MANUAL")
-        source_kind = "ALTA_MANUAL" if origin == "MANUAL" else "REPORTE_DETALLADO"
-        validation = (
-            "IMPORTADO_EXITOSO" if origin == "REPORTE_DETALLADO" else "MANUAL_PENDIENTE_VALIDACION"
+        _persist_confirmed_beneficiaries_conn(
+            conn, dict(batch), canonical, user=user, now=now
         )
-        for r in rows:
-            name = str(r["nombre"]).strip()
-            acct = _digits(r["cuenta"])
-            requested = _batch_requested_employee(r)
-            effective = _batch_effective_employee(r)
-            use_acct = int(r.get("use_account_as_employee_number") or 0) == 1
-            substituted = 1 if use_acct and requested != effective else 0
-            manual_eff = 1 if use_acct and substituted == 0 else 0
-            comment = r.get("comment") or f"batch:{batch_id}"
-            conn.execute(
-                """
-                INSERT INTO nomina_banorte_beneficiaries (
-                    nombre_original, nombre_normalizado, curp,
-                    employee_number_requested, employee_number_effective, account_number,
-                    source_kind, validation_status, record_status,
-                    banorte_employee_substituted, manual_effective_from_account,
-                    banorte_comment, imported_at, imported_by, created_at, updated_at
-                ) VALUES (?,?,NULL,?,?,?,?,?,'ACTIVO',?,?,?,?,?,?,?)
-                """,
-                (
-                    name,
-                    normalize_name(name),
-                    requested,
-                    effective,
-                    acct,
-                    source_kind,
-                    validation,
-                    substituted,
-                    manual_eff,
-                    comment,
-                    now,
-                    user,
-                    now,
-                    now,
-                ),
-            )
-        if origin == "REPORTE_DETALLADO" and batch["source_sha256"]:
-            conn.execute(
-                """
-                INSERT INTO nomina_banorte_import_batches (
-                    file_name, file_sha256, file_size, detected_type, imported_by, imported_at,
-                    rows_processed, count_exitosos, count_manuales, count_fallidos_estatus,
-                    count_fallidos_hoja_sin_estatus, count_excluidos_hoja_fallidos_total,
-                    count_duplicados_reemplazados, count_conflictos, count_omitidos,
-                    summary_json, reimport_confirmed
-                ) VALUES (?,?,?,?,?,?,?,?,0,0,0,0,0,0,0,?,0)
-                """,
-                (
-                    batch["source_filename"] or f"batch-{batch_id}.xlsx",
-                    batch["source_sha256"],
-                    0,
-                    "REPORTE_DETALLADO",
-                    user,
-                    now,
-                    len(rows),
-                    len(rows),
-                    "{\"via\":\"beneficiary_batch\"}",
-                ),
-            )
         cur = conn.execute(
             """
             UPDATE nomina_banorte_beneficiary_batches
