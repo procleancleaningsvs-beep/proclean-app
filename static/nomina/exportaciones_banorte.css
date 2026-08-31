@@ -462,6 +462,7 @@
   align-items: start;
 }
 .banorte-beneficiary-grid {
+  --banorte-beneficiary-columns: minmax(12rem, 1fr) minmax(16rem, 1.5fr) minmax(12rem, 1fr);
   min-width: 0;
   border: 1px solid #cbd5e1;
   border-radius: 10px;
@@ -469,9 +470,10 @@
   background: #fff;
 }
 .banorte-beneficiary-grid-header,
-.banorte-beneficiary-history-row {
+.banorte-beneficiary-history-row,
+.banorte-beneficiary-local-table tr {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(16rem, 1.5fr) minmax(12rem, 1fr);
+  grid-template-columns: var(--banorte-beneficiary-columns);
 }
 .banorte-beneficiary-grid-header {
   position: relative;
@@ -481,64 +483,82 @@
   font-size: .82rem;
   font-weight: 700;
 }
+.banorte-beneficiary-grid-header,
+.banorte-beneficiary-history-viewport,
+.banorte-beneficiary-local-region {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
 .banorte-beneficiary-grid-header span,
-.banorte-beneficiary-history-row > span {
+.banorte-beneficiary-history-row > span,
+.banorte-beneficiary-local-table td {
+  box-sizing: border-box;
   min-width: 0;
   padding: .55rem .65rem;
   border-right: 1px solid #dbe3ed;
 }
 .banorte-beneficiary-grid-header span:last-child,
-.banorte-beneficiary-history-row > span:last-child { border-right: 0; }
+.banorte-beneficiary-history-row > span:last-child,
+.banorte-beneficiary-local-table td:last-child { border-right: 0; }
 .banorte-beneficiary-history-viewport {
-  height: 17.5rem;
-  overflow-y: auto;
+  max-height: 17.5rem;
   overscroll-behavior: contain;
-  border-bottom: 2px solid #94a3b8;
   background: #fff;
 }
-.banorte-beneficiary-history-row {
+.banorte-beneficiary-history-row,
+.banorte-beneficiary-local-table tr {
   min-height: 2.9rem;
   border-bottom: 1px solid #e2e8f0;
   align-items: center;
   color: #334155;
   font-size: .86rem;
+  line-height: 1.3;
+}
+.banorte-beneficiary-history-row > span,
+.banorte-beneficiary-local-table td {
+  overflow-wrap: anywhere;
 }
 .banorte-beneficiary-history-row .banorte-status {
   display: block;
   width: fit-content;
   margin-top: .18rem;
 }
+.banorte-beneficiary-history-viewport .banorte-empty { margin: 0; }
+.banorte-beneficiary-local-region { background: #fff; }
 .banorte-beneficiary-local-table {
+  display: block;
   width: 100%;
-  table-layout: fixed;
   border-collapse: collapse;
 }
-.banorte-beneficiary-local-table col:nth-child(1) { width: 28.6%; }
-.banorte-beneficiary-local-table col:nth-child(2) { width: 42.8%; }
-.banorte-beneficiary-local-table col:nth-child(3) { width: 28.6%; }
+.banorte-beneficiary-local-table tbody { display: block; }
 .banorte-beneficiary-local-table td {
   position: relative;
   vertical-align: top;
-  padding: .42rem .55rem;
-  border-right: 1px solid #dbe3ed;
-  border-bottom: 1px solid #dbe3ed;
 }
-.banorte-beneficiary-local-table td:last-child { border-right: 0; }
 .banorte-beneficiary-local-table input[type="text"] {
   box-sizing: border-box;
   width: 100%;
   min-height: 2.15rem;
   padding: .35rem .45rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 5px;
+  border: 1px solid transparent;
+  border-bottom-color: #94a3b8;
+  border-radius: 2px;
+  background: transparent;
   font: inherit;
+}
+.banorte-beneficiary-local-table input[type="text"]:hover { border-color: #94a3b8; }
+.banorte-beneficiary-local-table input[type="text"]:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: 1px;
+  border-color: transparent;
+  background: #fff;
 }
 .banorte-beneficiary-local-table input[aria-invalid="true"] {
   border-color: #b91c1c;
   background: #fef2f2;
 }
 .banorte-beneficiary-pending-row { background: #f1f5f9; color: #475569; }
-.banorte-beneficiary-pending-row.is-selected { background: #e0f2fe; }
+.banorte-beneficiary-pending-row.is-selected { box-shadow: inset 3px 0 #0284c7; }
 .banorte-beneficiary-pending-label {
   display: block;
   margin-top: .2rem;
@@ -591,7 +611,7 @@
   .banorte-beneficiary-layout { grid-template-columns: 1fr; }
   .banorte-beneficiary-grid { overflow-x: auto; }
   .banorte-beneficiary-grid-header,
-  .banorte-beneficiary-history-row,
-  .banorte-beneficiary-local-table { min-width: 47rem; }
+  .banorte-beneficiary-history-viewport,
+  .banorte-beneficiary-local-region { min-width: 47rem; }
   .banorte-beneficiary-layout .banorte-available-panel { max-height: 14rem; }
 }

@@ -732,6 +732,9 @@ def test_a2b_current_scroll_uses_current_a_b_official_values_without_visual_page
         ids["post"],
         ids["mirror"],
     ]
+    assert [int(value) for value in re.findall(r'data-history-ben-id="(\d+)"', current)] == [
+        row["id"] for row in reversed(expected)
+    ]
     assert all(f'data-history-ben-id="{row["id"]}"' in current for row in expected)
     assert "PERSONA OFICIAL" in current
     assert "TXT activo" in current
@@ -757,6 +760,9 @@ def test_a2b_current_scroll_uses_current_a_b_official_values_without_visual_page
     assert "historyLoadedPages" in editor_js
     assert "historyHasNext" in editor_js
     assert "banorte-beneficiary-history-viewport" in editor_js
+    assert "viewport.insertBefore(fragment, viewport.firstChild)" in editor_js
+    assert "viewport.scrollHeight - previousScrollHeight" in editor_js
+    assert "historyViewport.scrollTop > 70" in editor_js
 
 
 def test_a2b_unified_workspace_has_one_entry_and_no_legacy_manual_sections(tmp_path):
@@ -772,11 +778,14 @@ def test_a2b_unified_workspace_has_one_entry_and_no_legacy_manual_sections(tmp_p
     assert "Número de cuenta" in workspace
     assert workspace.count('data-beneficiary-entry-row="1"') == 1
     assert 'id="banorte-beneficiary-history-viewport"' in workspace
+    assert 'class="banorte-beneficiary-local-region"' in workspace
     assert 'id="banorte-beneficiary-pending-rows"' in workspace
     assert 'id="banorte-beneficiary-entry-row"' in workspace
     assert 'id="banorte-available-emps"' in workspace
-    assert ">AÑADIR BENEFICIARIO A LA LISTA<" in workspace
-    assert ">GUARDAR BENEFICIARIOS<" in html
+    assert 'id="banorte-beneficiary-add">Añadir beneficiario a la lista<' in workspace
+    assert 'id="banorte-beneficiary-save">Guardar beneficiarios<' in workspace
+    assert ">AÑADIR BENEFICIARIO A LA LISTA<" not in workspace
+    assert ">GUARDAR BENEFICIARIOS<" not in workspace
     assert "Usar cuenta como número" in workspace
     assert "Beneficiarios recientes" not in workspace
     assert "Nuevos beneficiarios pendientes" not in workspace

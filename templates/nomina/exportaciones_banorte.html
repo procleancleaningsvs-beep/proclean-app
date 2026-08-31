@@ -361,7 +361,7 @@
           </div>
           <div class="banorte-beneficiary-history-viewport" id="banorte-beneficiary-history-viewport"
                data-next-page="2" data-has-next="{{ 1 if benef_listing.has_next else 0 }}" tabindex="0">
-            {% for b in benef_listing.rows %}
+            {% for b in benef_listing.rows|reverse %}
             <div class="banorte-beneficiary-history-row" role="row" data-history-ben-id="{{ b.id }}"
                  data-provenance-category="{{ b.provenance_category }}">
               <span class="banorte-mono" role="cell">{{ b.display_employee_number }}</span>
@@ -380,16 +380,17 @@
             <p class="banorte-empty">No hay beneficiarios vigentes para mostrar.</p>
             {% endfor %}
           </div>
-          <table class="banorte-beneficiary-local-table" aria-label="Beneficiarios pendientes locales">
-            <colgroup><col><col><col></colgroup>
-            <tbody id="banorte-beneficiary-pending-rows"></tbody>
-            <tbody>
-              <tr id="banorte-beneficiary-entry-row" data-beneficiary-entry-row="1"></tr>
-            </tbody>
-          </table>
+          <div class="banorte-beneficiary-local-region">
+            <table class="banorte-beneficiary-local-table" aria-label="Beneficiarios pendientes locales">
+              <tbody id="banorte-beneficiary-pending-rows"></tbody>
+              <tbody>
+                <tr id="banorte-beneficiary-entry-row" data-beneficiary-entry-row="1"></tr>
+              </tbody>
+            </table>
+          </div>
           <div class="banorte-beneficiary-actions">
-            <button type="button" class="btn btn-secondary" id="banorte-beneficiary-add">AÑADIR BENEFICIARIO A LA LISTA</button>
-            <button type="button" class="btn btn-primary" id="banorte-beneficiary-save">GUARDAR BENEFICIARIOS</button>
+            <button type="button" class="btn btn-secondary" id="banorte-beneficiary-add">Añadir beneficiario a la lista</button>
+            <button type="button" class="btn btn-primary" id="banorte-beneficiary-save">Guardar beneficiarios</button>
           </div>
           <p id="banorte-beneficiary-msg" class="banorte-warn" hidden></p>
         </div>

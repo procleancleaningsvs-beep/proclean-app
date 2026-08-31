@@ -791,6 +791,7 @@
   let historyHasNext = false;
   let historyPageRequestActive = false;
   let historyResetPending = false;
+  let historyInitiallyPositioned = false;
 
   function recentStatusMarkup(beneficiary) {
     if (beneficiary.provenance_category === "A") {
@@ -802,14 +803,22 @@
     return '<span class="banorte-status banorte-status--warn">Alta posterior · Pendiente de validación</span>';
   }
 
-  function renderHistoryRows(rows, append) {
+  function scrollHistoryToLatest(viewport) {
+    viewport.scrollTop = viewport.scrollHeight;
+    historyInitiallyPositioned = true;
+  }
+
+  function renderHistoryRows(rows, prepend) {
     const viewport = document.getElementById("banorte-beneficiary-history-viewport");
     if (!viewport) return;
-    if (!append) viewport.innerHTML = "";
+    const previousScrollHeight = viewport.scrollHeight;
+    const previousScrollTop = viewport.scrollTop;
+    if (!prepend) viewport.innerHTML = "";
     const known = new Set(Array.from(viewport.querySelectorAll("[data-history-ben-id]")).map(function (el) {
       return el.getAttribute("data-history-ben-id");
     }));
-    (rows || []).forEach(function (beneficiary) {
+    const fragment = document.createDocumentFragment();
+    (rows || []).slice().reverse().forEach(function (beneficiary) {
       const id = String(beneficiary.id);
       if (known.has(id)) return;
       known.add(id);
@@ -823,10 +832,17 @@
         '<span role="cell">' + esc(beneficiary.display_name || beneficiary.nombre_original) +
         recentStatusMarkup(beneficiary) + "</span>" +
         '<span class="banorte-mono" role="cell">' + esc(beneficiary.display_account_number || beneficiary.account_number) + "</span>";
-      viewport.appendChild(row);
+      fragment.appendChild(row);
     });
+    if (prepend) viewport.insertBefore(fragment, viewport.firstChild);
+    else viewport.appendChild(fragment);
     if (!viewport.querySelector("[data-history-ben-id]")) {
       viewport.innerHTML = '<p class="banorte-empty">No hay beneficiarios vigentes para mostrar.</p>';
+    }
+    if (prepend) {
+      viewport.scrollTop = previousScrollTop + (viewport.scrollHeight - previousScrollHeight);
+    } else {
+      scrollHistoryToLatest(viewport);
     }
   }
 
@@ -881,7 +897,7 @@
     historyHasNext = historyViewport.dataset.hasNext === "1";
     historyViewport.addEventListener("scroll", function () {
       if (!historyHasNext || historyPageRequestActive) return;
-      if (historyViewport.scrollTop + historyViewport.clientHeight < historyViewport.scrollHeight - 70) return;
+      if (historyViewport.scrollTop > 70) return;
       const page = Number(historyViewport.dataset.nextPage || 2);
       loadHistoryPage(page, historyGeneration, false);
     });
@@ -1607,6 +1623,9 @@
     availableAfter = null;
     availableNumbers = [];
     loadAvailableNumbers(false);
+    if (!historyInitiallyPositioned && historyViewport) {
+      requestAnimationFrame(function () { scrollHistoryToLatest(historyViewport); });
+    }
   });
   const moreBtn = document.getElementById("banorte-available-more");
   if (moreBtn) moreBtn.addEventListener("click", function () { loadAvailableNumbers(true); });
