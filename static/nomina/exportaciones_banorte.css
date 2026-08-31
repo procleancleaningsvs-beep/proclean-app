@@ -514,6 +514,7 @@
   font-size: .86rem;
   line-height: 1.3;
 }
+#banorte-beneficiary-entry-row { align-items: start; }
 .banorte-beneficiary-history-row > span,
 .banorte-beneficiary-local-table td {
   overflow-wrap: anywhere;
