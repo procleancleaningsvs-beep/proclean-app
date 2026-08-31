@@ -58,6 +58,42 @@
     }
   }
 
+  function downloadBlobLocally(blob, filename, environment) {
+    const local = environment || {};
+    const document = local.document || root.document;
+    const urlApi = local.URL || root.URL;
+    const schedule = local.schedule || (
+      typeof root.setTimeout === "function" ? root.setTimeout.bind(root) : null
+    );
+    if (
+      !document || !document.body || typeof document.createElement !== "function" ||
+      !urlApi || typeof urlApi.createObjectURL !== "function" ||
+      typeof urlApi.revokeObjectURL !== "function" || typeof schedule !== "function"
+    ) {
+      return false;
+    }
+    let anchor = null;
+    let objectUrl = null;
+    try {
+      objectUrl = urlApi.createObjectURL(blob);
+      anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      anchor.style.display = "none";
+      document.body.appendChild(anchor);
+      anchor.click();
+      return true;
+    } catch (_error) {
+      return false;
+    } finally {
+      if (anchor && typeof anchor.remove === "function") anchor.remove();
+      if (objectUrl) {
+        schedule(function () { urlApi.revokeObjectURL(objectUrl); }, 1000);
+      }
+    }
+  }
+
   function defaultEnvironment() {
     const savePickerSupported = "showSaveFilePicker" in root &&
       typeof root.showSaveFilePicker === "function";
@@ -69,6 +105,9 @@
       showSaveFilePicker: savePickerSupported
         ? root.showSaveFilePicker.bind(root)
         : undefined,
+      downloadBlob: function (blob, filename) {
+        return downloadBlobLocally(blob, filename);
+      },
       navigateDownload: defaultNavigateDownload,
     };
   }
@@ -232,6 +271,22 @@
       throw new SaveError("No fue posible iniciar la descarga .pag.", "fallback_failed");
     }
 
+    async function downloadVerifiedBlob(loaded) {
+      try {
+        if (
+          typeof env.downloadBlob === "function" &&
+          await env.downloadBlob(loaded.blob, loaded.metadata.filename)
+        ) {
+          return {
+            status: "download-started",
+            method: "blob",
+            filename: loaded.metadata.filename,
+          };
+        }
+      } catch (_error) {}
+      return downloadRaw(loaded);
+    }
+
     async function saveExport(options) {
       const saveOptions = options || {};
       let loaded = null;
@@ -261,19 +316,7 @@
       }
 
       if (!loaded) loaded = await loadExport(saveOptions);
-      try {
-        const shared = await shareFile(loaded);
-        if (shared) return shared;
-      } catch (error) {
-        if (isCancelled(error)) {
-          return {
-            status: "cancelled",
-            method: "web-share",
-            filename: loaded.metadata.filename,
-          };
-        }
-      }
-      return downloadRaw(loaded);
+      return downloadVerifiedBlob(loaded);
     }
 
     return { saveExport: saveExport, loadExport: loadExport };
@@ -288,7 +331,9 @@
     if (result.status === "cancelled") {
       return "Guardado cancelado. " + filename + " sigue disponible en el historial.";
     }
-    if (result.method === "raw") return "Descarga .pag iniciada para " + filename + ".";
+    if (result.method === "blob" || result.method === "raw") {
+      return "Descarga .pag iniciada para " + filename + ".";
+    }
     return "Generado " + filename + ".";
   }
 
@@ -388,6 +433,7 @@
   return {
     SaveError: SaveError,
     createSaver: createSaver,
+    downloadBlobLocally: downloadBlobLocally,
     saveExport: function (options) { return getDefaultSaver().saveExport(options); },
     handleSaveTrigger: handleSaveTrigger,
     bindSaveTriggers: bindSaveTriggers,

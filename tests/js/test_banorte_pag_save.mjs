@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const {
   createSaver,
+  downloadBlobLocally,
   handleSaveTrigger,
 } = require("../../static/nomina/banorte_pag_save.js");
 
@@ -24,6 +25,7 @@ function base(options = {}) {
   const metadataFilename = options.metadataFilename || expectedFilename;
   const fileName = options.fileName || expectedFilename;
   const downloads = [];
+  const blobDownloads = [];
   const writes = [];
   const events = [];
   const pickerOptions = [];
@@ -65,7 +67,7 @@ function base(options = {}) {
       if (url === "/raw") return { ok: true, async blob() { return blob; } };
       throw new Error("unexpected fetch " + url);
     },
-    async sha256Hex() { return sha; },
+    async sha256Hex() { events.push("sha256"); return sha; },
     async showSaveFilePicker(picker) {
       events.push("picker");
       pickerOptions.push(picker);
@@ -73,6 +75,14 @@ function base(options = {}) {
     },
     navigator: {},
     File: FakeFile,
+    async downloadBlob(value, filename) {
+      events.push("downloadBlob");
+      blobDownloads.push({ value, filename });
+      if (typeof options.downloadBlob === "function") {
+        return options.downloadBlob(value, filename);
+      }
+      return true;
+    },
     async navigateDownload(url) { downloads.push(url); return true; },
     ...(options.env || {}),
   };
@@ -82,6 +92,7 @@ function base(options = {}) {
     fileHandle,
     writes,
     downloads,
+    blobDownloads,
     events,
     pickerOptions,
     expectedFilename,
@@ -189,48 +200,78 @@ test("post-write SHA mismatch is an integrity failure, not success or fallback",
   assert.deepEqual(ctx.downloads, []);
 });
 
-test("unsupported save picker uses Web Share with the exact filename", async () => {
-  let shared;
+test("unsupported save picker downloads the verified blob locally with the exact filename", async () => {
+  let shareCalls = 0;
+  const domEvents = [];
+  const anchors = [];
+  const objectUrlEnvironment = {
+    document: {
+      body: {
+        appendChild(anchor) { domEvents.push("append"); anchors.push(anchor); },
+      },
+      createElement(tag) {
+        assert.equal(tag, "a");
+        return {
+          href: "",
+          download: "",
+          rel: "",
+          style: {},
+          click() { domEvents.push("click"); },
+          remove() { domEvents.push("remove"); },
+        };
+      },
+    },
+    URL: {
+      createObjectURL(value) {
+        assert.equal(value, blob);
+        domEvents.push("createObjectURL");
+        return "blob:verified-pag";
+      },
+      revokeObjectURL(value) {
+        assert.equal(value, "blob:verified-pag");
+        domEvents.push("revokeObjectURL");
+      },
+    },
+    schedule(callback, delay) {
+      assert.equal(delay, 1000);
+      domEvents.push("scheduleRevoke");
+      callback();
+    },
+  };
   const ctx = base({
+    downloadBlob(value, filename) {
+      return downloadBlobLocally(value, filename, objectUrlEnvironment);
+    },
     env: {
       showSaveFilePicker: undefined,
       navigator: {
-        canShare: ({ files }) => files.length === 1,
-        async share(payload) { shared = payload; },
+        canShare() { shareCalls += 1; return true; },
+        async share() { shareCalls += 1; },
       },
     },
   });
   const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
-  assert.equal(result.method, "web-share");
-  assert.equal(shared.files[0].name, ctx.expectedFilename);
+  assert.equal(result.method, "blob");
+  assert.deepEqual(ctx.blobDownloads, [{ value: blob, filename: ctx.expectedFilename }]);
+  assert.equal(anchors[0].href, "blob:verified-pag");
+  assert.equal(anchors[0].download, ctx.expectedFilename);
+  assert.deepEqual(domEvents, [
+    "createObjectURL", "append", "click", "remove", "scheduleRevoke", "revokeObjectURL",
+  ]);
+  assert.ok(ctx.events.indexOf("sha256") < ctx.events.indexOf("downloadBlob"));
+  assert.equal(shareCalls, 0);
   assert.deepEqual(ctx.downloads, []);
+  assert.equal(ctx.events.some((value) => value.includes("POST")), false);
 });
 
-test("Web Share cancellation does not start conventional download", async () => {
-  const error = new Error("cancelled");
-  error.name = "AbortError";
-  const ctx = base({
-    env: {
-      showSaveFilePicker: undefined,
-      navigator: {
-        canShare: () => true,
-        async share() { throw error; },
-      },
-    },
-  });
-  const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
-  assert.equal(result.status, "cancelled");
-  assert.deepEqual(ctx.downloads, []);
-});
-
-test("browser without picker or share downloads the historical raw pag", async () => {
-  const ctx = base({ env: { showSaveFilePicker: undefined, navigator: {} } });
+test("browser without Blob download support uses the historical raw pag", async () => {
+  const ctx = base({ env: { showSaveFilePicker: undefined, downloadBlob: undefined } });
   const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
   assert.equal(result.method, "raw");
   assert.deepEqual(ctx.downloads, ["/raw"]);
 });
 
-test("technical picker failure falls back to raw pag", async () => {
+test("technical picker failure falls back to the verified Blob download", async () => {
   const ctx = base({
     env: {
       async showSaveFilePicker() { throw new Error("picker unavailable"); },
@@ -238,19 +279,21 @@ test("technical picker failure falls back to raw pag", async () => {
     },
   });
   const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
-  assert.equal(result.method, "raw");
-  assert.deepEqual(ctx.downloads, ["/raw"]);
+  assert.equal(result.method, "blob");
+  assert.deepEqual(ctx.blobDownloads, [{ value: blob, filename: ctx.expectedFilename }]);
+  assert.deepEqual(ctx.downloads, []);
 });
 
-test("technical write failure falls back to raw pag", async () => {
+test("technical write failure falls back to the verified Blob download", async () => {
   const ctx = base();
   ctx.fileHandle.createWritable = async () => ({
     async write() { throw new Error("disk full"); },
     async abort() {},
   });
   const result = await ctx.saver.saveExport({ exportId: 7, filename: ctx.expectedFilename });
-  assert.equal(result.method, "raw");
-  assert.deepEqual(ctx.downloads, ["/raw"]);
+  assert.equal(result.method, "blob");
+  assert.deepEqual(ctx.blobDownloads, [{ value: blob, filename: ctx.expectedFilename }]);
+  assert.deepEqual(ctx.downloads, []);
 });
 
 test("cancelled picker restores the normal save action without replacing its label", async () => {
