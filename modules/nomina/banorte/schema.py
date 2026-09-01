@@ -418,6 +418,502 @@ def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, dd
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
 
+_CATALOG_RECONCILIATION_TABLE = "nomina_banorte_catalog_reconciliations"
+_CATALOG_RECONCILIATION_NEW_TABLE = (
+    "nomina_banorte_catalog_reconciliations__new"
+)
+_CATALOG_RECONCILIATION_OLD_COLUMNS: tuple[str, ...] = (
+    "id",
+    "version_id",
+    "person_id",
+    "beneficiary_id",
+    "reconciliation_status",
+    "match_method",
+    "candidate_count",
+    "reason_code",
+    "beneficiary_material_fingerprint_version",
+    "beneficiary_material_state_json",
+    "beneficiary_material_fingerprint",
+    "beneficiary_updated_at_seen",
+    "is_current",
+    "supersedes_reconciliation_id",
+    "manual_reason",
+    "created_by",
+    "created_at",
+    "superseded_by",
+    "superseded_at",
+)
+_CATALOG_RECONCILIATION_LINEAGE_COLUMNS = frozenset(
+    {
+        "lineage_status",
+        "lineage_predecessor_person_id",
+        "lineage_predecessor_beneficiary_id",
+        "lineage_evidence_json",
+        "lineage_evidence_sha256",
+    }
+)
+_CATALOG_RECONCILIATION_CHILD_REFS: tuple[tuple[str, str, str], ...] = (
+    (
+        "nomina_banorte_catalog_events",
+        "reconciliation_id",
+        "c1_catalog_event_reconciliation_refs",
+    ),
+    (
+        "nomina_banorte_export_draft_rows",
+        "catalog_reconciliation_id",
+        "c1_catalog_draft_row_reconciliation_refs",
+    ),
+    (
+        "nomina_banorte_export_items",
+        "catalog_reconciliation_id",
+        "c1_catalog_export_item_reconciliation_refs",
+    ),
+)
+
+
+def _catalog_reconciliation_ddl(table: str, *, if_not_exists: bool = False) -> str:
+    if table not in {
+        _CATALOG_RECONCILIATION_TABLE,
+        _CATALOG_RECONCILIATION_NEW_TABLE,
+    }:
+        raise ValueError("catalog_reconciliation_table_not_allowlisted")
+    create = "CREATE TABLE IF NOT EXISTS" if if_not_exists else "CREATE TABLE"
+    return f"""
+        {create} {table} (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER NOT NULL,
+            person_id INTEGER NOT NULL,
+            beneficiary_id INTEGER,
+            reconciliation_status TEXT NOT NULL CHECK (reconciliation_status IN (
+                'UNMATCHED','AUTO_MATCHED','MANUAL_MATCHED','MULTIPLE_CANDIDATES','ACCOUNT_MISMATCH',
+                'EMPLOYEE_MISMATCH','IDENTITY_CONFLICT','LEGACY_NOT_USABLE','STALE_RECONCILIATION',
+                'CATALOG_BOUND')),
+            match_method TEXT NOT NULL CHECK (match_method IN (
+                'NONE','EXACT_EMPLOYEE_ACCOUNT_RAW_NAME','EXACT_EMPLOYEE_ACCOUNT_CANONICAL_NAME',
+                'EXACT_EMPLOYEE_ACCOUNT_CONTROLLED_MA','MANUAL_SELECTION',
+                'PREVIOUS_ACTIVE_RFC_BIRTH_RAW_NAME',
+                'PREVIOUS_ACTIVE_RFC_BIRTH_CANONICAL_NAME',
+                'PREVIOUS_ACTIVE_RFC_BIRTH_CONTROLLED_MA',
+                'MANUAL_CONTINUITY_CONFIRMED')),
+            candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
+            reason_code TEXT,
+            beneficiary_material_fingerprint_version TEXT,
+            beneficiary_material_state_json TEXT,
+            beneficiary_material_fingerprint TEXT,
+            beneficiary_updated_at_seen TEXT,
+            is_current INTEGER NOT NULL DEFAULT 1 CHECK (is_current IN (0,1)),
+            supersedes_reconciliation_id INTEGER,
+            manual_reason TEXT,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            superseded_by TEXT,
+            superseded_at TEXT,
+            lineage_status TEXT CHECK (
+                lineage_status IS NULL OR lineage_status IN ('CONFIRMED','UNCONFIRMED')
+            ),
+            lineage_predecessor_person_id INTEGER,
+            lineage_predecessor_beneficiary_id INTEGER,
+            lineage_evidence_json TEXT,
+            lineage_evidence_sha256 TEXT CHECK (
+                lineage_evidence_sha256 IS NULL OR (
+                    length(lineage_evidence_sha256)=64
+                    AND lineage_evidence_sha256 NOT GLOB '*[^0-9a-f]*'
+                )
+            ),
+            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
+            FOREIGN KEY (person_id) REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
+            FOREIGN KEY (beneficiary_id) REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
+            FOREIGN KEY (supersedes_reconciliation_id)
+                REFERENCES {table}(id) ON DELETE RESTRICT,
+            FOREIGN KEY (lineage_predecessor_person_id)
+                REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
+            FOREIGN KEY (lineage_predecessor_beneficiary_id)
+                REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
+            CHECK (reconciliation_status NOT IN ('AUTO_MATCHED','MANUAL_MATCHED') OR
+                (beneficiary_id IS NOT NULL AND beneficiary_material_fingerprint_version IS NOT NULL AND
+                 beneficiary_material_state_json IS NOT NULL AND beneficiary_material_fingerprint IS NOT NULL)),
+            CHECK (reconciliation_status<>'CATALOG_BOUND' OR (
+                beneficiary_id IS NOT NULL
+                AND beneficiary_material_fingerprint_version IS NOT NULL
+                AND beneficiary_material_state_json IS NOT NULL
+                AND beneficiary_material_fingerprint IS NOT NULL
+                AND lineage_status IS NOT NULL
+            )),
+            CHECK (lineage_status<>'CONFIRMED' OR (
+                match_method<>'NONE'
+                AND (lineage_predecessor_person_id IS NOT NULL
+                     OR lineage_predecessor_beneficiary_id IS NOT NULL)
+                AND lineage_evidence_json IS NOT NULL
+                AND lineage_evidence_sha256 IS NOT NULL
+            )),
+            CHECK (lineage_status<>'UNCONFIRMED' OR match_method='NONE'),
+            CHECK (match_method NOT IN ('MANUAL_SELECTION','MANUAL_CONTINUITY_CONFIRMED')
+                OR length(trim(COALESCE(manual_reason,''))) > 0)
+        )
+    """
+
+
+def _ensure_catalog_reconciliation_indexes(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_reconciliation_current "
+        "ON nomina_banorte_catalog_reconciliations(person_id) WHERE is_current=1"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_banorte_catalog_reconciliations_version_status "
+        "ON nomina_banorte_catalog_reconciliations(version_id,reconciliation_status)"
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_lineage_predecessor_person_current
+        ON nomina_banorte_catalog_reconciliations(
+            version_id,lineage_predecessor_person_id
+        )
+        WHERE is_current = 1
+          AND lineage_status = 'CONFIRMED'
+          AND lineage_predecessor_person_id IS NOT NULL
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_lineage_predecessor_beneficiary_current
+        ON nomina_banorte_catalog_reconciliations(
+            version_id,lineage_predecessor_beneficiary_id
+        )
+        WHERE is_current = 1
+          AND lineage_status = 'CONFIRMED'
+          AND lineage_predecessor_beneficiary_id IS NOT NULL
+        """
+    )
+
+
+def _catalog_reconciliation_schema_is_c1(conn: sqlite3.Connection) -> bool:
+    columns = _table_cols(conn, _CATALOG_RECONCILIATION_TABLE)
+    if not _CATALOG_RECONCILIATION_LINEAGE_COLUMNS.issubset(columns):
+        return False
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+        (_CATALOG_RECONCILIATION_TABLE,),
+    ).fetchone()
+    if row is None or not row[0]:
+        return False
+    sql = str(row[0])
+    required_tokens = (
+        "'CATALOG_BOUND'",
+        "'CONFIRMED'",
+        "'UNCONFIRMED'",
+        "'PREVIOUS_ACTIVE_RFC_BIRTH_RAW_NAME'",
+        "'PREVIOUS_ACTIVE_RFC_BIRTH_CANONICAL_NAME'",
+        "'PREVIOUS_ACTIVE_RFC_BIRTH_CONTROLLED_MA'",
+        "'MANUAL_CONTINUITY_CONFIRMED'",
+        "lineage_evidence_sha256 NOT GLOB '*[^0-9a-f]*'",
+    )
+    return all(token in sql for token in required_tokens)
+
+
+def _catalog_reconciliation_migration_failpoint(name: str) -> None:
+    """No-op hook used by focused tests to prove transactional rollback."""
+    return None
+
+
+def _catalog_reconciliation_incoming_fks(
+    conn: sqlite3.Connection,
+) -> set[tuple[str, str, str, str]]:
+    incoming: set[tuple[str, str, str, str]] = set()
+    table_names = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+        )
+    ]
+    for table in table_names:
+        quoted = table.replace('"', '""')
+        for row in conn.execute(f'PRAGMA foreign_key_list("{quoted}")'):
+            if str(row[2]) == _CATALOG_RECONCILIATION_TABLE:
+                incoming.add((table, str(row[3]), str(row[4]), str(row[6])))
+    return incoming
+
+
+def _catalog_reconciliation_rows_differ(conn: sqlite3.Connection) -> bool:
+    columns = ",".join(_CATALOG_RECONCILIATION_OLD_COLUMNS)
+    row = conn.execute(
+        f"""
+        SELECT 1 FROM (
+            SELECT * FROM (
+                SELECT {columns} FROM {_CATALOG_RECONCILIATION_TABLE}
+                EXCEPT
+                SELECT {columns} FROM {_CATALOG_RECONCILIATION_NEW_TABLE}
+            )
+            UNION ALL
+            SELECT * FROM (
+                SELECT {columns} FROM {_CATALOG_RECONCILIATION_NEW_TABLE}
+                EXCEPT
+                SELECT {columns} FROM {_CATALOG_RECONCILIATION_TABLE}
+            )
+        ) LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
+
+
+def _migrate_catalog_reconciliations_c1(conn: sqlite3.Connection) -> None:
+    """Install C1 lineage contract without changing any existing row semantics.
+
+    Incoming references are nullable. They are captured in TEMP tables, detached,
+    and restored by stable row ID inside one transaction so the parent can be
+    replaced while foreign-key enforcement remains enabled throughout.
+    """
+    if not _table_cols(conn, _CATALOG_RECONCILIATION_TABLE):
+        return
+    if _catalog_reconciliation_schema_is_c1(conn):
+        _ensure_catalog_reconciliation_indexes(conn)
+        return
+    if conn.in_transaction:
+        conn.commit()
+    if _pragma_foreign_keys(conn) != 1:
+        raise RuntimeError("catalog_reconciliation_migration_requires_foreign_keys")
+    stale = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (_CATALOG_RECONCILIATION_NEW_TABLE,),
+    ).fetchone()
+    if stale is not None:
+        raise RuntimeError("catalog_reconciliation_migration_orphan_new")
+
+    expected_incoming = {
+        (
+            "nomina_banorte_catalog_reconciliations",
+            "supersedes_reconciliation_id",
+            "id",
+            "RESTRICT",
+        ),
+        ("nomina_banorte_catalog_events", "reconciliation_id", "id", "RESTRICT"),
+        (
+            "nomina_banorte_export_draft_rows",
+            "catalog_reconciliation_id",
+            "id",
+            "RESTRICT",
+        ),
+        (
+            "nomina_banorte_export_items",
+            "catalog_reconciliation_id",
+            "id",
+            "RESTRICT",
+        ),
+    }
+    incoming = _catalog_reconciliation_incoming_fks(conn)
+    if incoming != expected_incoming:
+        raise RuntimeError(
+            "catalog_reconciliation_migration_incoming_fk_mismatch:"
+            f"{sorted(incoming)!r}"
+        )
+
+    baseline_fk = _fk_check_tuples(conn)
+    before_count = int(
+        conn.execute(
+            f"SELECT COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE}"
+        ).fetchone()[0]
+    )
+    before_ids = [
+        int(row[0])
+        for row in conn.execute(
+            f"SELECT id FROM {_CATALOG_RECONCILIATION_TABLE} ORDER BY id"
+        )
+    ]
+    before_by_status = _sql_count_map(
+        conn.execute(
+            f"SELECT reconciliation_status,COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} "
+            "GROUP BY reconciliation_status"
+        )
+    )
+    before_by_method = _sql_count_map(
+        conn.execute(
+            f"SELECT match_method,COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} "
+            "GROUP BY match_method"
+        )
+    )
+    before_current = int(
+        conn.execute(
+            f"SELECT COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} WHERE is_current=1"
+        ).fetchone()[0]
+    )
+    sequence_row = conn.execute(
+        "SELECT seq FROM sqlite_sequence WHERE name=?",
+        (_CATALOG_RECONCILIATION_TABLE,),
+    ).fetchone()
+    before_sequence = int(sequence_row[0]) if sequence_row is not None else None
+
+    began = False
+    temp_names = [spec[2] for spec in _CATALOG_RECONCILIATION_CHILD_REFS]
+    try:
+        for temp_name in temp_names:
+            conn.execute(f"DROP TABLE IF EXISTS temp.{temp_name}")
+        conn.execute("BEGIN IMMEDIATE")
+        began = True
+        _catalog_reconciliation_migration_failpoint("before_create_new")
+        conn.execute(_catalog_reconciliation_ddl(_CATALOG_RECONCILIATION_NEW_TABLE))
+        old_columns = ",".join(_CATALOG_RECONCILIATION_OLD_COLUMNS)
+        conn.execute(
+            f"""
+            INSERT INTO {_CATALOG_RECONCILIATION_NEW_TABLE} ({old_columns})
+            SELECT {old_columns} FROM {_CATALOG_RECONCILIATION_TABLE}
+            """
+        )
+        _catalog_reconciliation_migration_failpoint("after_copy")
+        copied_count = int(
+            conn.execute(
+                f"SELECT COUNT(*) FROM {_CATALOG_RECONCILIATION_NEW_TABLE}"
+            ).fetchone()[0]
+        )
+        copied_ids = [
+            int(row[0])
+            for row in conn.execute(
+                f"SELECT id FROM {_CATALOG_RECONCILIATION_NEW_TABLE} ORDER BY id"
+            )
+        ]
+        if copied_count != before_count:
+            raise RuntimeError("catalog_reconciliation_migration_count_mismatch")
+        if copied_ids != before_ids:
+            raise RuntimeError("catalog_reconciliation_migration_id_mismatch")
+        if _catalog_reconciliation_rows_differ(conn):
+            raise RuntimeError("catalog_reconciliation_migration_row_mismatch")
+        copied_lineage = int(
+            conn.execute(
+                f"""
+                SELECT COUNT(*) FROM {_CATALOG_RECONCILIATION_NEW_TABLE}
+                WHERE lineage_status IS NOT NULL
+                   OR lineage_predecessor_person_id IS NOT NULL
+                   OR lineage_predecessor_beneficiary_id IS NOT NULL
+                   OR lineage_evidence_json IS NOT NULL
+                   OR lineage_evidence_sha256 IS NOT NULL
+                """
+            ).fetchone()[0]
+        )
+        if copied_lineage:
+            raise RuntimeError("catalog_reconciliation_migration_lineage_backfill")
+
+        for table, column, temp_name in _CATALOG_RECONCILIATION_CHILD_REFS:
+            conn.execute(
+                f"CREATE TEMP TABLE {temp_name} ("
+                "id INTEGER PRIMARY KEY,reconciliation_id INTEGER NOT NULL)"
+            )
+            conn.execute(
+                f"INSERT INTO {temp_name}(id,reconciliation_id) "
+                f"SELECT id,{column} FROM {table} WHERE {column} IS NOT NULL"
+            )
+            conn.execute(f"UPDATE {table} SET {column}=NULL WHERE {column} IS NOT NULL")
+
+        conn.execute(
+            f"UPDATE {_CATALOG_RECONCILIATION_TABLE} "
+            "SET supersedes_reconciliation_id=NULL "
+            "WHERE supersedes_reconciliation_id IS NOT NULL"
+        )
+        conn.execute(f"DROP TABLE {_CATALOG_RECONCILIATION_TABLE}")
+        conn.execute(
+            f"ALTER TABLE {_CATALOG_RECONCILIATION_NEW_TABLE} "
+            f"RENAME TO {_CATALOG_RECONCILIATION_TABLE}"
+        )
+        _ensure_catalog_reconciliation_indexes(conn)
+
+        for table, column, temp_name in _CATALOG_RECONCILIATION_CHILD_REFS:
+            conn.execute(
+                f"""
+                UPDATE {table}
+                SET {column}=(
+                    SELECT reconciliation_id FROM {temp_name}
+                    WHERE {temp_name}.id={table}.id
+                )
+                WHERE id IN (SELECT id FROM {temp_name})
+                """
+            )
+            mismatch = conn.execute(
+                f"""
+                SELECT 1 FROM {temp_name}
+                LEFT JOIN {table} ON {table}.id={temp_name}.id
+                WHERE {table}.id IS NULL
+                   OR {table}.{column}<>{temp_name}.reconciliation_id
+                LIMIT 1
+                """
+            ).fetchone()
+            if mismatch is not None:
+                raise RuntimeError("catalog_reconciliation_migration_child_ref_mismatch")
+
+        if before_sequence is None:
+            conn.execute(
+                "DELETE FROM sqlite_sequence WHERE name=?",
+                (_CATALOG_RECONCILIATION_TABLE,),
+            )
+        else:
+            current_sequence = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name=?",
+                (_CATALOG_RECONCILIATION_TABLE,),
+            ).fetchone()
+            if current_sequence is None:
+                conn.execute(
+                    "INSERT INTO sqlite_sequence(name,seq) VALUES (?,?)",
+                    (_CATALOG_RECONCILIATION_TABLE, before_sequence),
+                )
+            else:
+                conn.execute(
+                    "UPDATE sqlite_sequence SET seq=? WHERE name=?",
+                    (before_sequence, _CATALOG_RECONCILIATION_TABLE),
+                )
+
+        after_by_status = _sql_count_map(
+            conn.execute(
+                f"SELECT reconciliation_status,COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} "
+                "GROUP BY reconciliation_status"
+            )
+        )
+        after_by_method = _sql_count_map(
+            conn.execute(
+                f"SELECT match_method,COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} "
+                "GROUP BY match_method"
+            )
+        )
+        after_current = int(
+            conn.execute(
+                f"SELECT COUNT(*) FROM {_CATALOG_RECONCILIATION_TABLE} WHERE is_current=1"
+            ).fetchone()[0]
+        )
+        if after_by_status != before_by_status:
+            raise RuntimeError("catalog_reconciliation_migration_status_mismatch")
+        if after_by_method != before_by_method:
+            raise RuntimeError("catalog_reconciliation_migration_method_mismatch")
+        if after_current != before_current:
+            raise RuntimeError("catalog_reconciliation_migration_current_mismatch")
+        if not _catalog_reconciliation_schema_is_c1(conn):
+            raise RuntimeError("catalog_reconciliation_migration_schema_incomplete")
+        if _catalog_reconciliation_incoming_fks(conn) != expected_incoming:
+            raise RuntimeError("catalog_reconciliation_migration_fk_target_mismatch")
+
+        after_fk = _fk_check_tuples(conn)
+        _assert_fk_delta_ok(baseline_fk, after_fk)
+        _assert_focused_banorte_fk_clean(conn, baseline=baseline_fk)
+        integrity = conn.execute("PRAGMA integrity_check").fetchone()
+        if integrity is None or str(integrity[0]).lower() != "ok":
+            raise RuntimeError(
+                f"catalog_reconciliation_migration_integrity:{integrity}"
+            )
+        for temp_name in temp_names:
+            conn.execute(f"DROP TABLE {temp_name}")
+        _catalog_reconciliation_migration_failpoint("before_commit")
+        conn.commit()
+        began = False
+    except Exception:
+        if began and conn.in_transaction:
+            conn.rollback()
+        raise
+    finally:
+        if conn.in_transaction:
+            conn.rollback()
+        for temp_name in temp_names:
+            try:
+                conn.execute(f"DROP TABLE IF EXISTS temp.{temp_name}")
+            except sqlite3.Error:
+                pass
+        if _pragma_foreign_keys(conn) != 1:
+            raise RuntimeError("catalog_reconciliation_migration_foreign_keys_changed")
+
+
 def _migrate_banorte_schema(conn: sqlite3.Connection) -> None:
     """Additive migrations only; never DROP Banorte tables."""
     _add_column_if_missing(conn, "nomina_banorte_exports", "calculo_id", "INTEGER")
@@ -744,42 +1240,10 @@ def _ensure_catalog_schema(conn: sqlite3.Connection) -> None:
     )
 
     conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS nomina_banorte_catalog_reconciliations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER NOT NULL,
-            person_id INTEGER NOT NULL,
-            beneficiary_id INTEGER,
-            reconciliation_status TEXT NOT NULL CHECK (reconciliation_status IN (
-                'UNMATCHED','AUTO_MATCHED','MANUAL_MATCHED','MULTIPLE_CANDIDATES','ACCOUNT_MISMATCH',
-                'EMPLOYEE_MISMATCH','IDENTITY_CONFLICT','LEGACY_NOT_USABLE','STALE_RECONCILIATION')),
-            match_method TEXT NOT NULL CHECK (match_method IN (
-                'NONE','EXACT_EMPLOYEE_ACCOUNT_RAW_NAME','EXACT_EMPLOYEE_ACCOUNT_CANONICAL_NAME',
-                'EXACT_EMPLOYEE_ACCOUNT_CONTROLLED_MA','MANUAL_SELECTION')),
-            candidate_count INTEGER NOT NULL DEFAULT 0 CHECK (candidate_count >= 0),
-            reason_code TEXT,
-            beneficiary_material_fingerprint_version TEXT,
-            beneficiary_material_state_json TEXT,
-            beneficiary_material_fingerprint TEXT,
-            beneficiary_updated_at_seen TEXT,
-            is_current INTEGER NOT NULL DEFAULT 1 CHECK (is_current IN (0,1)),
-            supersedes_reconciliation_id INTEGER,
-            manual_reason TEXT,
-            created_by TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            superseded_by TEXT,
-            superseded_at TEXT,
-            FOREIGN KEY (version_id) REFERENCES nomina_banorte_catalog_versions(id) ON DELETE RESTRICT,
-            FOREIGN KEY (person_id) REFERENCES nomina_banorte_catalog_persons(id) ON DELETE RESTRICT,
-            FOREIGN KEY (beneficiary_id) REFERENCES nomina_banorte_beneficiaries(id) ON DELETE RESTRICT,
-            FOREIGN KEY (supersedes_reconciliation_id)
-                REFERENCES nomina_banorte_catalog_reconciliations(id) ON DELETE RESTRICT,
-            CHECK (reconciliation_status NOT IN ('AUTO_MATCHED','MANUAL_MATCHED') OR
-                (beneficiary_id IS NOT NULL AND beneficiary_material_fingerprint_version IS NOT NULL AND
-                 beneficiary_material_state_json IS NOT NULL AND beneficiary_material_fingerprint IS NOT NULL)),
-            CHECK (match_method<>'MANUAL_SELECTION' OR length(trim(COALESCE(manual_reason,''))) > 0)
+        _catalog_reconciliation_ddl(
+            _CATALOG_RECONCILIATION_TABLE,
+            if_not_exists=True,
         )
-        """
     )
     conn.execute(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_banorte_catalog_reconciliation_current "
@@ -892,6 +1356,9 @@ def _ensure_catalog_schema(conn: sqlite3.Connection) -> None:
         ("catalog_observation_codes_json", "TEXT NOT NULL DEFAULT '[]'"),
     ):
         _add_column_if_missing(conn, "nomina_banorte_export_items", column, ddl)
+
+    _migrate_catalog_reconciliations_c1(conn)
+    _ensure_catalog_reconciliation_indexes(conn)
 
 
 def _beneficiaries_sql_allows_inactivo_manual(conn: sqlite3.Connection) -> bool:
