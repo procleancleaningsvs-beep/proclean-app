@@ -88,6 +88,8 @@ def test_weekly_workspace_template_uses_unified_operational_table():
     assert "gis-ws-modal" in template
     assert "data-excel-filter" in template
     assert "Movimientos sugeridos" in template
+    assert "Movimiento manual" in template
+    assert "manual-movement-" in template
     assert "row.identity_status" in template
     assert "Candidatos Headcount" in template
     assert '(search.get("opciones") or [None])[0]' not in routes

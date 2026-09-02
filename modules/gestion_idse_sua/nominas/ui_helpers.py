@@ -11,6 +11,7 @@ RESULT_BADGE_CLASS = {
     "Coincidencia": "coincidencia",
     "Posible alta": "alta",
     "Posible baja": "baja",
+    "Reingreso": "alta",
     "Revisión": "revision",
 }
 
@@ -55,6 +56,8 @@ def _candidate_evidence(match: dict[str, Any]) -> list[dict[str, Any]]:
         "rfc_homoclave",
         "curp",
         "puesto",
+        "status_operacion",
+        "status_imss",
         "candidate_reason",
     )
     evidence = []
@@ -67,8 +70,20 @@ def _candidate_evidence(match: dict[str, Any]) -> list[dict[str, Any]]:
     return evidence
 
 
-def _identity_result(match_status: str) -> str:
+def _identity_result(match: dict[str, Any], cliente: str) -> str:
+    match_status = str(match.get("status") or "unmatched")
     if match_status in {"auto", "confirmed", "manual"}:
+        try:
+            headcount = json.loads(match.get("hc_json") or "{}")
+        except (TypeError, json.JSONDecodeError):
+            headcount = {}
+        if isinstance(headcount, dict):
+            operation = str(headcount.get("status_operacion") or "").strip().upper()
+            if operation in {"BAJA", "INACTIVO", "INACTIVA"}:
+                return "Reingreso"
+            hc_client = str(headcount.get("cliente") or "").strip().upper()
+            if hc_client and cliente and hc_client != str(cliente).strip().upper():
+                return "Revisión"
         return "Coincidencia"
     if match_status in {"suggested", "review"}:
         return "Revisión"
@@ -226,7 +241,7 @@ def build_weekly_workspace_rows(
             else "Pendiente de datos"
         )
         if confirmed_client and resultado not in RESULT_BADGE_CLASS:
-            resultado = _identity_result(match_status)
+            resultado = _identity_result(match, cliente)
         if confirmed_client and match_status in {"suggested", "review"} and resultado == "Posible alta":
             resultado = "Revisión"
         display_name = (match.get("hc_nombre") or result.get("match_hc_nombre") or "") if confirmed_match else ""

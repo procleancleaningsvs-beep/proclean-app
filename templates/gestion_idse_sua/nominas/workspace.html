@@ -27,6 +27,7 @@
   <section class="gis-nom-kpis">
     <div><strong>{{ workers|length }}</strong><span>En nómina</span></div>
     <div><strong>{{ totals.get('coincidencias', 0) }}</strong><span>Coincidencias</span></div>
+    <div><strong>{{ totals.get('reingresos', 0) }}</strong><span>Reingresos</span></div>
     <div><strong>{{ totals.get('altas', 0) }}</strong><span>Posibles altas</span></div>
     <div><strong>{{ totals.get('bajas', 0) }}</strong><span>Posibles bajas</span></div>
     <div><strong>{{ totals.get('revisiones', 0) }}</strong><span>Revisiones</span></div>
@@ -104,6 +105,19 @@
                 <td class="gis-ws-row-actions">
                   <button type="button" class="btn btn-secondary btn-sm" data-open-modal="editor-{{ record_key }}">Editar</button>
                   {% if row.result_id %}
+                  <details>
+                    <summary>Movimiento manual</summary>
+                    <label>Tipo
+                      <select name="tipo_sugerido" form="manual-movement-{{ row.result_id }}">
+                        <option value="" {% if not row.tipo_movimiento %}selected{% endif %}>Ninguno</option>
+                        <option value="ALTA" {% if row.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option>
+                        <option value="BAJA" {% if row.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option>
+                      </select>
+                    </label>
+                    <button type="submit" class="btn btn-secondary btn-sm" form="manual-movement-{{ row.result_id }}">Guardar</button>
+                  </details>
+                  {% endif %}
+                  {% if row.result_id %}
                   <button type="submit" class="btn btn-secondary btn-sm"
                           formaction="{{ url_for('gestion_idse_sua.nominas_result_visibility', result_id=row.result_id) }}"
                           name="action" value="{{ 'restore' if row.hidden else 'hide' }}">{{ 'Restaurar' if row.hidden else 'Retirar' }}</button>
@@ -124,7 +138,7 @@
                     <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin coincidencia confirmada' }}</p>
                     <p><strong>Método:</strong> {{ row.match_method or 'sin coincidencias' }}</p>
                     {% if row.match_candidates %}<div><strong>Candidatos Headcount:</strong><ul>{% for candidate in row.match_candidates %}
-                      <li><strong>{{ candidate.nombre_completo }}</strong> · {{ candidate.cliente or row.cliente }}{% if candidate.ubicacion or candidate.planta %} · {{ candidate.ubicacion or candidate.planta }}{% endif %}{% if candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado %} · Empleado {{ candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado }}{% endif %}{% if candidate.nss %} · NSS {{ candidate.nss }}{% endif %}{% if candidate.rfc or candidate.rfc_homoclave %} · RFC {{ candidate.rfc or candidate.rfc_homoclave }}{% endif %}{% if candidate.curp %} · CURP {{ candidate.curp }}{% endif %}{% if candidate.puesto %} · {{ candidate.puesto }}{% endif %}<br><small>{{ candidate.candidate_reason or 'Candidato de identidad' }}</small></li>
+                      <li><strong>{{ candidate.nombre_completo }}</strong> · {{ candidate.cliente or row.cliente }}{% if candidate.ubicacion or candidate.planta %} · {{ candidate.ubicacion or candidate.planta }}{% endif %}{% if candidate.status_operacion %} · {{ candidate.status_operacion }}{% endif %}{% if candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado %} · Empleado {{ candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado }}{% endif %}{% if candidate.nss %} · NSS {{ candidate.nss }}{% endif %}{% if candidate.rfc or candidate.rfc_homoclave %} · RFC {{ candidate.rfc or candidate.rfc_homoclave }}{% endif %}{% if candidate.curp %} · CURP {{ candidate.curp }}{% endif %}{% if candidate.puesto %} · {{ candidate.puesto }}{% endif %}<br><small>{{ candidate.candidate_reason or 'Candidato de identidad' }}</small></li>
                     {% endfor %}</ul></div>{% endif %}
                   </section>
                   <section><h4>Cliente y origen</h4>
@@ -172,8 +186,8 @@
                   {% endif %}
                   {% if row.result_id %}<section><h4>5. Resultado y fecha</h4>
                     <form method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=row.result_id) }}">
-                      <select name="decision_final">{% for option in ['Coincidencia','Posible alta','Posible baja','Revisión'] %}<option {% if row.decision_final == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
-                      <select name="tipo_sugerido"><option value="">Sin movimiento</option><option value="ALTA" {% if row.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option><option value="BAJA" {% if row.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option></select>
+                      <select name="decision_final">{% for option in ['Coincidencia','Posible alta','Posible baja','Reingreso','Revisión'] %}<option {% if row.decision_final == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select>
+                      <select name="tipo_sugerido"><option value="">Ninguno</option><option value="ALTA" {% if row.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option><option value="BAJA" {% if row.tipo_movimiento == 'BAJA' %}selected{% endif %}>BAJA</option></select>
                       <input name="fecha_sugerida" value="{{ row.fecha_sugerida }}" placeholder="dd/mm/aaaa">
                       <textarea name="observaciones" placeholder="Observaciones">{{ row.observaciones }}</textarea>
                       <button class="btn btn-primary btn-sm" type="submit">Guardar decisión auditada</button>
@@ -188,6 +202,11 @@
           </table>
         </div>
       </form>
+      {% for row in table_rows if row.result_id %}
+      <form id="manual-movement-{{ row.result_id }}" method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=row.result_id) }}">
+        <input type="hidden" name="decision_final" value="{{ row.decision_final }}">
+      </form>
+      {% endfor %}
     </section>
 
     <aside class="gis-ws-sidepanel" id="gis-ws-movements">

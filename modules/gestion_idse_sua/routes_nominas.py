@@ -31,6 +31,7 @@ from modules.gestion_idse_sua.nominas.match_service import (
     _build_match,
     build_review_match,
     confirm_match,
+    load_full_headcount,
     manual_search,
     match_worker,
 )
@@ -397,7 +398,8 @@ def register_nominas_routes(bp, *, login_required) -> None:
             hc = obtener_activos()
             extract_sheet_workers(conn, file_bytes=file_bytes, sheet_id=sheet_id, headcount_rows=hc)
             period = repo.get_period_for_sheet(conn, sheet_id)
-            enrich_workers(conn, int(period["id"]), hc)
+            full_hc = load_full_headcount()
+            enrich_workers(conn, int(period["id"]), full_hc or hc)
             workers = repo.list_workers(conn, int(period["id"]))
             matches = {int(w["id"]): repo.get_match(conn, int(w["id"])) for w in workers}
             assignments = infer_period_clients(
@@ -636,11 +638,33 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
+            current = conn.execute(
+                "SELECT resultado, decision_final FROM gis_nomina_results WHERE id = ?",
+                (result_id,),
+            ).fetchone()
+            if current is None:
+                abort(404)
+            decision_final = (request.form.get("decision_final") or "").strip() or str(
+                current["decision_final"] or current["resultado"]
+            )
+            if decision_final not in {
+                "Coincidencia",
+                "Revisión",
+                "Posible alta",
+                "Posible baja",
+                "Reingreso",
+            }:
+                abort(400)
+            movement_value = request.form.get("tipo_sugerido")
+            if movement_value is not None:
+                movement_value = normalize_upper(movement_value)
+                if movement_value not in {"", "ALTA", "BAJA"}:
+                    abort(400)
             repo.update_result_decision(
                 conn,
                 result_id,
-                decision_final=(request.form.get("decision_final") or "").strip(),
-                tipo_sugerido=(request.form.get("tipo_sugerido") or "").strip() or None,
+                decision_final=decision_final,
+                tipo_sugerido=movement_value,
                 fecha_sugerida=(request.form.get("fecha_sugerida") or "").strip() or None,
                 observaciones=(request.form.get("observaciones") or "").strip() or None,
                 changed_by=_session_username(),
@@ -722,8 +746,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
             ).fetchone()
             if worker is None:
                 abort(404)
-            cliente = normalize_upper(worker["cliente_confirmado"])
-            if not cliente:
+            if not normalize_upper(worker["cliente_confirmado"]):
                 flash("Confirme el cliente antes de resolver la identidad.", "error")
                 return redirect(
                     url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
@@ -733,11 +756,6 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 flash("No se encontró trabajador en Headcount.", "error")
             else:
                 candidates = [search["datos"]] if search.get("datos") else list(search.get("opciones") or [])
-                candidates = [
-                    candidate
-                    for candidate in candidates
-                    if normalize_upper(candidate.get("cliente")) == cliente
-                ]
                 if len(candidates) == 1:
                     confirm_match(
                         conn,
@@ -759,7 +777,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     conn.commit()
                     flash("Se encontraron varias opciones; revise los candidatos antes de confirmar.", "warning")
                 else:
-                    flash("No se encontró trabajador dentro del cliente confirmado.", "error")
+                    flash("No se encontró trabajador en Headcount.", "error")
             return redirect(
                 url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
             )

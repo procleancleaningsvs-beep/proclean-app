@@ -142,19 +142,48 @@ def test_no_reasonable_candidate_is_unmatched():
     assert match["status"] == "unmatched"
 
 
-def test_similar_name_in_other_client_is_not_a_candidate():
+def test_exact_name_in_other_client_remains_an_identity_match():
     worker = {
-        "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+        "nombre_normalizado": "HUGO RAMIREZ CASTRO",
         "cliente_confirmado": "AURIGA",
     }
     headcount = [
-        {"nombre_completo": "GABRIEL JIMENEZ VARGAS", "cliente": "CARRIER", "nss": "33333333333"},
+        {"nombre_completo": "HUGO RAMIREZ CASTRO", "cliente": "CARRIER", "nss": "33333333333"},
         {"nombre_completo": "PERSONA DISTINTA", "cliente": "AURIGA", "nss": "44444444444"},
     ]
 
     match = match_worker(worker, headcount)
 
-    assert match["status"] == "unmatched"
+    assert match["status"] == "auto"
+    assert match["match_method"] == "nombre_exacto"
+    assert match["hc_cliente"] == "CARRIER"
+
+
+def test_partial_name_with_same_client_and_location_is_review_candidate():
+    worker = {
+        "nombre_normalizado": "MARTIN SALAZAR ROBLES",
+        "cliente_confirmado": "GM",
+        "planta_normalizada": "PFSA",
+    }
+    headcount = [
+        {
+            "nombre_completo": "MARTIN SALAZAR CORTES",
+            "cliente": "GM",
+            "ubicacion": "PFSA",
+            "status_operacion": "ALTA",
+        }
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "review"
+    assert match["match_method"] == "candidato_nombre"
+    candidates = json.loads(match["hc_json"])
+    assert [item["nombre_completo"] for item in candidates] == [
+        "MARTIN SALAZAR CORTES"
+    ]
+    assert "cliente" in candidates[0]["candidate_reason"].casefold()
+    assert "ubicación" in candidates[0]["candidate_reason"].casefold()
 
 
 @pytest.mark.parametrize(

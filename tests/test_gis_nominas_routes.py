@@ -278,7 +278,10 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
         return [row for row in headcount if row["cliente"] == str(cliente).upper()]
 
     monkeypatch.setattr("modules.gestion_idse_sua.routes_nominas.obtener_activos", _active_rows)
-    monkeypatch.setattr("modules.gestion_idse_sua.nominas.comparative_service.obtener_activos", _active_rows)
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.nominas.comparative_service.load_full_headcount",
+        lambda: headcount,
+    )
 
     response = client.post(
         f"/gestion-idse-sua/nominas/workspace/{period_id}/compare",
@@ -330,7 +333,7 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
     assert comparative_counts == {"CARRIER": 2, "PEPSI": 1}
 
 
-def test_manual_match_with_multiple_options_stays_in_review_and_same_client(tmp_path, monkeypatch):
+def test_manual_match_keeps_cross_client_options_and_manual_movement_can_be_cleared(tmp_path, monkeypatch):
     from modules.gestion_idse_sua.nominas import repository as repo
     from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
 
@@ -379,6 +382,23 @@ def test_manual_match_with_multiple_options_stays_in_review_and_same_client(tmp_
         ],
     )[0]
     repo.update_worker_cliente(connection, worker_id, "AURIGA")
+    comparative_id = repo.create_comparative(
+        connection,
+        period_id=period_id,
+        cliente="AURIGA",
+        generated_by="test",
+    )
+    result_id = repo.insert_result(
+        connection,
+        comparative_id,
+        {
+            "worker_id": worker_id,
+            "resultado": "Posible alta",
+            "semaforo": "verde",
+            "tipo_sugerido": "ALTA",
+            "decision_final": "Posible alta",
+        },
+    )
     connection.commit()
     connection.close()
 
@@ -413,8 +433,27 @@ def test_manual_match_with_multiple_options_stays_in_review_and_same_client(tmp_
     candidates = json.loads(match["hc_json"])
     assert match["status"] == "review"
     assert match["headcount_key"] is None
-    assert len(candidates) == 2
-    assert {item["cliente"] for item in candidates} == {"AURIGA"}
+    assert len(candidates) == 3
+    assert {item["cliente"] for item in candidates} == {"AURIGA", "CARRIER"}
+
+    movement_response = client.post(
+        f"/gestion-idse-sua/nominas/result/{result_id}/decision",
+        data={"decision_final": "Revisión", "tipo_sugerido": ""},
+        follow_redirects=False,
+    )
+    assert movement_response.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    movement = connection.execute(
+        "SELECT decision_final, tipo_sugerido FROM gis_nomina_results WHERE id = ?",
+        (result_id,),
+    ).fetchone()
+    audit_count = connection.execute(
+        "SELECT COUNT(*) FROM gis_workspace_audit WHERE record_type = 'result' AND record_id = ?",
+        (result_id,),
+    ).fetchone()[0]
+    connection.close()
+    assert movement == ("Revisión", "")
+    assert audit_count == 1
 
 
 def test_monthly_workspace_renders_shared_table_and_event_panel(tmp_path, monkeypatch):

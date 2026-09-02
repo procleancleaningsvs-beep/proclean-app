@@ -304,6 +304,198 @@ def test_comparative_recomputes_identity_and_assigns_clear_results(conn):
     }
 
 
+def test_reconciliation_uses_full_headcount_and_reserves_review_candidates(conn):
+    connection, period_id = conn
+    workers = [
+        ("RODRIGO MENA CORTES", "PLANTA ACTUAL"),
+        ("MATEO CRUZ", "AURIGA"),
+        ("LUCIA REYES", "AURIGA"),
+        ("ELENA TORRES PAZ", "AURIGA"),
+        ("PERSONA SINTETICA NUEVA", "AURIGA"),
+    ]
+    worker_ids = insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 20 + index,
+                "num_empleado": "",
+                "nombre_original": name.title(),
+                "nombre_normalizado": name,
+                "puesto": "Operador",
+                "planta_original": location,
+                "planta_normalizada": location,
+                "cuenta": "",
+                "row_json": "{}",
+            }
+            for index, (name, location) in enumerate(workers)
+        ],
+    )
+    connection.executemany(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'AURIGA' WHERE id = ?",
+        [(worker_id,) for worker_id in worker_ids],
+    )
+    headcount = [
+        {
+            "nombre_completo": "RODRIGO MENA CORTES",
+            "cliente": "GM",
+            "ubicacion": "PLANTA ANTERIOR",
+            "status_operacion": "BAJA",
+            "status_imss": "BAJA",
+        },
+        {
+            "nombre_completo": "MATEO ANDRES CRUZ VEGA",
+            "cliente": "AURIGA",
+            "ubicacion": "AURIGA",
+            "status_operacion": "ALTA",
+        },
+        {
+            "nombre_completo": "LUCIA MARIA REYES SOTO",
+            "cliente": "CLIENTE ANTERIOR",
+            "ubicacion": "PLANTA ANTERIOR",
+            "status_operacion": "BAJA",
+        },
+        {
+            "nombre_completo": "ELENA TORRES PAZ",
+            "cliente": "GM",
+            "ubicacion": "PFSA",
+            "status_operacion": "ALTA",
+        },
+        {
+            "nombre_completo": "ACTIVO SINTETICO AUSENTE",
+            "cliente": "AURIGA",
+            "ubicacion": "AURIGA",
+            "status_operacion": "ALTA",
+        },
+    ]
+    connection.commit()
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="AURIGA",
+        generated_by="test",
+        headcount_rows=headcount,
+    )
+    payroll_results = dict(
+        connection.execute(
+            """
+            SELECT w.nombre_normalizado, r.resultado
+            FROM gis_nomina_results r
+            JOIN gis_nomina_workers w ON w.id = r.worker_id
+            WHERE r.comparative_id = ? AND w.id IN (?, ?, ?, ?, ?)
+            """,
+            (out["comparative_id"], *worker_ids),
+        ).fetchall()
+    )
+    possible_bajas = {
+        row[0]
+        for row in connection.execute(
+            """
+            SELECT hc_nombre
+            FROM gis_nomina_results
+            WHERE comparative_id = ? AND resultado = 'Posible baja'
+            """,
+            (out["comparative_id"],),
+        ).fetchall()
+    }
+
+    assert payroll_results == {
+        "RODRIGO MENA CORTES": "Reingreso",
+        "MATEO CRUZ": "Revisión",
+        "LUCIA REYES": "Revisión",
+        "ELENA TORRES PAZ": "Revisión",
+        "PERSONA SINTETICA NUEVA": "Posible alta",
+    }
+    assert possible_bajas == {"ACTIVO SINTETICO AUSENTE"}
+    assert "MATEO ANDRES CRUZ VEGA" not in possible_bajas
+    assert "LUCIA MARIA REYES SOTO" not in possible_bajas
+
+
+def test_historical_headcount_without_payroll_never_generates_possible_baja(conn):
+    connection, period_id = conn
+    headcount = [
+        {
+            "nombre_completo": "PERSONA HISTORICA AUSENTE",
+            "cliente": "PEPSI",
+            "status_operacion": "BAJA",
+        }
+    ]
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="PEPSI",
+        generated_by="test",
+        headcount_rows=headcount,
+    )
+
+    assert connection.execute(
+        """
+        SELECT COUNT(*) FROM gis_nomina_results
+        WHERE comparative_id = ? AND resultado = 'Posible baja'
+        """,
+        (out["comparative_id"],),
+    ).fetchone()[0] == 0
+
+
+def test_one_headcount_record_cannot_be_confirmed_for_two_payroll_rows(conn):
+    connection, period_id = conn
+    duplicate_id = insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 40,
+                "num_empleado": "",
+                "nombre_original": "Juan Perez Lopez duplicado",
+                "nombre_normalizado": "JUAN PEREZ LOPEZ",
+                "puesto": "Operador",
+                "planta_original": "A",
+                "planta_normalizada": "A",
+                "cuenta": "",
+                "row_json": "{}",
+            }
+        ],
+    )[0]
+    connection.execute(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'PEPSI' WHERE id = ?",
+        (duplicate_id,),
+    )
+    connection.commit()
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="PEPSI",
+        generated_by="test",
+        headcount_rows=HC,
+    )
+    duplicate_claims = connection.execute(
+        """
+        SELECT r.resultado, m.status, m.match_method
+        FROM gis_nomina_results r
+        JOIN gis_nomina_workers w ON w.id = r.worker_id
+        JOIN gis_nomina_matches m ON m.worker_id = w.id
+        WHERE r.comparative_id = ? AND w.nombre_normalizado = 'JUAN PEREZ LOPEZ'
+        """,
+        (out["comparative_id"],),
+    ).fetchall()
+    possible_bajas = {
+        row[0]
+        for row in connection.execute(
+            "SELECT hc_nombre FROM gis_nomina_results WHERE comparative_id = ? AND resultado = 'Posible baja'",
+            (out["comparative_id"],),
+        ).fetchall()
+    }
+
+    assert len(duplicate_claims) == 2
+    assert {(row["resultado"], row["status"], row["match_method"]) for row in duplicate_claims} == {
+        ("Revisión", "review", "registro_headcount_compartido")
+    }
+    assert "JUAN PEREZ LOPEZ" not in possible_bajas
+
+
 @pytest.mark.parametrize(
     ("codes", "expected_date"),
     [

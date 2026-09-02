@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from typing import Any
 
-from modules.comparativo.headcount_service import obtener_activos
 from modules.gestion_idse_sua.nominas import repository as repo
-from modules.gestion_idse_sua.nominas.match_service import match_worker
+from modules.gestion_idse_sua.nominas.match_service import (
+    _hc_key,
+    build_review_match,
+    load_full_headcount,
+    match_headcount_keys,
+    match_worker,
+)
 from modules.gestion_idse_sua.nominas.planta_cliente_service import (
-    detect_planta_cliente_conflict,
     period_cut_warnings,
 )
 from modules.gestion_idse_sua.nominas.text_utils import json_dumps, normalize_name, normalize_upper
@@ -21,8 +26,6 @@ def _hc_cliente(match: dict[str, Any]) -> str:
     raw = match.get("hc_json")
     if not raw:
         return ""
-    import json
-
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -57,28 +60,127 @@ RESULTADO_LABELS = {
     "coincidencia": ("Coincidencia", "azul"),
     "posible_alta": ("Posible alta", "verde"),
     "posible_baja": ("Posible baja", "rojo"),
+    "reingreso": ("Reingreso", "verde"),
     "revision": ("Revisión", "amarillo"),
 }
 
 
-def enrich_workers(conn: sqlite3.Connection, period_id: int, headcount_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    rows = headcount_rows if headcount_rows is not None else obtener_activos()
-    workers = repo.list_workers(conn, period_id)
-    enriched = 0
-    for worker in workers:
-        worker_client = normalize_upper(
-            worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
+def _match_record(match: dict[str, Any]) -> dict[str, Any]:
+    raw = match.get("hc_json")
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _candidate_records(match: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = match.get("hc_json")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _operation_state(row: dict[str, Any]) -> str:
+    status = normalize_upper(row.get("status_operacion"))
+    if status in {"BAJA", "INACTIVO", "INACTIVA"}:
+        return "baja"
+    if status in {"ALTA", "ACTIVO", "ACTIVA"}:
+        return "active"
+    # Los fixtures históricos inyectaban únicamente filas activas sin el campo.
+    if not status:
+        return "active"
+    return "unknown"
+
+
+def _reconcile_worker_matches(
+    conn: sqlite3.Connection,
+    workers: list[dict[str, Any]],
+    headcount_rows: list[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    rows_by_key: dict[str, dict[str, Any]] = {}
+    for row in headcount_rows:
+        rows_by_key.setdefault(_hc_key(row), row)
+
+    proposals: dict[int, dict[str, Any]] = {}
+    claims: dict[str, list[int]] = {}
+    worker_by_id = {int(worker["id"]): worker for worker in workers}
+
+    for worker_id, worker in worker_by_id.items():
+        persisted = repo.get_match(conn, worker_id) or {}
+        persisted_status = str(persisted.get("status") or "")
+        persisted_keys = match_headcount_keys(persisted) & rows_by_key.keys()
+        if persisted_status in {"confirmed", "manual"} and len(persisted_keys) == 1:
+            proposal = dict(persisted)
+            proposal["headcount_key"] = next(iter(persisted_keys))
+        else:
+            proposal = match_worker(
+                worker,
+                headcount_rows,
+                cliente=normalize_upper(
+                    worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
+                )
+                or None,
+                include_candidates=False,
+            )
+        proposals[worker_id] = proposal
+        if str(proposal.get("status") or "") in {"auto", "confirmed", "manual"}:
+            key = str(proposal.get("headcount_key") or "").strip()
+            if key:
+                claims.setdefault(key, []).append(worker_id)
+
+    reconciled: dict[int, dict[str, Any]] = {}
+    consumed: set[str] = set()
+    for key, worker_ids in claims.items():
+        if len(worker_ids) == 1:
+            worker_id = worker_ids[0]
+            reconciled[worker_id] = proposals[worker_id]
+            consumed.add(key)
+            continue
+        candidate = rows_by_key.get(key)
+        for worker_id in worker_ids:
+            reconciled[worker_id] = build_review_match(
+                [candidate] if candidate else [],
+                method="registro_headcount_compartido",
+                reason="El mismo registro Headcount coincide con varias filas de nómina",
+                confidence=1.0,
+            )
+
+    for worker_id, worker in worker_by_id.items():
+        if worker_id in reconciled:
+            continue
+        match = match_worker(
+            worker,
+            headcount_rows,
+            cliente=normalize_upper(
+                worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
+            )
+            or None,
+            include_candidates=True,
+            excluded_headcount_keys=consumed,
         )
-        match = match_worker(worker, rows, cliente=worker_client or None)
-        if worker.get("cliente_confirmado") or worker.get("cliente_sugerido"):
-            if detect_planta_cliente_conflict(
-                planta_cliente=str(worker.get("cliente_confirmado") or worker.get("cliente_sugerido")),
-                headcount_cliente=str(match.get("hc_cliente") or ""),
-            ):
-                match["status"] = "review"
-        repo.upsert_match(conn, int(worker["id"]), match)
-        if match.get("status") not in {"unmatched", None}:
-            enriched += 1
+        reconciled[worker_id] = match
+
+    for worker_id, match in reconciled.items():
+        repo.upsert_match(conn, worker_id, match)
+    return reconciled
+
+
+def enrich_workers(conn: sqlite3.Connection, period_id: int, headcount_rows: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    rows = headcount_rows if headcount_rows is not None else load_full_headcount()
+    workers = repo.list_workers(conn, period_id)
+    matches = _reconcile_worker_matches(conn, workers, rows)
+    enriched = sum(
+        1 for match in matches.values() if match.get("status") not in {"unmatched", None}
+    )
     conn.commit()
     return {"workers": len(workers), "enriched": enriched}
 
@@ -95,10 +197,12 @@ def run_comparative(
     if not cliente_norm:
         raise ValueError("Cliente obligatorio para comparar.")
 
-    hc_rows = headcount_rows if headcount_rows is not None else obtener_activos(cliente=cliente_norm)
+    hc_rows = headcount_rows if headcount_rows is not None else load_full_headcount()
+    all_workers = repo.list_workers(conn, period_id)
+    matches = _reconcile_worker_matches(conn, all_workers, hc_rows)
     workers = [
         worker
-        for worker in repo.list_workers(conn, period_id)
+        for worker in all_workers
         if normalize_upper(worker.get("cliente_confirmado")) == cliente_norm
     ]
     if not workers:
@@ -118,8 +222,6 @@ def run_comparative(
             )
         )
 
-    matched_hc_names: set[str] = set()
-    nomina_matched_names: set[str] = set()
     first_attendance_by_worker = _first_attendance_dates(conn, period_id)
 
     comparative_id = repo.create_comparative(
@@ -130,42 +232,71 @@ def run_comparative(
         warnings=warnings,
     )
 
-    totals = {"nomina": len(workers), "coincidencias": 0, "altas": 0, "bajas": 0, "revisiones": 0, "sin_match": 0}
+    totals = {
+        "nomina": len(workers),
+        "coincidencias": 0,
+        "altas": 0,
+        "bajas": 0,
+        "reingresos": 0,
+        "revisiones": 0,
+        "sin_match": 0,
+    }
 
     for worker in workers:
         wid = int(worker["id"])
-        match = repo.get_match(conn, wid) or {}
-        persisted_status = str(match.get("status") or "")
-        persisted_client = _hc_cliente(match)
-        if not (
-            persisted_status in {"confirmed", "manual"}
-            and persisted_client == cliente_norm
-        ):
-            match = match_worker(
-                worker,
-                hc_rows,
-                cliente=cliente_norm,
-            )
-            repo.upsert_match(conn, wid, match)
+        match = matches.get(wid) or {}
         status = str(match.get("status") or "unmatched")
         hc_name = normalize_name(match.get("hc_nombre"))
         hc_cliente = _hc_cliente(match)
-        nombre = normalize_name(worker.get("nombre_normalizado"))
+        match_record = _match_record(match)
+        operation_state = _operation_state(match_record) if match_record else "unknown"
 
         if status in {"suggested", "review"}:
             tipo = "Revisión"
             sem = "amarillo"
             totals["revisiones"] += 1
-            observaciones = f"Match {match.get('match_method')} pendiente de confirmación."
+            candidates = _candidate_records(match)
+            possible_reentry = any(_operation_state(candidate) == "baja" for candidate in candidates)
+            observaciones = (
+                "Posible reingreso; candidato histórico BAJA pendiente de confirmación."
+                if possible_reentry
+                else f"Match {match.get('match_method')} pendiente de confirmación."
+            )
             tipo_mov = ""
-        elif status in {"auto", "confirmed", "manual"} and hc_name and (not hc_cliente or hc_cliente == cliente_norm):
-            tipo = "Coincidencia"
-            sem = "azul"
-            totals["coincidencias"] += 1
-            observaciones = ""
-            tipo_mov = ""
-            matched_hc_names.add(hc_name)
-            nomina_matched_names.add(hc_name or nombre)
+        elif status in {"auto", "confirmed", "manual"} and hc_name:
+            if operation_state == "baja":
+                tipo = "Reingreso"
+                sem = "verde"
+                totals["reingresos"] += 1
+                tipo_mov = "ALTA"
+                context = []
+                if hc_cliente:
+                    context.append(f"cliente anterior {hc_cliente}")
+                previous_location = normalize_upper(
+                    match_record.get("ubicacion") or match_record.get("planta")
+                )
+                if previous_location:
+                    context.append(f"ubicación anterior {previous_location}")
+                suffix = f" ({'; '.join(context)})" if context else ""
+                observaciones = f"Baja histórica — posible reingreso detectado{suffix}."
+            elif operation_state == "active" and (not hc_cliente or hc_cliente == cliente_norm):
+                tipo = "Coincidencia"
+                sem = "azul"
+                totals["coincidencias"] += 1
+                observaciones = ""
+                tipo_mov = ""
+            elif operation_state == "active":
+                tipo = "Revisión"
+                sem = "amarillo"
+                totals["revisiones"] += 1
+                observaciones = f"Empleado activo en otro cliente: {hc_cliente or 'sin cliente'}."
+                tipo_mov = ""
+            else:
+                tipo = "Revisión"
+                sem = "amarillo"
+                totals["revisiones"] += 1
+                observaciones = "Estado operativo de Headcount pendiente de confirmar."
+                tipo_mov = ""
         elif status == "unmatched" or not hc_name:
             tipo = "Posible alta"
             sem = "verde"
@@ -189,24 +320,42 @@ def run_comparative(
                 "worker_id": wid,
                 "resultado": tipo,
                 "semaforo": sem,
-                "tipo_sugerido": tipo_mov or tipo,
+                "tipo_sugerido": tipo_mov,
                 "fecha_sugerida": first_attendance_by_worker.get(wid, "") if tipo_mov == "ALTA" else "",
                 "decision_final": tipo,
                 "observaciones": observaciones,
             },
         )
 
-    hc_names_cliente = {
-        normalize_name(r.get("nombre_completo"))
-        for r in hc_rows
-        if normalize_upper(r.get("cliente")) == cliente_norm and normalize_name(r.get("nombre_completo"))
-    }
-    bajas = sorted(hc_names_cliente - matched_hc_names)
-
-    period_inicio = str(period["fecha_inicio"]) if period else ""
     period_fin = str(period["fecha_fin"]) if period else ""
+    unavailable_keys: set[str] = set()
+    for match in matches.values():
+        if str(match.get("status") or "") in {
+            "auto",
+            "confirmed",
+            "manual",
+            "suggested",
+            "review",
+        }:
+            unavailable_keys.update(match_headcount_keys(match))
 
-    for nombre in bajas:
+    active_free: dict[str, dict[str, Any]] = {}
+    for row in hc_rows:
+        if normalize_upper(row.get("cliente")) != cliente_norm:
+            continue
+        if _operation_state(row) != "active":
+            continue
+        key = _hc_key(row)
+        if key in unavailable_keys:
+            continue
+        active_free.setdefault(key, row)
+
+    for row in sorted(
+        active_free.values(), key=lambda item: normalize_name(item.get("nombre_completo"))
+    ):
+        nombre = normalize_name(row.get("nombre_completo"))
+        if not nombre:
+            continue
         totals["bajas"] += 1
         repo.insert_result(
             conn,
@@ -238,6 +387,7 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, int]:
         "coincidencias": 0,
         "altas": 0,
         "bajas": 0,
+        "reingresos": 0,
         "revisiones": 0,
         "sin_match": 0,
     }
@@ -250,6 +400,9 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, int]:
             out["altas"] += 1
         elif res == "Posible baja":
             out["bajas"] += 1
+        elif res == "Reingreso":
+            out["reingresos"] += 1
+            out["nomina"] += 1
         elif res == "Revisión":
             out["revisiones"] += 1
             if str(row.get("match_status") or row.get("status") or "") == "unmatched":
