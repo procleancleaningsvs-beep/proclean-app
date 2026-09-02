@@ -446,19 +446,37 @@ def register_nominas_routes(bp, *, login_required) -> None:
             attendance = list_period_attendance(conn, period_id)
             attendance_by_id = {int(a["id"]): a for a in attendance}
             trajectory = trajectory_for_periods(conn, [period_id])
-            comparative = conn.execute(
-                "SELECT * FROM gis_nomina_comparatives WHERE period_id = ? ORDER BY id DESC LIMIT 1",
-                (period_id,),
-            ).fetchone()
-            results = repo.list_results(conn, int(comparative["id"])) if comparative else []
+            confirmed_clients = sorted(
+                {
+                    normalize_upper(worker.get("cliente_confirmado"))
+                    for worker in workers
+                    if normalize_upper(worker.get("cliente_confirmado"))
+                }
+            )
+            comparatives = repo.list_latest_comparatives(
+                conn, period_id, clientes=confirmed_clients
+            )
+            comparative = max(comparatives, key=lambda item: int(item["id"]), default=None)
+            results = []
+            for item in comparatives:
+                item_client = normalize_upper(item.get("cliente"))
+                for result in repo.list_results(conn, int(item["id"])):
+                    if result.get("worker_id") and normalize_upper(
+                        result.get("cliente_confirmado")
+                    ) != item_client:
+                        continue
+                    results.append(result)
             comp_warnings = []
-            if comparative and comparative["warnings_json"]:
+            for item in comparatives:
+                if not item.get("warnings_json"):
+                    continue
                 import json
 
                 try:
-                    comp_warnings = json.loads(comparative["warnings_json"])
+                    item_warnings = json.loads(item["warnings_json"])
                 except json.JSONDecodeError:
-                    comp_warnings = []
+                    item_warnings = []
+                comp_warnings.extend(str(warning) for warning in item_warnings)
             hc_rows = obtener_activos()
             matches = {int(w["id"]): w.get("match") for w in enriched_workers}
             client_payload = infer_period_clients(
@@ -533,31 +551,32 @@ def register_nominas_routes(bp, *, login_required) -> None:
             ).fetchone()
             if period is None:
                 abort(404)
-            cliente = (request.form.get("cliente") or "").strip()
-            if not cliente:
-                workers = repo.list_workers(conn, period_id)
-                hc_rows = obtener_activos()
-                matches = {int(w["id"]): repo.get_match(conn, int(w["id"])) for w in workers}
-                inferred = infer_period_clients(
+            requested_client = normalize_upper(request.form.get("cliente"))
+            workers = repo.list_workers(conn, period_id)
+            confirmed_clients = sorted(
+                {
+                    normalize_upper(worker.get("cliente_confirmado"))
+                    for worker in workers
+                    if normalize_upper(worker.get("cliente_confirmado"))
+                }
+            )
+            target_clients = [requested_client] if requested_client else confirmed_clients
+            if not target_clients:
+                flash("No hay trabajadores con cliente confirmado para comparar.", "error")
+                return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
+            for cliente in target_clients:
+                run_comparative(
                     conn,
                     period_id=period_id,
-                    workers=[dict(w) for w in workers],
-                    matches=matches,
-                    headcount_rows=hc_rows,
-                    filename=str(period["original_filename"] or ""),
-                    sheet_name=str(period["sheet_name"] or ""),
+                    cliente=cliente,
+                    generated_by=_session_username(),
                 )
-                cliente = inferred["summary"].get("primary_cliente") or ""
-            if not cliente:
-                flash("No se pudo inferir cliente. Confirme al menos una asignación planta/cliente.", "error")
-                return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
-            run_comparative(
-                conn,
-                period_id=period_id,
-                cliente=cliente,
-                generated_by=_session_username(),
+            flash(
+                "Comparativo generado."
+                if len(target_clients) == 1
+                else f"Comparativos generados: {len(target_clients)}.",
+                "success",
             )
-            flash("Comparativo generado.", "success")
             return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
         except ValueError as exc:
             flash(str(exc), "error")

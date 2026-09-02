@@ -151,10 +151,13 @@ def build_weekly_workspace_rows(
         wid = int(worker["id"])
         match = worker.get("match") or {}
         att = attendance_by_worker.get(wid, {})
-        result = results_by_worker.get(wid, {})
+        confirmed_client = str(worker.get("cliente_confirmado") or "").strip()
+        result = results_by_worker.get(wid, {}) if confirmed_client else {}
         inference = client_inferences.get(wid, {})
-        cliente = worker.get("cliente_confirmado") or inference.get("cliente") or worker.get("cliente_sugerido") or ""
+        cliente = confirmed_client or inference.get("cliente") or worker.get("cliente_sugerido") or ""
         resultado = str(result.get("decision_final") or result.get("resultado") or "")
+        if not confirmed_client:
+            resultado = "Revisión"
         match_status = match.get("status") or "unmatched"
         confirmed_match = match_status in {"auto", "confirmed", "manual"}
         display_name = (match.get("hc_nombre") or result.get("match_hc_nombre") or "") if confirmed_match else ""
@@ -183,18 +186,26 @@ def build_weekly_workspace_rows(
                 "curp": match.get("curp") or result.get("curp") or "",
                 "match_status": match_status,
                 "match_method": match.get("match_method") or "",
-                "warning": inference.get("requires_review") and "Revisar cliente" or "",
+                "warning": (
+                    "Cliente pendiente de confirmación"
+                    if not confirmed_client
+                    else (inference.get("requires_review") and "Revisar cliente" or "")
+                ),
                 "days": att.get("days") or {},
                 "day_meta": att.get("day_meta") or {},
                 "totals_label": attendance_totals_label(att.get("totals") or {}),
                 "totals": att.get("totals") or {},
                 "resultado": resultado,
                 "result_badge": RESULT_BADGE_CLASS.get(resultado, "revision"),
-                "tipo_movimiento": result.get("tipo_sugerido") or "",
+                "tipo_movimiento": result.get("tipo_sugerido") or "" if confirmed_client else "",
                 "fecha_sugerida": result.get("fecha_sugerida") or "",
                 "decision_final": resultado,
                 "conversion_status": result.get("conversion_status") or "none",
-                "observaciones": result.get("observaciones") or "",
+                "observaciones": result.get("observaciones") or (
+                    "Cliente pendiente de confirmación; no participa en el comparativo."
+                    if not confirmed_client
+                    else ""
+                ),
                 "original_values": original_values,
                 "hidden": bool(result.get("hidden_at")),
                 "hidden_at": result.get("hidden_at") or "",
@@ -216,7 +227,7 @@ def build_weekly_workspace_rows(
                 "display_name": result.get("hc_nombre") or "",
                 "name_badge": "",
                 "planta": "",
-                "cliente": "",
+                "cliente": result.get("comparative_cliente") or "",
                 "cliente_source": "headcount_only",
                 "cliente_confidence": 1.0,
                 "cliente_requires_review": False,

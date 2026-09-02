@@ -98,6 +98,10 @@ def conn(tmp_path):
     for w in workers:
         m = match_worker(dict(w), HC)
         upsert_match(connection, int(w["id"]), m)
+    connection.execute(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'PEPSI' WHERE period_id = ?",
+        (period_id,),
+    )
     connection.commit()
     yield connection, period_id
     connection.close()
@@ -116,6 +120,103 @@ def test_comparative_manual_produces_semaforo(conn):
     assert resultados.get("Posible baja") == "rojo"
     assert out["totals"]["coincidencias"] >= 1
     assert out["totals"]["bajas"] >= 1
+
+
+def test_comparative_isolates_workers_and_bajas_by_confirmed_client(conn):
+    connection, period_id = conn
+    carrier_hc = [
+        {
+            "nombre_completo": "CARLA CARRIER ACTIVA",
+            "cliente": "CARRIER",
+            "numero_empleado": "201",
+            "nss": "33333333333",
+        },
+        {
+            "nombre_completo": "CAMILA CARRIER AUSENTE",
+            "cliente": "CARRIER",
+            "numero_empleado": "202",
+            "nss": "44444444444",
+        },
+    ]
+    worker_ids = insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 6,
+                "num_empleado": "201",
+                "nombre_original": "Carla Carrier Activa",
+                "nombre_normalizado": "CARLA CARRIER ACTIVA",
+                "puesto": "Op",
+                "planta_original": "T",
+                "planta_normalizada": "T",
+                "cuenta": "3",
+                "row_json": "{}",
+            },
+            {
+                "row_number": 7,
+                "num_empleado": "299",
+                "nombre_original": "Carlos Carrier Nuevo",
+                "nombre_normalizado": "CARLOS CARRIER NUEVO",
+                "puesto": "Op",
+                "planta_original": "T",
+                "planta_normalizada": "T",
+                "cuenta": "4",
+                "row_json": "{}",
+            },
+        ],
+    )
+    connection.executemany(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'CARRIER' WHERE id = ?",
+        [(worker_id,) for worker_id in worker_ids],
+    )
+    all_hc = [*HC, *carrier_hc]
+    for worker_id in worker_ids:
+        worker = dict(
+            connection.execute(
+                "SELECT * FROM gis_nomina_workers WHERE id = ?", (worker_id,)
+            ).fetchone()
+        )
+        upsert_match(connection, worker_id, match_worker(worker, all_hc))
+    connection.commit()
+
+    pepsi = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="PEPSI",
+        generated_by="test",
+        headcount_rows=all_hc,
+    )
+    carrier = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="CARRIER",
+        generated_by="test",
+        headcount_rows=all_hc,
+    )
+
+    def _result_scope(comparative_id):
+        return connection.execute(
+            """
+            SELECT w.cliente_confirmado, w.num_empleado, r.hc_nombre, r.resultado
+            FROM gis_nomina_results r
+            LEFT JOIN gis_nomina_workers w ON w.id = r.worker_id
+            WHERE r.comparative_id = ?
+            ORDER BY r.id
+            """,
+            (comparative_id,),
+        ).fetchall()
+
+    pepsi_rows = _result_scope(pepsi["comparative_id"])
+    carrier_rows = _result_scope(carrier["comparative_id"])
+    assert {row["num_empleado"] for row in pepsi_rows if row["num_empleado"]} == {"101", "999"}
+    assert {row["num_empleado"] for row in carrier_rows if row["num_empleado"]} == {"201", "299"}
+    assert {row["hc_nombre"] for row in pepsi_rows if row["resultado"] == "Posible baja"} == {
+        "MARIA SOLO HEADCOUNT"
+    }
+    assert {row["hc_nombre"] for row in carrier_rows if row["resultado"] == "Posible baja"} == {
+        "CAMILA CARRIER AUSENTE"
+    }
 
 
 @pytest.mark.parametrize(

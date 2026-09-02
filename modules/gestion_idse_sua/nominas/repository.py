@@ -355,6 +355,38 @@ def create_comparative(
     return int(cur.lastrowid)
 
 
+def list_latest_comparatives(
+    conn: sqlite3.Connection,
+    period_id: int,
+    *,
+    clientes: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    client_filter = sorted({str(cliente).strip() for cliente in clientes or [] if str(cliente).strip()})
+    params: list[Any] = [period_id]
+    filter_sql = ""
+    if clientes is not None:
+        if not client_filter:
+            return []
+        marks = ",".join("?" for _ in client_filter)
+        filter_sql = f" AND cliente IN ({marks})"
+        params.extend(client_filter)
+    rows = conn.execute(
+        f"""
+        SELECT c.*
+        FROM gis_nomina_comparatives c
+        JOIN (
+            SELECT cliente, MAX(id) AS latest_id
+            FROM gis_nomina_comparatives
+            WHERE period_id = ?{filter_sql}
+            GROUP BY cliente
+        ) latest ON latest.latest_id = c.id
+        ORDER BY c.cliente, c.id
+        """,
+        params,
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def insert_result(conn: sqlite3.Connection, comparative_id: int, result: dict[str, Any]) -> int:
     cur = conn.execute(
         """
@@ -382,10 +414,12 @@ def insert_result(conn: sqlite3.Connection, comparative_id: int, result: dict[st
 def list_results(conn: sqlite3.Connection, comparative_id: int) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT r.*, w.num_empleado, w.nombre_original, w.nombre_normalizado, w.planta_normalizada,
+        SELECT r.*, c.cliente AS comparative_cliente,
+               w.num_empleado, w.nombre_original, w.nombre_normalizado, w.planta_normalizada,
                w.cliente_confirmado, w.puesto, m.match_method, m.status AS match_status, m.confidence,
                m.nss, m.rfc, m.curp, m.hc_json, m.hc_nombre AS match_hc_nombre
         FROM gis_nomina_results r
+        JOIN gis_nomina_comparatives c ON c.id = r.comparative_id
         LEFT JOIN gis_nomina_workers w ON w.id = r.worker_id
         LEFT JOIN gis_nomina_matches m ON m.worker_id = r.worker_id
         WHERE r.comparative_id = ?

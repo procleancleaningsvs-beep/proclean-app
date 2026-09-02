@@ -93,9 +93,15 @@ def run_comparative(
         raise ValueError("Cliente obligatorio para comparar.")
 
     hc_rows = headcount_rows if headcount_rows is not None else obtener_activos(cliente=cliente_norm)
-    workers = repo.list_workers(conn, period_id)
+    workers = [
+        worker
+        for worker in repo.list_workers(conn, period_id)
+        if normalize_upper(worker.get("cliente_confirmado")) == cliente_norm
+    ]
     if not workers:
-        raise ValueError("No hay trabajadores extraídos para comparar.")
+        raise ValueError(
+            f"No hay trabajadores con cliente confirmado para comparar contra {cliente_norm}."
+        )
 
     warnings: list[str] = []
     period = conn.execute("SELECT * FROM gis_nomina_periods WHERE id = ?", (period_id,)).fetchone()
