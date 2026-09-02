@@ -87,9 +87,15 @@ from modules.nomina.banorte.catalog_service import (
     analyze_catalog_version,
     catalog_version_diff,
     get_catalog_version,
-    list_catalog_versions,
     mark_catalog_ready_for_review,
     stage_catalog_version,
+)
+from modules.nomina.banorte.catalog_admin_read_model import (
+    CatalogAdminReadError,
+    get_catalog_comparison_row,
+    list_catalog_comparison_rows,
+    list_catalog_history,
+    load_catalog_admin_overview,
 )
 from modules.nomina.banorte.history_service import (
     HistoricalExportNotFound,
@@ -1439,30 +1445,45 @@ def register_banorte_routes(bp) -> None:
             return redirect(url_for("nomina.banorte_catalog_index"))
         return redirect(url_for("nomina.banorte_catalog_index", version_id=int(version_id)))
 
+    def _catalog_wants_json() -> bool:
+        return (
+            request.headers.get("X-Requested-With") == "XMLHttpRequest"
+            or request.accept_mimetypes["application/json"]
+            > request.accept_mimetypes["text/html"]
+        )
+
+    def _complete_catalog_analysis(version_id: int) -> dict[str, Any]:
+        version = get_catalog_version(_db_path(), int(version_id), include_persons=False)
+        if version["status"] == "STAGED":
+            version = analyze_catalog_version(_db_path(), int(version_id), actor=_username())
+        if version["status"] == "ANALYZED":
+            version = mark_catalog_ready_for_review(
+                _db_path(), int(version_id), actor=_username()
+            )
+        if version["status"] != "READY_FOR_REVIEW":
+            raise CatalogVersionError("transition_invalid")
+        return version
+
     @_banorte_access_required
     @_banorte_operator_required
     def banorte_catalog_index():
-        versions = list_catalog_versions(_db_path())
-        selected = None
-        selected_diff = None
-        selected_check = None
+        selected_version_id = None
         raw_version_id = request.args.get("version_id")
         if raw_version_id:
             try:
-                version_id = int(raw_version_id)
-                selected = get_catalog_version(_db_path(), version_id)
-                if selected["status"] != "STAGED":
-                    selected_diff = catalog_version_diff(_db_path(), version_id)
-                    selected_check = catalog_activation_check(_db_path(), version_id)
-            except (ValueError, CatalogVersionError):
+                selected_version_id = int(raw_version_id)
+            except ValueError:
                 abort(404)
+        try:
+            overview = load_catalog_admin_overview(
+                _db_path(), selected_version_id=selected_version_id
+            ).as_dict()
+        except CatalogAdminReadError:
+            abort(404)
         resp = Response(
             render_template(
                 "nomina/exportaciones_banorte_catalogo.html",
-                versions=versions,
-                selected=selected,
-                selected_diff=selected_diff,
-                selected_check=selected_check,
+                overview=overview,
                 csrf_token=issue_csrf_token(),
             )
         )
@@ -1475,7 +1496,18 @@ def register_banorte_routes(bp) -> None:
         require_csrf()
         file = request.files.get("file")
         if file is None:
-            flash("Seleccione un Empleados.txt.", "error")
+            message = "Selecciona un Empleados.txt."
+            if _catalog_wants_json():
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "file_required",
+                        "message": message,
+                        "csrf_token": issue_csrf_token(),
+                    },
+                    400,
+                )
+            flash(message, "error")
             return _catalog_redirect()
         try:
             version = stage_catalog_version(
@@ -1484,11 +1516,59 @@ def register_banorte_routes(bp) -> None:
                 filename=file.filename or "Empleados.txt",
                 actor=_username(),
             )
-        except (CatalogParseError, CatalogVersionError) as exc:
-            flash(f"No se pudo preparar el catálogo ({exc}).", "error")
+        except (CatalogParseError, CatalogVersionError):
+            message = "No se pudo leer el archivo. Verifica que sea el Empleados.txt de Banorte."
+            if _catalog_wants_json():
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "file_invalid",
+                        "message": message,
+                        "csrf_token": issue_csrf_token(),
+                    },
+                    422,
+                )
+            flash(message, "error")
             return _catalog_redirect()
-        flash(f"Versión #{version['id']} preparada como STAGED.", "success")
-        return _catalog_redirect(int(version["id"]))
+        version_id = int(version["id"])
+        try:
+            _complete_catalog_analysis(version_id)
+        except Exception:
+            current_app.logger.exception(
+                "Catalog Admin analysis failed for version_id=%s", version_id
+            )
+            message = (
+                "No se pudo completar el análisis. "
+                "El catálogo vigente no fue modificado."
+            )
+            if _catalog_wants_json():
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "analysis_incomplete",
+                        "message": message,
+                        "version_id": version_id,
+                        "retry_url": url_for(
+                            "nomina.banorte_catalog_analyze", version_id=version_id
+                        ),
+                        "csrf_token": issue_csrf_token(),
+                    },
+                    422,
+                )
+            flash(message, "error")
+            return _catalog_redirect(version_id)
+        redirect_url = url_for("nomina.banorte_catalog_index", version_id=version_id)
+        if _catalog_wants_json():
+            return _json_no_store(
+                {
+                    "ok": True,
+                    "version_id": version_id,
+                    "redirect_url": redirect_url,
+                    "csrf_token": issue_csrf_token(),
+                }
+            )
+        flash("Archivo analizado. Revisa la comparación antes de aplicarlo.", "success")
+        return redirect(redirect_url)
 
     @_banorte_access_required
     @_banorte_operator_required
@@ -1504,12 +1584,87 @@ def register_banorte_routes(bp) -> None:
     def banorte_catalog_analyze(version_id: int):
         require_csrf()
         try:
-            analyze_catalog_version(_db_path(), int(version_id), actor=_username())
-        except CatalogVersionError as exc:
-            flash(f"No se pudo analizar ({exc.code}).", "error")
+            _complete_catalog_analysis(int(version_id))
+        except Exception:
+            current_app.logger.exception(
+                "Catalog Admin retry failed for version_id=%s", int(version_id)
+            )
+            message = (
+                "No se pudo completar el análisis. "
+                "El catálogo vigente no fue modificado."
+            )
+            if _catalog_wants_json():
+                return _json_no_store(
+                    {
+                        "ok": False,
+                        "code": "analysis_incomplete",
+                        "message": message,
+                        "version_id": int(version_id),
+                        "csrf_token": issue_csrf_token(),
+                    },
+                    422,
+                )
+            flash(message, "error")
             return _catalog_redirect(int(version_id))
-        flash("Proyección analizada sin activar catálogo.", "success")
-        return _catalog_redirect(int(version_id))
+        redirect_url = url_for("nomina.banorte_catalog_index", version_id=int(version_id))
+        if _catalog_wants_json():
+            return _json_no_store(
+                {
+                    "ok": True,
+                    "version_id": int(version_id),
+                    "redirect_url": redirect_url,
+                    "csrf_token": issue_csrf_token(),
+                }
+            )
+        flash("Análisis completado. Revisa la comparación.", "success")
+        return redirect(redirect_url)
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_catalog_comparison_rows(version_id: int):
+        try:
+            result = list_catalog_comparison_rows(
+                _db_path(),
+                int(version_id),
+                page=request.args.get("page", 1),
+                page_size=request.args.get("page_size", 25),
+                filter_name=request.args.get("filter", "all"),
+                search=request.headers.get("X-Catalog-Search", ""),
+            ).as_dict()
+        except CatalogAdminReadError as exc:
+            status = 404 if exc.code in {"version_not_found", "page_not_found"} else 400
+            return _json_no_store({"ok": False, "code": exc.code}, status)
+        return _json_no_store(
+            {"ok": True, **result, "csrf_token": issue_csrf_token()}
+        )
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_catalog_comparison_detail(version_id: int, row_key: str):
+        try:
+            item = get_catalog_comparison_row(_db_path(), int(version_id), row_key)
+        except CatalogAdminReadError as exc:
+            status = 404 if exc.code in {"version_not_found", "row_not_found"} else 400
+            return _json_no_store({"ok": False, "code": exc.code}, status)
+        return _json_no_store(
+            {"ok": True, "item": item, "csrf_token": issue_csrf_token()}
+        )
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_catalog_history():
+        try:
+            result = list_catalog_history(
+                _db_path(),
+                page=request.args.get("page", 1),
+                page_size=request.args.get("page_size", 20),
+            )
+        except CatalogAdminReadError as exc:
+            status = 404 if exc.code == "page_not_found" else 400
+            return _json_no_store({"ok": False, "code": exc.code}, status)
+        return _json_no_store(
+            {"ok": True, **result, "csrf_token": issue_csrf_token()}
+        )
 
     @_banorte_access_required
     @_banorte_operator_required
@@ -1652,6 +1807,24 @@ def register_banorte_routes(bp) -> None:
         "/exportaciones/banorte/catalogo/versions/<int:version_id>/diff",
         endpoint="banorte_catalog_diff",
         view_func=banorte_catalog_diff,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/comparison",
+        endpoint="banorte_catalog_comparison_rows",
+        view_func=banorte_catalog_comparison_rows,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/comparison/<string:row_key>",
+        endpoint="banorte_catalog_comparison_detail",
+        view_func=banorte_catalog_comparison_detail,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/history",
+        endpoint="banorte_catalog_history",
+        view_func=banorte_catalog_history,
         methods=["GET"],
     )
     bp.add_url_rule(

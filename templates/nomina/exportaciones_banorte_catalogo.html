@@ -1,106 +1,237 @@
 {% extends "base.html" %}
 {% block extra_head %}
 <link rel="stylesheet" href="{{ url_for('static', filename='nomina/exportaciones_banorte.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='nomina/banorte_catalog_admin.css') }}">
 {% endblock %}
 {% block content %}
-<section class="page-head pc-hub-hero">
-  <div class="pc-hub-hero__main">
-    <span class="pc-page-eyebrow">Nóminas · Banorte · Administración</span>
-    <h2 class="pc-page-title">Catálogo oficial Banorte</h2>
-    <p class="pc-page-subtitle">Release 2A · infraestructura dormida y revisión administrativa</p>
-  </div>
-  <div class="page-head-actions">
-    <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_index') }}">Volver a Banorte</a>
-  </div>
-</section>
-
-<div class="pc-safe-zone banorte-wrap" data-csrf="{{ csrf_token }}">
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Subir Empleados.txt</h3>
-    <form method="post" action="{{ url_for('nomina.banorte_catalog_upload') }}" enctype="multipart/form-data" class="banorte-export-bar">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Archivo oficial <input type="file" name="file" accept=".txt,text/plain" required></label>
-      <button class="btn btn-primary" type="submit">Preparar versión STAGED</button>
-    </form>
-    <p class="banorte-hint">El upload no activa ni modifica beneficiarios legacy, drafts o pagos.</p>
+{% set selected = overview.selected %}
+{% set preview = selected.preview if selected else none %}
+<main
+  id="banorte-catalog-admin"
+  class="banorte-catalog-admin"
+  data-csrf="{{ csrf_token }}"
+  data-upload-url="{{ url_for('nomina.banorte_catalog_upload') }}"
+  data-history-url="{{ url_for('nomina.banorte_catalog_history') }}"
+  {% if selected %}
+  data-version-id="{{ selected.id }}"
+  data-comparison-url="{{ url_for('nomina.banorte_catalog_comparison_rows', version_id=selected.id) }}"
+  data-detail-url-template="{{ url_for('nomina.banorte_catalog_comparison_detail', version_id=selected.id, row_key='__ROW__') }}"
+  {% if selected.analysis_incomplete %}data-retry-url="{{ url_for('nomina.banorte_catalog_analyze', version_id=selected.id) }}"{% endif %}
+  {% endif %}
+>
+  <section class="catalog-admin-hero" aria-labelledby="catalog-admin-title">
+    <div>
+      <p class="catalog-admin-eyebrow">Nóminas · Banorte</p>
+      <h1 id="catalog-admin-title">Catálogo Banorte</h1>
+      <p class="catalog-admin-subtitle">Administra el archivo que define las personas y cuentas vigentes para pagos Banorte.</p>
+    </div>
+    <nav class="catalog-admin-actions" aria-label="Acciones del catálogo">
+      <a class="btn btn-primary" href="#actualizar-catalogo">Actualizar catálogo</a>
+      <a class="btn btn-secondary" href="#historial-catalogo">Historial de versiones</a>
+      <a class="btn btn-secondary" href="{{ url_for('nomina.banorte_index') }}">Volver a Banorte</a>
+    </nav>
   </section>
 
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Versiones</h3>
-    <div class="pc-table-shell">
-      <table class="banorte-table">
-        <thead><tr><th>ID</th><th>Fecha</th><th>Filas</th><th>Personas</th><th>Estado</th><th>Acciones</th></tr></thead>
-        <tbody>
-          {% for version in versions %}
+  <section class="catalog-admin-card catalog-admin-current" aria-labelledby="catalog-current-title">
+    <div class="catalog-admin-card__heading">
+      <div>
+        <p class="catalog-admin-kicker">CATÁLOGO VIGENTE</p>
+        <h2 id="catalog-current-title">Archivo operativo actual</h2>
+      </div>
+      {% if overview.active %}
+      <span class="catalog-admin-badge catalog-admin-badge--success">Vigente</span>
+      {% endif %}
+    </div>
+    {% if overview.active %}
+    <dl class="catalog-admin-metrics catalog-admin-metrics--current">
+      <div><dt>Fecha del archivo</dt><dd>{{ overview.active.report_date }}</dd></div>
+      <div><dt>Personas vigentes</dt><dd>{{ overview.active.person_count if overview.active.person_count is not none else '—' }}</dd></div>
+      <div><dt>Filas del archivo</dt><dd>{{ overview.active.data_row_count }}</dd></div>
+      <div><dt>Altas posteriores</dt><dd>{{ overview.active.active_post_snapshot_count }}</dd></div>
+      <div><dt>Aplicado el</dt><dd>{{ overview.active.activated_at or '—' }}</dd></div>
+    </dl>
+    <p class="catalog-admin-explanation">Este archivo, junto con las altas realizadas después de su fecha, representa la realidad Banorte vigente.</p>
+    {% else %}
+    <div class="catalog-admin-empty catalog-admin-empty--prominent">
+      <h3>Aún no hay un catálogo Banorte vigente.</h3>
+      <p>Carga un Empleados.txt para revisar su contenido antes de aplicarlo.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <section id="actualizar-catalogo" class="catalog-admin-card" aria-labelledby="catalog-update-title">
+    <div class="catalog-admin-card__heading">
+      <div>
+        <p class="catalog-admin-kicker">ACTUALIZAR</p>
+        <h2 id="catalog-update-title">Actualizar catálogo</h2>
+        <p>Selecciona el Empleados.txt descargado de Banorte. Lo analizaremos y compararemos sin cambiar el catálogo vigente.</p>
+      </div>
+    </div>
+    <form class="catalog-admin-upload" data-catalog-upload-form method="post" action="{{ url_for('nomina.banorte_catalog_upload') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="catalog-admin-file">
+        <span>Seleccionar archivo</span>
+        <input data-catalog-file type="file" name="file" accept=".txt,text/plain" required>
+        <span class="catalog-admin-file__name" data-file-name>Ningún archivo seleccionado</span>
+      </label>
+      <button class="btn btn-primary" data-analyze-button type="submit">Analizar archivo</button>
+    </form>
+    <div class="catalog-admin-operation" data-operation-status role="status" aria-live="polite" hidden></div>
+    {% if selected and selected.analysis_incomplete %}
+    <div class="catalog-admin-notice catalog-admin-notice--warning">
+      <div>
+        <strong>No se pudo completar el análisis.</strong>
+        <p>El catálogo vigente no fue modificado.</p>
+      </div>
+      <div class="catalog-admin-notice__actions">
+        <button class="btn btn-primary" type="button" data-retry-analysis>Reintentar análisis</button>
+        <a class="btn btn-secondary" href="#actualizar-catalogo">Elegir otro archivo</a>
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  {% if selected and selected.comparison_available and preview %}
+  <section class="catalog-admin-card" aria-labelledby="catalog-comparison-title">
+    <div class="catalog-admin-card__heading catalog-admin-card__heading--split">
+      <div>
+        <p class="catalog-admin-kicker">COMPARAR</p>
+        <h2 id="catalog-comparison-title">Comparación con el catálogo vigente</h2>
+        <p>Fecha del nuevo archivo: <strong>{{ selected.report_date }}</strong></p>
+      </div>
+      <span class="catalog-admin-badge catalog-admin-badge--{{ selected.status_tone }}">{{ selected.status_label }}</span>
+    </div>
+
+    <div class="catalog-admin-summary" aria-label="Resumen de comparación">
+      <article><span>Sin cambios</span><strong>{{ preview.comparison.unchanged }}</strong></article>
+      <article><span>Altas</span><strong>{{ preview.comparison.added }}</strong></article>
+      <article><span>Bajas</span><strong>{{ preview.comparison.removed }}</strong></article>
+      <article><span>Cambios de cuenta</span><strong>{{ preview.comparison.account_changed }}</strong></article>
+      <article><span>Cambios de número de empleado</span><strong>{{ preview.comparison.employee_changed }}</strong></article>
+      <article><span>Cambios de ambos identificadores</span><strong>{{ preview.comparison.both_changed }}</strong></article>
+      <article><span>Altas posteriores absorbidas</span><strong>{{ preview.comparison.post_absorbed }}</strong></article>
+      <article><span>Altas posteriores que perderán vigencia</span><strong>{{ preview.comparison.post_dropped }}</strong></article>
+      <article class="catalog-admin-summary__neutral"><span>Relaciones identificadas</span><strong>{{ preview.comparison.lineage_confirmed }}</strong></article>
+      <article class="catalog-admin-summary__neutral"><span>Relaciones históricas no confirmadas</span><strong>{{ preview.comparison.lineage_unconfirmed }}</strong></article>
+      <article class="{% if preview.comparison.conflicts %}catalog-admin-summary__danger{% endif %}"><span>Conflictos que requieren atención</span><strong>{{ preview.comparison.conflicts }}</strong></article>
+    </div>
+
+    <div class="catalog-admin-toolbar">
+      <label>
+        <span>Mostrar</span>
+        <select data-comparison-filter>
+          <option value="all">Todos</option>
+          <option value="added">Altas</option>
+          <option value="removed">Bajas</option>
+          <option value="account_changed">Cambios de cuenta</option>
+          <option value="employee_changed">Cambios de número</option>
+          <option value="lineage_unconfirmed">Relación histórica no confirmada</option>
+          <option value="conflict">Conflictos</option>
+        </select>
+      </label>
+      <label class="catalog-admin-search">
+        <span>Buscar</span>
+        <input data-comparison-search type="search" autocomplete="off" placeholder="Nombre, empleado, cuenta o RFC" maxlength="120">
+      </label>
+    </div>
+
+    <div class="catalog-admin-table-shell" data-comparison-region aria-busy="false">
+      <table class="catalog-admin-table">
+        <thead>
+          <tr><th>Cambio</th><th>Persona</th><th>Número</th><th>Cuenta</th><th>Relación</th><th><span class="sr-only">Acción</span></th></tr>
+        </thead>
+        <tbody data-comparison-rows>
+          <tr><td colspan="6" class="catalog-admin-table__message">Cargando comparación…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="catalog-admin-pagination" data-comparison-pagination hidden>
+      <button class="btn btn-secondary btn-sm" type="button" data-page-previous>Anterior</button>
+      <span data-page-status></span>
+      <button class="btn btn-secondary btn-sm" type="button" data-page-next>Siguiente</button>
+    </div>
+  </section>
+
+  <section class="catalog-admin-card catalog-admin-apply" aria-labelledby="catalog-apply-title">
+    <div class="catalog-admin-card__heading">
+      <div>
+        <p class="catalog-admin-kicker">CAMBIOS, RELACIONES Y CONFLICTOS</p>
+        <h2 id="catalog-apply-title">Aplicar nuevo catálogo</h2>
+      </div>
+    </div>
+    <dl class="catalog-admin-apply__summary">
+      <div><dt>Personas que quedarán vigentes</dt><dd>{{ preview.final_current_total }}</dd></div>
+      <div><dt>Personas que dejarán de estar vigentes</dt><dd>{{ preview.leaving }}</dd></div>
+      <div><dt>Altas posteriores que serán absorbidas</dt><dd>{{ preview.post_additions_absorbed }}</dd></div>
+      <div><dt>Altas posteriores que perderán vigencia</dt><dd>{{ preview.post_additions_dropped }}</dd></div>
+      <div><dt>Relaciones históricas no confirmadas</dt><dd>{{ preview.lineage_unconfirmed_count }}</dd></div>
+      <div><dt>Conflictos que impiden aplicar</dt><dd>{{ preview.operational_conflict_count }}</dd></div>
+    </dl>
+    {% if preview.operational_conflict_count == 0 %}
+    <p class="catalog-admin-ready">El archivo está listo para aplicarse como nuevo catálogo vigente.</p>
+    {% endif %}
+    {% if preview.lineage_unconfirmed_count > 0 %}
+    <p class="catalog-admin-notice catalog-admin-notice--neutral">Las personas sin relación histórica confirmada se incorporarán como identidades nuevas y separadas.</p>
+    {% endif %}
+    <button class="btn btn-primary" type="button" disabled aria-describedby="catalog-apply-disabled-reason">Aplicar como nuevo catálogo vigente</button>
+    <p id="catalog-apply-disabled-reason" class="catalog-admin-muted">La aplicación del nuevo catálogo se habilitará después de validar esta nueva vista.</p>
+  </section>
+  {% elif selected and not selected.comparison_available %}
+  <section class="catalog-admin-card catalog-admin-empty">
+    <h2>{{ selected.status_label }}</h2>
+    <p>{{ selected.status_subtext or 'Esta versión sólo está disponible para consulta básica.' }}</p>
+  </section>
+  {% elif not selected %}
+  <section class="catalog-admin-card catalog-admin-empty">
+    <h2>Sin comparación pendiente</h2>
+    <p>Selecciona un Empleados.txt para analizarlo sin cambiar el catálogo vigente.</p>
+  </section>
+  {% endif %}
+
+  <section id="historial-catalogo" class="catalog-admin-card" aria-labelledby="catalog-history-title">
+    <div class="catalog-admin-card__heading">
+      <div>
+        <p class="catalog-admin-kicker">HISTORIAL BÁSICO</p>
+        <h2 id="catalog-history-title">Historial de versiones</h2>
+      </div>
+    </div>
+    <div class="catalog-admin-table-shell">
+      <table class="catalog-admin-table">
+        <thead><tr><th>Fecha del archivo</th><th>Personas</th><th>Estado</th><th>Aplicado el</th><th>Acción</th></tr></thead>
+        <tbody data-history-rows>
+          {% for version in overview.history[:20] %}
           <tr>
-            <td>#{{ version.id }}</td>
             <td>{{ version.report_date }}</td>
-            <td>{{ version.data_row_count }}</td>
             <td>{{ version.person_count if version.person_count is not none else '—' }}</td>
-            <td><span class="banorte-status">{{ version.status }}</span></td>
-            <td>
-              <div class="banorte-export-bar">
-                <a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_catalog_index', version_id=version.id) }}">Revisar</a>
-                {% if version.status == 'STAGED' %}
-                <form method="post" action="{{ url_for('nomina.banorte_catalog_analyze', version_id=version.id) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button class="btn btn-primary btn-sm" type="submit">Analizar</button>
-                </form>
-                {% elif version.status == 'ANALYZED' %}
-                <form method="post" action="{{ url_for('nomina.banorte_catalog_pre_reconcile', version_id=version.id) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button class="btn btn-secondary btn-sm" type="submit">Pre-reconciliar</button>
-                </form>
-                <form method="post" action="{{ url_for('nomina.banorte_catalog_ready', version_id=version.id) }}">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                  <button class="btn btn-primary btn-sm" type="submit">Listo para revisión</button>
-                </form>
-                {% endif %}
-              </div>
-            </td>
+            <td><span class="catalog-admin-badge catalog-admin-badge--{{ version.status_tone }}">{{ version.status_label }}</span>{% if version.status_subtext %}<small>{{ version.status_subtext }}</small>{% endif %}</td>
+            <td>{{ version.activated_at or '—' }}</td>
+            <td><a class="btn btn-secondary btn-sm" href="{{ url_for('nomina.banorte_catalog_index', version_id=version.id) }}">{% if version.status_label in ['Pendiente', 'Requiere atención'] %}Continuar{% else %}Ver{% endif %}</a></td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="banorte-empty">Sin versiones. El estado 0 ACTIVE es válido.</td></tr>
+          <tr><td colspan="5" class="catalog-admin-table__message">Todavía no hay versiones para mostrar.</td></tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </section>
-
-  {% if selected %}
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Revisión de versión #{{ selected.id }}</h3>
-    <div class="banorte-export-bar">
-      <span>Estado: <strong>{{ selected.status }}</strong></span>
-      <span>Elegibles: <strong>{{ selected.eligible_row_count if selected.eligible_row_count is not none else '—' }}</strong></span>
-      <span>Personas listas: <strong>{{ selected.catalog_ready_count if selected.catalog_ready_count is not none else '—' }}</strong></span>
-      <span>Bloqueadas: <strong>{{ selected.blocked_person_count if selected.blocked_person_count is not none else '—' }}</strong></span>
+    {% if overview.history|length > 20 %}
+    <div class="catalog-admin-pagination" data-history-pagination>
+      <button class="btn btn-secondary btn-sm" type="button" data-history-previous disabled>Anterior</button>
+      <span data-history-status>Página 1</span>
+      <button class="btn btn-secondary btn-sm" type="button" data-history-next>Siguiente</button>
     </div>
-    {% if selected_diff %}
-    <p class="banorte-hint">Diff agregado: {{ selected_diff.added }} altas · {{ selected_diff.changed }} cambios · {{ selected_diff.removed }} bajas · {{ selected_diff.unchanged }} sin cambio.</p>
-    {% endif %}
-    {% if selected_check %}
-    <p class="banorte-hint">Activation-check: {{ selected_check.projection_blockers }} blockers de proyección · {{ selected_check.reconciliation_pending }} reconciliaciones pendientes · {{ selected_check.stale_reconciliations }} stale · {{ selected_check.legacy_open_draft_blockers }} drafts legacy OPEN.</p>
     {% endif %}
   </section>
 
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Reconciliación manual controlada</h3>
-    <form method="post" action="{{ url_for('nomina.banorte_catalog_manual_reconcile') }}" class="banorte-export-bar">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <label>Person ID <input type="number" name="person_id" min="1" required></label>
-      <label>Beneficiary ID <input type="number" name="beneficiary_id" min="1" required></label>
-      <label>Motivo <input type="text" name="reason" minlength="3" required></label>
-      <button class="btn btn-secondary" type="submit">Registrar reconciliación</button>
-    </form>
-    <p class="banorte-hint">El backend vuelve a validar estado, employee number, cuenta, nombre y fingerprint; no modifica el beneficiario legacy.</p>
-  </section>
-  {% endif %}
-
-  <section class="banorte-panel pc-card">
-    <h3 class="pc-panel-title">Activación</h3>
-    <p class="banorte-status banorte-status--warn">Activación disponible después de Release 2B</p>
-    <p class="banorte-hint">Release 2A no registra ruta HTTP de activación. El estado productivo esperado permanece en 0 ACTIVE.</p>
-  </section>
-</div>
+  <dialog class="catalog-admin-dialog" data-detail-dialog aria-labelledby="catalog-detail-title">
+    <div class="catalog-admin-dialog__header">
+      <div>
+        <p class="catalog-admin-kicker">DETALLE</p>
+        <h2 id="catalog-detail-title" data-detail-title>Detalle del cambio</h2>
+      </div>
+      <button class="catalog-admin-dialog__close" type="button" data-detail-close aria-label="Cerrar detalle">×</button>
+    </div>
+    <div data-detail-content></div>
+  </dialog>
+</main>
+<script src="{{ url_for('static', filename='nomina/banorte_catalog_admin.js') }}"></script>
 {% endblock %}

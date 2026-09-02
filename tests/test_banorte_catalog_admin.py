@@ -19,10 +19,17 @@ from modules.nomina.banorte.catalog_activation import (
     activate_catalog_version,
     catalog_activation_check,
 )
+from modules.nomina.banorte.catalog_admin_read_model import (
+    get_catalog_comparison_row,
+    list_catalog_comparison_rows,
+    load_catalog_admin_overview,
+)
+from modules.nomina.banorte.catalog_application_plan import catalog_apply_preview
 from modules.nomina.banorte.catalog_parser import CATALOG_HEADER_V1
 from modules.nomina.banorte.catalog_reconciliation import pre_reconcile_catalog_version
 from modules.nomina.banorte.catalog_service import (
     analyze_catalog_version,
+    mark_catalog_ready_for_review,
     stage_catalog_version,
 )
 from modules.nomina.banorte.repository import connect
@@ -948,69 +955,297 @@ def test_a5d_historical_interface_is_detail_only_and_keeps_a5a_guard(tmp_path):
     ).status_code == 403
 
 
-def test_catalog_admin_ui_and_workflow_have_no_activation_route(tmp_path):
+def test_c3a_check_1_overview_status_mapping_and_retired_engineering_copy(tmp_path):
     app = _make_app(tmp_path, "admin")
     client = app.test_client()
     page = client.get("/nomina/exportaciones/banorte/catalogo")
     assert page.status_code == 200
     assert page.headers["Cache-Control"] == "private, no-store"
     html = page.data.decode("utf-8")
-    assert "Catálogo oficial Banorte" in html
-    assert "Activación disponible después de Release 2B" in html
-    token = _token(page.data)
+    assert "Catálogo Banorte" in html
+    assert "Aún no hay un catálogo Banorte vigente." in html
+    assert "Actualizar catálogo" in html
+    assert "Historial de versiones" in html
+    retired = (
+        "Release 2A",
+        "Release 2B",
+        "infraestructura dormida",
+        ">STAGED<",
+        ">READY_FOR_REVIEW<",
+        ">ACTIVE<",
+        ">SUPERSEDED<",
+        "Reconciliación manual controlada",
+        "Person ID",
+        "Beneficiary ID",
+        "Activation-check",
+        "reconciliation_pending",
+        "fingerprint",
+        "0 ACTIVE",
+    )
+    assert all(copy not in html for copy in retired)
+
+    active_version_id, _ = _activate_catalog(app.config["DATABASE"])
+    active_page = client.get("/nomina/exportaciones/banorte/catalogo")
+    active_html = active_page.get_data(as_text=True)
+    assert active_page.status_code == 200
+    assert "CATÁLOGO VIGENTE" in active_html
+    assert "Fecha del archivo" in active_html
+    assert "Aplicado el" in active_html
+    assert ">Vigente<" in active_html
+    overview = load_catalog_admin_overview(app.config["DATABASE"])
+    assert overview.active_version_id == active_version_id
+    assert overview.active["status_label"] == "Vigente"
+
+
+def test_c3a_check_2_upload_analyze_orchestration_never_activates_and_failure_is_safe(
+    tmp_path, monkeypatch
+):
+    import modules.nomina.banorte.routes as banorte_routes
+
+    app = _make_app(tmp_path, "admin")
+    active_version_id, _ = _activate_catalog(app.config["DATABASE"])
+    client = app.test_client()
+    token = _token(client.get("/nomina/exportaciones/banorte/catalogo").data)
+    conn = connect(app.config["DATABASE"])
+    before_bound = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+            "WHERE reconciliation_status='CATALOG_BOUND'"
+        ).fetchone()[0]
+    )
+    conn.close()
 
     uploaded = client.post(
         "/nomina/exportaciones/banorte/catalogo/versions",
-        data={"csrf_token": token, "file": (io.BytesIO(_payload()), "synthetic.txt")},
+        data={
+            "csrf_token": token,
+            "file": (
+                io.BytesIO(
+                    _catalog_payload(
+                        report_header="30/ago./2026",
+                        employee="0000000099",
+                        name="PERSONA NUEVA",
+                        rfc="PNUE900101AA1",
+                        account="9999999999",
+                    )
+                ),
+                "empleados-new.txt",
+            ),
+        },
         content_type="multipart/form-data",
-        follow_redirects=False,
+        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
     )
-    assert uploaded.status_code == 302
-
-    conn = sqlite3.connect(app.config["DATABASE"])
-    version_id = conn.execute("SELECT id FROM nomina_banorte_catalog_versions").fetchone()[0]
+    assert uploaded.status_code == 200
+    version_id = uploaded.get_json()["version_id"]
+    conn = connect(app.config["DATABASE"])
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?", (version_id,)
+    ).fetchone()[0] == "READY_FOR_REVIEW"
+    assert conn.execute(
+        "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
+    ).fetchone()[0] == active_version_id
+    assert conn.execute(
+        "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+        "WHERE reconciliation_status='CATALOG_BOUND'"
+    ).fetchone()[0] == before_bound
+    assert conn.execute(
+        "SELECT COUNT(*) FROM nomina_banorte_catalog_events WHERE event_type='VERSION_ACTIVATED'"
+    ).fetchone()[0] == 1
     conn.close()
-    detail = client.get(f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}")
-    assert detail.status_code == 200
-    assert "beneficiary_material_state_json" not in detail.get_data(as_text=True)
 
-    analyzed = client.post(
-        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/analyze",
-        data={"csrf_token": token},
-    )
-    assert analyzed.status_code == 302
-    pre = client.post(
-        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/pre-reconcile",
-        data={"csrf_token": token},
-    )
-    assert pre.status_code == 302
-    ready = client.post(
-        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/ready",
-        data={"csrf_token": token},
-    )
-    assert ready.status_code == 302
-    diff = client.get(f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/diff")
-    assert diff.status_code == 200
-    check = client.get(
-        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activation-check"
-    )
-    assert check.status_code == 200
-    assert check.get_json()["active_version_id"] is None
+    def fail_analysis(*_args, **_kwargs):
+        raise RuntimeError("synthetic analysis failure")
 
-    activation_rules = sorted(
-        rule.rule
-        for rule in app.url_map.iter_rules()
-        if "banorte" in rule.rule and ("activate" in rule.rule or "rollback" in rule.rule)
+    monkeypatch.setattr(banorte_routes, "analyze_catalog_version", fail_analysis)
+    failed = client.post(
+        "/nomina/exportaciones/banorte/catalogo/versions",
+        data={
+            "csrf_token": uploaded.get_json()["csrf_token"],
+            "file": (
+                io.BytesIO(
+                    _catalog_payload(
+                        report_header="31/ago./2026",
+                        employee="0000000100",
+                        name="PERSONA ERROR",
+                        rfc="PERR900101AA1",
+                        account="1010101010",
+                    )
+                ),
+                "empleados-error.txt",
+            ),
+        },
+        content_type="multipart/form-data",
+        headers={"Accept": "application/json", "X-Requested-With": "XMLHttpRequest"},
     )
-    assert "/nomina/exportaciones/banorte/catalogo/versions/<int:version_id>/activate" in activation_rules
-    assert "/nomina/exportaciones/banorte/catalogo/versions/<int:version_id>/rollback" in activation_rules
-    activate = client.post(
-        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
-        data={"csrf_token": token},
+    assert failed.status_code == 422
+    assert failed.get_json()["message"] == (
+        "No se pudo completar el análisis. El catálogo vigente no fue modificado."
     )
-    assert activate.status_code in {200, 400}
-    if activate.status_code == 200:
-        assert activate.get_json()["active_version_id"] == version_id
+    conn = connect(app.config["DATABASE"])
+    assert conn.execute(
+        "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
+    ).fetchone()[0] == active_version_id
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?",
+        (failed.get_json()["version_id"],),
+    ).fetchone()[0] == "STAGED"
+    conn.close()
+
+
+def test_c3a_check_3_comparison_keeps_unconfirmed_neutral_and_conflicts_blocking(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    staged = stage_catalog_version(
+        app.config["DATABASE"],
+        raw=_payload().replace(b"0000000001", b"0000000002").replace(
+            b"1111111111", b"2222222222"
+        ),
+        filename="comparison.txt",
+        actor="admin",
+    )
+    analyze_catalog_version(app.config["DATABASE"], staged["id"], actor="admin")
+    mark_catalog_ready_for_review(app.config["DATABASE"], staged["id"], actor="admin")
+    preview = catalog_apply_preview(app.config["DATABASE"], staged["id"])
+    overview = load_catalog_admin_overview(
+        app.config["DATABASE"], selected_version_id=staged["id"]
+    )
+    assert preview["lineage_unconfirmed_count"] == 1
+    assert preview["operational_conflict_count"] == 0
+    assert overview.selected["status_label"] == "Pendiente"
+    rows = list_catalog_comparison_rows(app.config["DATABASE"], staged["id"])
+    unconfirmed = [item for item in rows.items if item["lineage_status"] == "UNCONFIRMED"]
+    assert len(unconfirmed) == 1
+    assert unconfirmed[0]["operational_conflict"] is False
+    assert unconfirmed[0]["lineage_label"] == "Relación histórica no confirmada"
+
+    duplicate = _row()
+    duplicate[1] = "OTRA PERSONA"
+    duplicate[6] = "OTRA900101AA1"
+    duplicate[14] = "3333333333"
+    conflict_payload = "\n".join(
+        [
+            "FECHA: 31/ago./2026",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(_row()) + "|",
+            "|".join(duplicate) + "|",
+        ]
+    ).encode("utf-8")
+    conflict = stage_catalog_version(
+        app.config["DATABASE"], raw=conflict_payload, filename="conflict.txt", actor="admin"
+    )
+    analyze_catalog_version(app.config["DATABASE"], conflict["id"], actor="admin")
+    mark_catalog_ready_for_review(app.config["DATABASE"], conflict["id"], actor="admin")
+    conflict_overview = load_catalog_admin_overview(
+        app.config["DATABASE"], selected_version_id=conflict["id"]
+    )
+    assert conflict_overview.selected["status_label"] == "Requiere atención"
+    conflicts = list_catalog_comparison_rows(
+        app.config["DATABASE"], conflict["id"], filter_name="conflict"
+    )
+    assert conflicts.total >= 1
+    assert all(item["operational_conflict"] for item in conflicts.items)
+
+
+def test_c3a_check_4_rows_search_masking_detail_pagination_and_history(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    rows = []
+    for index in range(1, 31):
+        row = _row()
+        row[0] = f"{index + 1000:010d}"
+        row[1] = f"PERSONA PAGINADA {index:02d}"
+        row[6] = f"PAGI900101A{index:02d}"
+        row[14] = f"777777{index:04d}"
+        rows.append(row)
+    payload = "\n".join(
+        [
+            "FECHA: 30/ago./2026",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            *("|".join(row) + "|" for row in rows),
+        ]
+    ).encode("utf-8")
+    staged = stage_catalog_version(
+        app.config["DATABASE"], raw=payload, filename="long.txt", actor="admin"
+    )
+    analyze_catalog_version(app.config["DATABASE"], staged["id"], actor="admin")
+    mark_catalog_ready_for_review(app.config["DATABASE"], staged["id"], actor="admin")
+
+    first = list_catalog_comparison_rows(
+        app.config["DATABASE"], staged["id"], page=1, page_size=10
+    )
+    assert first.total >= 30
+    assert len(first.items) == 10
+    assert first.has_next is True
+    searched = list_catalog_comparison_rows(
+        app.config["DATABASE"],
+        staged["id"],
+        search="7777770017",
+    )
+    assert searched.total == 1
+    item = searched.items[0]
+    assert item["target_person"]["account_masked"].endswith("0017")
+    assert item["target_person"]["account_masked"] != "7777770017"
+    assert "_search_text_private" not in item
+    detail = get_catalog_comparison_row(
+        app.config["DATABASE"], staged["id"], item["row_key"]
+    )
+    assert detail["target_person"]["account_masked"] == item["target_person"]["account_masked"]
+
+    client = app.test_client()
+    conn = connect(app.config["DATABASE"])
+    before_gets = tuple(
+        int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in (
+            "nomina_banorte_catalog_versions",
+            "nomina_banorte_beneficiaries",
+            "nomina_banorte_catalog_reconciliations",
+            "nomina_banorte_catalog_events",
+        )
+    )
+    conn.close()
+    response = client.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{staged['id']}/comparison?page=1&page_size=10&filter=all",
+        headers={"X-Catalog-Search": "7777770017"},
+    )
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.get_json()["total"] == 1
+    assert "7777770017" not in response.get_data(as_text=True)
+    history = client.get("/nomina/exportaciones/banorte/catalogo/history?page=1&page_size=20")
+    assert history.status_code == 200
+    assert history.get_json()["total"] >= 2
+    assert {item["status_label"] for item in history.get_json()["items"]} >= {
+        "Vigente",
+        "Pendiente",
+    }
+    detail_response = client.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{staged['id']}/comparison/{item['row_key']}"
+    )
+    assert detail_response.status_code == 200
+    assert "7777770017" not in detail_response.get_data(as_text=True)
+    conn = connect(app.config["DATABASE"])
+    after_gets = tuple(
+        int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        for table in (
+            "nomina_banorte_catalog_versions",
+            "nomina_banorte_beneficiaries",
+            "nomina_banorte_catalog_reconciliations",
+            "nomina_banorte_catalog_events",
+        )
+    )
+    conn.close()
+    assert after_gets == before_gets
+
+    denied = _make_app(tmp_path, "supervisor", db_path=app.config["DATABASE"]).test_client()
+    assert denied.get("/nomina/exportaciones/banorte/catalogo").status_code == 403
+    assert denied.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{staged['id']}/comparison"
+    ).status_code == 403
+    assert denied.get("/nomina/exportaciones/banorte/catalogo/history").status_code == 403
 
 
 def test_activation_check_counts_only_open_legacy_drafts_and_never_activates(tmp_path):
