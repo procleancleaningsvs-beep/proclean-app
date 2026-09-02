@@ -94,7 +94,7 @@ def evaluate_payment_authority(
             reason_codes.append("RECONCILIATION_MISSING")
         elif reconciliation is not None:
             recon_status = str(reconciliation.get("reconciliation_status") or "")
-            if recon_status not in {"AUTO_MATCHED", "MANUAL_MATCHED"}:
+            if recon_status not in {"AUTO_MATCHED", "MANUAL_MATCHED", "CATALOG_BOUND"}:
                 reason_codes.append(recon_status or "RECONCILIATION_MISSING")
             elif int(reconciliation.get("is_current") or 0) != 1:
                 reason_codes.append("RECONCILIATION_STALE")
@@ -254,7 +254,7 @@ def resolve_catalog_person_id_for_beneficiary(
         FROM nomina_banorte_catalog_reconciliations r
         JOIN nomina_banorte_catalog_persons p ON p.id=r.person_id
         WHERE r.version_id=? AND r.beneficiary_id=? AND r.is_current=1
-          AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+          AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED','CATALOG_BOUND')
           AND p.version_id=?
         LIMIT 1
         """,

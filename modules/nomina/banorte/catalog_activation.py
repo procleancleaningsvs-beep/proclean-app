@@ -7,6 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from modules.nomina.banorte.beneficiary_material import beneficiary_material_fingerprint
+from modules.nomina.banorte.catalog_application_plan import (
+    CatalogApplicationError,
+    apply_new_baseline_plan,
+    build_new_baseline_plan,
+)
 from modules.nomina.banorte.catalog_legacy_sync import (
     DRAFT_BLOCK_REASON,
     apply_catalog_legacy_sync,
@@ -145,19 +150,29 @@ def catalog_activation_check(db_path: str | Path, version_id: int) -> dict[str, 
             sync_plan_errors = list(sync_plan.errors)
 
         reasons: list[str] = []
+        c2_preview: dict[str, Any] | None = None
+        use_c2 = active is not None and int(active["id"]) != int(version_id)
+        if use_c2:
+            c2_preview = build_new_baseline_plan(conn, int(version_id)).preview()
+            reasons = [
+                str(blocker.get("code") or "APPLICATION_BLOCKED")
+                for blocker in c2_preview["operational_blockers"]
+            ]
         if version["status"] != "READY_FOR_REVIEW":
-            reasons.append("VERSION_NOT_READY_FOR_REVIEW")
-        if projection_blockers:
-            reasons.append("PROJECTION_BLOCKERS")
-        if reconciliation_pending and not sync_plan_valid:
-            reasons.append("RECONCILIATION_PENDING")
-        if stale_count and not sync_plan_valid:
-            reasons.append("STALE_RECONCILIATIONS")
-        if sync_plan is not None and not sync_plan_valid:
-            reasons.append("CATALOG_SYNC_INCOMPLETE")
-        if incompatible_open:
-            reasons.append("CATALOG_VERSION_CHANGED")
-        return {
+            if "VERSION_NOT_READY_FOR_REVIEW" not in reasons:
+                reasons.append("VERSION_NOT_READY_FOR_REVIEW")
+        if not use_c2:
+            if projection_blockers:
+                reasons.append("PROJECTION_BLOCKERS")
+            if reconciliation_pending and not sync_plan_valid:
+                reasons.append("RECONCILIATION_PENDING")
+            if stale_count and not sync_plan_valid:
+                reasons.append("STALE_RECONCILIATIONS")
+            if sync_plan is not None and not sync_plan_valid:
+                reasons.append("CATALOG_SYNC_INCOMPLETE")
+            if incompatible_open:
+                reasons.append("CATALOG_VERSION_CHANGED")
+        result = {
             "version_id": int(version_id),
             "version_status": str(version["status"]),
             "active_version_id": int(active["id"]) if active is not None else None,
@@ -171,12 +186,41 @@ def catalog_activation_check(db_path: str | Path, version_id: int) -> dict[str, 
             "can_activate": not reasons,
             "blocker_codes": reasons,
         }
+        if c2_preview is not None:
+            result.update(c2_preview)
+            result["can_activate"] = bool(c2_preview["can_apply"])
+            result["blocker_codes"] = reasons
+            # Compatibility metadata only: this legacy count no longer gates C2.
+            result["reconciliation_pending"] = reconciliation_pending
+        else:
+            result.update(
+                {
+                    "lineage_unconfirmed_count": 0,
+                    "operational_conflict_count": len(reasons),
+                    "stale_evidence_count": stale_count,
+                    "manual_resolution_conflicts": [],
+                    "incompatible_open_operations": incompatible_open,
+                    "preview_valid": not reasons,
+                    "preview_fingerprint": None,
+                    "can_apply": not reasons,
+                }
+            )
+        return result
     finally:
         conn.close()
 
 
-def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str) -> dict[str, Any]:
+def activate_catalog_version(
+    db_path: str | Path,
+    version_id: int,
+    *,
+    actor: str,
+    expected_preview_fingerprint: str | None = None,
+) -> dict[str, Any]:
     check = catalog_activation_check(db_path, version_id)
+    checked_fingerprint = check.get("preview_fingerprint")
+    if expected_preview_fingerprint is not None and checked_fingerprint != expected_preview_fingerprint:
+        raise CatalogActivationError("PREVIEW_FINGERPRINT_DRIFT")
     if not check["can_activate"]:
         raise CatalogActivationError(check["blocker_codes"][0] if check["blocker_codes"] else "blocked")
     conn = connect(db_path)
@@ -186,6 +230,21 @@ def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str
         prior = conn.execute(
             "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
         ).fetchone()
+        c2_result: dict[str, Any] | None = None
+        if prior is not None and int(prior["id"]) != int(version_id):
+            live_plan = build_new_baseline_plan(conn, int(version_id))
+            if checked_fingerprint != live_plan.preview_fingerprint:
+                raise CatalogActivationError("PREVIEW_FINGERPRINT_DRIFT")
+            if expected_preview_fingerprint is not None and expected_preview_fingerprint != live_plan.preview_fingerprint:
+                raise CatalogActivationError("PREVIEW_FINGERPRINT_DRIFT")
+            if not live_plan.can_apply:
+                raise CatalogActivationError(
+                    str(live_plan.operational_blockers[0].get("code") or "APPLICATION_BLOCKED")
+                )
+            try:
+                c2_result = apply_new_baseline_plan(conn, live_plan, actor=actor)
+            except CatalogApplicationError as exc:
+                raise CatalogActivationError(exc.code) from exc
         if prior is not None and int(prior["id"]) != int(version_id):
             conn.execute(
                 """
@@ -195,7 +254,11 @@ def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str
                 """,
                 (actor, _now(), int(prior["id"])),
             )
-        sync_result = apply_catalog_legacy_sync(conn, int(version_id), actor=actor)
+        sync_result = (
+            apply_catalog_legacy_sync(conn, int(version_id), actor=actor)
+            if prior is None
+            else None
+        )
         now = _now()
         cur = conn.execute(
             """
@@ -212,10 +275,11 @@ def activate_catalog_version(db_path: str | Path, version_id: int, *, actor: str
             version_id=int(version_id),
             actor=actor,
             event_type="VERSION_ACTIVATED",
-            reason_code=DRAFT_BLOCK_REASON,
+            reason_code=DRAFT_BLOCK_REASON if sync_result else "C2_NEW_BASELINE_ACTIVATION",
             metadata={
-                "sync_aggregates": sync_result["aggregates"],
-                "blocked_draft_ids": sync_result["blocked_draft_ids"],
+                "sync_aggregates": sync_result["aggregates"] if sync_result else {},
+                "blocked_draft_ids": sync_result["blocked_draft_ids"] if sync_result else [],
+                "c2_application": c2_result or {},
             },
         )
         conn.commit()

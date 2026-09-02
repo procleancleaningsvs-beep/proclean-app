@@ -244,6 +244,11 @@ def _insert_reconciliation(
     actor: str,
     supersedes_id: int | None,
     manual_reason: str | None = None,
+    lineage_status: str | None = None,
+    lineage_predecessor_person_id: int | None = None,
+    lineage_predecessor_beneficiary_id: int | None = None,
+    lineage_evidence_json: str | None = None,
+    lineage_evidence_sha256: str | None = None,
 ) -> int:
     fingerprint = beneficiary_material_fingerprint(beneficiary) if beneficiary else None
     cur = conn.execute(
@@ -253,8 +258,10 @@ def _insert_reconciliation(
             candidate_count,reason_code,beneficiary_material_fingerprint_version,
             beneficiary_material_state_json,beneficiary_material_fingerprint,
             beneficiary_updated_at_seen,is_current,supersedes_reconciliation_id,
-            manual_reason,created_by,created_at
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?)
+            manual_reason,created_by,created_at,lineage_status,
+            lineage_predecessor_person_id,lineage_predecessor_beneficiary_id,
+            lineage_evidence_json,lineage_evidence_sha256
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?,?)
         """,
         (
             version_id,
@@ -272,6 +279,11 @@ def _insert_reconciliation(
             manual_reason,
             actor,
             _now(),
+            lineage_status,
+            lineage_predecessor_person_id,
+            lineage_predecessor_beneficiary_id,
+            lineage_evidence_json,
+            lineage_evidence_sha256,
         ),
     )
     reconciliation_id = int(cur.lastrowid)
@@ -438,6 +450,105 @@ def manual_reconcile_catalog_person(
         conn.close()
 
 
+def manual_confirm_catalog_lineage(
+    db_path: str | Path,
+    person_id: int,
+    predecessor_beneficiary_id: int,
+    *,
+    actor: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Persist a C2 manual continuity decision against PRIOR CURRENT only."""
+    from modules.nomina.banorte.catalog_application_plan import build_new_baseline_plan
+    from modules.nomina.banorte.catalog_lineage_service import manual_confirmed_lineage
+
+    manual_reason = str(reason or "").strip()
+    if not manual_reason:
+        raise CatalogReconciliationError("manual_reason_required")
+    conn = _open(db_path)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        person = conn.execute(
+            """
+            SELECT p.id,p.version_id,p.person_status,r.row_content_sha256
+            FROM nomina_banorte_catalog_persons p
+            LEFT JOIN nomina_banorte_catalog_rows r ON r.id=p.current_row_id
+            WHERE p.id=?
+            """,
+            (int(person_id),),
+        ).fetchone()
+        if person is None or person["person_status"] != "CATALOG_READY":
+            raise CatalogReconciliationError("person_not_catalog_ready")
+        plan = build_new_baseline_plan(conn, int(person["version_id"]))
+        candidate = next(
+            (
+                item
+                for item in plan.prior_candidates
+                if item.beneficiary_id == int(predecessor_beneficiary_id)
+            ),
+            None,
+        )
+        if candidate is None:
+            raise CatalogReconciliationError("predecessor_not_prior_current")
+        for blocker in plan.operational_blockers:
+            if blocker.get("person_id") == int(person_id):
+                raise CatalogReconciliationError(str(blocker.get("code") or "manual_collision"))
+        if any(
+            action.person_id != int(person_id)
+            and action.lineage_status == "CONFIRMED"
+            and action.predecessor_beneficiary_id == int(predecessor_beneficiary_id)
+            for action in plan.actions
+        ):
+            raise CatalogReconciliationError("predecessor_already_used")
+        decision = manual_confirmed_lineage(
+            target_version_id=int(person["version_id"]),
+            target_person_id=int(person_id),
+            target_row_hash=str(person["row_content_sha256"]),
+            candidate=candidate,
+        )
+        beneficiary_row = conn.execute(
+            "SELECT * FROM nomina_banorte_beneficiaries WHERE id=?",
+            (int(predecessor_beneficiary_id),),
+        ).fetchone()
+        if beneficiary_row is None:
+            raise CatalogReconciliationError("predecessor_not_prior_current")
+        supersedes_id = _supersede_current(
+            conn,
+            version_id=int(person["version_id"]),
+            person_id=int(person_id),
+            actor=actor,
+        )
+        reconciliation_id = _insert_reconciliation(
+            conn,
+            version_id=int(person["version_id"]),
+            person_id=int(person_id),
+            beneficiary=dict(beneficiary_row),
+            status="UNMATCHED",
+            method=decision.method,
+            candidate_count=1,
+            reason_code="MANUAL_CONTINUITY_CONFIRMED",
+            actor=actor,
+            supersedes_id=supersedes_id,
+            manual_reason=manual_reason,
+            lineage_status=decision.status,
+            lineage_predecessor_person_id=decision.predecessor_person_id,
+            lineage_predecessor_beneficiary_id=decision.predecessor_beneficiary_id,
+            lineage_evidence_json=decision.evidence_json,
+            lineage_evidence_sha256=decision.evidence_sha256,
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM nomina_banorte_catalog_reconciliations WHERE id=?",
+            (reconciliation_id,),
+        ).fetchone()
+        return dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def refresh_stale_reconciliations(
     db_path: str | Path,
     version_id: int,
@@ -459,7 +570,7 @@ def refresh_stale_reconciliations(
                 FROM nomina_banorte_catalog_reconciliations r
                 JOIN nomina_banorte_beneficiaries b ON b.id=r.beneficiary_id
                 WHERE r.version_id=? AND r.is_current=1
-                  AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+                  AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED','CATALOG_BOUND')
                 ORDER BY r.id
                 """,
                 (int(version_id),),

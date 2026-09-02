@@ -18,7 +18,7 @@ def _resolve_catalog_person_id_for_beneficiary(
         FROM nomina_banorte_catalog_reconciliations r
         JOIN nomina_banorte_catalog_persons p ON p.id=r.person_id
         WHERE r.version_id=? AND r.beneficiary_id=? AND r.is_current=1
-          AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+          AND r.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED','CATALOG_BOUND')
           AND p.version_id=?
         LIMIT 1
         """,
@@ -364,7 +364,7 @@ def search_post_catalog_additions(
             SELECT 1 FROM nomina_banorte_catalog_reconciliations rec
             JOIN nomina_banorte_catalog_persons p ON p.id=rec.person_id
             WHERE rec.version_id=? AND rec.beneficiary_id=b.id AND rec.is_current=1
-              AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED')
+              AND rec.reconciliation_status IN ('AUTO_MATCHED','MANUAL_MATCHED','CATALOG_BOUND')
               AND p.version_id=?
           )
     """

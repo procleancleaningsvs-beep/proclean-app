@@ -504,6 +504,7 @@ def _create_catalog_mirror(
     action: PersonSyncAction,
     actor: str,
     replaces_id: int | None,
+    use_catalog_rfc_as_curp: bool = True,
 ) -> dict[str, Any]:
     if not is_valid_employee_number(action.employee):
         raise CatalogLegacySyncError("invalid_employee")
@@ -523,7 +524,7 @@ def _create_catalog_mirror(
         (
             action.name_original,
             normalize_name(action.name_original),
-            action.rfc,
+            action.rfc if use_catalog_rfc_as_curp else None,
             action.employee,
             action.employee,
             action.account,
