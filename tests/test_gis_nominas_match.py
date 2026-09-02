@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
@@ -87,3 +88,148 @@ def test_match_alias_resolves_to_headcount(monkeypatch):
     match = match_worker(worker, HC)
     assert match["match_method"] == "alias"
     assert match["status"] == "confirmed"
+
+
+def test_reordered_name_is_review_candidate_not_auto_match():
+    worker = {
+        "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+        "cliente_confirmado": "AURIGA",
+    }
+    headcount = [
+        {
+            "nombre_completo": "GABRIEL VARGAS JIMENEZ",
+            "cliente": "AURIGA",
+            "ubicacion": "DIA",
+            "nss": "11111111111",
+        }
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "review"
+    assert match["match_method"] == "candidato_nombre"
+    candidates = json.loads(match["hc_json"])
+    assert [item["nombre_completo"] for item in candidates] == ["GABRIEL VARGAS JIMENEZ"]
+    assert candidates[0]["candidate_reason"]
+
+
+def test_minor_spelling_variant_is_review_candidate():
+    worker = {
+        "nombre_normalizado": "FELIPE SILOS",
+        "cliente_confirmado": "AURIGA",
+    }
+    headcount = [
+        {"nombre_completo": "FELIPE SILOZ", "cliente": "AURIGA", "nss": "12121212121"}
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "review"
+    assert match["match_method"] == "candidato_nombre"
+
+
+def test_no_reasonable_candidate_is_unmatched():
+    worker = {
+        "nombre_normalizado": "TANIA NIETO",
+        "cliente_confirmado": "AURIGA",
+    }
+    headcount = [
+        {"nombre_completo": "FELIPE SILOS", "cliente": "AURIGA", "nss": "22222222222"}
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "unmatched"
+
+
+def test_similar_name_in_other_client_is_not_a_candidate():
+    worker = {
+        "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+        "cliente_confirmado": "AURIGA",
+    }
+    headcount = [
+        {"nombre_completo": "GABRIEL JIMENEZ VARGAS", "cliente": "CARRIER", "nss": "33333333333"},
+        {"nombre_completo": "PERSONA DISTINTA", "cliente": "AURIGA", "nss": "44444444444"},
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "unmatched"
+
+
+@pytest.mark.parametrize(
+    ("worker_field", "headcount_field", "value"),
+    [
+        ("nss", "nss", "12345678901"),
+        ("curp", "curp", "PELJ800101HDFRNN09"),
+        ("rfc", "rfc_homoclave", "PELJ800101XXX"),
+        ("num_empleado", "numero_empleado", "501"),
+    ],
+)
+def test_strong_identifier_confirms_unique_identity(worker_field, headcount_field, value):
+    worker = {
+        "nombre_normalizado": "NOMBRE CON VARIACION",
+        "cliente_confirmado": "AURIGA",
+        worker_field: value,
+    }
+    headcount = [
+        {
+            "nombre_completo": "GABRIEL JIMENEZ VARGAS",
+            "cliente": "AURIGA",
+            headcount_field: value,
+        }
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "auto"
+    assert match["match_method"] == worker_field
+
+
+def test_contradictory_strong_identifiers_require_review():
+    worker = {
+        "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+        "cliente_confirmado": "AURIGA",
+        "nss": "11111111111",
+        "curp": "BBBB800101HDFBBB02",
+    }
+    headcount = [
+        {
+            "nombre_completo": "GABRIEL JIMENEZ VARGAS",
+            "cliente": "AURIGA",
+            "nss": "11111111111",
+            "curp": "AAAA800101HDFAAA01",
+        },
+        {
+            "nombre_completo": "OTRA PERSONA",
+            "cliente": "AURIGA",
+            "nss": "22222222222",
+            "curp": "BBBB800101HDFBBB02",
+        },
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "review"
+    assert match["match_method"] == "identificadores_en_conflicto"
+    assert len(json.loads(match["hc_json"])) == 2
+
+
+def test_exact_name_does_not_override_strong_identifier_contradiction():
+    worker = {
+        "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+        "cliente_confirmado": "AURIGA",
+        "nss": "11111111111",
+    }
+    headcount = [
+        {
+            "nombre_completo": "GABRIEL JIMENEZ VARGAS",
+            "cliente": "AURIGA",
+            "nss": "99999999999",
+        }
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert match["status"] == "review"
+    assert match["match_method"] == "identificadores_en_conflicto"

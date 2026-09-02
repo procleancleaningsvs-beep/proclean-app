@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from pathlib import Path
@@ -327,6 +328,93 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
     )
     connection.close()
     assert comparative_counts == {"CARRIER": 2, "PEPSI": 1}
+
+
+def test_manual_match_with_multiple_options_stays_in_review_and_same_client(tmp_path, monkeypatch):
+    from modules.gestion_idse_sua.nominas import repository as repo
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    ensure_gis_nominas_tables(connection)
+    connection.execute(
+        "INSERT INTO gis_nomina_imports (id, original_filename, file_hash, uploaded_at, status) "
+        "VALUES (1, 'manual.xlsx', 'hm', '2026-01-01', 'extracted')"
+    )
+    connection.execute(
+        "INSERT INTO gis_nomina_sheets "
+        "(id, import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) "
+        "VALUES (1, 1, 0, 'Manual', 0, 'nomina', 1)"
+    )
+    period_id = repo.upsert_period(
+        connection,
+        1,
+        {
+            "fecha_inicio": "01/06/2026",
+            "fecha_fin": "07/06/2026",
+            "semana_num": 23,
+            "source": "manual",
+            "cut_warning": None,
+        },
+        confirmed=True,
+    )
+    worker_id = repo.insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 4,
+                "num_empleado": "",
+                "nombre_original": "Gabriel Jimenez Vargas",
+                "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+                "puesto": "Op",
+                "planta_original": "NOCHE",
+                "planta_normalizada": "NOCHE",
+                "cuenta": "1",
+                "row_json": "{}",
+            }
+        ],
+    )[0]
+    repo.update_worker_cliente(connection, worker_id, "AURIGA")
+    connection.commit()
+    connection.close()
+
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.manual_search",
+        lambda _query, _campo: {
+            "encontrado": True,
+            "duplicado": True,
+            "opciones": [
+                {"nombre_completo": "GABRIEL JIMENEZ VARGAS", "cliente": "AURIGA", "nss": "111"},
+                {"nombre_completo": "GABRIEL VARGAS JIMENEZ", "cliente": "AURIGA", "nss": "112"},
+                {"nombre_completo": "GABRIEL JIMENEZ VARGAS", "cliente": "CARRIER", "nss": "999"},
+            ],
+        },
+    )
+
+    response = client.post(
+        f"/gestion-idse-sua/nominas/worker/{worker_id}/match",
+        data={"campo": "nombre_completo", "query": "GABRIEL"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    match = dict(
+        connection.execute(
+            "SELECT * FROM gis_nomina_matches WHERE worker_id = ?", (worker_id,)
+        ).fetchone()
+    )
+    connection.close()
+    candidates = json.loads(match["hc_json"])
+    assert match["status"] == "review"
+    assert match["headcount_key"] is None
+    assert len(candidates) == 2
+    assert {item["cliente"] for item in candidates} == {"AURIGA"}
 
 
 def test_monthly_workspace_renders_shared_table_and_event_panel(tmp_path, monkeypatch):

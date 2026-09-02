@@ -219,6 +219,91 @@ def test_comparative_isolates_workers_and_bajas_by_confirmed_client(conn):
     }
 
 
+def test_comparative_recomputes_identity_and_assigns_clear_results(conn):
+    connection, period_id = conn
+    worker_ids = insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 8,
+                "num_empleado": "",
+                "nombre_original": "Gabriel Jimenez Vargas",
+                "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+                "puesto": "Op",
+                "planta_original": "NOCHE",
+                "planta_normalizada": "NOCHE",
+                "cuenta": "5",
+                "row_json": "{}",
+            },
+            {
+                "row_number": 9,
+                "num_empleado": "",
+                "nombre_original": "Tania Nieto",
+                "nombre_normalizado": "TANIA NIETO",
+                "puesto": "Op",
+                "planta_original": "NOCHE",
+                "planta_normalizada": "NOCHE",
+                "cuenta": "6",
+                "row_json": "{}",
+            },
+        ],
+    )
+    connection.executemany(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'PEPSI' WHERE id = ?",
+        [(worker_id,) for worker_id in worker_ids],
+    )
+    connection.commit()
+    headcount = [
+        *HC,
+        {
+            "nombre_completo": "GABRIEL VARGAS JIMENEZ",
+            "cliente": "PEPSI",
+            "ubicacion": "DIA",
+            "nss": "55555555555",
+        },
+    ]
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="PEPSI",
+        generated_by="test",
+        headcount_rows=headcount,
+    )
+    results = dict(
+        connection.execute(
+            """
+            SELECT w.nombre_normalizado, r.resultado
+            FROM gis_nomina_results r
+            JOIN gis_nomina_workers w ON w.id = r.worker_id
+            WHERE r.comparative_id = ? AND w.id IN (?, ?)
+            """,
+            (out["comparative_id"], *worker_ids),
+        ).fetchall()
+    )
+    match_statuses = dict(
+        connection.execute(
+            """
+            SELECT w.nombre_normalizado, m.status
+            FROM gis_nomina_matches m
+            JOIN gis_nomina_workers w ON w.id = m.worker_id
+            WHERE w.id IN (?, ?)
+            """,
+            worker_ids,
+        ).fetchall()
+    )
+
+    assert results == {
+        "GABRIEL JIMENEZ VARGAS": "Revisión",
+        "TANIA NIETO": "Posible alta",
+    }
+    assert match_statuses == {
+        "GABRIEL JIMENEZ VARGAS": "review",
+        "TANIA NIETO": "unmatched",
+    }
+
+
 @pytest.mark.parametrize(
     ("codes", "expected_date"),
     [

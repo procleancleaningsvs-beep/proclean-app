@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from modules.gestion_idse_sua.nominas.ui_helpers import build_weekly_workspace_rows, period_day_headers
 
 
@@ -70,11 +72,13 @@ def test_build_weekly_workspace_rows_merges_result_and_attendance():
     assert rows[0]["result_badge"] == "coincidencia"
     assert rows[0]["days"][1] == "A"
     assert rows[0]["display_name"] == "JUAN HC"
-    assert rows[0]["name_badge"] == ""
+    assert rows[0]["identity_status"] == "Confirmado"
+    assert rows[0]["name_badge"] == "Confirmado"
 
 
 def test_weekly_workspace_template_uses_unified_operational_table():
     template = open("templates/gestion_idse_sua/nominas/workspace.html", encoding="utf-8").read()
+    routes = open("modules/gestion_idse_sua/routes_nominas.py", encoding="utf-8").read()
     css = open("static/gestion_idse_sua/workspace_table.css", encoding="utf-8").read()
     javascript = open("static/gestion_idse_sua/workspace_table.js", encoding="utf-8").read()
     assert "Nombre completo" in template
@@ -84,6 +88,9 @@ def test_weekly_workspace_template_uses_unified_operational_table():
     assert "gis-ws-modal" in template
     assert "data-excel-filter" in template
     assert "Movimientos sugeridos" in template
+    assert "row.identity_status" in template
+    assert "Candidatos Headcount" in template
+    assert '(search.get("opciones") or [None])[0]' not in routes
     assert "grid-template-columns: minmax(0, 3fr) minmax(250px, 1fr)" in css
     assert "ProCleanExcelTable" in javascript
 
@@ -96,6 +103,7 @@ def test_unmatched_weekly_name_keeps_payroll_identity():
                 "num_empleado": "102",
                 "nombre_normalizado": "NORA RIVERA",
                 "planta_normalizada": "A",
+                "cliente_confirmado": "PEPSI",
                 "match": {"status": "unmatched"},
             }
         ],
@@ -112,4 +120,57 @@ def test_unmatched_weekly_name_keeps_payroll_identity():
         trajectory_payload=None,
     )
     assert rows[0]["display_name"] == "NORA RIVERA"
-    assert rows[0]["name_badge"] == "Sin match"
+    assert rows[0]["identity_status"] == "Sin coincidencias"
+    assert rows[0]["name_badge"] == "Sin coincidencias"
+
+
+def test_weekly_worker_without_comparative_still_has_operational_result():
+    rows = build_weekly_workspace_rows(
+        workers=[
+            {
+                "id": 3,
+                "nombre_normalizado": "FELIPE SILOS",
+                "cliente_confirmado": "AURIGA",
+                "match": {"status": "unmatched"},
+            }
+        ],
+        results=[],
+        attendance_rows=[],
+        client_inferences={},
+        trajectory_payload=None,
+    )
+
+    assert rows[0]["identity_status"] == "Sin coincidencias"
+    assert rows[0]["resultado"] == "Posible alta"
+
+
+def test_weekly_review_exposes_sanitized_candidate_evidence():
+    candidate = {
+        "nombre_completo": "GABRIEL VARGAS JIMENEZ",
+        "cliente": "AURIGA",
+        "ubicacion": "DIA",
+        "nss": "11111111111",
+        "candidate_reason": "Mismos componentes del nombre en orden distinto",
+    }
+    rows = build_weekly_workspace_rows(
+        workers=[
+            {
+                "id": 4,
+                "nombre_normalizado": "GABRIEL JIMENEZ VARGAS",
+                "cliente_confirmado": "AURIGA",
+                "match": {
+                    "status": "review",
+                    "match_method": "candidato_nombre",
+                    "hc_json": json.dumps([candidate]),
+                },
+            }
+        ],
+        results=[{"id": 12, "worker_id": 4, "resultado": "Revisión"}],
+        attendance_rows=[],
+        client_inferences={},
+        trajectory_payload=None,
+    )
+
+    assert rows[0]["identity_status"] == "Posible coincidencia"
+    assert rows[0]["resultado"] == "Revisión"
+    assert rows[0]["match_candidates"] == [candidate]

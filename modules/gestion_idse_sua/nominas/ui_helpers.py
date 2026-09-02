@@ -14,6 +14,66 @@ RESULT_BADGE_CLASS = {
     "Revisión": "revision",
 }
 
+IDENTITY_STATUS_BY_MATCH = {
+    "auto": "Confirmado",
+    "confirmed": "Confirmado",
+    "manual": "Confirmado",
+    "suggested": "Posible coincidencia",
+    "review": "Posible coincidencia",
+    "unmatched": "Sin coincidencias",
+}
+
+IDENTITY_BADGE_CLASS = {
+    "Confirmado": "coincidencia",
+    "Posible coincidencia": "revision",
+    "Sin coincidencias": "nomatch",
+    "Pendiente de datos": "revision",
+}
+
+
+def _candidate_evidence(match: dict[str, Any]) -> list[dict[str, Any]]:
+    if str(match.get("status") or "") not in {"review", "suggested"}:
+        return []
+    raw = match.get("hc_json")
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return []
+    options = data if isinstance(data, list) else [data]
+    allowed = (
+        "nombre_completo",
+        "cliente",
+        "ubicacion",
+        "planta",
+        "numero_empleado",
+        "codigo_contpaq",
+        "num_empleado",
+        "nss",
+        "rfc",
+        "rfc_homoclave",
+        "curp",
+        "puesto",
+        "candidate_reason",
+    )
+    evidence = []
+    for option in options[:5]:
+        if not isinstance(option, dict):
+            continue
+        item = {key: option[key] for key in allowed if option.get(key) not in (None, "")}
+        if item:
+            evidence.append(item)
+    return evidence
+
+
+def _identity_result(match_status: str) -> str:
+    if match_status in {"auto", "confirmed", "manual"}:
+        return "Coincidencia"
+    if match_status in {"suggested", "review"}:
+        return "Revisión"
+    return "Posible alta"
+
 
 def parse_suggested_period(raw: str | None) -> dict[str, Any]:
     if not raw:
@@ -160,9 +220,18 @@ def build_weekly_workspace_rows(
             resultado = "Revisión"
         match_status = match.get("status") or "unmatched"
         confirmed_match = match_status in {"auto", "confirmed", "manual"}
+        identity_status = (
+            IDENTITY_STATUS_BY_MATCH.get(match_status, "Sin coincidencias")
+            if confirmed_client
+            else "Pendiente de datos"
+        )
+        if confirmed_client and resultado not in RESULT_BADGE_CLASS:
+            resultado = _identity_result(match_status)
+        if confirmed_client and match_status in {"suggested", "review"} and resultado == "Posible alta":
+            resultado = "Revisión"
         display_name = (match.get("hc_nombre") or result.get("match_hc_nombre") or "") if confirmed_match else ""
         display_name = display_name or worker.get("nombre_normalizado") or ""
-        name_badge = "" if confirmed_match else ("Sin match" if match_status == "unmatched" else "Revisión")
+        name_badge = identity_status
         try:
             original_values = json.loads(worker.get("row_json") or "{}")
         except (TypeError, json.JSONDecodeError):
@@ -176,6 +245,9 @@ def build_weekly_workspace_rows(
                 "nombre_hc": match.get("hc_nombre") or result.get("match_hc_nombre") or "",
                 "display_name": display_name,
                 "name_badge": name_badge,
+                "identity_status": identity_status,
+                "identity_badge_class": IDENTITY_BADGE_CLASS[identity_status],
+                "match_candidates": _candidate_evidence(match),
                 "planta": worker.get("planta_normalizada") or worker.get("planta_original") or "",
                 "cliente": cliente,
                 "cliente_source": inference.get("source") or "",
@@ -226,6 +298,9 @@ def build_weekly_workspace_rows(
                 "nombre_hc": result.get("hc_nombre") or "",
                 "display_name": result.get("hc_nombre") or "",
                 "name_badge": "",
+                "identity_status": "",
+                "identity_badge_class": "",
+                "match_candidates": [],
                 "planta": "",
                 "cliente": result.get("comparative_cliente") or "",
                 "cliente_source": "headcount_only",

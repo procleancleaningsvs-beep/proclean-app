@@ -27,7 +27,13 @@ from modules.gestion_idse_sua.nominas.import_service import (
     extract_sheet_workers,
     register_import,
 )
-from modules.gestion_idse_sua.nominas.match_service import confirm_match, manual_search, match_worker
+from modules.gestion_idse_sua.nominas.match_service import (
+    _build_match,
+    build_review_match,
+    confirm_match,
+    manual_search,
+    match_worker,
+)
 from modules.gestion_idse_sua.nominas.movement_bridge import convert_results_to_movements
 from modules.gestion_idse_sua.nominas.period_signals import collect_period_signals
 from modules.gestion_idse_sua.nominas.planta_cliente_service import confirm_planta_cliente
@@ -710,22 +716,53 @@ def register_nominas_routes(bp, *, login_required) -> None:
         _require_comparativo()
         conn = _db_from_app()
         try:
+            worker = conn.execute(
+                "SELECT period_id, cliente_confirmado FROM gis_nomina_workers WHERE id = ?",
+                (worker_id,),
+            ).fetchone()
+            if worker is None:
+                abort(404)
+            cliente = normalize_upper(worker["cliente_confirmado"])
+            if not cliente:
+                flash("Confirme el cliente antes de resolver la identidad.", "error")
+                return redirect(
+                    url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
+                )
             search = manual_search(request.form.get("query", ""), request.form.get("campo", "nombre_completo"))
             if not search.get("encontrado"):
                 flash("No se encontró trabajador en Headcount.", "error")
             else:
-                datos = search.get("datos") or (search.get("opciones") or [None])[0]
-                if datos:
-                    from modules.gestion_idse_sua.nominas.match_service import _build_match
-
-                    confirm_match(conn, worker_id, _build_match(datos, method="manual", confidence=1.0, status="manual"))
+                candidates = [search["datos"]] if search.get("datos") else list(search.get("opciones") or [])
+                candidates = [
+                    candidate
+                    for candidate in candidates
+                    if normalize_upper(candidate.get("cliente")) == cliente
+                ]
+                if len(candidates) == 1:
+                    confirm_match(
+                        conn,
+                        worker_id,
+                        _build_match(candidates[0], method="manual", confidence=1.0, status="manual"),
+                    )
                     conn.commit()
                     flash("Match confirmado.", "success")
-            period_id = conn.execute(
-                "SELECT period_id FROM gis_nomina_workers WHERE id = ?",
-                (worker_id,),
-            ).fetchone()
-            return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=int(period_id["period_id"])))
+                elif candidates:
+                    repo.upsert_match(
+                        conn,
+                        worker_id,
+                        build_review_match(
+                            candidates,
+                            method="busqueda_manual",
+                            reason="La búsqueda devolvió varias personas del mismo cliente",
+                        ),
+                    )
+                    conn.commit()
+                    flash("Se encontraron varias opciones; revise los candidatos antes de confirmar.", "warning")
+                else:
+                    flash("No se encontró trabajador dentro del cliente confirmado.", "error")
+            return redirect(
+                url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
+            )
         finally:
             conn.close()
 

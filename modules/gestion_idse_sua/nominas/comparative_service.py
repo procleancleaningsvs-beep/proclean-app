@@ -66,7 +66,10 @@ def enrich_workers(conn: sqlite3.Connection, period_id: int, headcount_rows: lis
     workers = repo.list_workers(conn, period_id)
     enriched = 0
     for worker in workers:
-        match = match_worker(worker, rows)
+        worker_client = normalize_upper(
+            worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
+        )
+        match = match_worker(worker, rows, cliente=worker_client or None)
         if worker.get("cliente_confirmado") or worker.get("cliente_sugerido"):
             if detect_planta_cliente_conflict(
                 planta_cliente=str(worker.get("cliente_confirmado") or worker.get("cliente_sugerido")),
@@ -132,6 +135,18 @@ def run_comparative(
     for worker in workers:
         wid = int(worker["id"])
         match = repo.get_match(conn, wid) or {}
+        persisted_status = str(match.get("status") or "")
+        persisted_client = _hc_cliente(match)
+        if not (
+            persisted_status in {"confirmed", "manual"}
+            and persisted_client == cliente_norm
+        ):
+            match = match_worker(
+                worker,
+                hc_rows,
+                cliente=cliente_norm,
+            )
+            repo.upsert_match(conn, wid, match)
         status = str(match.get("status") or "unmatched")
         hc_name = normalize_name(match.get("hc_nombre"))
         hc_cliente = _hc_cliente(match)

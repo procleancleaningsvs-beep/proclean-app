@@ -89,7 +89,7 @@
                 <td data-filter-value="{{ row.num_empleado }}">{{ row.num_empleado or '—' }}</td>
                 <td data-filter-value="{{ row.display_name }}">
                   <strong>{{ row.display_name or '—' }}</strong>
-                  {% if row.name_badge %}<span class="gis-ws-badge gis-ws-badge--{{ 'nomatch' if row.name_badge == 'Sin match' else 'revision' }}">{{ row.name_badge }}</span>{% endif %}
+                  {% if row.identity_status %}<span class="gis-ws-badge gis-ws-badge--{{ row.identity_badge_class }}">{{ row.identity_status }}</span>{% endif %}
                 </td>
                 <td data-filter-value="{{ row.planta }}">{{ row.planta or '—' }}</td>
                 <td data-filter-value="{{ row.cliente }}">{{ row.cliente or '—' }}</td>
@@ -120,8 +120,12 @@
                 <div class="gis-ws-detail-grid">
                   <section><h4>Identidad y match</h4>
                     <p><strong>Nómina:</strong> {{ row.nombre_nomina or '—' }}</p>
-                    <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin match confirmado' }}</p>
-                    <p><strong>Método:</strong> {{ row.match_method or 'sin match' }} · {{ row.match_status }}</p>
+                    <p><strong>Estado:</strong> {{ row.identity_status or 'No aplica' }}</p>
+                    <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin coincidencia confirmada' }}</p>
+                    <p><strong>Método:</strong> {{ row.match_method or 'sin coincidencias' }}</p>
+                    {% if row.match_candidates %}<div><strong>Candidatos Headcount:</strong><ul>{% for candidate in row.match_candidates %}
+                      <li><strong>{{ candidate.nombre_completo }}</strong> · {{ candidate.cliente or row.cliente }}{% if candidate.ubicacion or candidate.planta %} · {{ candidate.ubicacion or candidate.planta }}{% endif %}{% if candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado %} · Empleado {{ candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado }}{% endif %}{% if candidate.nss %} · NSS {{ candidate.nss }}{% endif %}{% if candidate.rfc or candidate.rfc_homoclave %} · RFC {{ candidate.rfc or candidate.rfc_homoclave }}{% endif %}{% if candidate.curp %} · CURP {{ candidate.curp }}{% endif %}{% if candidate.puesto %} · {{ candidate.puesto }}{% endif %}<br><small>{{ candidate.candidate_reason or 'Candidato de identidad' }}</small></li>
+                    {% endfor %}</ul></div>{% endif %}
                   </section>
                   <section><h4>Cliente y origen</h4>
                     <p>{{ row.cliente or 'Pendiente' }} · {{ row.cliente_source or 'sin fuente' }} · {{ ((row.cliente_confidence or 0) * 100)|round|int }}%</p>
