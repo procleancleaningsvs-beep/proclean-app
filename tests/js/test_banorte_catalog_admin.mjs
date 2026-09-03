@@ -9,8 +9,12 @@ const source = fs.readFileSync(
   new URL("../../static/nomina/banorte_catalog_admin.js", import.meta.url),
   "utf8"
 );
+const template = fs.readFileSync(
+  new URL("../../templates/nomina/exportaciones_banorte_catalogo.html", import.meta.url),
+  "utf8"
+);
 
-test("C3a check 5: JS owns safe UX state but never authority or mutating catalog actions", () => {
+test("C3a base contract: JS keeps search private and renders masked comparison safely", () => {
   const url = admin.buildPageUrl("/catalog/comparison", 2, "conflict", 25);
   assert.equal(url, "/catalog/comparison?page=2&page_size=25&filter=conflict");
   assert.equal(url.includes("search="), false);
@@ -41,6 +45,56 @@ test("C3a check 5: JS owns safe UX state but never authority or mutating catalog
   assert.match(source, /X-Catalog-Search/);
   assert.match(source, /Analizando el archivo/);
   assert.match(source, /No se pudo cargar la comparación/);
-  assert.doesNotMatch(source, /\/activate|\/rollback|reconciliations\/manual/);
+  assert.doesNotMatch(source, /\/rollback/);
   assert.doesNotMatch(source, /can_apply|CATALOG_BOUND|authority_kind|match_method/);
+});
+
+test("C3b check 5: apply and lineage UX are backend-gated, single-flight, masked and accessible", () => {
+  assert.equal(admin.shouldEnableApply(true, true, false), true);
+  assert.equal(admin.shouldEnableApply(true, false, false), false);
+  assert.equal(admin.shouldEnableApply(false, true, false), false);
+  assert.equal(admin.shouldEnableApply(true, true, true), false);
+
+  const payload = admin.buildActivationPayload("preview-from-backend", "csrf-token", true);
+  assert.deepEqual(payload, {
+    preview_fingerprint: "preview-from-backend",
+    csrf_token: "csrf-token",
+    acknowledge_impact: "yes",
+  });
+
+  const reviewHtml = admin.renderComparisonRows([
+    {
+      row_key: "target-22",
+      classification_label: "Nueva persona en Banorte",
+      business_reason: "Nueva persona en Banorte",
+      target_person: {
+        name: "PERSONA SEGURA",
+        employee: "0022",
+        account_masked: "******4422",
+      },
+      current_person: null,
+      lineage_status: "UNCONFIRMED",
+      lineage_label: "Relación histórica no confirmada",
+      operational_conflict: false,
+      resolution_available: true,
+    },
+  ]);
+  assert.match(reviewHtml, /Revisar relación/);
+  assert.match(reviewHtml, /\*\*\*\*\*\*4422/);
+
+  assert.match(source, /applyBusy/);
+  assert.match(source, /manualBusy/);
+  assert.match(source, /Aplicando catálogo…/);
+  assert.match(source, /preview_fingerprint/);
+  assert.match(source, /acknowledge_impact/);
+  assert.match(source, /X-CSRF-Token/);
+  assert.match(source, /aria-busy/);
+  assert.match(source, /Revisar relación/);
+  assert.match(template, /Confirmar misma persona/);
+  assert.match(template, /Mantener sin relación confirmada/);
+  assert.match(source, /keydown/);
+  assert.match(source, /Escape/);
+  assert.doesNotMatch(source, /localStorage|sessionStorage|console\./);
+  assert.doesNotMatch(source, /confirm-distinct|manual-distinct|Aplicar de todos modos|Forzar/);
+  assert.doesNotMatch(source, /operational_conflict_count\s*[<>=]|lineage_unconfirmed_count\s*[<>=]/);
 });

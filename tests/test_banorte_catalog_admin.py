@@ -955,6 +955,479 @@ def test_a5d_historical_interface_is_detail_only_and_keeps_a5a_guard(tmp_path):
     ).status_code == 403
 
 
+def _ready_c3b_target(
+    db_path: str,
+    *,
+    employee: str = "0000000099",
+    name: str = "IDENTIDAD RENOMBRADA",
+    rfc: str = "NUEV910202AA1",
+    account: str = "9999999999",
+) -> int:
+    staged = stage_catalog_version(
+        db_path,
+        raw=_catalog_payload(
+            report_header="30/ago./2026",
+            employee=employee,
+            name=name,
+            rfc=rfc,
+            account=account,
+        ),
+        filename="empleados-c3b.txt",
+        actor="tester",
+    )
+    version_id = int(staged["id"])
+    analyze_catalog_version(db_path, version_id, actor="tester")
+    mark_catalog_ready_for_review(db_path, version_id, actor="tester")
+    return version_id
+
+
+def test_c3b_check_1_apply_availability_comes_from_backend_and_requires_acknowledgement(
+    tmp_path,
+):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    version_id = _ready_c3b_target(app.config["DATABASE"])
+    preview = catalog_apply_preview(app.config["DATABASE"], version_id)
+    assert preview["can_apply"] is True
+    assert preview["lineage_unconfirmed_count"] == 1
+
+    page = app.test_client().get(
+        f"/nomina/exportaciones/banorte/catalogo?version_id={version_id}"
+    )
+    html = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert 'data-catalog-apply-form' in html
+    assert 'data-apply-authorized="true"' in html
+    assert 'name="preview_fingerprint"' in html
+    assert preview["preview_fingerprint"] in html
+    assert 'name="acknowledge_impact"' in html
+    assert "Revisé el impacto y entiendo que este archivo sustituirá al catálogo vigente." in html
+    assert re.search(r'data-apply-button[^>]*disabled', html)
+    assert "identidades nuevas y separadas" in html
+
+    duplicate = _row()
+    duplicate[1] = "OTRA PERSONA"
+    duplicate[6] = "OTRA900101AA1"
+    duplicate[14] = "3333333333"
+    conflict_payload = "\n".join(
+        [
+            "FECHA: 31/ago./2026",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(_row()) + "|",
+            "|".join(duplicate) + "|",
+        ]
+    ).encode("utf-8")
+    conflict = stage_catalog_version(
+        app.config["DATABASE"], raw=conflict_payload, filename="conflict-c3b.txt", actor="tester"
+    )
+    analyze_catalog_version(app.config["DATABASE"], conflict["id"], actor="tester")
+    mark_catalog_ready_for_review(app.config["DATABASE"], conflict["id"], actor="tester")
+    blocked = app.test_client().get(
+        f"/nomina/exportaciones/banorte/catalogo?version_id={conflict['id']}"
+    ).get_data(as_text=True)
+    assert 'data-apply-authorized="false"' in blocked
+    assert "Conflictos que requieren atención" in blocked
+    assert "Aplicar de todos modos" not in blocked
+    assert ">Forzar<" not in blocked
+
+
+def test_c3b_check_2_successful_activation_uses_c2_and_is_naturally_single_use(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    prior_id, _ = _activate_catalog(app.config["DATABASE"])
+    version_id = _ready_c3b_target(app.config["DATABASE"])
+    preview = catalog_apply_preview(app.config["DATABASE"], version_id)
+    client = app.test_client()
+    token = _token(
+        client.get(
+            f"/nomina/exportaciones/banorte/catalogo?version_id={version_id}"
+        ).data
+    )
+    exact_check = client.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activation-check",
+        headers={"X-Catalog-Preview-Fingerprint": preview["preview_fingerprint"]},
+    )
+    assert exact_check.status_code == 200
+    assert exact_check.get_json()["retry_allowed"] is True
+    stale_check = client.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activation-check",
+        headers={"X-Catalog-Preview-Fingerprint": "stale-preview"},
+    )
+    assert stale_check.status_code == 200
+    assert stale_check.get_json()["retry_allowed"] is False
+    payload = {
+        "csrf_token": token,
+        "preview_fingerprint": preview["preview_fingerprint"],
+        "acknowledge_impact": "yes",
+    }
+    activated = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json=payload,
+        headers={"X-CSRF-Token": token, "Accept": "application/json"},
+    )
+    assert activated.status_code == 200
+    assert activated.get_json()["message"] == "El nuevo catálogo Banorte quedó vigente."
+    assert activated.get_json()["redirect_url"].endswith(
+        "/nomina/exportaciones/banorte/catalogo"
+    )
+
+    conn = connect(app.config["DATABASE"])
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?", (version_id,)
+    ).fetchone()[0] == "ACTIVE"
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?", (prior_id,)
+    ).fetchone()[0] == "SUPERSEDED"
+    bound = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+            "WHERE version_id=? AND reconciliation_status='CATALOG_BOUND'",
+            (version_id,),
+        ).fetchone()[0]
+    )
+    events = int(
+        conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_catalog_events "
+            "WHERE version_id=? AND event_type='VERSION_ACTIVATED'",
+            (version_id,),
+        ).fetchone()[0]
+    )
+    assert bound == 1
+    assert events == 1
+    conn.close()
+
+    second_token = activated.get_json()["csrf_token"]
+    second = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json={**payload, "csrf_token": second_token},
+        headers={"X-CSRF-Token": second_token, "Accept": "application/json"},
+    )
+    assert second.status_code == 409
+    assert second.get_json()["ok"] is False
+    conn = connect(app.config["DATABASE"])
+    assert conn.execute(
+        "SELECT COUNT(*) FROM nomina_banorte_catalog_events "
+        "WHERE version_id=? AND event_type='VERSION_ACTIVATED'",
+        (version_id,),
+    ).fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+        "WHERE version_id=? AND reconciliation_status='CATALOG_BOUND'",
+        (version_id,),
+    ).fetchone()[0] == bound
+    conn.close()
+
+    missing_csrf = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json={
+            "preview_fingerprint": preview["preview_fingerprint"],
+            "acknowledge_impact": "yes",
+        },
+    )
+    assert missing_csrf.status_code == 403
+
+    acknowledgement_token = second.get_json()["csrf_token"]
+    missing_acknowledgement = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json={
+            "csrf_token": acknowledgement_token,
+            "preview_fingerprint": preview["preview_fingerprint"],
+        },
+        headers={
+            "X-CSRF-Token": acknowledgement_token,
+            "Accept": "application/json",
+        },
+    )
+    assert missing_acknowledgement.status_code == 400
+    assert missing_acknowledgement.get_json()["code"] == (
+        "impact_acknowledgement_required"
+    )
+
+    denied = _make_app(tmp_path, "supervisor", db_path=app.config["DATABASE"]).test_client()
+    assert denied.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json=payload,
+    ).status_code == 403
+
+
+def test_c3b_check_3_stale_preview_and_conflict_fail_without_partial_writes(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    prior_id, prior_beneficiary_id = _activate_catalog(app.config["DATABASE"])
+    version_id = _ready_c3b_target(app.config["DATABASE"])
+    preview = catalog_apply_preview(app.config["DATABASE"], version_id)
+    client = app.test_client()
+    token = _token(
+        client.get(
+            f"/nomina/exportaciones/banorte/catalogo?version_id={version_id}"
+        ).data
+    )
+    conn = connect(app.config["DATABASE"])
+    conn.execute(
+        "UPDATE nomina_banorte_beneficiaries SET account_number='8888888888' WHERE id=?",
+        (prior_beneficiary_id,),
+    )
+    conn.commit()
+    before = {
+        "active": conn.execute(
+            "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
+        ).fetchone()[0],
+        "beneficiaries": conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_beneficiaries"
+        ).fetchone()[0],
+        "bound": conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+            "WHERE reconciliation_status='CATALOG_BOUND'"
+        ).fetchone()[0],
+    }
+    conn.close()
+
+    stale = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/activate",
+        json={
+            "csrf_token": token,
+            "preview_fingerprint": preview["preview_fingerprint"],
+            "acknowledge_impact": "yes",
+        },
+        headers={"X-CSRF-Token": token, "Accept": "application/json"},
+    )
+    assert stale.status_code == 409
+    stale_json = stale.get_json()
+    assert stale_json["message"] == (
+        "La información cambió después de la comparación. "
+        "Vuelve a analizar el archivo antes de aplicarlo."
+    )
+    assert stale_json["preview_invalidated"] is True
+    assert "PREVIEW_FINGERPRINT_DRIFT" not in stale.get_data(as_text=True)
+
+    conn = connect(app.config["DATABASE"])
+    after = {
+        "active": conn.execute(
+            "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
+        ).fetchone()[0],
+        "beneficiaries": conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_beneficiaries"
+        ).fetchone()[0],
+        "bound": conn.execute(
+            "SELECT COUNT(*) FROM nomina_banorte_catalog_reconciliations "
+            "WHERE reconciliation_status='CATALOG_BOUND'"
+        ).fetchone()[0],
+    }
+    assert after == before
+    assert after["active"] == prior_id
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?", (version_id,)
+    ).fetchone()[0] == "READY_FOR_REVIEW"
+    conn.close()
+
+    duplicate = _row()
+    duplicate[1] = "OTRA PERSONA"
+    duplicate[6] = "OTRA900101AA1"
+    duplicate[14] = "3333333333"
+    conflict_payload = "\n".join(
+        [
+            "FECHA: 31/ago./2026",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(_row()) + "|",
+            "|".join(duplicate) + "|",
+        ]
+    ).encode("utf-8")
+    conflict = stage_catalog_version(
+        app.config["DATABASE"],
+        raw=conflict_payload,
+        filename="blocked-c3b.txt",
+        actor="tester",
+    )
+    analyze_catalog_version(app.config["DATABASE"], conflict["id"], actor="tester")
+    mark_catalog_ready_for_review(app.config["DATABASE"], conflict["id"], actor="tester")
+    blocked_preview = catalog_apply_preview(app.config["DATABASE"], conflict["id"])
+    assert blocked_preview["can_apply"] is False
+    blocked = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{conflict['id']}/activate",
+        json={
+            "csrf_token": stale_json["csrf_token"],
+            "preview_fingerprint": blocked_preview["preview_fingerprint"],
+            "acknowledge_impact": "yes",
+        },
+        headers={
+            "X-CSRF-Token": stale_json["csrf_token"],
+            "Accept": "application/json",
+        },
+    )
+    assert blocked.status_code == 409
+    assert blocked.get_json()["message"] == "No fue posible aplicar el catálogo. Corrige el archivo y vuelve a analizarlo."
+
+    base_changed_path = tmp_path / "base-changed"
+    base_changed_path.mkdir()
+    base_changed_app = _make_app(base_changed_path, "admin")
+    _activate_catalog(base_changed_app.config["DATABASE"])
+    viewed_target_id = _ready_c3b_target(base_changed_app.config["DATABASE"])
+    viewed_preview = catalog_apply_preview(
+        base_changed_app.config["DATABASE"], viewed_target_id
+    )
+    base_changed_client = base_changed_app.test_client()
+    viewed_token = _token(
+        base_changed_client.get(
+            f"/nomina/exportaciones/banorte/catalogo?version_id={viewed_target_id}"
+        ).data
+    )
+    concurrent_target_id = _ready_c3b_target(
+        base_changed_app.config["DATABASE"],
+        employee="0000000088",
+        name="OTRA BASE VIGENTE",
+        rfc="OTRA920303BB2",
+        account="8888888888",
+    )
+    concurrent_preview = catalog_apply_preview(
+        base_changed_app.config["DATABASE"], concurrent_target_id
+    )
+    activate_catalog_version(
+        base_changed_app.config["DATABASE"],
+        concurrent_target_id,
+        actor="other-operator",
+        expected_preview_fingerprint=concurrent_preview["preview_fingerprint"],
+    )
+    base_changed = base_changed_client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{viewed_target_id}/activate",
+        json={
+            "csrf_token": viewed_token,
+            "preview_fingerprint": viewed_preview["preview_fingerprint"],
+            "acknowledge_impact": "yes",
+        },
+        headers={"X-CSRF-Token": viewed_token, "Accept": "application/json"},
+    )
+    assert base_changed.status_code == 409
+    assert "Vuelve a analizar" in base_changed.get_json()["message"]
+    conn = connect(base_changed_app.config["DATABASE"])
+    assert conn.execute(
+        "SELECT id FROM nomina_banorte_catalog_versions WHERE status='ACTIVE'"
+    ).fetchone()[0] == concurrent_target_id
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?",
+        (viewed_target_id,),
+    ).fetchone()[0] == "READY_FOR_REVIEW"
+    conn.close()
+
+
+def test_c3b_check_4_manual_continuity_review_is_authorized_audited_and_refreshes_preview(
+    tmp_path,
+):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    version_id = _ready_c3b_target(app.config["DATABASE"])
+    before_preview = catalog_apply_preview(app.config["DATABASE"], version_id)
+    target_action = before_preview["actions"][0]
+    assert target_action["lineage_status"] == "UNCONFIRMED"
+    row_key = f"target-{target_action['person_id']}"
+    comparison = list_catalog_comparison_rows(app.config["DATABASE"], version_id)
+    row = next(item for item in comparison.items if item["row_key"] == row_key)
+    assert row["resolution_available"] is True
+
+    client = app.test_client()
+    page = client.get(
+        f"/nomina/exportaciones/banorte/catalogo?version_id={version_id}"
+    )
+    token = _token(page.data)
+    candidates = client.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/lineage-candidates",
+        headers={"X-Catalog-Search": "PERSONA OFICIAL", "Accept": "application/json"},
+    )
+    assert candidates.status_code == 200
+    candidate_json = candidates.get_json()
+    assert candidate_json["total"] == 1
+    candidate = candidate_json["items"][0]
+    assert candidate["person"]["account_masked"].endswith("1111")
+    assert candidate["person"]["account_masked"] != "1111111111"
+    assert "1111111111" not in candidates.get_data(as_text=True)
+    assert "material_fingerprint" not in candidates.get_data(as_text=True)
+    assert set(candidate["evidence"]) == {"name", "employee", "account", "rfc", "birth_date"}
+
+    missing_csrf = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/confirm-continuity",
+        json={
+            "candidate_id": candidate["candidate_id"],
+            "reason": "La mutación sin CSRF debe rechazarse",
+        },
+    )
+    assert missing_csrf.status_code == 403
+
+    unauthorized = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/confirm-continuity",
+        json={
+            "csrf_token": token,
+            "candidate_id": 999999,
+            "reason": "No debe aceptar un candidato ajeno al plan",
+        },
+        headers={"X-CSRF-Token": token, "Accept": "application/json"},
+    )
+    assert unauthorized.status_code == 409
+    assert unauthorized.get_json()["code"] == "relation_changed"
+    token = unauthorized.get_json()["csrf_token"]
+
+    confirmed = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/confirm-continuity",
+        json={
+            "csrf_token": token,
+            "candidate_id": candidate["candidate_id"],
+            "reason": "Expediente interno revisado por Nómina",
+        },
+        headers={"X-CSRF-Token": token, "Accept": "application/json"},
+    )
+    assert confirmed.status_code == 200
+    assert confirmed.get_json()["message"] == "Relación confirmada. Los datos del nuevo archivo serán los vigentes."
+    assert confirmed.get_json()["preview_fingerprint"] != before_preview["preview_fingerprint"]
+
+    conn = connect(app.config["DATABASE"])
+    reconciliation = conn.execute(
+        "SELECT * FROM nomina_banorte_catalog_reconciliations "
+        "WHERE version_id=? AND person_id=? AND is_current=1",
+        (version_id, target_action["person_id"]),
+    ).fetchone()
+    assert reconciliation["match_method"] == "MANUAL_CONTINUITY_CONFIRMED"
+    assert reconciliation["lineage_status"] == "CONFIRMED"
+    assert reconciliation["manual_reason"] == "Expediente interno revisado por Nómina"
+    assert reconciliation["created_by"] == "tester"
+    assert reconciliation["lineage_evidence_sha256"]
+    assert conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?", (version_id,)
+    ).fetchone()[0] == "READY_FOR_REVIEW"
+    conn.close()
+
+    stale_candidate = client.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/confirm-continuity",
+        json={
+            "csrf_token": confirmed.get_json()["csrf_token"],
+            "candidate_id": candidate["candidate_id"],
+            "reason": "Segundo intento no permitido",
+        },
+        headers={
+            "X-CSRF-Token": confirmed.get_json()["csrf_token"],
+            "Accept": "application/json",
+        },
+    )
+    assert stale_candidate.status_code == 409
+    assert "MANUAL_CONTINUITY" not in stale_candidate.get_data(as_text=True)
+    denied = _make_app(
+        tmp_path,
+        "supervisor",
+        db_path=app.config["DATABASE"],
+    ).test_client()
+    assert denied.get(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/lineage-candidates"
+    ).status_code == 403
+    assert denied.post(
+        f"/nomina/exportaciones/banorte/catalogo/versions/{version_id}/comparison/{row_key}/confirm-continuity",
+        json={"candidate_id": candidate["candidate_id"], "reason": "No autorizado"},
+    ).status_code == 403
+    source = Path(__file__).resolve().parents[1].joinpath(
+        "modules", "nomina", "banorte", "routes.py"
+    ).read_text(encoding="utf-8")
+    assert "confirm-distinct" not in source
+    assert "manual-distinct" not in source
+
+
 def test_c3a_check_1_overview_status_mapping_and_retired_engineering_copy(tmp_path):
     app = _make_app(tmp_path, "admin")
     client = app.test_client()

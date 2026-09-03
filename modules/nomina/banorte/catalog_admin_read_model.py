@@ -1,4 +1,4 @@
-"""Read-only presentation model for Banorte Catalog Admin V2 (C3a)."""
+"""Read-only presentation model for Banorte Catalog Admin V2 (C3a/C3b)."""
 from __future__ import annotations
 
 import math
@@ -92,6 +92,34 @@ class CatalogComparisonRows:
             "total": self.total,
             "total_pages": self.total_pages,
             "filter": self.filter_name,
+            "has_previous": self.has_previous,
+            "has_next": self.has_next,
+        }
+
+
+@dataclass(frozen=True)
+class CatalogLineageCandidates:
+    version_id: int
+    row_key: str
+    target_person: dict[str, str]
+    items: tuple[dict[str, Any], ...]
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    has_previous: bool
+    has_next: bool
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "version_id": self.version_id,
+            "row_key": self.row_key,
+            "target_person": self.target_person,
+            "items": list(self.items),
+            "page": self.page,
+            "page_size": self.page_size,
+            "total": self.total,
+            "total_pages": self.total_pages,
             "has_previous": self.has_previous,
             "has_next": self.has_next,
         }
@@ -197,6 +225,14 @@ def _preview_for(conn, version: dict[str, Any]) -> dict[str, Any] | None:
         "lineage_unconfirmed_count": int(preview["lineage_unconfirmed_count"]),
         "operational_conflict_count": int(preview["operational_conflict_count"]),
         "can_apply": bool(preview["can_apply"]),
+        "preview_fingerprint": str(preview["preview_fingerprint"]),
+        "blocker_messages": [
+            _conflict_reason(str(blocker.get("code") or ""))
+            for blocker in preview.get("operational_blockers", [])
+        ],
+        "incompatible_open_operation_count": len(
+            preview.get("incompatible_open_operations", [])
+        ),
         "comparison": comparison,
     }
 
@@ -334,7 +370,6 @@ def _conflict_reason(code: str) -> str:
         "TARGET_EMPLOYEE_DUPLICATE": "El mismo número de empleado aparece asignado a más de una persona.",
         "TARGET_ACCOUNT_DUPLICATE": "La misma cuenta aparece asignada a más de una persona.",
         "SPLIT_PRIOR_CURRENT_IDENTIFIERS": "El número de empleado y la cuenta corresponden a personas vigentes distintas.",
-        "MATERIAL_FINGERPRINT_STALE": "La información cambió después del análisis.",
         "ACTIVE_NON_CURRENT_IDENTIFIER_COLLISION": "Un identificador del nuevo archivo ya está asignado a otra persona vigente.",
         "PREDECESSOR_REUSED": "Una persona vigente aparece relacionada con más de una persona del nuevo archivo.",
         "TARGET_EMPLOYEE_INVALID": "El número de empleado no cumple el formato operativo requerido.",
@@ -342,6 +377,8 @@ def _conflict_reason(code: str) -> str:
         "TARGET_CURRENT_ROW_INVALID": "La fila vigente de esta persona no es válida para aplicar.",
         "PROJECTION_BLOCKERS": "El archivo contiene personas que requieren atención antes de aplicarse.",
         "PROJECTION_COUNT_MISMATCH": "El análisis del archivo ya no coincide con su proyección.",
+        "INCOMPATIBLE_OPEN_OPERATIONS": "Existen operaciones Banorte abiertas que pertenecen a otro catálogo. Conclúyelas o descártalas antes de aplicar el nuevo catálogo.",
+        "MATERIAL_FINGERPRINT_STALE": "La información cambió después de la comparación. Vuelve a analizar el archivo antes de aplicarlo.",
     }.get(code, "Existe un conflicto operativo que debe revisarse antes de aplicar.")
 
 
@@ -365,7 +402,12 @@ def _changed_fields(classification: str) -> list[str]:
     }.get(classification, [])
 
 
-def _row_for_action(action, candidate: PriorCurrentCandidate | None) -> dict[str, Any]:
+def _row_for_action(
+    action,
+    candidate: PriorCurrentCandidate | None,
+    *,
+    resolution_available: bool,
+) -> dict[str, Any]:
     classification = _classification_for_action(action)
     lineage_confirmed = action.lineage_status == "CONFIRMED"
     return {
@@ -392,7 +434,7 @@ def _row_for_action(action, candidate: PriorCurrentCandidate | None) -> dict[str
         "lineage_method": _method_presentation(action.match_method),
         "operational_conflict": False,
         "conflict_reason": None,
-        "resolution_available": False,
+        "resolution_available": resolution_available,
         "_search_text_private": " ".join(
             str(value or "")
             for value in (
@@ -464,10 +506,25 @@ def _row_for_conflict(blocker: dict[str, Any], index: int) -> dict[str, Any]:
 
 def _all_rows(plan: NewBaselinePlan) -> list[dict[str, Any]]:
     candidates = {item.beneficiary_id: item for item in plan.prior_candidates}
+    consumed_candidates = {
+        int(action.predecessor_beneficiary_id)
+        for action in plan.actions
+        if action.lineage_status == "CONFIRMED"
+        and action.predecessor_beneficiary_id is not None
+    }
+    has_available_candidate = any(
+        candidate.beneficiary_id not in consumed_candidates
+        for candidate in plan.prior_candidates
+    )
     rows = [
         _row_for_action(
             action,
             candidates.get(int(action.predecessor_beneficiary_id or 0)),
+            resolution_available=(
+                action.lineage_status == "UNCONFIRMED"
+                and not plan.operational_blockers
+                and has_available_candidate
+            ),
         )
         for action in plan.actions
     ]
@@ -633,6 +690,177 @@ def get_catalog_comparison_row(
     if not matching:
         raise CatalogAdminReadError("row_not_found")
     return matching[0]
+
+
+def _lineage_review_context(
+    conn,
+    version_id: int,
+    row_key: str,
+) -> tuple[NewBaselinePlan, Any, tuple[PriorCurrentCandidate, ...]]:
+    match = re.fullmatch(r"target-(\d+)", str(row_key or ""))
+    if match is None:
+        raise CatalogAdminReadError("lineage_not_reviewable")
+    version = conn.execute(
+        "SELECT status FROM nomina_banorte_catalog_versions WHERE id=?",
+        (int(version_id),),
+    ).fetchone()
+    if version is None:
+        raise CatalogAdminReadError("version_not_found")
+    if version["status"] not in {"ANALYZED", "READY_FOR_REVIEW"}:
+        raise CatalogAdminReadError("lineage_not_reviewable")
+    plan = build_new_baseline_plan(conn, int(version_id))
+    person_id = int(match.group(1))
+    action = next(
+        (item for item in plan.actions if item.person_id == person_id),
+        None,
+    )
+    if action is None or action.lineage_status != "UNCONFIRMED":
+        raise CatalogAdminReadError("lineage_not_reviewable")
+    if plan.operational_blockers:
+        raise CatalogAdminReadError("lineage_blocked")
+    consumed = {
+        int(item.predecessor_beneficiary_id)
+        for item in plan.actions
+        if item.person_id != person_id
+        and item.lineage_status == "CONFIRMED"
+        and item.predecessor_beneficiary_id is not None
+    }
+    candidates = tuple(
+        candidate
+        for candidate in plan.prior_candidates
+        if candidate.beneficiary_id not in consumed
+    )
+    if not candidates:
+        raise CatalogAdminReadError("lineage_no_candidates")
+    return plan, action, candidates
+
+
+def _evidence_signal(target_value: Any, candidate_value: Any) -> bool:
+    target = " ".join(str(target_value or "").upper().split())
+    candidate = " ".join(str(candidate_value or "").upper().split())
+    return bool(target and candidate and target == candidate)
+
+
+def _candidate_review_item(action, candidate: PriorCurrentCandidate) -> dict[str, Any]:
+    return {
+        "candidate_id": int(candidate.beneficiary_id),
+        "person": _candidate_person(candidate),
+        "evidence": {
+            "name": _evidence_signal(action.name_original, candidate.name_original),
+            "employee": _evidence_signal(action.employee, candidate.employee),
+            "account": _evidence_signal(action.account, candidate.account),
+            "rfc": _evidence_signal(action.rfc, candidate.rfc),
+            "birth_date": _evidence_signal(action.birth_date, candidate.birth_date),
+        },
+        "_search_text_private": " ".join(
+            str(value or "")
+            for value in (
+                candidate.name_original,
+                candidate.employee,
+                candidate.account,
+                candidate.rfc,
+                candidate.birth_date,
+            )
+        ).casefold(),
+    }
+
+
+def list_catalog_lineage_candidates(
+    db_path: str | Path,
+    version_id: int,
+    row_key: str,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+    search: str = "",
+) -> CatalogLineageCandidates:
+    """List only C2-authorized PRIOR CURRENT candidates with masked material."""
+    page, page_size = _validated_page(page, page_size)
+    if page_size > 50:
+        raise CatalogAdminReadError("invalid_pagination")
+    search = str(search or "").strip().casefold()
+    if len(search) > 120:
+        raise CatalogAdminReadError("invalid_search")
+    conn = connect(db_path)
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        _plan, action, candidates = _lineage_review_context(
+            conn, int(version_id), row_key
+        )
+        items = [_candidate_review_item(action, candidate) for candidate in candidates]
+        if search:
+            items = [
+                item
+                for item in items
+                if search in str(item["_search_text_private"])
+            ]
+        items.sort(
+            key=lambda item: (
+                str(item["person"]["name"]).casefold(),
+                int(item["candidate_id"]),
+            )
+        )
+        total = len(items)
+        total_pages = max(1, math.ceil(total / page_size))
+        if page > total_pages and total:
+            raise CatalogAdminReadError("page_not_found")
+        start = (page - 1) * page_size
+        public_items = tuple(
+            {key: value for key, value in item.items() if not key.startswith("_")}
+            for item in items[start : start + page_size]
+        )
+        conn.commit()
+        return CatalogLineageCandidates(
+            version_id=int(version_id),
+            row_key=str(row_key),
+            target_person=_person(
+                name=action.name_original,
+                employee=action.employee,
+                account=action.account,
+                rfc=action.rfc,
+                birth_date=action.birth_date,
+            ),
+            items=public_items,
+            page=page,
+            page_size=page_size,
+            total=total,
+            total_pages=total_pages,
+            has_previous=page > 1,
+            has_next=page < total_pages,
+        )
+    finally:
+        conn.close()
+
+
+def resolve_catalog_lineage_selection(
+    db_path: str | Path,
+    version_id: int,
+    row_key: str,
+    candidate_id: int,
+) -> tuple[int, int]:
+    """Fail closed before mutation; the C2 service revalidates again in its write tx."""
+    conn = connect(db_path)
+    try:
+        conn.execute("PRAGMA query_only=ON")
+        conn.execute("BEGIN")
+        _plan, action, candidates = _lineage_review_context(
+            conn, int(version_id), row_key
+        )
+        candidate = next(
+            (
+                item
+                for item in candidates
+                if item.beneficiary_id == int(candidate_id)
+            ),
+            None,
+        )
+        if candidate is None:
+            raise CatalogAdminReadError("lineage_candidate_not_allowed")
+        conn.commit()
+        return int(action.person_id), int(candidate.beneficiary_id)
+    finally:
+        conn.close()
 
 
 def list_catalog_history(

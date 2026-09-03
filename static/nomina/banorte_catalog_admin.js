@@ -32,6 +32,18 @@
     );
   }
 
+  function shouldEnableApply(backendAuthorized, acknowledged, busy) {
+    return backendAuthorized === true && acknowledged === true && busy !== true;
+  }
+
+  function buildActivationPayload(previewFingerprint, csrfToken, acknowledged) {
+    return {
+      preview_fingerprint: String(previewFingerprint || ""),
+      csrf_token: String(csrfToken || ""),
+      acknowledge_impact: acknowledged === true ? "yes" : "",
+    };
+  }
+
   function personName(item) {
     const person = item.target_person || item.current_person || {};
     return person.name || "—";
@@ -50,6 +62,12 @@
       const conflictClass = item.operational_conflict ? " catalog-admin-row--conflict" : "";
       const lineageClass = item.lineage_status === "UNCONFIRMED" ? " catalog-admin-lineage--unconfirmed" : "";
       const relation = item.lineage_label || (item.operational_conflict ? "Requiere atención" : "—");
+      const detailButton = '<button class="btn btn-secondary btn-sm" type="button" data-row-detail="' +
+        escapeHtml(item.row_key) + '">Ver detalle</button>';
+      const lineageButton = item.resolution_available
+        ? '<button class="btn btn-secondary btn-sm" type="button" data-row-lineage="' +
+          escapeHtml(item.row_key) + '">Revisar relación</button>'
+        : "";
       return (
         '<tr class="' + conflictClass.trim() + '">' +
           "<td><strong>" + escapeHtml(item.classification_label) + "</strong>" +
@@ -59,9 +77,46 @@
           "<td>" + escapeHtml(personField(item, "employee")) + "</td>" +
           "<td>" + escapeHtml(personField(item, "account_masked")) + "</td>" +
           '<td class="' + lineageClass.trim() + '">' + escapeHtml(relation) + "</td>" +
-          '<td><button class="btn btn-secondary btn-sm" type="button" data-row-detail="' +
-            escapeHtml(item.row_key) + '">Ver detalle</button></td>' +
+          '<td><div class="catalog-admin-row-actions">' + detailButton + lineageButton + "</div></td>" +
         "</tr>"
+      );
+    }).join("");
+  }
+
+  function evidenceLabel(value) {
+    return value ? "Coincide" : "Difiere";
+  }
+
+  function renderLineageCandidates(items) {
+    if (!items || !items.length) {
+      return '<p class="catalog-admin-muted">No se encontraron relaciones anteriores con esa búsqueda.</p>';
+    }
+    const labels = {
+      name: "Nombre",
+      employee: "Número de empleado",
+      account: "Cuenta",
+      rfc: "RFC",
+      birth_date: "Fecha de nacimiento",
+    };
+    return items.map(function (item) {
+      const person = item.person || {};
+      const evidence = item.evidence || {};
+      const signals = Object.keys(labels).map(function (key) {
+        const matches = evidence[key] === true;
+        return '<li class="catalog-admin-signal catalog-admin-signal--' + (matches ? "match" : "diff") + '">' +
+          "<span>" + escapeHtml(labels[key]) + "</span><strong>" + evidenceLabel(matches) + "</strong></li>";
+      }).join("");
+      return (
+        '<label class="catalog-admin-candidate">' +
+          '<input type="radio" name="lineage_candidate" value="' + escapeHtml(item.candidate_id) + '">' +
+          '<span class="catalog-admin-candidate__body">' +
+            "<strong>" + escapeHtml(person.name || "—") + "</strong>" +
+            '<span>Número: ' + escapeHtml(person.employee || "—") + "</span>" +
+            '<span>Cuenta: ' + escapeHtml(person.account_masked || "—") + "</span>" +
+            '<span>RFC: ' + escapeHtml(person.rfc || "—") + "</span>" +
+            '<ul class="catalog-admin-signals">' + signals + "</ul>" +
+          "</span>" +
+        "</label>"
       );
     }).join("");
   }
@@ -138,6 +193,12 @@
     let comparisonRequest = 0;
     let searchTimer = null;
     let historyPage = 1;
+    let applyBusy = false;
+    let applyPreviewInvalidated = false;
+    let manualBusy = false;
+    let lineageRequest = 0;
+    let lineageSearchTimer = null;
+    let activeLineageRow = "";
 
     const uploadForm = root.querySelector("[data-catalog-upload-form]");
     const fileInput = root.querySelector("[data-catalog-file]");
@@ -162,6 +223,24 @@
     const historyPrevious = root.querySelector("[data-history-previous]");
     const historyNext = root.querySelector("[data-history-next]");
     const historyStatus = root.querySelector("[data-history-status]");
+    const applyForm = root.querySelector("[data-catalog-apply-form]");
+    const applyAcknowledgement = root.querySelector(
+      '[data-apply-acknowledgement][name="acknowledge_impact"]'
+    );
+    const applyButton = root.querySelector("[data-apply-button]");
+    const applyStatus = root.querySelector("[data-apply-status]");
+    const refreshPreviewButton = root.querySelector("[data-refresh-preview]");
+    const lineageDialog = root.querySelector("[data-lineage-dialog]");
+    const lineageRegion = root.querySelector("[data-lineage-region]");
+    const lineageTarget = root.querySelector("[data-lineage-target]");
+    const lineageSearch = root.querySelector("[data-lineage-search]");
+    const lineageCandidates = root.querySelector("[data-lineage-candidates]");
+    const lineageClose = root.querySelector("[data-lineage-close]");
+    const lineageKeepSeparate = root.querySelector("[data-lineage-keep-separate]");
+    const continuityForm = root.querySelector("[data-continuity-form]");
+    const continuityReason = root.querySelector("[data-continuity-reason]");
+    const continuityConfirm = root.querySelector("[data-continuity-confirm]");
+    const lineageStatus = root.querySelector("[data-lineage-status]");
 
     function updateCsrf(token) {
       if (!token) return;
@@ -169,6 +248,10 @@
       root.dataset.csrf = token;
       if (uploadForm) {
         const field = uploadForm.querySelector('input[name="csrf_token"]');
+        if (field) field.value = token;
+      }
+      if (applyForm) {
+        const field = applyForm.querySelector('input[name="csrf_token"]');
         if (field) field.value = token;
       }
     }
@@ -308,6 +391,287 @@
       }
     }
 
+    function setApplyStatus(message, tone) {
+      if (!applyStatus) return;
+      applyStatus.textContent = message || "";
+      applyStatus.dataset.tone = tone || "neutral";
+    }
+
+    function syncApplyState() {
+      if (!applyForm || !applyButton) return;
+      const backendAuthorized = applyForm.dataset.applyAuthorized === "true";
+      const acknowledged = Boolean(
+        applyAcknowledgement && applyAcknowledgement.checked
+      );
+      applyButton.disabled = !shouldEnableApply(
+        backendAuthorized,
+        acknowledged,
+        applyBusy || applyPreviewInvalidated
+      );
+    }
+
+    async function checkActivationAfterUnknown() {
+      if (!root.dataset.activationCheckUrl) return false;
+      const fingerprintField = applyForm
+        ? applyForm.querySelector('input[name="preview_fingerprint"]')
+        : null;
+      try {
+        const response = await windowRef.fetch(root.dataset.activationCheckUrl, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json",
+            "X-Catalog-Preview-Fingerprint": fingerprintField
+              ? fingerprintField.value
+              : "",
+          },
+          cache: "no-store",
+        });
+        const data = await readJson(response);
+        if (!response.ok || !data.ok) throw new Error("activation_check_failed");
+        if (data.is_active) {
+          setApplyStatus("El nuevo catálogo Banorte quedó vigente.", "success");
+          windowRef.location.assign(root.dataset.indexUrl);
+          return true;
+        }
+        if (data.retry_allowed) {
+          applyPreviewInvalidated = false;
+          setApplyStatus(
+            "El catálogo no fue aplicado. Puedes revisar y volver a intentarlo.",
+            "warning"
+          );
+        } else {
+          applyPreviewInvalidated = true;
+          setApplyStatus(
+            data.message || "El catálogo no fue aplicado. Vuelve a revisar la comparación.",
+            "error"
+          );
+          if (refreshPreviewButton) refreshPreviewButton.hidden = false;
+        }
+        return false;
+      } catch (_error) {
+        applyPreviewInvalidated = true;
+        setApplyStatus(
+          "No fue posible confirmar el resultado. Vuelve a cargar la comparación antes de intentar nuevamente.",
+          "error"
+        );
+        if (refreshPreviewButton) refreshPreviewButton.hidden = false;
+        return false;
+      }
+    }
+
+    async function submitApply() {
+      if (!applyForm || !applyButton || applyButton.disabled || applyBusy) return null;
+      const fingerprintField = applyForm.querySelector('input[name="preview_fingerprint"]');
+      applyBusy = true;
+      applyPreviewInvalidated = false;
+      applyForm.setAttribute("aria-busy", "true");
+      applyButton.disabled = true;
+      if (applyAcknowledgement) applyAcknowledgement.disabled = true;
+      setApplyStatus("Aplicando catálogo…", "busy");
+      let responseKnown = false;
+      let navigating = false;
+      try {
+        const response = await windowRef.fetch(root.dataset.activationUrl, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRF-Token": csrf,
+          },
+          body: JSON.stringify(
+            buildActivationPayload(
+              fingerprintField ? fingerprintField.value : "",
+              csrf,
+              Boolean(applyAcknowledgement && applyAcknowledgement.checked)
+            )
+          ),
+        });
+        responseKnown = true;
+        const data = await readJson(response);
+        if (!response.ok || !data.ok) {
+          applyPreviewInvalidated = data.preview_invalidated !== false;
+          setApplyStatus(
+            data.message || "No fue posible aplicar el catálogo.",
+            "error"
+          );
+          if (applyPreviewInvalidated && refreshPreviewButton) {
+            refreshPreviewButton.hidden = false;
+          }
+          return null;
+        }
+        navigating = true;
+        setApplyStatus("El nuevo catálogo Banorte quedó vigente.", "success");
+        windowRef.location.assign(data.redirect_url || root.dataset.indexUrl);
+        return data;
+      } catch (_error) {
+        if (!responseKnown) {
+          navigating = await checkActivationAfterUnknown();
+        }
+        return null;
+      } finally {
+        if (!navigating) {
+          applyBusy = false;
+          applyForm.setAttribute("aria-busy", "false");
+          if (applyAcknowledgement && applyForm.dataset.applyAuthorized === "true") {
+            applyAcknowledgement.disabled = applyPreviewInvalidated;
+          }
+          syncApplyState();
+        }
+      }
+    }
+
+    function setLineageStatus(message, tone) {
+      if (!lineageStatus) return;
+      lineageStatus.textContent = message || "";
+      lineageStatus.dataset.tone = tone || "neutral";
+    }
+
+    function selectedCandidateId() {
+      if (!lineageCandidates) return "";
+      const selected = lineageCandidates.querySelector(
+        'input[name="lineage_candidate"]:checked'
+      );
+      return selected ? selected.value : "";
+    }
+
+    function syncContinuityState() {
+      if (!continuityConfirm) return;
+      continuityConfirm.disabled = !(
+        selectedCandidateId() &&
+        continuityReason &&
+        continuityReason.value.trim() &&
+        !manualBusy
+      );
+    }
+
+    function closeLineageReview() {
+      if (!lineageDialog || manualBusy) return;
+      activeLineageRow = "";
+      if (typeof lineageDialog.close === "function") lineageDialog.close();
+      else lineageDialog.removeAttribute("open");
+    }
+
+    async function loadLineageCandidates(page) {
+      if (!activeLineageRow || !root.dataset.lineageUrlTemplate || !lineageCandidates) {
+        return null;
+      }
+      const requestId = ++lineageRequest;
+      const base = root.dataset.lineageUrlTemplate.replace(
+        "__ROW__",
+        encodeURIComponent(activeLineageRow)
+      );
+      const url = base + "?page=" + encodeURIComponent(String(page || 1)) + "&page_size=20";
+      if (lineageRegion) lineageRegion.setAttribute("aria-busy", "true");
+      lineageCandidates.innerHTML = '<p class="catalog-admin-muted">Buscando relaciones anteriores…</p>';
+      try {
+        const response = await windowRef.fetch(url, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json",
+            "X-Catalog-Search": lineageSearch ? lineageSearch.value.trim() : "",
+          },
+          cache: "no-store",
+        });
+        const data = await readJson(response);
+        if (requestId !== lineageRequest) return null;
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || "No se pudo revisar la relación.");
+        }
+        if (lineageTarget) {
+          lineageTarget.innerHTML = personCard("Datos del nuevo archivo", data.target_person);
+        }
+        lineageCandidates.innerHTML = renderLineageCandidates(data.items);
+        syncContinuityState();
+        return data;
+      } catch (error) {
+        if (requestId === lineageRequest) {
+          lineageCandidates.textContent = error && error.message
+            ? error.message
+            : "No se pudo revisar la relación.";
+        }
+        return null;
+      } finally {
+        if (requestId === lineageRequest && lineageRegion) {
+          lineageRegion.setAttribute("aria-busy", "false");
+        }
+      }
+    }
+
+    function openLineageReview(rowKey) {
+      if (!lineageDialog || !rowKey) return;
+      activeLineageRow = rowKey;
+      if (lineageSearch) lineageSearch.value = "";
+      if (continuityReason) continuityReason.value = "";
+      if (lineageTarget) lineageTarget.textContent = "Cargando persona…";
+      if (lineageCandidates) lineageCandidates.textContent = "Buscando relaciones anteriores…";
+      setLineageStatus("", "neutral");
+      syncContinuityState();
+      if (typeof lineageDialog.showModal === "function") lineageDialog.showModal();
+      else lineageDialog.setAttribute("open", "");
+      loadLineageCandidates(1).then(function () {
+        if (lineageSearch) lineageSearch.focus();
+      });
+    }
+
+    async function submitContinuity() {
+      const candidateId = selectedCandidateId();
+      const reason = continuityReason ? continuityReason.value.trim() : "";
+      if (!activeLineageRow || !candidateId || !reason || manualBusy) return null;
+      manualBusy = true;
+      if (lineageRegion) lineageRegion.setAttribute("aria-busy", "true");
+      if (continuityConfirm) continuityConfirm.disabled = true;
+      if (lineageClose) lineageClose.disabled = true;
+      if (lineageKeepSeparate) lineageKeepSeparate.disabled = true;
+      setLineageStatus("Confirmando relación…", "busy");
+      const url = root.dataset.continuityUrlTemplate.replace(
+        "__ROW__",
+        encodeURIComponent(activeLineageRow)
+      );
+      try {
+        const response = await windowRef.fetch(url, {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-CSRF-Token": csrf,
+          },
+          body: JSON.stringify({
+            candidate_id: Number(candidateId),
+            reason: reason,
+            csrf_token: csrf,
+          }),
+        });
+        const data = await readJson(response);
+        if (!response.ok || !data.ok) {
+          throw new Error(
+            data.message || "No fue posible confirmar esta relación."
+          );
+        }
+        setLineageStatus(
+          "Relación confirmada. Los datos del nuevo archivo serán los vigentes.",
+          "success"
+        );
+        windowRef.location.assign(data.redirect_url);
+        return data;
+      } catch (error) {
+        setLineageStatus(
+          error && error.message
+            ? error.message
+            : "No fue posible confirmar esta relación.",
+          "error"
+        );
+        return null;
+      } finally {
+        manualBusy = false;
+        if (lineageRegion) lineageRegion.setAttribute("aria-busy", "false");
+        if (lineageClose) lineageClose.disabled = false;
+        if (lineageKeepSeparate) lineageKeepSeparate.disabled = false;
+        syncContinuityState();
+      }
+    }
+
     if (fileInput && fileName) {
       fileInput.addEventListener("change", function () {
         fileName.textContent = fileInput.files && fileInput.files[0]
@@ -348,8 +712,10 @@
     if (nextButton) nextButton.addEventListener("click", function () { loadComparison(comparisonPage + 1); });
     if (comparisonBody) {
       comparisonBody.addEventListener("click", function (event) {
-        const button = event.target.closest("[data-row-detail]");
-        if (button) openDetail(button.dataset.rowDetail);
+        const detailButton = event.target.closest("[data-row-detail]");
+        const lineageButton = event.target.closest("[data-row-lineage]");
+        if (detailButton) openDetail(detailButton.dataset.rowDetail);
+        if (lineageButton) openLineageReview(lineageButton.dataset.rowLineage);
       });
     }
     if (detailClose) {
@@ -361,12 +727,68 @@
     if (historyPrevious) historyPrevious.addEventListener("click", function () { if (historyPage > 1) loadHistory(historyPage - 1); });
     if (historyNext) historyNext.addEventListener("click", function () { loadHistory(historyPage + 1); });
 
+    if (applyAcknowledgement) {
+      applyAcknowledgement.addEventListener("change", syncApplyState);
+    }
+    if (applyForm) {
+      applyForm.setAttribute("aria-busy", "false");
+      applyForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (applyBusy) return;
+        submitApply();
+      });
+    }
+    if (refreshPreviewButton) {
+      refreshPreviewButton.addEventListener("click", function () {
+        const target = root.dataset.indexUrl + "?version_id=" + encodeURIComponent(root.dataset.versionId || "");
+        windowRef.location.assign(target);
+      });
+    }
+    if (lineageSearch) {
+      lineageSearch.addEventListener("input", function () {
+        if (lineageSearchTimer) windowRef.clearTimeout(lineageSearchTimer);
+        lineageSearchTimer = windowRef.setTimeout(function () {
+          loadLineageCandidates(1);
+        }, SEARCH_DELAY_MS);
+      });
+    }
+    if (lineageCandidates) {
+      lineageCandidates.addEventListener("change", syncContinuityState);
+    }
+    if (continuityReason) {
+      continuityReason.addEventListener("input", syncContinuityState);
+    }
+    if (continuityForm) {
+      continuityForm.addEventListener("submit", function (event) {
+        event.preventDefault();
+        if (manualBusy) return;
+        submitContinuity();
+      });
+    }
+    if (lineageClose) lineageClose.addEventListener("click", closeLineageReview);
+    if (lineageKeepSeparate) {
+      lineageKeepSeparate.addEventListener("click", closeLineageReview);
+    }
+    if (lineageDialog) {
+      lineageDialog.addEventListener("cancel", function (event) {
+        if (manualBusy) event.preventDefault();
+      });
+      lineageDialog.addEventListener("keydown", function (event) {
+        if (event.key === "Escape" && !manualBusy) closeLineageReview();
+      });
+    }
+
     if (root.dataset.comparisonUrl) loadComparison(1);
+    syncApplyState();
     return {
       loadComparison: loadComparison,
       loadHistory: loadHistory,
       submitAnalysis: submitAnalysis,
+      submitApply: submitApply,
+      submitContinuity: submitContinuity,
       isUploadBusy: function () { return uploadBusy; },
+      isApplyBusy: function () { return applyBusy; },
+      isManualBusy: function () { return manualBusy; },
     };
   }
 
@@ -375,7 +797,10 @@
     SEARCH_DELAY_MS: SEARCH_DELAY_MS,
     escapeHtml: escapeHtml,
     buildPageUrl: buildPageUrl,
+    shouldEnableApply: shouldEnableApply,
+    buildActivationPayload: buildActivationPayload,
     renderComparisonRows: renderComparisonRows,
+    renderLineageCandidates: renderLineageCandidates,
     renderDetail: renderDetail,
     renderHistoryRows: renderHistoryRows,
     install: install,

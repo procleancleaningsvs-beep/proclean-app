@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 from functools import wraps
 from io import BytesIO
@@ -79,6 +80,7 @@ from modules.nomina.banorte.catalog_search_service import search_catalog_sidebar
 from modules.nomina.banorte.catalog_parser import CatalogParseError
 from modules.nomina.banorte.catalog_reconciliation import (
     CatalogReconciliationError,
+    manual_confirm_catalog_lineage,
     manual_reconcile_catalog_person,
     pre_reconcile_catalog_version,
 )
@@ -95,7 +97,9 @@ from modules.nomina.banorte.catalog_admin_read_model import (
     get_catalog_comparison_row,
     list_catalog_comparison_rows,
     list_catalog_history,
+    list_catalog_lineage_candidates,
     load_catalog_admin_overview,
+    resolve_catalog_lineage_selection,
 )
 from modules.nomina.banorte.history_service import (
     HistoricalExportNotFound,
@@ -1464,6 +1468,61 @@ def register_banorte_routes(bp) -> None:
             raise CatalogVersionError("transition_invalid")
         return version
 
+    def _catalog_activation_failure(code: str) -> tuple[str, str, bool]:
+        if code == "PREVIEW_FINGERPRINT_DRIFT":
+            return (
+                "comparison_changed",
+                "La información cambió después de la comparación. "
+                "Vuelve a analizar el archivo antes de aplicarlo.",
+                True,
+            )
+        if code in {"version_not_found", "version_not_ready", "transition_invalid"}:
+            return (
+                "catalog_changed",
+                "El catálogo vigente cambió desde que se realizó esta comparación. "
+                "Vuelve a comparar el archivo.",
+                True,
+            )
+        if code == "INCOMPATIBLE_OPEN_OPERATIONS":
+            return (
+                "open_operations",
+                "Existen operaciones Banorte abiertas que pertenecen a otro catálogo. "
+                "Conclúyelas o descártalas antes de aplicar el nuevo catálogo.",
+                True,
+            )
+        return (
+            "application_blocked",
+            "No fue posible aplicar el catálogo. "
+            "Corrige el archivo y vuelve a analizarlo.",
+            True,
+        )
+
+    def _catalog_lineage_failure(code: str) -> tuple[str, str, int]:
+        if code in {"invalid_pagination", "invalid_search"}:
+            return (
+                "invalid_request",
+                "La búsqueda solicitada no es válida.",
+                400,
+            )
+        if code == "manual_reason_required":
+            return (
+                "reason_required",
+                "Escribe el motivo de la confirmación.",
+                400,
+            )
+        if code in {"version_not_found", "row_not_found"}:
+            return (
+                "relation_not_found",
+                "La relación solicitada ya no está disponible.",
+                404,
+            )
+        return (
+            "relation_changed",
+            "La información de esta relación cambió. "
+            "Vuelve a revisar la comparación antes de confirmar.",
+            409,
+        )
+
     @_banorte_access_required
     @_banorte_operator_required
     def banorte_catalog_index():
@@ -1652,6 +1711,83 @@ def register_banorte_routes(bp) -> None:
 
     @_banorte_access_required
     @_banorte_operator_required
+    def banorte_catalog_lineage_candidates(version_id: int, row_key: str):
+        try:
+            result = list_catalog_lineage_candidates(
+                _db_path(),
+                int(version_id),
+                row_key,
+                page=request.args.get("page", 1),
+                page_size=request.args.get("page_size", 20),
+                search=request.headers.get("X-Catalog-Search", ""),
+            ).as_dict()
+        except CatalogAdminReadError as exc:
+            code, message, status = _catalog_lineage_failure(exc.code)
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": code,
+                    "message": message,
+                    "csrf_token": issue_csrf_token(),
+                },
+                status,
+            )
+        return _json_no_store(
+            {"ok": True, **result, "csrf_token": issue_csrf_token()}
+        )
+
+    @_banorte_access_required
+    @_banorte_operator_required
+    def banorte_catalog_confirm_continuity(version_id: int, row_key: str):
+        require_csrf()
+        data = request.get_json(silent=True) or request.form
+        try:
+            candidate_id = int(data.get("candidate_id") or 0)
+            person_id, predecessor_id = resolve_catalog_lineage_selection(
+                _db_path(), int(version_id), row_key, candidate_id
+            )
+            manual_confirm_catalog_lineage(
+                _db_path(),
+                person_id,
+                predecessor_id,
+                actor=_username(),
+                reason=str(data.get("reason") or ""),
+            )
+            overview = load_catalog_admin_overview(
+                _db_path(), selected_version_id=int(version_id)
+            ).as_dict()
+            preview = (overview.get("selected") or {}).get("preview") or {}
+        except (TypeError, ValueError, CatalogAdminReadError, CatalogReconciliationError) as exc:
+            internal_code = getattr(exc, "code", "relation_changed")
+            code, message, status = _catalog_lineage_failure(str(internal_code))
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": code,
+                    "message": message,
+                    "csrf_token": issue_csrf_token(),
+                },
+                status,
+            )
+        message = (
+            "Relación confirmada. "
+            "Los datos del nuevo archivo serán los vigentes."
+        )
+        flash(message, "success")
+        return _json_no_store(
+            {
+                "ok": True,
+                "message": message,
+                "preview_fingerprint": preview.get("preview_fingerprint"),
+                "redirect_url": url_for(
+                    "nomina.banorte_catalog_index", version_id=int(version_id)
+                ),
+                "csrf_token": issue_csrf_token(),
+            }
+        )
+
+    @_banorte_access_required
+    @_banorte_operator_required
     def banorte_catalog_history():
         try:
             result = list_catalog_history(
@@ -1730,12 +1866,60 @@ def register_banorte_routes(bp) -> None:
     @_banorte_operator_required
     def banorte_catalog_activate(version_id: int):
         require_csrf()
+        data = request.get_json(silent=True) or request.form
+        preview_fingerprint = str(data.get("preview_fingerprint") or "").strip()
+        if str(data.get("acknowledge_impact") or "").strip().lower() != "yes":
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": "impact_acknowledgement_required",
+                    "message": "Confirma que revisaste el impacto antes de aplicar el catálogo.",
+                    "preview_invalidated": False,
+                    "csrf_token": issue_csrf_token(),
+                },
+                400,
+            )
+        if not preview_fingerprint:
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": "comparison_required",
+                    "message": "Vuelve a comparar el archivo antes de aplicarlo.",
+                    "preview_invalidated": True,
+                    "csrf_token": issue_csrf_token(),
+                },
+                400,
+            )
         try:
-            result = activate_catalog_version(_db_path(), int(version_id), actor=_username())
+            result = activate_catalog_version(
+                _db_path(),
+                int(version_id),
+                actor=_username(),
+                expected_preview_fingerprint=preview_fingerprint,
+            )
         except CatalogActivationError as exc:
-            return _json_no_store({"ok": False, "code": exc.code}, 400)
-        flash("Catálogo activado.", "success")
-        return _json_no_store({"ok": True, **result, "csrf_token": issue_csrf_token()})
+            code, message, invalidated = _catalog_activation_failure(exc.code)
+            return _json_no_store(
+                {
+                    "ok": False,
+                    "code": code,
+                    "message": message,
+                    "preview_invalidated": invalidated,
+                    "csrf_token": issue_csrf_token(),
+                },
+                409,
+            )
+        message = "El nuevo catálogo Banorte quedó vigente."
+        flash(message + " La versión anterior se conservó en el historial.", "success")
+        return _json_no_store(
+            {
+                "ok": True,
+                **result,
+                "message": message,
+                "redirect_url": url_for("nomina.banorte_catalog_index"),
+                "csrf_token": issue_csrf_token(),
+            }
+        )
 
     @_banorte_access_required
     @_banorte_operator_required
@@ -1755,7 +1939,34 @@ def register_banorte_routes(bp) -> None:
             check = catalog_activation_check(_db_path(), int(version_id))
         except ValueError:
             return _json_no_store({"ok": False, "code": "version_not_found"}, 404)
-        return _json_no_store({"ok": True, **check})
+        is_active = str(check.get("version_status") or "") == "ACTIVE"
+        expected_fingerprint = str(
+            request.headers.get("X-Catalog-Preview-Fingerprint") or ""
+        )
+        live_fingerprint = str(check.get("preview_fingerprint") or "")
+        preview_matches = bool(
+            expected_fingerprint
+            and live_fingerprint
+            and hmac.compare_digest(expected_fingerprint, live_fingerprint)
+        )
+        return _json_no_store(
+            {
+                "ok": True,
+                **check,
+                "is_active": is_active,
+                "retry_allowed": (
+                    not is_active
+                    and bool(check.get("can_apply"))
+                    and preview_matches
+                ),
+                "message": (
+                    "El nuevo catálogo Banorte quedó vigente."
+                    if is_active
+                    else "El catálogo no fue aplicado. Revisa nuevamente la comparación."
+                ),
+                "csrf_token": issue_csrf_token(),
+            }
+        )
 
     @_banorte_access_required
     @_banorte_operator_required
@@ -1820,6 +2031,18 @@ def register_banorte_routes(bp) -> None:
         endpoint="banorte_catalog_comparison_detail",
         view_func=banorte_catalog_comparison_detail,
         methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/comparison/<string:row_key>/lineage-candidates",
+        endpoint="banorte_catalog_lineage_candidates",
+        view_func=banorte_catalog_lineage_candidates,
+        methods=["GET"],
+    )
+    bp.add_url_rule(
+        "/exportaciones/banorte/catalogo/versions/<int:version_id>/comparison/<string:row_key>/confirm-continuity",
+        endpoint="banorte_catalog_confirm_continuity",
+        view_func=banorte_catalog_confirm_continuity,
+        methods=["POST"],
     )
     bp.add_url_rule(
         "/exportaciones/banorte/catalogo/history",

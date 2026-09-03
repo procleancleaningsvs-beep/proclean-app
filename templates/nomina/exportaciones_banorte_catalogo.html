@@ -12,10 +12,15 @@
   data-csrf="{{ csrf_token }}"
   data-upload-url="{{ url_for('nomina.banorte_catalog_upload') }}"
   data-history-url="{{ url_for('nomina.banorte_catalog_history') }}"
+  data-index-url="{{ url_for('nomina.banorte_catalog_index') }}"
   {% if selected %}
   data-version-id="{{ selected.id }}"
   data-comparison-url="{{ url_for('nomina.banorte_catalog_comparison_rows', version_id=selected.id) }}"
   data-detail-url-template="{{ url_for('nomina.banorte_catalog_comparison_detail', version_id=selected.id, row_key='__ROW__') }}"
+  data-lineage-url-template="{{ url_for('nomina.banorte_catalog_lineage_candidates', version_id=selected.id, row_key='__ROW__') }}"
+  data-continuity-url-template="{{ url_for('nomina.banorte_catalog_confirm_continuity', version_id=selected.id, row_key='__ROW__') }}"
+  data-activation-url="{{ url_for('nomina.banorte_catalog_activate', version_id=selected.id) }}"
+  data-activation-check-url="{{ url_for('nomina.banorte_catalog_activation_check', version_id=selected.id) }}"
   {% if selected.analysis_incomplete %}data-retry-url="{{ url_for('nomina.banorte_catalog_analyze', version_id=selected.id) }}"{% endif %}
   {% endif %}
 >
@@ -173,8 +178,48 @@
     {% if preview.lineage_unconfirmed_count > 0 %}
     <p class="catalog-admin-notice catalog-admin-notice--neutral">Las personas sin relación histórica confirmada se incorporarán como identidades nuevas y separadas.</p>
     {% endif %}
-    <button class="btn btn-primary" type="button" disabled aria-describedby="catalog-apply-disabled-reason">Aplicar como nuevo catálogo vigente</button>
-    <p id="catalog-apply-disabled-reason" class="catalog-admin-muted">La aplicación del nuevo catálogo se habilitará después de validar esta nueva vista.</p>
+    {% if preview.blocker_messages %}
+    <div class="catalog-admin-notice catalog-admin-notice--danger" role="alert">
+      <div>
+        <strong>Conflictos que requieren atención</strong>
+        <ul class="catalog-admin-blockers">
+          {% for message in preview.blocker_messages %}<li>{{ message }}</li>{% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+    <form
+      class="catalog-admin-apply__form"
+      data-catalog-apply-form
+      data-apply-authorized="{{ 'true' if preview.can_apply else 'false' }}"
+      method="post"
+      action="{{ url_for('nomina.banorte_catalog_activate', version_id=selected.id) }}"
+    >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="preview_fingerprint" value="{{ preview.preview_fingerprint }}">
+      <div class="catalog-admin-impact-copy">
+        <p><strong>Este Empleados.txt sustituirá completamente al catálogo vigente.</strong></p>
+        <p>La versión anterior permanecerá en el historial, pero dejará de tener autoridad operativa.</p>
+        <p>Las altas realizadas después del catálogo anterior sólo continuarán vigentes si aparecen en este archivo o si corresponden a altas posteriores al nuevo snapshot.</p>
+      </div>
+      <label class="catalog-admin-acknowledgement">
+        <input data-apply-acknowledgement type="checkbox" name="acknowledge_impact" value="yes" required {% if not preview.can_apply %}disabled{% endif %}>
+        <span>Revisé el impacto y entiendo que este archivo sustituirá al catálogo vigente.</span>
+      </label>
+      <div class="catalog-admin-apply__actions">
+        <button
+          class="btn btn-primary"
+          data-apply-button
+          type="submit"
+          disabled
+          aria-describedby="catalog-apply-status"
+        >Aplicar como nuevo catálogo vigente</button>
+        <button class="btn btn-secondary" data-refresh-preview type="button" hidden>Volver a analizar</button>
+      </div>
+      <p id="catalog-apply-status" data-apply-status class="catalog-admin-muted" role="status" aria-live="polite">
+        {% if preview.can_apply %}Marca la confirmación para habilitar la aplicación.{% else %}El catálogo no puede aplicarse hasta resolver los conflictos indicados.{% endif %}
+      </p>
+    </form>
   </section>
   {% elif selected and not selected.comparison_available %}
   <section class="catalog-admin-card catalog-admin-empty">
@@ -231,6 +276,43 @@
       <button class="catalog-admin-dialog__close" type="button" data-detail-close aria-label="Cerrar detalle">×</button>
     </div>
     <div data-detail-content></div>
+  </dialog>
+
+  <dialog class="catalog-admin-dialog catalog-admin-lineage-dialog" data-lineage-dialog aria-labelledby="catalog-lineage-title">
+    <div class="catalog-admin-dialog__header">
+      <div>
+        <p class="catalog-admin-kicker">RELACIÓN HISTÓRICA</p>
+        <h2 id="catalog-lineage-title">Revisar relación</h2>
+      </div>
+      <button class="catalog-admin-dialog__close" data-lineage-close type="button" aria-label="Cerrar revisión">×</button>
+    </div>
+    <div class="catalog-admin-lineage-review" data-lineage-region aria-busy="false">
+      <section>
+        <h3>PERSONA DEL NUEVO ARCHIVO</h3>
+        <div data-lineage-target></div>
+      </section>
+      <label class="catalog-admin-search catalog-admin-lineage-search">
+        <span>Buscar posible relación anterior</span>
+        <input data-lineage-search type="search" autocomplete="off" maxlength="120" placeholder="Nombre, empleado, cuenta o RFC">
+      </label>
+      <fieldset class="catalog-admin-candidates">
+        <legend>POSIBLE RELACIÓN ANTERIOR</legend>
+        <div data-lineage-candidates>
+          <p class="catalog-admin-muted">Busca una persona vigente anterior para revisar la evidencia.</p>
+        </div>
+      </fieldset>
+      <form data-continuity-form>
+        <label class="catalog-admin-reason">
+          <span>Motivo de la confirmación</span>
+          <textarea data-continuity-reason name="reason" rows="3" maxlength="500" required></textarea>
+        </label>
+        <div class="catalog-admin-dialog__actions">
+          <button class="btn btn-secondary" data-lineage-keep-separate type="button">Mantener sin relación confirmada</button>
+          <button class="btn btn-primary" data-continuity-confirm type="submit" disabled>Confirmar misma persona</button>
+        </div>
+        <p data-lineage-status class="catalog-admin-muted" role="status" aria-live="polite"></p>
+      </form>
+    </div>
   </dialog>
 </main>
 <script src="{{ url_for('static', filename='nomina/banorte_catalog_admin.js') }}"></script>
