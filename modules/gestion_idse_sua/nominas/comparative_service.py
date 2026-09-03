@@ -113,16 +113,38 @@ def apply_identity_resolution_to_result(
     status = str(match.get("status") or "unmatched")
     record = _match_record(match)
     operation_state = _operation_state(record) if record else "unknown"
+    worker = conn.execute(
+        "SELECT cliente_confirmado FROM gis_nomina_workers WHERE id = ?",
+        (worker_id,),
+    ).fetchone()
+    worker_client = normalize_upper(worker["cliente_confirmado"] if worker else "")
+    headcount_client = normalize_upper(record.get("cliente")) if record else ""
     if status in {"confirmed", "manual"} and operation_state == "baja":
         resultado = "Reingreso"
         semaforo = "verde"
         movimiento = "ALTA"
         observaciones = "Identidad confirmada; antecedente Headcount en BAJA."
-    elif status in {"confirmed", "manual"}:
+    elif (
+        status in {"confirmed", "manual"}
+        and operation_state == "active"
+        and headcount_client
+        and worker_client
+        and headcount_client != worker_client
+    ):
+        resultado = "Revisión"
+        semaforo = "amarillo"
+        movimiento = ""
+        observaciones = f"Activo en otro cliente: {headcount_client}."
+    elif status in {"confirmed", "manual"} and operation_state == "active":
         resultado = "Coincidencia"
         semaforo = "azul"
         movimiento = ""
         observaciones = "Identidad confirmada manualmente."
+    elif status in {"confirmed", "manual"}:
+        resultado = "Revisión"
+        semaforo = "amarillo"
+        movimiento = ""
+        observaciones = "Estado operativo de Headcount pendiente de confirmar."
     elif status in {"review", "suggested"}:
         resultado = "Revisión"
         semaforo = "amarillo"
@@ -243,6 +265,7 @@ def run_comparative(
     cliente: str,
     generated_by: str | None,
     headcount_rows: list[dict[str, Any]] | None = None,
+    include_possible_bajas: bool = True,
 ) -> dict[str, Any]:
     cliente_norm = normalize_upper(cliente)
     if not cliente_norm:
@@ -331,26 +354,18 @@ def run_comparative(
                 suffix = f" ({'; '.join(context)})" if context else ""
                 observaciones = f"Baja histórica — posible reingreso detectado{suffix}."
             elif operation_state == "active" and (
-                status in {"confirmed", "manual"}
-                or not hc_cliente
-                or hc_cliente == cliente_norm
+                not hc_cliente or hc_cliente == cliente_norm
             ):
                 tipo = "Coincidencia"
                 sem = "azul"
                 totals["coincidencias"] += 1
-                observaciones = (
-                    f"Identidad confirmada; Headcount registrado en {hc_cliente}."
-                    if status in {"confirmed", "manual"}
-                    and hc_cliente
-                    and hc_cliente != cliente_norm
-                    else ""
-                )
+                observaciones = ""
                 tipo_mov = ""
             elif operation_state == "active":
                 tipo = "Revisión"
                 sem = "amarillo"
                 totals["revisiones"] += 1
-                observaciones = f"Empleado activo en otro cliente: {hc_cliente or 'sin cliente'}."
+                observaciones = f"Activo en otro cliente: {hc_cliente or 'sin cliente'}."
                 tipo_mov = ""
             else:
                 tipo = "Revisión"
@@ -402,6 +417,8 @@ def run_comparative(
 
     active_free: dict[str, dict[str, Any]] = {}
     for row in hc_rows:
+        if not include_possible_bajas:
+            continue
         if normalize_upper(row.get("cliente")) != cliente_norm:
             continue
         if _operation_state(row) != "active":

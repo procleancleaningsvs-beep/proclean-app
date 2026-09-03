@@ -12,7 +12,7 @@ from modules.gestion_idse_sua.nominas.attendance_service import persist_attendan
 from modules.gestion_idse_sua.nominas.period_parser import merge_cut_warning, parse_manual_period
 from modules.gestion_idse_sua.nominas.planta_cliente_service import suggest_cliente_for_planta
 from modules.gestion_idse_sua.nominas.sheet_inspector import inspect_sheet
-from modules.gestion_idse_sua.nominas.text_utils import file_sha256, json_dumps
+from modules.gestion_idse_sua.nominas.text_utils import file_sha256, json_dumps, normalize_upper
 from modules.gestion_idse_sua.nominas.worker_extractor import extract_workers
 
 
@@ -162,6 +162,8 @@ def extract_sheet_workers(
             worker["row_json"] = json_dumps(row_data)
 
     for worker in workers:
+        if normalize_upper(worker.get("cliente_sugerido")) and worker.get("suggestion_source") == "payroll":
+            continue
         planta = worker.get("planta_normalizada") or worker.get("planta_original") or ""
         suggestion = suggest_cliente_for_planta(conn, planta, headcount_rows)
         worker["cliente_sugerido"] = suggestion.get("cliente")

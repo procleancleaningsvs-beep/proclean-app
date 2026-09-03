@@ -27,6 +27,9 @@ NUM_EMPLEADO_HEADERS: frozenset[str] = frozenset(
 )
 
 PUESTO_HEADERS: frozenset[str] = frozenset({"PUESTO", "PUESTO / CARGO", "CARGO"})
+CLIENTE_HEADERS: frozenset[str] = frozenset(
+    {"CLIENTE", "NOMBRE CLIENTE", "RAZON SOCIAL CLIENTE", "RAZÓN SOCIAL CLIENTE"}
+)
 PLANTA_HEADERS: frozenset[str] = frozenset({"PLANTA", "LOCALIDAD", "UBICACION", "UBICACIÓN", "CENTRO"})
 CUENTA_HEADERS: frozenset[str] = frozenset({"CUENTA", "CUENTA BANCARIA", "NO. CUENTA", "NÚM. CUENTA", "CLABE"})
 VALOR_HE_HEADERS: frozenset[str] = frozenset(

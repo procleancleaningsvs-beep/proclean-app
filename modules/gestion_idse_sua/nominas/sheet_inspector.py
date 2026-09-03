@@ -5,6 +5,7 @@ from typing import Any
 from openpyxl.worksheet.worksheet import Worksheet
 
 from modules.gestion_idse_sua.nominas.constants import (
+    CLIENTE_HEADERS,
     CUENTA_HEADERS,
     NOMBRE_HEADERS,
     NUM_EMPLEADO_HEADERS,
@@ -64,6 +65,7 @@ def inspect_sheet(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidden
     nombre_col = _find_col(header, NOMBRE_HEADERS) if header else None
     num_col = _find_col(header, NUM_EMPLEADO_HEADERS) if header else None
     puesto_col = _find_col(header, PUESTO_HEADERS) if header else None
+    cliente_col = _find_col(header, CLIENTE_HEADERS) if header else None
     planta_col = _find_col(header, PLANTA_HEADERS) if header else None
     cuenta_col = _find_col(header, CUENTA_HEADERS) if header else None
 
@@ -129,6 +131,7 @@ def inspect_sheet(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidden
             "nombre": nombre_col,
             "num_empleado": num_col,
             "puesto": puesto_col,
+            "cliente": cliente_col,
             "planta": planta_col,
             "cuenta": cuenta_col,
         },

@@ -49,6 +49,7 @@ def extract_workers(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidd
         row_payload = {
             "num_empleado": _cell("num_empleado"),
             "puesto": _cell("puesto"),
+            "cliente": _cell("cliente"),
             "planta": _cell("planta"),
             "cuenta": _cell("cuenta"),
         }
@@ -63,6 +64,9 @@ def extract_workers(ws: Worksheet, *, sheet_name: str, sheet_index: int, is_hidd
                 "planta_normalizada": normalize_planta(row_payload["planta"]) if row_payload["planta"] else "",
                 "cuenta": row_payload["cuenta"],
                 "row_json": json_dumps(row_payload),
+                "cliente_sugerido": normalize_upper(row_payload["cliente"]),
+                "suggestion_source": "payroll" if row_payload["cliente"] else "",
+                "suggestion_confidence": 1.0 if row_payload["cliente"] else 0.0,
             }
         )
 

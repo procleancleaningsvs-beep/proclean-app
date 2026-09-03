@@ -297,6 +297,32 @@ def update_worker_cliente(conn: sqlite3.Connection, worker_id: int, cliente: str
     )
 
 
+def resolve_period_client_group(
+    conn: sqlite3.Connection,
+    *,
+    period_id: int,
+    source_client: str,
+    confirmed_client: str,
+    resolution_source: str,
+) -> int:
+    cursor = conn.execute(
+        """
+        UPDATE gis_nomina_workers
+        SET cliente_confirmado = ?, suggestion_source = ?, suggestion_confidence = 1.0
+        WHERE period_id = ?
+          AND COALESCE(TRIM(cliente_confirmado), '') = ''
+          AND UPPER(TRIM(COALESCE(cliente_sugerido, ''))) = ?
+        """,
+        (
+            confirmed_client,
+            resolution_source,
+            period_id,
+            source_client,
+        ),
+    )
+    return int(cursor.rowcount)
+
+
 def upsert_match(conn: sqlite3.Connection, worker_id: int, match: dict[str, Any]) -> None:
     conn.execute(
         """

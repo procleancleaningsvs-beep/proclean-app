@@ -36,17 +36,24 @@
   <section class="gis-nom-card">
     <div class="gis-ws-toolbar">
       <form method="post" action="{{ url_for('gestion_idse_sua.nominas_compare', period_id=period.id) }}" class="gis-nom-inline">
-        <label>Cliente para comparar
-          <select name="cliente">
-            <option value="">Inferir de asignaciones semanales</option>
-            {% for cliente in client_summary.counts.keys() %}
-            <option value="{{ cliente }}" {% if client_summary.primary_cliente == cliente %}selected{% endif %}>{{ cliente }}</option>
-            {% endfor %}
-          </select>
-        </label>
         <button class="btn btn-primary" type="submit">Comparar contra Headcount</button>
       </form>
     </div>
+    {% for group in unresolved_client_groups %}
+    <form method="post" action="{{ url_for('gestion_idse_sua.nominas_resolve_client', period_id=period.id) }}" class="gis-nom-card">
+      <input type="hidden" name="source_client" value="{{ group.source_client }}">
+      <p class="gis-nom-warn"><strong>Cliente no reconocido: {{ group.label }}</strong> · {{ group.worker_ids|length }} trabajador(es). Debe resolverlo antes de comparar.</p>
+      {% if group.suggestions %}<p class="gis-nom-hint">Sugerencias cercanas: {{ group.suggestions|join(', ') }}</p>{% endif %}
+      <label><input type="radio" name="resolution" value="existing" required> Usar cliente existente</label>
+      <select name="canonical_client">
+        <option value="">Seleccione cliente</option>
+        {% for cliente in clientes %}<option value="{{ cliente }}">{{ cliente }}</option>{% endfor %}
+      </select>
+      <label><input type="radio" name="resolution" value="new" required> Es un cliente nuevo</label>
+      {% if not group.source_client %}<input name="new_client_name" placeholder="Nombre del cliente nuevo">{% endif %}
+      <button class="btn btn-secondary btn-sm" type="submit">Confirmar cliente</button>
+    </form>
+    {% endfor %}
   </section>
 
   <div class="gis-ws-layout">
@@ -148,10 +155,12 @@
                       <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reject_candidates" form="candidate-resolution-{{ row.worker_id }}">Ninguna corresponde</button>
                     </div>{% endif %}
                   </section>
-                  <section><h4>Cliente y origen</h4>
+                  {% if row.headcount_fields %}<section><h4>Registro Headcount</h4>
+                    <dl>{% for label, value in row.headcount_fields %}<div><dt>{{ label }}</dt><dd>{{ value }}</dd></div>{% endfor %}</dl>
+                  </section>{% else %}<section><h4>Nómina y resolución</h4>
                     <p>{{ row.cliente or 'Pendiente' }} · {{ row.cliente_source or 'sin fuente' }} · {{ ((row.cliente_confidence or 0) * 100)|round|int }}%</p>
                     <p><strong>Valores originales:</strong> nombre {{ row.original_values.get('nombre_original', row.nombre_nomina) }} · planta {{ row.original_values.get('planta_original', row.planta) }}</p>
-                  </section>
+                  </section>{% endif %}
                   <section><h4>Asistencia y trayectoria</h4>
                     <p>{{ row.totals_label or 'Sin asistencia' }}</p>
                     <p>Primera A: {{ row.trajectory.primera_a or '—' }} · Última A: {{ row.trajectory.ultima_a or '—' }}</p>
@@ -215,9 +224,9 @@
         <input type="hidden" name="decision_final" value="{{ row.decision_final }}">
       </form>
       {% endfor %}
-      {% for row in table_rows if row.worker_id and row.result_id and row.match_candidates %}
+      {% for row in table_rows if row.worker_id and row.match_candidates %}
       <form id="candidate-resolution-{{ row.worker_id }}" method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=row.worker_id) }}">
-        <input type="hidden" name="result_id" value="{{ row.result_id }}">
+        {% if row.result_id %}<input type="hidden" name="result_id" value="{{ row.result_id }}">{% endif %}
       </form>
       {% endfor %}
     </section>

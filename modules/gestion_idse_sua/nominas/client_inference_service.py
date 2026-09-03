@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from difflib import SequenceMatcher
 from io import BytesIO
 from typing import Any
 
@@ -16,6 +17,16 @@ from modules.gestion_idse_sua.nominas.worker_extractor import extract_workers
 def _known_clients(headcount_rows: list[dict[str, Any]]) -> list[str]:
     clients = {normalize_upper(row.get("cliente")) for row in headcount_rows if row.get("cliente")}
     return sorted(c for c in clients if c)
+
+
+def _close_clients(source: str, known_clients: list[str], *, limit: int = 5) -> list[str]:
+    source_norm = normalize_upper(source)
+    scored = [
+        (SequenceMatcher(None, source_norm, client).ratio(), client)
+        for client in known_clients
+        if client and client != source_norm
+    ]
+    return [client for score, client in sorted(scored, reverse=True) if score >= 0.35][:limit]
 
 
 def _client_in_text(text: str, known_clients: list[str]) -> tuple[str, float, str]:
@@ -69,6 +80,24 @@ def infer_worker_client(
         }
 
     known = _known_clients(headcount_rows)
+    payroll_client = normalize_upper(worker.get("cliente_sugerido"))
+    if payroll_client and str(worker.get("suggestion_source") or "") == "payroll":
+        if payroll_client in known:
+            return {
+                "cliente": payroll_client,
+                "source": "payroll_exact",
+                "confidence": 1.0,
+                "requires_review": False,
+                "suggestions": [],
+            }
+        return {
+            "cliente": payroll_client,
+            "source": "payroll_unknown",
+            "confidence": 0.0,
+            "requires_review": True,
+            "suggestions": _close_clients(payroll_client, known),
+        }
+
     candidates: list[tuple[str, float, str]] = []
 
     planta = str(worker.get("planta_normalizada") or worker.get("planta_original") or "")
@@ -177,6 +206,27 @@ def infer_period_clients(
         per_worker.append({"worker_id": wid, **inference})
 
     summary = summarize_period_clients(per_worker)
+    unresolved: dict[str, dict[str, Any]] = {}
+    worker_by_id = {int(worker["id"]): worker for worker in workers}
+    known_clients = _known_clients(headcount_rows)
+    for item in per_worker:
+        worker = worker_by_id[int(item["worker_id"])]
+        if normalize_upper(worker.get("cliente_confirmado")):
+            continue
+        source_client = normalize_upper(item.get("cliente"))
+        key = source_client or "__missing__"
+        group = unresolved.setdefault(
+            key,
+            {
+                "source_client": source_client,
+                "label": source_client or "Sin cliente informado",
+                "worker_ids": [],
+                "suggestions": item.get("suggestions")
+                or _close_clients(source_client, known_clients),
+            },
+        )
+        group["worker_ids"].append(int(item["worker_id"]))
+    summary["unresolved_groups"] = sorted(unresolved.values(), key=lambda item: item["label"])
     return {"workers": per_worker, "summary": summary}
 
 

@@ -181,7 +181,7 @@ def test_period_review_previews_clients_before_confirmation(tmp_path, monkeypatc
     assert "Carrier 10 al 16 jul.xlsx" in restored_html
 
 
-def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_path, monkeypatch):
+def test_multiclient_compare_recalculates_all_resolved_clients(tmp_path, monkeypatch):
     from modules.gestion_idse_sua.nominas import repository as repo
     from modules.gestion_idse_sua.nominas.match_service import match_worker
     from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
@@ -260,6 +260,11 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
         "UPDATE gis_nomina_workers SET cliente_confirmado = 'PEPSI' WHERE id = ?",
         (worker_ids[1],),
     )
+    connection.execute(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'NUEVO', "
+        "suggestion_source = 'manual_new_client' WHERE id = ?",
+        (worker_ids[2],),
+    )
     headcount = [
         {"nombre_completo": "CARRIER ACTIVO", "cliente": "CARRIER", "numero_empleado": "C1", "nss": "111"},
         {"nombre_completo": "CARRIER AUSENTE", "cliente": "CARRIER", "numero_empleado": "C2", "nss": "112"},
@@ -297,7 +302,7 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
             "SELECT cliente, COUNT(*) FROM gis_nomina_comparatives GROUP BY cliente"
         ).fetchall()
     )
-    assert comparative_counts == {"CARRIER": 1, "PEPSI": 1}
+    assert comparative_counts == {"CARRIER": 1, "NUEVO": 1, "PEPSI": 1}
     assert connection.execute(
         """
         SELECT COUNT(*)
@@ -305,7 +310,7 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
         JOIN gis_nomina_workers w ON w.id = r.worker_id
         WHERE w.num_empleado = 'X1'
         """
-    ).fetchone()[0] == 0
+    ).fetchone()[0] == 1
     connection.close()
 
     workspace_html = client.get(
@@ -313,7 +318,7 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
     ).get_data(as_text=True)
     assert "CARRIER AUSENTE" in workspace_html
     assert "PEPSI AUSENTE" in workspace_html
-    assert re.search(r'PENDIENTE SIN CLIENTE[^\"]*Revisión', workspace_html, re.S)
+    assert re.search(r'PENDIENTE SIN CLIENTE[^\"]*Posible alta', workspace_html, re.S)
     assert re.search(r'CARRIER AUSENTE[^\"]*CARRIER', workspace_html, re.S)
     assert re.search(r'PEPSI AUSENTE[^\"]*PEPSI', workspace_html, re.S)
 
@@ -330,7 +335,7 @@ def test_multiclient_compare_combines_workspace_and_recalculates_one_client(tmp_
         ).fetchall()
     )
     connection.close()
-    assert comparative_counts == {"CARRIER": 2, "PEPSI": 1}
+    assert comparative_counts == {"CARRIER": 2, "NUEVO": 2, "PEPSI": 2}
 
 
 def test_manual_match_keeps_cross_client_options_and_manual_movement_can_be_cleared(tmp_path, monkeypatch):
@@ -535,25 +540,28 @@ def _seed_candidate_resolution(app, candidate):
 
 
 @pytest.mark.parametrize(
-    ("operation_status", "expected_result", "expected_movement"),
+    ("operation_status", "headcount_client", "expected_result", "expected_movement", "reason"),
     [
-        ("ALTA", "Coincidencia", ""),
-        ("BAJA", "Reingreso", "ALTA"),
+        ("ALTA", "AURIGA", "Coincidencia", "", ""),
+        ("BAJA", "AURIGA", "Reingreso", "ALTA", ""),
+        ("ALTA", "GM", "Revisión", "", "Activo en otro cliente"),
     ],
 )
 def test_selecting_candidate_recalculates_result_from_headcount_status(
     tmp_path,
     monkeypatch,
     operation_status,
+    headcount_client,
     expected_result,
     expected_movement,
+    reason,
 ):
     candidate = {
         "nombre_completo": "DIEGO ESTEBAN ROCHA MEZA",
         "nombre": "DIEGO ESTEBAN",
         "apellido_paterno": "ROCHA",
         "apellido_materno": "MEZA",
-        "cliente": "AURIGA",
+        "cliente": headcount_client,
         "ubicacion": "DIA",
         "status_operacion": operation_status,
         "nss": "55555555555",
@@ -588,12 +596,72 @@ def test_selecting_candidate_recalculates_result_from_headcount_status(
         (worker_id,),
     ).fetchone()
     result = connection.execute(
-        "SELECT resultado, decision_final, tipo_sugerido FROM gis_nomina_results WHERE id = ?",
+        "SELECT resultado, decision_final, tipo_sugerido, observaciones FROM gis_nomina_results WHERE id = ?",
         (result_id,),
     ).fetchone()
     connection.close()
     assert match == ("confirmed", "manual_candidate")
-    assert result == (expected_result, expected_result, expected_movement)
+    assert result[:3] == (expected_result, expected_result, expected_movement)
+    assert reason in (result[3] or "")
+
+
+def test_candidate_can_be_confirmed_before_a_comparative_result_exists(tmp_path, monkeypatch):
+    candidate = {
+        "nombre_completo": "DIEGO ESTEBAN ROCHA MEZA",
+        "nombre": "DIEGO ESTEBAN",
+        "apellido_paterno": "ROCHA",
+        "apellido_materno": "MEZA",
+        "cliente": "AURIGA",
+        "ubicacion": "DIA",
+        "status_operacion": "ALTA",
+        "nss": "55555555555",
+    }
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    period_id, worker_id, result_id = _seed_candidate_resolution(app, candidate)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.execute("DELETE FROM gis_nomina_results WHERE id = ?", (result_id,))
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.load_full_headcount",
+        lambda: [candidate],
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_activos", lambda: [candidate]
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_patrones", lambda: []
+    )
+
+    html = client.get(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}"
+    ).get_data(as_text=True)
+    assert f'id="candidate-resolution-{worker_id}"' in html
+
+    missing_choice = client.post(
+        f"/gestion-idse-sua/nominas/worker/{worker_id}/match",
+        data={"action": "confirm_candidate"},
+        follow_redirects=True,
+    )
+    assert "Seleccione una opción de identidad" in missing_choice.get_data(as_text=True)
+
+    response = client.post(
+        f"/gestion-idse-sua/nominas/worker/{worker_id}/match",
+        data={"action": "confirm_candidate", "candidate_index": "0"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Identidad confirmada" in response.get_data(as_text=True)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    persisted = connection.execute(
+        "SELECT status, match_method FROM gis_nomina_matches WHERE worker_id = ?",
+        (worker_id,),
+    ).fetchone()
+    connection.close()
+    assert persisted == ("confirmed", "manual_candidate")
 
 
 def test_rejecting_current_candidates_persists_no_match_and_releases_possible_baja(
@@ -727,3 +795,262 @@ def test_monthly_workspace_renders_shared_table_and_event_panel(tmp_path, monkey
     assert "Eventos del reporte" in html
     assert "data-excel-filter" in html
     assert "JUAN HC" in html
+
+
+@pytest.mark.parametrize(
+    ("resolution", "canonical", "expected_client", "expected_source", "expected_bajas"),
+    [
+        ("existing", "GM", "GM", "manual_existing_client", {"ACTIVO GM AUSENTE"}),
+        ("new", "", "GN", "manual_new_client", set()),
+    ],
+)
+def test_unknown_payroll_client_requires_human_resolution(
+    tmp_path,
+    monkeypatch,
+    resolution,
+    canonical,
+    expected_client,
+    expected_source,
+    expected_bajas,
+):
+    from modules.gestion_idse_sua.nominas import repository as repo
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+    headcount = [
+        {
+            "nombre_completo": "ACTIVO GM AUSENTE",
+            "cliente": "GM",
+            "status_operacion": "ALTA",
+            "nss": "10000000001",
+        }
+    ]
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    ensure_gis_nominas_tables(connection)
+    connection.execute(
+        "INSERT INTO gis_nomina_imports (id, original_filename, file_hash, uploaded_at, status) "
+        "VALUES (1, 'gn.xlsx', 'h', '2026-01-01', 'extracted')"
+    )
+    connection.execute(
+        "INSERT INTO gis_nomina_sheets "
+        "(id, import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) "
+        "VALUES (1, 1, 0, 'GN', 0, 'nomina', 1)"
+    )
+    period_id = repo.upsert_period(
+        connection,
+        1,
+        {
+            "fecha_inicio": "01/06/2026",
+            "fecha_fin": "07/06/2026",
+            "semana_num": 23,
+            "source": "manual",
+            "cut_warning": None,
+        },
+        confirmed=True,
+    )
+    worker_id = repo.insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 4,
+                "num_empleado": "GN-1",
+                "nombre_original": "Persona Cliente Nuevo",
+                "nombre_normalizado": "PERSONA CLIENTE NUEVO",
+                "puesto": "Op",
+                "planta_original": "NORTE",
+                "planta_normalizada": "NORTE",
+                "cuenta": "",
+                "row_json": "{}",
+                "cliente_sugerido": "GN",
+                "suggestion_source": "payroll",
+                "suggestion_confidence": 1.0,
+            }
+        ],
+    )[0]
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_activos", lambda: headcount
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_patrones", lambda: []
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas._clientes_disponibles", lambda: ["GM"]
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.nominas.comparative_service.load_full_headcount",
+        lambda: headcount,
+    )
+
+    blocked = client.post(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}/compare",
+        data={},
+        follow_redirects=True,
+    )
+    blocked_html = blocked.get_data(as_text=True)
+    assert "Cliente no reconocido: GN" in blocked_html
+    assert "resolver" in blocked_html.lower()
+
+    resolved = client.post(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}/resolve-client",
+        data={
+            "source_client": "GN",
+            "resolution": resolution,
+            "canonical_client": canonical,
+        },
+        follow_redirects=False,
+    )
+    assert resolved.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    assignment = connection.execute(
+        "SELECT cliente_confirmado, suggestion_source FROM gis_nomina_workers WHERE id = ?",
+        (worker_id,),
+    ).fetchone()
+    connection.close()
+    assert assignment == (expected_client, expected_source)
+
+    compared = client.post(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}/compare",
+        data={},
+        follow_redirects=False,
+    )
+    assert compared.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    bajas = {
+        row[0]
+        for row in connection.execute(
+            "SELECT hc_nombre FROM gis_nomina_results WHERE resultado = 'Posible baja'"
+        ).fetchall()
+    }
+    connection.close()
+    assert bajas == expected_bajas
+
+
+def test_all_comparative_results_render_and_persist_movement_change(tmp_path, monkeypatch):
+    from modules.gestion_idse_sua.nominas import repository as repo
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    ensure_gis_nominas_tables(connection)
+    connection.execute(
+        "INSERT INTO gis_nomina_imports (id, original_filename, file_hash, uploaded_at, status) "
+        "VALUES (1, 'movimientos.xlsx', 'h', '2026-01-01', 'extracted')"
+    )
+    connection.execute(
+        "INSERT INTO gis_nomina_sheets "
+        "(id, import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) "
+        "VALUES (1, 1, 0, 'Movimientos', 0, 'nomina', 4)"
+    )
+    period_id = repo.upsert_period(
+        connection,
+        1,
+        {
+            "fecha_inicio": "01/06/2026",
+            "fecha_fin": "07/06/2026",
+            "semana_num": 23,
+            "source": "manual",
+            "cut_warning": None,
+        },
+        confirmed=True,
+    )
+    result_names = ("Coincidencia", "Revisión", "Posible alta", "Reingreso")
+    workers = repo.insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": index + 4,
+                "num_empleado": str(index),
+                "nombre_original": result,
+                "nombre_normalizado": result.upper(),
+                "puesto": "Op",
+                "planta_original": "NORTE",
+                "planta_normalizada": "NORTE",
+                "cuenta": "",
+                "row_json": "{}",
+            }
+            for index, result in enumerate(result_names, start=1)
+        ],
+    )
+    connection.executemany(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'AURIGA' WHERE id = ?",
+        [(worker_id,) for worker_id in workers],
+    )
+    comparative_id = repo.create_comparative(
+        connection, period_id=period_id, cliente="AURIGA", generated_by="test"
+    )
+    defaults = {
+        "Coincidencia": "",
+        "Revisión": "",
+        "Posible alta": "ALTA",
+        "Reingreso": "ALTA",
+        "Posible baja": "BAJA",
+    }
+    result_ids = [
+        repo.insert_result(
+            connection,
+            comparative_id,
+            {
+                "worker_id": worker_id,
+                "resultado": result,
+                "semaforo": "amarillo",
+                "tipo_sugerido": defaults[result],
+                "decision_final": result,
+                "observaciones": "Motivo sintético",
+            },
+        )
+        for worker_id, result in zip(workers, result_names)
+    ]
+    result_ids.append(
+        repo.insert_result(
+            connection,
+            comparative_id,
+            {
+                "worker_id": None,
+                "headcount_only": True,
+                "hc_nombre": "ACTIVO AUSENTE",
+                "resultado": "Posible baja",
+                "semaforo": "rojo",
+                "tipo_sugerido": "BAJA",
+                "decision_final": "Posible baja",
+                "observaciones": "Ausente",
+            },
+        )
+    )
+    connection.commit()
+    connection.close()
+    monkeypatch.setattr("modules.gestion_idse_sua.routes_nominas.obtener_activos", lambda: [])
+    monkeypatch.setattr("modules.gestion_idse_sua.routes_nominas.obtener_patrones", lambda: [])
+
+    html = client.get(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}"
+    ).get_data(as_text=True)
+    assert html.count(">Cambiar</summary>") == 5
+
+    for result_id in result_ids:
+        response = client.post(
+            f"/gestion-idse-sua/nominas/result/{result_id}/decision",
+            data={"decision_final": "Revisión", "tipo_sugerido": ""},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    persisted = connection.execute(
+        "SELECT COUNT(*) FROM gis_nomina_results WHERE tipo_sugerido = '' AND id IN (?,?,?,?,?)",
+        result_ids,
+    ).fetchone()[0]
+    connection.close()
+    assert persisted == 5
+    refreshed = client.get(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}"
+    ).get_data(as_text=True)
+    assert re.search(r"ACTIVO AUSENTE.*?Ninguno", refreshed, re.S)

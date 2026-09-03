@@ -187,3 +187,100 @@ def test_weekly_workspace_template_supports_candidate_choice_and_rejection():
     assert "Confirmar identidad" in template
     assert 'value="reject_candidates"' in template
     assert "Ninguna corresponde" in template
+
+
+def test_confirmed_identity_exposes_structured_headcount_record():
+    headcount = {
+        "nombre_completo": "ANA SINTETICA RUIZ",
+        "nombre": "ANA SINTETICA",
+        "apellido_paterno": "RUIZ",
+        "cliente": "AURIGA",
+        "ubicacion": "NORTE",
+        "puesto": "OPERADOR",
+        "status_operacion": "ALTA",
+        "status_imss": "VIGENTE",
+        "fecha_ingreso": "01/02/2026",
+        "numero_empleado": "S-101",
+        "nss": "10000000001",
+        "curp": "CURP-SINTETICA",
+        "rfc_homoclave": "RFC-SINTETICO",
+        "sueldo_diario": 500,
+        "sueldo_semanal": 3500,
+    }
+    rows = build_weekly_workspace_rows(
+        workers=[
+            {
+                "id": 8,
+                "nombre_normalizado": "ANA RUIZ",
+                "cliente_confirmado": "AURIGA",
+                "match": {
+                    "status": "confirmed",
+                    "hc_nombre": "ANA SINTETICA RUIZ",
+                    "hc_json": json.dumps(headcount),
+                },
+            }
+        ],
+        results=[
+            {
+                "id": 80,
+                "worker_id": 8,
+                "resultado": "Coincidencia",
+                "decision_final": "Coincidencia",
+            }
+        ],
+        attendance_rows=[],
+        client_inferences={},
+        trajectory_payload=None,
+    )
+
+    assert dict(rows[0]["headcount_fields"])["Nombre completo"] == "ANA SINTETICA RUIZ"
+    assert dict(rows[0]["headcount_fields"])["Salario semanal"] == 3500
+    assert "hc_json" not in rows[0]
+    template = open("templates/gestion_idse_sua/nominas/workspace.html", encoding="utf-8").read()
+    assert "Registro Headcount" in template
+    assert "row.headcount_fields" in template
+
+
+def test_unknown_payroll_client_is_not_automapped_to_close_headcount_client():
+    import sqlite3
+
+    from modules.gestion_idse_sua.nominas.client_inference_service import infer_worker_client
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    ensure_gis_nominas_tables(connection)
+    inference = infer_worker_client(
+        connection,
+        worker={
+            "cliente_sugerido": "GN",
+            "suggestion_source": "payroll",
+            "planta_normalizada": "NORTE",
+        },
+        match=None,
+        headcount_rows=[{"cliente": "GM", "ubicacion": "NORTE"}],
+    )
+    connection.close()
+
+    assert inference["cliente"] == "GN"
+    assert inference["requires_review"] is True
+    assert inference["suggestions"][0] == "GM"
+
+
+def test_worker_extractor_preserves_payroll_client_for_resolution():
+    from openpyxl import Workbook
+
+    from modules.gestion_idse_sua.nominas.worker_extractor import extract_workers
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.append(["NO.", "NOMBRE DE EMPLEADO", "CLIENTE", "PLANTA", "PUESTO"])
+    sheet.append(["S-1", "PERSONA SINTETICA", "GN", "NORTE", "OPERADOR"])
+
+    payload = extract_workers(
+        sheet, sheet_name="Sintética", sheet_index=0, is_hidden=False
+    )
+    workbook.close()
+
+    assert payload["workers"][0]["cliente_sugerido"] == "GN"
+    assert payload["workers"][0]["suggestion_source"] == "payroll"

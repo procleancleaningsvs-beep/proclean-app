@@ -28,8 +28,57 @@ IDENTITY_BADGE_CLASS = {
     "Confirmado": "coincidencia",
     "Posible coincidencia": "revision",
     "Sin coincidencias": "nomatch",
-    "Pendiente de datos": "revision",
+    "Pendiente": "revision",
 }
+
+HEADCOUNT_FIELD_LABELS = (
+    ("nombre_completo", "Nombre completo"),
+    ("nombre", "Nombre"),
+    ("apellido_paterno", "Apellido paterno"),
+    ("apellido_materno", "Apellido materno"),
+    ("cliente", "Cliente"),
+    ("ubicacion", "Ubicación"),
+    ("planta", "Planta"),
+    ("puesto", "Puesto"),
+    ("status_operacion", "Status operación"),
+    ("status_imss", "Status IMSS"),
+    ("fecha_ingreso", "Fecha de ingreso"),
+    ("numero_empleado", "Número de empleado"),
+    ("codigo_contpaq", "Código CONTPAQi"),
+    ("num_empleado", "Número de empleado"),
+    ("nss", "NSS"),
+    ("curp", "CURP"),
+    ("rfc_homoclave", "RFC"),
+    ("rfc", "RFC"),
+    ("sueldo_diario", "Salario diario"),
+    ("sueldo_semanal", "Salario semanal"),
+    ("patron", "Patrón"),
+    ("cp_fiscal", "CP fiscal"),
+    ("genero", "Género"),
+    ("fecha_nacimiento", "Fecha de nacimiento"),
+    ("lugar_nacimiento", "Lugar de nacimiento"),
+)
+
+
+def _headcount_fields(match: dict[str, Any]) -> list[tuple[str, Any]]:
+    if str(match.get("status") or "") not in {"auto", "confirmed", "manual"}:
+        return []
+    raw = match.get("hc_json")
+    try:
+        record = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(record, dict):
+        return []
+    fields: list[tuple[str, Any]] = []
+    used_labels: set[str] = set()
+    for key, label in HEADCOUNT_FIELD_LABELS:
+        value = record.get(key)
+        if value in (None, "") or label in used_labels:
+            continue
+        fields.append((label, value))
+        used_labels.add(label)
+    return fields
 
 
 def _candidate_evidence(match: dict[str, Any]) -> list[dict[str, Any]]:
@@ -89,6 +138,26 @@ def _identity_result(match: dict[str, Any], cliente: str) -> str:
     if match_status in {"suggested", "review"}:
         return "Revisión"
     return "Posible alta"
+
+
+def _review_reason(match: dict[str, Any], cliente: str, confirmed_client: str) -> str:
+    if not confirmed_client:
+        return "Cliente pendiente de resolución."
+    status = str(match.get("status") or "unmatched")
+    if status in {"review", "suggested"}:
+        return "Identidad ambigua; candidatos Headcount pendientes de resolución."
+    if status in {"auto", "confirmed", "manual"}:
+        raw = match.get("hc_json")
+        try:
+            record = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, json.JSONDecodeError):
+            record = {}
+        if isinstance(record, dict):
+            headcount_client = str(record.get("cliente") or "").strip().upper()
+            if headcount_client and headcount_client != str(cliente).strip().upper():
+                return f"Activo en otro cliente: {headcount_client}."
+            return "Estado operativo de Headcount pendiente de confirmar."
+    return "Conflicto de conciliación pendiente de resolver."
 
 
 def parse_suggested_period(raw: str | None) -> dict[str, Any]:
@@ -239,7 +308,7 @@ def build_weekly_workspace_rows(
         identity_status = (
             IDENTITY_STATUS_BY_MATCH.get(match_status, "Sin coincidencias")
             if confirmed_client
-            else "Pendiente de datos"
+            else "Pendiente"
         )
         if confirmed_client and resultado not in RESULT_BADGE_CLASS:
             resultado = _identity_result(match, cliente)
@@ -264,6 +333,7 @@ def build_weekly_workspace_rows(
                 "identity_status": identity_status,
                 "identity_badge_class": IDENTITY_BADGE_CLASS[identity_status],
                 "match_candidates": _candidate_evidence(match),
+                "headcount_fields": _headcount_fields(match),
                 "planta": worker.get("planta_normalizada") or worker.get("planta_original") or "",
                 "cliente": cliente,
                 "cliente_source": inference.get("source") or "",
@@ -289,9 +359,10 @@ def build_weekly_workspace_rows(
                 "fecha_sugerida": result.get("fecha_sugerida") or "",
                 "decision_final": resultado,
                 "conversion_status": result.get("conversion_status") or "none",
-                "observaciones": result.get("observaciones") or (
-                    "Cliente pendiente de confirmación; no participa en el comparativo."
-                    if not confirmed_client
+                "observaciones": result.get("observaciones")
+                or (
+                    _review_reason(match, cliente, confirmed_client)
+                    if resultado == "Revisión"
                     else ""
                 ),
                 "original_values": original_values,
@@ -317,6 +388,7 @@ def build_weekly_workspace_rows(
                 "identity_status": "",
                 "identity_badge_class": "",
                 "match_candidates": [],
+                "headcount_fields": [],
                 "planta": "",
                 "cliente": result.get("comparative_cliente") or "",
                 "cliente_source": "headcount_only",
@@ -331,7 +403,11 @@ def build_weekly_workspace_rows(
                 "totals": {},
                 "resultado": resultado,
                 "result_badge": RESULT_BADGE_CLASS.get(resultado, "baja"),
-                "tipo_movimiento": result.get("tipo_sugerido") or "BAJA",
+                "tipo_movimiento": (
+                    result.get("tipo_sugerido")
+                    if result.get("tipo_sugerido") is not None
+                    else "BAJA"
+                ),
                 "fecha_sugerida": result.get("fecha_sugerida") or "",
                 "decision_final": resultado,
                 "conversion_status": result.get("conversion_status") or "none",

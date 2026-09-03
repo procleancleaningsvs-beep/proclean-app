@@ -423,7 +423,11 @@ def register_nominas_routes(bp, *, login_required) -> None:
             )
             for assignment in assignments["workers"]:
                 cliente = normalize_upper(assignment.get("cliente"))
-                if cliente and cliente in selected_clients:
+                if (
+                    cliente
+                    and cliente in selected_clients
+                    and assignment.get("source") != "payroll_unknown"
+                ):
                     repo.update_worker_cliente(conn, int(assignment["worker_id"]), cliente)
             staging.unlink(missing_ok=True)
             repo.set_import_status(conn, import_id, "review")
@@ -534,6 +538,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 totals=summarize_results(results) if results else {},
                 clientes=_clientes_disponibles(),
                 client_summary=client_payload["summary"],
+                unresolved_client_groups=client_payload["summary"].get("unresolved_groups", []),
                 client_by_worker=client_by_worker,
                 table_rows=table_rows,
                 day_headers=day_headers,
@@ -567,8 +572,20 @@ def register_nominas_routes(bp, *, login_required) -> None:
             ).fetchone()
             if period is None:
                 abort(404)
-            requested_client = normalize_upper(request.form.get("cliente"))
             workers = repo.list_workers(conn, period_id)
+            unresolved_workers = [
+                worker
+                for worker in workers
+                if not normalize_upper(worker.get("cliente_confirmado"))
+            ]
+            if unresolved_workers:
+                flash(
+                    "Debe resolver todos los clientes de nómina antes de ejecutar el comparativo.",
+                    "error",
+                )
+                return redirect(
+                    url_for("gestion_idse_sua.nominas_workspace", period_id=period_id)
+                )
             confirmed_clients = sorted(
                 {
                     normalize_upper(worker.get("cliente_confirmado"))
@@ -576,16 +593,26 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     if normalize_upper(worker.get("cliente_confirmado"))
                 }
             )
-            target_clients = [requested_client] if requested_client else confirmed_clients
+            target_clients = confirmed_clients
             if not target_clients:
                 flash("No hay trabajadores con cliente confirmado para comparar.", "error")
                 return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
             for cliente in target_clients:
+                client_workers = [
+                    worker
+                    for worker in workers
+                    if normalize_upper(worker.get("cliente_confirmado")) == cliente
+                ]
+                is_new_client = bool(client_workers) and all(
+                    worker.get("suggestion_source") == "manual_new_client"
+                    for worker in client_workers
+                )
                 run_comparative(
                     conn,
                     period_id=period_id,
                     cliente=cliente,
                     generated_by=_session_username(),
+                    include_possible_bajas=not is_new_client,
                 )
             flash(
                 "Comparativo generado."
@@ -597,6 +624,70 @@ def register_nominas_routes(bp, *, login_required) -> None:
         except ValueError as exc:
             flash(str(exc), "error")
             return redirect(url_for("gestion_idse_sua.nominas_workspace", period_id=period_id))
+        finally:
+            conn.close()
+
+    @route(
+        "/nominas/workspace/<int:period_id>/resolve-client",
+        methods=["POST"],
+        endpoint="nominas_resolve_client",
+    )
+    def nominas_resolve_client(period_id: int):
+        _require_comparativo()
+        conn = _db_from_app()
+        try:
+            if conn.execute(
+                "SELECT 1 FROM gis_nomina_periods WHERE id = ?", (period_id,)
+            ).fetchone() is None:
+                abort(404)
+            source_client = normalize_upper(request.form.get("source_client"))
+            resolution = (request.form.get("resolution") or "").strip()
+            if resolution == "existing":
+                confirmed_client = normalize_upper(request.form.get("canonical_client"))
+                known_clients = {
+                    normalize_upper(value) for value in _clientes_disponibles() if normalize_upper(value)
+                }
+                known_clients.update(
+                    normalize_upper(row.get("cliente"))
+                    for row in obtener_activos()
+                    if normalize_upper(row.get("cliente"))
+                )
+                if not confirmed_client or confirmed_client not in known_clients:
+                    raise ValueError("Seleccione un cliente existente válido.")
+                resolution_source = "manual_existing_client"
+            elif resolution == "new":
+                confirmed_client = source_client or normalize_upper(
+                    request.form.get("new_client_name")
+                )
+                if not confirmed_client:
+                    raise ValueError("Capture el nombre del cliente nuevo.")
+                resolution_source = "manual_new_client"
+            else:
+                raise ValueError("Indique si corresponde a un cliente existente o nuevo.")
+
+            updated = repo.resolve_period_client_group(
+                conn,
+                period_id=period_id,
+                source_client=source_client,
+                confirmed_client=confirmed_client,
+                resolution_source=resolution_source,
+            )
+            if updated < 1:
+                raise ValueError("El grupo de cliente ya fue resuelto o no pertenece al periodo.")
+            conn.commit()
+            flash(
+                f"Cliente resuelto para {updated} trabajador(es): {confirmed_client}.",
+                "success",
+            )
+            return redirect(
+                url_for("gestion_idse_sua.nominas_workspace", period_id=period_id)
+            )
+        except ValueError as exc:
+            conn.rollback()
+            flash(str(exc), "error")
+            return redirect(
+                url_for("gestion_idse_sua.nominas_workspace", period_id=period_id)
+            )
         finally:
             conn.close()
 
@@ -631,8 +722,36 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 from modules.gestion_idse_sua.nominas.match_service import confirm_match
 
                 confirm_match(conn, worker_id, dict(match))
+                result = conn.execute(
+                    """
+                    SELECT r.id
+                    FROM gis_nomina_results r
+                    JOIN gis_nomina_comparatives c ON c.id = r.comparative_id
+                    JOIN gis_nomina_workers w ON w.id = r.worker_id
+                    WHERE r.worker_id = ? AND c.period_id = w.period_id
+                      AND c.cliente = w.cliente_confirmado
+                    ORDER BY r.id DESC
+                    LIMIT 1
+                    """,
+                    (worker_id,),
+                ).fetchone()
+                if result is not None:
+                    apply_identity_resolution_to_result(
+                        conn,
+                        worker_id=worker_id,
+                        result_id=int(result["id"]),
+                        match=repo.get_match(conn, worker_id) or {},
+                        changed_by=_session_username(),
+                    )
                 conn.commit()
-                flash("Match confirmado.", "success")
+                flash(
+                    "Identidad confirmada y resultado actualizado."
+                    if result is not None
+                    else "Identidad confirmada; el resultado se calculará al ejecutar el comparativo.",
+                    "success",
+                )
+            else:
+                flash("La sugerencia ya no está disponible para confirmar.", "error")
             period_id = conn.execute(
                 "SELECT period_id FROM gis_nomina_workers WHERE id = ?",
                 (worker_id,),
@@ -761,23 +880,44 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 )
             worker_data = dict(worker)
             raw_result_id = (request.form.get("result_id") or "").strip()
+            if raw_result_id and not raw_result_id.isdigit():
+                flash("El resultado comparativo enviado no es válido.", "error")
+                return redirect(
+                    url_for(
+                        "gestion_idse_sua.nominas_workspace",
+                        period_id=int(worker["period_id"]),
+                    )
+                )
             result_id = int(raw_result_id) if raw_result_id.isdigit() else None
             action = (request.form.get("action") or "search").strip()
             current_match = repo.get_match(conn, worker_id) or {}
 
             if action == "confirm_candidate":
-                if result_id is None:
-                    abort(400)
                 raw_index = (request.form.get("candidate_index") or "").strip()
                 if not raw_index.isdigit():
-                    abort(400)
+                    flash("Seleccione una opción de identidad antes de confirmar.", "error")
+                    return redirect(
+                        url_for(
+                            "gestion_idse_sua.nominas_workspace",
+                            period_id=int(worker["period_id"]),
+                        )
+                    )
                 selected = select_review_candidate(
                     current_match,
                     int(raw_index),
                     load_full_headcount(),
                 )
                 if selected is None:
-                    abort(400)
+                    flash(
+                        "El candidato seleccionado ya no está disponible; actualice y vuelva a elegir.",
+                        "error",
+                    )
+                    return redirect(
+                        url_for(
+                            "gestion_idse_sua.nominas_workspace",
+                            period_id=int(worker["period_id"]),
+                        )
+                    )
                 confirm_match(
                     conn,
                     worker_id,
@@ -789,15 +929,21 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     ),
                 )
                 confirmed = repo.get_match(conn, worker_id) or {}
-                apply_identity_resolution_to_result(
-                    conn,
-                    worker_id=worker_id,
-                    result_id=result_id,
-                    match=confirmed,
-                    changed_by=_session_username(),
-                )
+                if result_id is not None:
+                    apply_identity_resolution_to_result(
+                        conn,
+                        worker_id=worker_id,
+                        result_id=result_id,
+                        match=confirmed,
+                        changed_by=_session_username(),
+                    )
                 conn.commit()
-                flash("Identidad confirmada y resultado actualizado.", "success")
+                flash(
+                    "Identidad confirmada y resultado actualizado."
+                    if result_id is not None
+                    else "Identidad confirmada; el resultado se calculará al ejecutar el comparativo.",
+                    "success",
+                )
                 return redirect(
                     url_for(
                         "gestion_idse_sua.nominas_workspace",
@@ -806,17 +952,24 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 )
 
             if action == "reject_candidates":
-                if result_id is None or not review_candidates(current_match):
-                    abort(400)
+                if not review_candidates(current_match):
+                    flash("No hay candidatos vigentes para rechazar.", "error")
+                    return redirect(
+                        url_for(
+                            "gestion_idse_sua.nominas_workspace",
+                            period_id=int(worker["period_id"]),
+                        )
+                    )
                 rejected_match = build_rejected_match(worker_data, current_match)
                 repo.upsert_match(conn, worker_id, rejected_match)
-                apply_identity_resolution_to_result(
-                    conn,
-                    worker_id=worker_id,
-                    result_id=result_id,
-                    match=rejected_match,
-                    changed_by=_session_username(),
-                )
+                if result_id is not None:
+                    apply_identity_resolution_to_result(
+                        conn,
+                        worker_id=worker_id,
+                        result_id=result_id,
+                        match=rejected_match,
+                        changed_by=_session_username(),
+                    )
                 conn.commit()
                 flash("Sugerencias rechazadas; la fila queda como Posible alta.", "success")
                 return redirect(
@@ -868,6 +1021,20 @@ def register_nominas_routes(bp, *, login_required) -> None:
                     flash("No se encontró trabajador en Headcount.", "error")
             return redirect(
                 url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
+            )
+        except ValueError as exc:
+            conn.rollback()
+            flash(f"No fue posible resolver la identidad: {exc}", "error")
+            period = conn.execute(
+                "SELECT period_id FROM gis_nomina_workers WHERE id = ?", (worker_id,)
+            ).fetchone()
+            if period is None:
+                abort(404)
+            return redirect(
+                url_for(
+                    "gestion_idse_sua.nominas_workspace",
+                    period_id=int(period["period_id"]),
+                )
             )
         finally:
             conn.close()
