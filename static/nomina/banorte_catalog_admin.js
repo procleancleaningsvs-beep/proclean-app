@@ -151,12 +151,17 @@
       note += " Los datos del nuevo archivo serán los vigentes.";
     }
     if (item.conflict_reason) note = item.conflict_reason;
+    const recommendedAction = item.recommended_action
+      ? '<p class="catalog-admin-detail-action"><strong>Acción recomendada:</strong> ' +
+        escapeHtml(item.recommended_action) + "</p>"
+      : "";
     return (
       '<div class="catalog-admin-before-after">' +
         personCard("CATÁLOGO VIGENTE", item.current_person) +
         personCard("NUEVO ARCHIVO", item.target_person) +
       "</div>" +
-      (note ? '<p class="catalog-admin-detail-note">' + escapeHtml(note) + "</p>" : "")
+      (note ? '<p class="catalog-admin-detail-note">' + escapeHtml(note) + "</p>" : "") +
+      recommendedAction
     );
   }
 

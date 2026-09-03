@@ -1,6 +1,7 @@
 """Read-only presentation model for Banorte Catalog Admin V2 (C3a/C3b)."""
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 from dataclasses import dataclass
@@ -75,6 +76,7 @@ class CatalogAdminOverview:
 class CatalogComparisonRows:
     version_id: int
     items: tuple[dict[str, Any], ...]
+    global_conflicts: tuple[dict[str, str], ...]
     page: int
     page_size: int
     total: int
@@ -87,6 +89,7 @@ class CatalogComparisonRows:
         return {
             "version_id": self.version_id,
             "items": list(self.items),
+            "global_conflicts": list(self.global_conflicts),
             "page": self.page,
             "page_size": self.page_size,
             "total": self.total,
@@ -200,8 +203,20 @@ def _preview_for(conn, version: dict[str, Any]) -> dict[str, Any] | None:
         return None
     plan = build_new_baseline_plan(conn, int(version["id"]))
     preview = plan.preview()
-    rows = _all_rows(plan)
+    rows, global_conflicts = _comparison_content(conn, plan)
     classifications = [str(row["classification"]) for row in rows]
+    blocker_messages = [
+        str(row["conflict_reason"])
+        for row in rows
+        if row.get("operational_conflict") and row.get("conflict_reason")
+    ]
+    blocker_messages.extend(item["reason"] for item in global_conflicts)
+    blocker_messages.extend(
+        _conflict_reason(str(blocker.get("code") or ""))
+        for blocker in preview.get("operational_blockers", [])
+        if str(blocker.get("code") or "") not in _OPERATIONAL_CONFLICT_CODES
+    )
+    blocker_messages = list(dict.fromkeys(blocker_messages))
     comparison = {
         "unchanged": classifications.count("UNCHANGED"),
         "added": classifications.count("ADDED"),
@@ -215,7 +230,7 @@ def _preview_for(conn, version: dict[str, Any]) -> dict[str, Any] | None:
             1 for action in plan.actions if action.lineage_status == "CONFIRMED"
         ),
         "lineage_unconfirmed": int(preview["lineage_unconfirmed_count"]),
-        "conflicts": int(preview["operational_conflict_count"]),
+        "conflicts": classifications.count("CONFLICT") + len(global_conflicts),
     }
     return {
         "final_current_total": int(preview["final_current_total"]),
@@ -226,10 +241,8 @@ def _preview_for(conn, version: dict[str, Any]) -> dict[str, Any] | None:
         "operational_conflict_count": int(preview["operational_conflict_count"]),
         "can_apply": bool(preview["can_apply"]),
         "preview_fingerprint": str(preview["preview_fingerprint"]),
-        "blocker_messages": [
-            _conflict_reason(str(blocker.get("code") or ""))
-            for blocker in preview.get("operational_blockers", [])
-        ],
+        "blocker_messages": blocker_messages,
+        "global_conflicts": global_conflicts,
         "incompatible_open_operation_count": len(
             preview.get("incompatible_open_operations", [])
         ),
@@ -382,6 +395,58 @@ def _conflict_reason(code: str) -> str:
     }.get(code, "Existe un conflicto operativo que debe revisarse antes de aplicar.")
 
 
+def _conflict_action(code: str) -> str:
+    if code in {
+        "PROJECTION_BLOCKERS",
+        "PROJECTION_COUNT_MISMATCH",
+        "TARGET_CURRENT_ROW_INVALID",
+        "TARGET_EMPLOYEE_INVALID",
+        "TARGET_ACCOUNT_INVALID",
+        "TARGET_EMPLOYEE_DUPLICATE",
+        "TARGET_ACCOUNT_DUPLICATE",
+        "SPLIT_PRIOR_CURRENT_IDENTIFIERS",
+    }:
+        return "Corrige el Empleados.txt y vuelve a analizarlo."
+    if code == "INCOMPATIBLE_OPEN_OPERATIONS":
+        return "Concluye o descarta las operaciones Banorte abiertas y vuelve a comparar."
+    if code == "MATERIAL_FINGERPRINT_STALE":
+        return "Vuelve a analizar el archivo para obtener una comparación vigente."
+    return "Revisa el conflicto indicado y vuelve a analizar el archivo."
+
+
+def _projection_conflict_copy(row: dict[str, Any]) -> tuple[str, str]:
+    reason = str(row.get("eligibility_reason") or "")
+    status = str(row.get("internal_status_normalized") or "").replace("_", " ").title()
+    result = str(row.get("result_normalized") or "").replace("_", " ").title()
+    if reason == "STATUS_NOT_APLICADO":
+        return (
+            f"La persona figura en el nuevo archivo con estatus “{status or 'No disponible'}”, "
+            "no “Aplicado”, por lo que no puede incorporarse al catálogo vigente.",
+            "Corrige el estado de esta persona en Empleados.txt y vuelve a analizarlo.",
+        )
+    if reason == "RESULT_NOT_REGISTRO_ACEPTADO":
+        return (
+            f"La persona figura en el nuevo archivo con resultado “{result or 'No disponible'}”, "
+            "no “Registro aceptado”, por lo que no puede incorporarse al catálogo vigente.",
+            "Corrige el resultado de esta persona en Empleados.txt y vuelve a analizarlo.",
+        )
+    status_code = str(row.get("person_status") or "")
+    if status_code == "IDENTITY_CONFLICT":
+        return (
+            "El mismo RFC aparece con nombres o fechas de nacimiento incompatibles en el nuevo archivo.",
+            "Corrige las filas de esta persona en Empleados.txt y vuelve a analizarlo.",
+        )
+    if status_code == "AMBIGUOUS_CURRENT_ACCOUNT":
+        return (
+            "El nuevo archivo contiene más de una cuenta vigente posible para la misma persona.",
+            "Corrige las cuentas de esta persona en Empleados.txt y vuelve a analizarlo.",
+        )
+    return (
+        "Esta persona no tiene una fila válida que pueda incorporarse al catálogo vigente.",
+        "Corrige la información de esta persona en Empleados.txt y vuelve a analizarlo.",
+    )
+
+
 def _classification_for_action(action) -> str:
     if action.predecessor_authority_kind == "POST_CATALOG_ADDITION":
         return "POST_ABSORBED"
@@ -483,14 +548,32 @@ def _row_for_candidate(
     }
 
 
-def _row_for_conflict(blocker: dict[str, Any], index: int) -> dict[str, Any]:
+def _row_for_conflict(
+    blocker: dict[str, Any],
+    index: int,
+    *,
+    ordinal: int = 0,
+    action: Any | None = None,
+    candidate: PriorCurrentCandidate | None = None,
+) -> dict[str, Any]:
     code = str(blocker.get("code") or "")
+    target_person = None
+    if action is not None:
+        target_person = _person(
+            name=action.name_original,
+            employee=action.employee,
+            account=action.account,
+            rfc=action.rfc,
+            birth_date=action.birth_date,
+        )
+    current_person = _candidate_person(candidate)
+    row_key = f"conflict-{index}" if ordinal == 0 else f"conflict-{index}-{ordinal}"
     return {
-        "row_key": f"conflict-{index}",
+        "row_key": row_key,
         "classification": "CONFLICT",
         "classification_label": "Conflicto que requiere atención",
-        "current_person": None,
-        "target_person": None,
+        "current_person": current_person,
+        "target_person": target_person,
         "changed_fields": [],
         "business_reason": _conflict_reason(code),
         "lineage_status": None,
@@ -499,12 +582,152 @@ def _row_for_conflict(blocker: dict[str, Any], index: int) -> dict[str, Any]:
         "lineage_method": None,
         "operational_conflict": True,
         "conflict_reason": _conflict_reason(code),
+        "recommended_action": _conflict_action(code),
         "resolution_available": False,
-        "_search_text_private": "",
+        "_search_text_private": " ".join(
+            str(value or "")
+            for value in (
+                action.name_original if action else "",
+                action.employee if action else "",
+                action.account if action else "",
+                action.rfc if action else "",
+                candidate.name_original if candidate else "",
+                candidate.employee if candidate else "",
+                candidate.account if candidate else "",
+                candidate.rfc if candidate else "",
+            )
+        ).casefold(),
     }
 
 
-def _all_rows(plan: NewBaselinePlan) -> list[dict[str, Any]]:
+def _projection_conflict_rows(conn, version_id: int) -> list[dict[str, Any]]:
+    raw_rows = [
+        dict(row)
+        for row in conn.execute(
+            """
+            SELECT p.id AS person_id,p.person_status,
+                   r.source_position,r.name_original,r.employee_number_normalized,
+                   r.account_number_normalized,r.rfc_normalized,r.birth_date_iso,
+                   r.eligibility_reason,r.internal_status_normalized,r.result_normalized
+            FROM nomina_banorte_catalog_persons p
+            JOIN nomina_banorte_catalog_person_rows pr ON pr.person_id=p.id
+            JOIN nomina_banorte_catalog_rows r ON r.id=pr.row_id
+            WHERE p.version_id=? AND p.person_status<>'CATALOG_READY'
+            ORDER BY p.id,pr.is_current DESC,r.source_position
+            """,
+            (int(version_id),),
+        )
+    ]
+    rows: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for raw in raw_rows:
+        person_id = int(raw["person_id"])
+        if person_id in seen:
+            continue
+        seen.add(person_id)
+        reason, action = _projection_conflict_copy(raw)
+        rows.append(
+            {
+                "row_key": f"conflict-projection-{person_id}",
+                "classification": "CONFLICT",
+                "classification_label": "Conflicto que requiere atención",
+                "current_person": None,
+                "target_person": _person(
+                    name=raw["name_original"],
+                    employee=raw["employee_number_normalized"],
+                    account=raw["account_number_normalized"],
+                    rfc=raw["rfc_normalized"],
+                    birth_date=raw["birth_date_iso"],
+                ),
+                "changed_fields": [],
+                "business_reason": reason,
+                "lineage_status": None,
+                "lineage_label": None,
+                "lineage_detail": None,
+                "lineage_method": None,
+                "operational_conflict": True,
+                "conflict_reason": reason,
+                "recommended_action": action,
+                "resolution_available": False,
+                "_search_text_private": " ".join(
+                    str(raw.get(key) or "")
+                    for key in (
+                        "name_original",
+                        "employee_number_normalized",
+                        "account_number_normalized",
+                        "rfc_normalized",
+                    )
+                ).casefold(),
+            }
+        )
+    return rows
+
+
+def _associated_conflict_rows(
+    plan: NewBaselinePlan,
+    blocker: dict[str, Any],
+    index: int,
+) -> list[dict[str, Any]]:
+    code = str(blocker.get("code") or "")
+    actions = []
+    if blocker.get("person_id") is not None:
+        actions = [
+            action
+            for action in plan.actions
+            if action.person_id == int(blocker["person_id"])
+        ]
+    elif code == "TARGET_EMPLOYEE_DUPLICATE":
+        digest = str(blocker.get("identifier_sha256") or "")
+        actions = [
+            action
+            for action in plan.actions
+            if hashlib.sha256(action.employee.encode()).hexdigest() == digest
+        ]
+    elif code == "TARGET_ACCOUNT_DUPLICATE":
+        digest = str(blocker.get("identifier_sha256") or "")
+        actions = [
+            action
+            for action in plan.actions
+            if hashlib.sha256(action.account.encode()).hexdigest() == digest
+        ]
+    elif code == "PREDECESSOR_REUSED" and blocker.get("beneficiary_id") is not None:
+        beneficiary_id = int(blocker["beneficiary_id"])
+        actions = [
+            action
+            for action in plan.actions
+            if action.predecessor_beneficiary_id == beneficiary_id
+        ]
+
+    candidates = {item.beneficiary_id: item for item in plan.prior_candidates}
+    rows = []
+    for ordinal, action in enumerate(actions, start=1):
+        candidate = candidates.get(int(action.predecessor_beneficiary_id or 0))
+        rows.append(
+            _row_for_conflict(
+                blocker,
+                index,
+                ordinal=ordinal,
+                action=action,
+                candidate=candidate,
+            )
+        )
+    return rows
+
+
+def _global_conflict(blocker: dict[str, Any]) -> dict[str, str]:
+    code = str(blocker.get("code") or "")
+    return {
+        "title": "Conflicto general del archivo",
+        "reason": _conflict_reason(code),
+        "impact": "El catálogo no puede aplicarse mientras esta condición siga presente.",
+        "recommended_action": _conflict_action(code),
+    }
+
+
+def _comparison_content(
+    conn,
+    plan: NewBaselinePlan,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     candidates = {item.beneficiary_id: item for item in plan.prior_candidates}
     consumed_candidates = {
         int(action.predecessor_beneficiary_id)
@@ -538,10 +761,26 @@ def _all_rows(plan: NewBaselinePlan) -> list[dict[str, Any]]:
             rows.append(_row_for_candidate(candidate, classification="REMOVED"))
         if candidate.beneficiary_id in plan.post_additions_dropped:
             rows.append(_row_for_candidate(candidate, classification="POST_DROPPED"))
+    global_conflicts: list[dict[str, str]] = []
+    projection_rows: list[dict[str, Any]] | None = None
     for index, blocker in enumerate(plan.operational_blockers, start=1):
-        if str(blocker.get("code") or "") in _OPERATIONAL_CONFLICT_CODES:
-            rows.append(_row_for_conflict(blocker, index))
-    return rows
+        code = str(blocker.get("code") or "")
+        if code not in _OPERATIONAL_CONFLICT_CODES:
+            continue
+        if code == "PROJECTION_BLOCKERS":
+            if projection_rows is None:
+                projection_rows = _projection_conflict_rows(conn, plan.target_version_id)
+            if projection_rows:
+                rows.extend(projection_rows)
+            else:
+                global_conflicts.append(_global_conflict(blocker))
+            continue
+        associated = _associated_conflict_rows(plan, blocker, index)
+        if associated:
+            rows.extend(associated)
+        else:
+            global_conflicts.append(_global_conflict(blocker))
+    return rows, global_conflicts
 
 
 def _search_text(row: dict[str, Any]) -> str:
@@ -611,7 +850,8 @@ def list_catalog_comparison_rows(
         if version["status"] not in {"ANALYZED", "READY_FOR_REVIEW"}:
             raise CatalogAdminReadError("comparison_unavailable")
         plan = build_new_baseline_plan(conn, int(version_id))
-        rows = [row for row in _all_rows(plan) if _matches_filter(row, filter_name)]
+        rows, global_conflicts = _comparison_content(conn, plan)
+        rows = [row for row in rows if _matches_filter(row, filter_name)]
         if search:
             rows = [row for row in rows if search in _search_text(row)]
         order = {
@@ -645,6 +885,7 @@ def list_catalog_comparison_rows(
         return CatalogComparisonRows(
             version_id=int(version_id),
             items=items,
+            global_conflicts=tuple(global_conflicts),
             page=page,
             page_size=page_size,
             total=total,
@@ -664,7 +905,8 @@ def get_catalog_comparison_row(
 ) -> dict[str, Any]:
     row_key = str(row_key or "")
     if re.fullmatch(
-        r"(?:target-\d+|prior-(?:catalog|post_catalog_addition)-\d+|conflict-\d+)",
+        r"(?:target-\d+|prior-(?:catalog|post_catalog_addition)-\d+|"
+        r"conflict-(?:projection-\d+|\d+(?:-\d+)?))",
         row_key,
     ) is None:
         raise CatalogAdminReadError("row_not_found")

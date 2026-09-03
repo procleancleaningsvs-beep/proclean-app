@@ -121,6 +121,19 @@
       <article class="{% if preview.comparison.conflicts %}catalog-admin-summary__danger{% endif %}"><span>Conflictos que requieren atención</span><strong>{{ preview.comparison.conflicts }}</strong></article>
     </div>
 
+    {% if preview.global_conflicts %}
+    <div class="catalog-admin-notice catalog-admin-notice--danger catalog-admin-global-conflicts" role="alert">
+      {% for conflict in preview.global_conflicts %}
+      <article>
+        <strong>{{ conflict.title }}</strong>
+        <p>{{ conflict.reason }}</p>
+        <p>{{ conflict.impact }}</p>
+        <p><strong>Acción necesaria:</strong> {{ conflict.recommended_action }}</p>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     <div class="catalog-admin-toolbar">
       <label>
         <span>Mostrar</span>

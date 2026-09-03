@@ -1619,6 +1619,111 @@ def test_c3a_check_3_comparison_keeps_unconfirmed_neutral_and_conflicts_blocking
     )
     assert conflicts.total >= 1
     assert all(item["operational_conflict"] for item in conflicts.items)
+    assert all(item["target_person"] for item in conflicts.items)
+    assert catalog_apply_preview(app.config["DATABASE"], conflict["id"])["can_apply"] is False
+
+
+def test_catalog_projection_blocker_exposes_the_sanitized_target_and_action(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    blocked_row = _row()
+    blocked_row[0] = "0000000443"
+    blocked_row[1] = "PERSONA PENDIENTE"
+    blocked_row[6] = "PEND900101AA1"
+    blocked_row[14] = "9876545180"
+    blocked_row[18] = "CAPTURADO"
+    payload = "\n".join(
+        [
+            "FECHA: 02/sep./2026",
+            "EMISORA: 67059 EMPRESA SINTETICA",
+            "",
+            "|".join(CATALOG_HEADER_V1) + "|",
+            "|".join(blocked_row) + "|",
+        ]
+    ).encode("utf-8")
+    staged = stage_catalog_version(
+        app.config["DATABASE"], raw=payload, filename="empleados-real-sanitized.txt", actor="admin"
+    )
+    analyzed = analyze_catalog_version(app.config["DATABASE"], staged["id"], actor="admin")
+    mark_catalog_ready_for_review(app.config["DATABASE"], staged["id"], actor="admin")
+
+    assert analyzed["persons_by_status"] == {"NO_ELIGIBLE_ROW": 1}
+    preview = catalog_apply_preview(app.config["DATABASE"], staged["id"])
+    assert preview["operational_blockers"] == [{"code": "PROJECTION_BLOCKERS", "count": 1}]
+    assert preview["can_apply"] is False
+
+    conflicts = list_catalog_comparison_rows(
+        app.config["DATABASE"], staged["id"], filter_name="conflict"
+    )
+    assert conflicts.total == 1
+    item = conflicts.items[0]
+    assert item["row_key"].startswith("conflict-projection-")
+    assert item["target_person"]["name"] == "PERSONA PENDIENTE"
+    assert item["target_person"]["employee"] == "0000000443"
+    assert item["target_person"]["account_masked"] == "******5180"
+    assert item["target_person"]["account_masked"] != "9876545180"
+    assert "Capturado" in item["business_reason"]
+    assert item["recommended_action"] == (
+        "Corrige el estado de esta persona en Empleados.txt y vuelve a analizarlo."
+    )
+    assert item["current_person"] is None
+    serialized = str(item)
+    assert "PROJECTION_BLOCKERS" not in serialized
+    assert "NO_ELIGIBLE_ROW" not in serialized
+    assert "STATUS_NOT_APLICADO" not in serialized
+
+    detail = get_catalog_comparison_row(
+        app.config["DATABASE"], staged["id"], item["row_key"]
+    )
+    assert detail["target_person"] == item["target_person"]
+    assert detail["recommended_action"] == item["recommended_action"]
+
+
+def test_global_blocker_is_separate_and_never_becomes_an_empty_person_row(tmp_path):
+    app = _make_app(tmp_path, "admin")
+    _activate_catalog(app.config["DATABASE"])
+    staged = stage_catalog_version(
+        app.config["DATABASE"],
+        raw=_catalog_payload(
+            report_header="02/sep./2026",
+            employee="0000000555",
+            name="PERSONA GLOBAL",
+            rfc="GLOB900101AA1",
+            account="5555555555",
+        ),
+        filename="global-conflict.txt",
+        actor="admin",
+    )
+    analyze_catalog_version(app.config["DATABASE"], staged["id"], actor="admin")
+    conn = connect(app.config["DATABASE"])
+    conn.execute(
+        "UPDATE nomina_banorte_catalog_versions SET catalog_ready_count=0 WHERE id=?",
+        (staged["id"],),
+    )
+    conn.commit()
+    conn.close()
+    mark_catalog_ready_for_review(app.config["DATABASE"], staged["id"], actor="admin")
+
+    comparison = list_catalog_comparison_rows(
+        app.config["DATABASE"], staged["id"], filter_name="conflict"
+    )
+    assert comparison.total == 0
+    assert comparison.items == ()
+    assert len(comparison.global_conflicts) == 1
+    general = comparison.global_conflicts[0]
+    assert general["title"] == "Conflicto general del archivo"
+    assert "proyección" in general["reason"]
+    assert "vuelve a analizarlo" in general["recommended_action"]
+    assert "person_id" not in general
+    assert "target_person" not in general
+
+    page = app.test_client().get(
+        f"/nomina/exportaciones/banorte/catalogo?version_id={staged['id']}"
+    )
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "Conflicto general del archivo" in html
+    assert "PROJECTION_COUNT_MISMATCH" not in html
 
 
 def test_c3a_check_4_rows_search_masking_detail_pagination_and_history(tmp_path):

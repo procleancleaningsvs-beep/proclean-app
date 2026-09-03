@@ -98,3 +98,34 @@ test("C3b check 5: apply and lineage UX are backend-gated, single-flight, masked
   assert.doesNotMatch(source, /confirm-distinct|manual-distinct|Aplicar de todos modos|Forzar/);
   assert.doesNotMatch(source, /operational_conflict_count\s*[<>=]|lineage_unconfirmed_count\s*[<>=]/);
 });
+
+test("catalog conflict detail is actionable, masked, and contains no internal reason codes", () => {
+  const item = {
+    row_key: "conflict-projection-7",
+    classification_label: "Conflicto que requiere atención",
+    business_reason: "La persona figura en el nuevo archivo con estatus “Capturado”, no “Aplicado”.",
+    conflict_reason: "La persona figura en el nuevo archivo con estatus “Capturado”, no “Aplicado”.",
+    recommended_action: "Corrige el estado de esta persona en Empleados.txt y vuelve a analizarlo.",
+    target_person: {
+      name: "PERSONA SEGURA",
+      employee: "0000000443",
+      account_masked: "******5180",
+      rfc: "PEND900101AA1",
+      birth_date: "1990-01-01",
+    },
+    current_person: null,
+    lineage_status: null,
+    operational_conflict: true,
+    resolution_available: false,
+  };
+  const rowHtml = admin.renderComparisonRows([item]);
+  const detailHtml = admin.renderDetail(item);
+
+  assert.match(rowHtml, /PERSONA SEGURA/);
+  assert.match(rowHtml, /\*\*\*\*\*\*5180/);
+  assert.match(detailHtml, /NUEVO ARCHIVO/);
+  assert.match(detailHtml, /Acción recomendada/);
+  assert.match(detailHtml, /vuelve a analizarlo/);
+  assert.doesNotMatch(detailHtml, /9876545180/);
+  assert.doesNotMatch(detailHtml, /PROJECTION_BLOCKERS|NO_ELIGIBLE_ROW|STATUS_NOT_APLICADO/);
+});
