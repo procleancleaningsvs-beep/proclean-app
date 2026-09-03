@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -20,6 +21,9 @@ STRONG_IDENTIFIERS = (
         ("numero_empleado", "codigo_contpaq", "num_empleado"),
     ),
 )
+
+MAX_VISIBLE_CANDIDATES = 3
+MATERIAL_TOKEN_THRESHOLD = 80.0
 
 
 def _row_json(worker: dict[str, Any]) -> dict[str, Any]:
@@ -93,6 +97,9 @@ def _candidate_payload(row: dict[str, Any], reason: str) -> dict[str, Any]:
         "rfc": normalize_upper(row.get("rfc_homoclave") or row.get("rfc")),
         "curp": normalize_upper(row.get("curp")),
         "puesto": str(row.get("puesto") or "").strip(),
+        "nombre": normalize_name(row.get("nombre") or row.get("nombres")),
+        "apellido_paterno": normalize_name(row.get("apellido_paterno")),
+        "apellido_materno": normalize_name(row.get("apellido_materno")),
         "status_operacion": normalize_upper(row.get("status_operacion")),
         "status_imss": normalize_upper(row.get("status_imss")),
         "candidate_reason": reason,
@@ -107,7 +114,10 @@ def build_review_match(
     reason: str,
     confidence: float = 0.5,
 ) -> dict[str, Any]:
-    payloads = [_candidate_payload(candidate, reason) for candidate in candidates[:5]]
+    payloads = [
+        _candidate_payload(candidate, reason)
+        for candidate in candidates[:MAX_VISIBLE_CANDIDATES]
+    ]
     return {
         "match_method": method,
         "confidence": confidence,
@@ -118,7 +128,7 @@ def build_review_match(
         "curp": "",
         "hc_nombre": "",
         "hc_json": json_dumps(payloads),
-        "homonym_options": candidates[:5],
+        "homonym_options": candidates[:MAX_VISIBLE_CANDIDATES],
     }
 
 
@@ -193,6 +203,82 @@ def _exact_identity_match(
     return _build_match(row, method=method, confidence=confidence, status=status)
 
 
+def _tokens(value: Any) -> list[str]:
+    return [token for token in normalize_name(value).split() if token]
+
+
+def _structured_headcount_name(headcount: dict[str, Any]) -> tuple[list[str], list[str]]:
+    full_tokens = _tokens(headcount.get("nombre_completo"))
+    given_names = _tokens(headcount.get("nombre") or headcount.get("nombres"))
+    surnames = [
+        token
+        for field in ("apellido_paterno", "apellido_materno")
+        for token in _tokens(headcount.get(field))
+    ]
+    if not given_names and full_tokens:
+        given_names = full_tokens[:-2] if len(full_tokens) >= 3 else full_tokens[:1]
+    if not surnames and len(full_tokens) > 1:
+        surnames = full_tokens[-2:] if len(full_tokens) >= 3 else full_tokens[1:]
+    return given_names, surnames
+
+
+def _material_matches(
+    expected_tokens: list[str], payroll_tokens: list[str]
+) -> list[tuple[str, str, str, float]]:
+    matches: list[tuple[str, str, str, float]] = []
+    used_indexes: set[int] = set()
+    for expected in expected_tokens:
+        exact_index = next(
+            (
+                index
+                for index, token in enumerate(payroll_tokens)
+                if index not in used_indexes and token == expected
+            ),
+            None,
+        )
+        if exact_index is not None:
+            used_indexes.add(exact_index)
+            matches.append((expected, payroll_tokens[exact_index], "exacto", 100.0))
+            continue
+        available = [
+            (index, token)
+            for index, token in enumerate(payroll_tokens)
+            if index not in used_indexes and min(len(expected), len(token)) >= 4
+        ]
+        if not available:
+            continue
+        best_index, best_token = max(
+            available, key=lambda item: fuzz.ratio(expected, item[1])
+        )
+        best_score = float(fuzz.ratio(expected, best_token))
+        if best_score >= MATERIAL_TOKEN_THRESHOLD:
+            used_indexes.add(best_index)
+            matches.append((expected, best_token, "variante cercana", best_score))
+    return matches
+
+
+def _match_reason(
+    given_matches: list[tuple[str, str, str, float]],
+    surname_matches: list[tuple[str, str, str, float]],
+    *,
+    same_client: bool,
+    same_location: bool,
+) -> str:
+    reasons = [
+        f"Nombre {expected.title()} {kind}"
+        for expected, _payroll, kind, _score in given_matches[:2]
+    ]
+    reasons.extend(
+        f"Apellido {expected.title()} {kind}"
+        for expected, _payroll, kind, _score in surname_matches[:2]
+    )
+    if same_client:
+        reasons.append("Mismo cliente")
+    if same_location:
+        reasons.append("Misma ubicación")
+    return " · ".join(reasons)
+
+
 def _name_candidate(
     worker: dict[str, Any],
     headcount: dict[str, Any],
@@ -203,37 +289,24 @@ def _name_candidate(
         worker.get("nombre_normalizado") or worker.get("nombre_original")
     )
     headcount_name = normalize_name(headcount.get("nombre_completo"))
-    worker_tokens = set(worker_name.split())
-    headcount_tokens = set(headcount_name.split())
-    overlap = worker_tokens & headcount_tokens
-    if not worker_tokens or not headcount_tokens:
+    payroll_tokens = _tokens(worker_name)
+    headcount_tokens = _tokens(headcount_name)
+    if not payroll_tokens or not headcount_tokens:
         return None
 
-    if worker_tokens == headcount_tokens:
-        return 1.0, "Mismos componentes del nombre en orden distinto"
-    if worker_tokens <= headcount_tokens or headcount_tokens <= worker_tokens:
-        return 0.96, "Nombre incompleto compatible"
+    given_names, surnames = _structured_headcount_name(headcount)
+    given_matches = _material_matches(given_names, payroll_tokens)
+    if not given_matches:
+        return None
+    surname_matches = _material_matches(surnames, payroll_tokens)
+    if surnames and not surname_matches:
+        return None
 
     token_score = max(
         float(fuzz.token_set_ratio(worker_name, headcount_name)),
         float(fuzz.token_sort_ratio(worker_name, headcount_name)),
         float(fuzz.ratio(worker_name, headcount_name)),
     )
-    worker_list = worker_name.split()
-    headcount_list = headcount_name.split()
-    approximate_pairs = 0
-    remaining = list(headcount_list)
-    for token in worker_list:
-        if not remaining:
-            break
-        best_index = max(
-            range(len(remaining)), key=lambda index: fuzz.ratio(token, remaining[index])
-        )
-        best_score = fuzz.ratio(token, remaining[best_index])
-        if float(best_score) >= 80.0:
-            approximate_pairs += 1
-            remaining.pop(best_index)
-
     worker_client = normalize_upper(
         worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
     )
@@ -246,32 +319,27 @@ def _name_candidate(
     )
     same_client = bool(worker_client and worker_client == headcount_client)
     same_location = bool(worker_location and worker_location == headcount_location)
-    same_first_name = bool(worker_list and headcount_list and worker_list[0] == headcount_list[0])
-
-    reasonable = any(
-        (
-            token_score >= float(fuzzy_threshold),
-            len(overlap) >= 2 and token_score >= 70.0,
-            len(overlap) >= 2 and same_first_name and (same_client or same_location),
-            approximate_pairs >= 2 and (same_client or same_location),
-        )
-    )
-    if not reasonable:
+    if token_score < min(float(fuzzy_threshold), 70.0) and not (
+        same_client or same_location
+    ):
         return None
 
+    matched_scores = [item[3] for item in given_matches + surname_matches]
+    semantic_strength = sum(matched_scores) / (100.0 * len(matched_scores))
     confidence = min(
-        0.99,
-        (token_score / 100.0)
+        0.95,
+        0.55
+        + (semantic_strength * 0.25)
+        + ((token_score / 100.0) * 0.10)
         + (0.04 if same_client else 0.0)
         + (0.04 if same_location else 0.0),
     )
-    context = []
-    if same_client:
-        context.append("mismo cliente")
-    if same_location:
-        context.append("misma ubicación")
-    suffix = f"; {', '.join(context)}" if context else ""
-    return confidence, f"Nombre compatible ({round(token_score)}%){suffix}"
+    return confidence, _match_reason(
+        given_matches,
+        surname_matches,
+        same_client=same_client,
+        same_location=same_location,
+    )
 
 
 def match_worker(
@@ -343,7 +411,7 @@ def match_worker(
         candidates.sort(key=lambda item: (-item[0], normalize_name(item[2].get("nombre_completo"))))
         payloads = [
             _candidate_payload(row, reason)
-            for confidence, reason, row in candidates[:5]
+            for confidence, reason, row in candidates[:MAX_VISIBLE_CANDIDATES]
         ]
         return {
             "match_method": "candidato_nombre",
@@ -355,7 +423,9 @@ def match_worker(
             "curp": "",
             "hc_nombre": "",
             "hc_json": json_dumps(payloads),
-            "homonym_options": [row for _, _, row in candidates[:5]],
+            "homonym_options": [
+                row for _, _, row in candidates[:MAX_VISIBLE_CANDIDATES]
+            ],
         }
 
     return _unmatched_result()
@@ -415,6 +485,144 @@ def confirm_match(conn, worker_id: int, match: dict[str, Any]) -> None:
     repo.upsert_match(conn, worker_id, confirmed)
 
 
+def review_candidates(match: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = match.get("hc_json")
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)][
+        :MAX_VISIBLE_CANDIDATES
+    ]
+
+
+def select_review_candidate(
+    match: dict[str, Any],
+    candidate_index: int,
+    headcount_rows: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    options = review_candidates(match)
+    if candidate_index < 0 or candidate_index >= len(options):
+        return None
+    selected_key = str(options[candidate_index].get("headcount_key") or "").strip()
+    if not selected_key:
+        return None
+    return next(
+        (row for row in headcount_rows if _hc_key(row) == selected_key),
+        None,
+    )
+
+
+def _stable_signature(values: dict[str, Any]) -> str:
+    encoded = json_dumps(values).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _worker_signature(worker: dict[str, Any]) -> str:
+    return _stable_signature(
+        {
+            "nombre": normalize_name(
+                worker.get("nombre_normalizado") or worker.get("nombre_original")
+            ),
+            "cliente": normalize_upper(
+                worker.get("cliente_confirmado") or worker.get("cliente_sugerido")
+            ),
+            "ubicacion": normalize_upper(
+                worker.get("planta_normalizada") or worker.get("planta_original")
+            ),
+            "nss": _normalize_identifier(_worker_value(worker, ("nss",))),
+            "curp": _normalize_identifier(_worker_value(worker, ("curp",))),
+            "rfc": _normalize_identifier(
+                _worker_value(worker, ("rfc", "rfc_homoclave"))
+            ),
+            "empleado": _normalize_identifier(
+                _worker_value(worker, ("num_empleado", "numero_empleado"))
+            ),
+        }
+    )
+
+
+def _candidate_signature(row: dict[str, Any]) -> str:
+    return _stable_signature(
+        {
+            "key": _hc_key(row),
+            "nombre_completo": normalize_name(row.get("nombre_completo")),
+            "nombre": normalize_name(row.get("nombre") or row.get("nombres")),
+            "apellido_paterno": normalize_name(row.get("apellido_paterno")),
+            "apellido_materno": normalize_name(row.get("apellido_materno")),
+            "cliente": normalize_upper(row.get("cliente")),
+            "ubicacion": normalize_upper(row.get("ubicacion") or row.get("planta")),
+            "status_operacion": normalize_upper(row.get("status_operacion")),
+            "status_imss": normalize_upper(row.get("status_imss")),
+        }
+    )
+
+
+def build_rejected_match(
+    worker: dict[str, Any], current_match: dict[str, Any]
+) -> dict[str, Any]:
+    rejected = [
+        {
+            "headcount_key": str(candidate.get("headcount_key") or "").strip(),
+            "candidate_signature": _candidate_signature(candidate),
+        }
+        for candidate in review_candidates(current_match)
+        if str(candidate.get("headcount_key") or "").strip()
+    ]
+    return {
+        "match_method": "manual_reject_candidates",
+        "confidence": 0.0,
+        "status": "unmatched",
+        "headcount_key": None,
+        "nss": "",
+        "rfc": "",
+        "curp": "",
+        "hc_nombre": "",
+        "hc_json": json_dumps(
+            {
+                "rejection_version": 1,
+                "worker_signature": _worker_signature(worker),
+                "rejected": rejected,
+            }
+        ),
+    }
+
+
+def rejected_candidate_keys(
+    match: dict[str, Any],
+    worker: dict[str, Any],
+    headcount_rows: list[dict[str, Any]],
+) -> set[str]:
+    if (
+        str(match.get("status") or "") != "unmatched"
+        or str(match.get("match_method") or "") != "manual_reject_candidates"
+    ):
+        return set()
+    raw = match.get("hc_json")
+    try:
+        payload = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, json.JSONDecodeError):
+        return set()
+    if not isinstance(payload, dict) or payload.get("rejection_version") != 1:
+        return set()
+    if payload.get("worker_signature") != _worker_signature(worker):
+        return set()
+    current_by_key = {_hc_key(row): row for row in headcount_rows}
+    rejected: set[str] = set()
+    for item in payload.get("rejected") or []:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("headcount_key") or "").strip()
+        current = current_by_key.get(key)
+        if current and item.get("candidate_signature") == _candidate_signature(current):
+            rejected.add(key)
+    return rejected
+
+
 def load_full_headcount(*, db_path: str | None = None) -> list[dict[str, Any]]:
     from modules.headcount.snapshot_service import (
         get_headcount_rows_from_snapshot,
@@ -436,6 +644,8 @@ def match_headcount_keys(match: dict[str, Any]) -> set[str]:
     try:
         payload = json.loads(raw) if isinstance(raw, str) else raw
     except (TypeError, json.JSONDecodeError):
+        return keys
+    if isinstance(payload, dict) and payload.get("rejection_version"):
         return keys
     options = payload if isinstance(payload, list) else [payload]
     for option in options:

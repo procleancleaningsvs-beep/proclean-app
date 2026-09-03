@@ -439,6 +439,75 @@ def test_historical_headcount_without_payroll_never_generates_possible_baja(conn
     ).fetchone()[0] == 0
 
 
+def test_plausible_incomplete_name_candidates_are_reserved_from_possible_bajas(conn):
+    connection, period_id = conn
+    worker_ids = insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 35 + index,
+                "num_empleado": "",
+                "nombre_original": name.title(),
+                "nombre_normalizado": name,
+                "puesto": "Operador",
+                "planta_original": "DIA",
+                "planta_normalizada": "DIA",
+                "cuenta": "",
+                "row_json": "{}",
+            }
+            for index, name in enumerate(("DIEGO ROCHA", "NORA LEON"))
+        ],
+    )
+    connection.executemany(
+        "UPDATE gis_nomina_workers SET cliente_confirmado = 'AURIGA' WHERE id = ?",
+        [(worker_id,) for worker_id in worker_ids],
+    )
+    headcount = [
+        {
+            "nombre_completo": "DIEGO ESTEBAN ROCHA MEZA",
+            "nombre": "DIEGO ESTEBAN",
+            "apellido_paterno": "ROCHA",
+            "apellido_materno": "MEZA",
+            "cliente": "AURIGA",
+            "ubicacion": "DIA",
+            "status_operacion": "ALTA",
+        },
+        {
+            "nombre_completo": "NORA ISABEL LEON CRUZ",
+            "nombre": "NORA ISABEL",
+            "apellido_paterno": "LEON",
+            "apellido_materno": "CRUZ",
+            "cliente": "AURIGA",
+            "ubicacion": "DIA",
+            "status_operacion": "ALTA",
+        },
+    ]
+    connection.commit()
+
+    out = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="AURIGA",
+        generated_by="test",
+        headcount_rows=headcount,
+    )
+
+    possible_bajas = {
+        row[0]
+        for row in connection.execute(
+            "SELECT hc_nombre FROM gis_nomina_results WHERE comparative_id = ? AND resultado = 'Posible baja'",
+            (out["comparative_id"],),
+        ).fetchall()
+    }
+    review_count = connection.execute(
+        "SELECT COUNT(*) FROM gis_nomina_results WHERE comparative_id = ? AND resultado = 'Revisión'",
+        (out["comparative_id"],),
+    ).fetchone()[0]
+    assert review_count == 2
+    assert possible_bajas == set()
+
+
 def test_one_headcount_record_cannot_be_confirmed_for_two_payroll_rows(conn):
     connection, period_id = conn
     duplicate_id = insert_workers(

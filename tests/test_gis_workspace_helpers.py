@@ -88,7 +88,9 @@ def test_weekly_workspace_template_uses_unified_operational_table():
     assert "gis-ws-modal" in template
     assert "data-excel-filter" in template
     assert "Movimientos sugeridos" in template
-    assert "Movimiento manual" in template
+    assert "Movimiento manual" not in template
+    assert "Movimiento final" in template
+    assert ">Cambiar</summary>" in template
     assert "manual-movement-" in template
     assert "row.identity_status" in template
     assert "Candidatos Headcount" in template
@@ -175,4 +177,13 @@ def test_weekly_review_exposes_sanitized_candidate_evidence():
 
     assert rows[0]["identity_status"] == "Posible coincidencia"
     assert rows[0]["resultado"] == "Revisión"
-    assert rows[0]["match_candidates"] == [candidate]
+    assert rows[0]["match_candidates"] == [{**candidate, "candidate_index": 0}]
+
+
+def test_weekly_workspace_template_supports_candidate_choice_and_rejection():
+    template = open("templates/gestion_idse_sua/nominas/workspace.html", encoding="utf-8").read()
+    assert 'name="candidate_index"' in template
+    assert 'value="confirm_candidate"' in template
+    assert "Confirmar identidad" in template
+    assert 'value="reject_candidates"' in template
+    assert "Ninguna corresponde" in template

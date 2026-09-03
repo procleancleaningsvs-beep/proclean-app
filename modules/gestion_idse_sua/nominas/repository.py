@@ -577,6 +577,61 @@ def update_result_decision(
     )
 
 
+def update_result_identity_outcome(
+    conn: sqlite3.Connection,
+    *,
+    result_id: int,
+    worker_id: int,
+    resultado: str,
+    semaforo: str,
+    tipo_sugerido: str,
+    observaciones: str,
+    changed_by: str | None,
+) -> None:
+    before_row = conn.execute(
+        "SELECT * FROM gis_nomina_results WHERE id = ? AND worker_id = ?",
+        (result_id, worker_id),
+    ).fetchone()
+    if before_row is None:
+        raise ValueError("El resultado no pertenece al trabajador indicado.")
+    conn.execute(
+        """
+        UPDATE gis_nomina_results
+        SET resultado = ?, semaforo = ?, tipo_sugerido = ?,
+            decision_final = ?, observaciones = ?
+        WHERE id = ? AND worker_id = ?
+        """,
+        (
+            resultado,
+            semaforo,
+            tipo_sugerido,
+            resultado,
+            observaciones,
+            result_id,
+            worker_id,
+        ),
+    )
+    after_row = conn.execute(
+        "SELECT * FROM gis_nomina_results WHERE id = ?", (result_id,)
+    ).fetchone()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn.execute(
+        """
+        INSERT INTO gis_workspace_audit
+            (scope, record_type, record_id, action, before_json, after_json,
+             changed_by, changed_at)
+        VALUES ('weekly', 'result', ?, 'identity_resolution', ?, ?, ?, ?)
+        """,
+        (
+            result_id,
+            json_dumps(dict(before_row)),
+            json_dumps(dict(after_row)),
+            changed_by,
+            now,
+        ),
+    )
+
+
 def insert_attendance(conn: sqlite3.Connection, row: dict[str, Any]) -> int:
     cur = conn.execute(
         """

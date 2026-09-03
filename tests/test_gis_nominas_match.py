@@ -186,6 +186,151 @@ def test_partial_name_with_same_client_and_location_is_review_candidate():
     assert "ubicación" in candidates[0]["candidate_reason"].casefold()
 
 
+def _structured_headcount(
+    *,
+    nombres: str,
+    paterno: str,
+    materno: str,
+    cliente: str = "AURIGA",
+    ubicacion: str = "DIA",
+    status_operacion: str = "ALTA",
+):
+    return {
+        "nombre_completo": f"{nombres} {paterno} {materno}",
+        "nombre": nombres,
+        "apellido_paterno": paterno,
+        "apellido_materno": materno,
+        "cliente": cliente,
+        "ubicacion": ubicacion,
+        "status_operacion": status_operacion,
+    }
+
+
+def test_shared_surnames_do_not_bypass_incompatible_given_names():
+    worker = {
+        "nombre_normalizado": "ALMA LUZ PARRA VEGA",
+        "cliente_confirmado": "AURIGA",
+        "planta_normalizada": "DIA",
+    }
+    headcount = [
+        _structured_headcount(
+            nombres="MARCOS JOEL",
+            paterno="PARRA",
+            materno="VEGA",
+        )
+    ]
+
+    assert match_worker(worker, headcount)["status"] == "unmatched"
+
+
+def test_shared_given_names_require_a_material_surname_match():
+    worker = {
+        "nombre_normalizado": "PEDRO LUIS MORA",
+        "cliente_confirmado": "AURIGA",
+    }
+    valid = _structured_headcount(
+        nombres="PEDRO LUIS",
+        paterno="MORA",
+        materno="CAMPOS",
+    )
+    incompatible = _structured_headcount(
+        nombres="PEDRO LUIS",
+        paterno="SALAS",
+        materno="RIOS",
+    )
+
+    match = match_worker(worker, [incompatible, valid])
+
+    candidates = json.loads(match["hc_json"])
+    assert [item["nombre_completo"] for item in candidates] == [
+        "PEDRO LUIS MORA CAMPOS"
+    ]
+    assert "Nombre Pedro exacto" in candidates[0]["candidate_reason"]
+    assert "Apellido Mora exacto" in candidates[0]["candidate_reason"]
+
+
+def test_unstructured_full_name_does_not_treat_second_given_name_as_a_surname():
+    worker = {
+        "nombre_normalizado": "PEDRO LUIS MORA",
+        "cliente_confirmado": "AURIGA",
+    }
+    headcount = [
+        {
+            "nombre_completo": "PEDRO LUIS SALAS RIOS",
+            "cliente": "AURIGA",
+        }
+    ]
+
+    assert match_worker(worker, headcount)["status"] == "unmatched"
+
+
+@pytest.mark.parametrize(
+    ("payroll_name", "headcount", "expected_name"),
+    [
+        (
+            "RAUL SANCHEZ LUNA",
+            _structured_headcount(
+                nombres="RAUL",
+                paterno="SANCHEZ",
+                materno="TORRES",
+                cliente="GM",
+                ubicacion="PFSA",
+            ),
+            "RAUL SANCHEZ TORRES",
+        ),
+        (
+            "DIEGO ROCHA",
+            _structured_headcount(
+                nombres="DIEGO ESTEBAN",
+                paterno="ROCHA",
+                materno="MEZA",
+            ),
+            "DIEGO ESTEBAN ROCHA MEZA",
+        ),
+        (
+            "NORA LEON",
+            _structured_headcount(
+                nombres="NORA ISABEL",
+                paterno="LEON",
+                materno="CRUZ",
+            ),
+            "NORA ISABEL LEON CRUZ",
+        ),
+    ],
+)
+def test_structurally_compatible_incomplete_names_are_review_candidates(
+    payroll_name, headcount, expected_name
+):
+    worker = {
+        "nombre_normalizado": payroll_name,
+        "cliente_confirmado": headcount["cliente"],
+        "planta_normalizada": headcount["ubicacion"],
+    }
+
+    match = match_worker(worker, [headcount])
+
+    assert match["status"] == "review"
+    assert [item["nombre_completo"] for item in json.loads(match["hc_json"])] == [
+        expected_name
+    ]
+
+
+def test_visible_candidates_are_capped_at_three_without_padding():
+    worker = {"nombre_normalizado": "PEDRO LUIS MORA", "cliente_confirmado": "AURIGA"}
+    headcount = [
+        _structured_headcount(
+            nombres="PEDRO LUIS",
+            paterno="MORA",
+            materno=materno,
+        )
+        for materno in ("CAMPOS", "VEGA", "RIOS", "LUNA")
+    ]
+
+    match = match_worker(worker, headcount)
+
+    assert len(json.loads(match["hc_json"])) == 3
+
+
 @pytest.mark.parametrize(
     ("worker_field", "headcount_field", "value"),
     [

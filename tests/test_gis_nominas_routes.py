@@ -456,6 +456,227 @@ def test_manual_match_keeps_cross_client_options_and_manual_movement_can_be_clea
     assert audit_count == 1
 
 
+def _seed_candidate_resolution(app, candidate):
+    from modules.gestion_idse_sua.nominas import repository as repo
+    from modules.gestion_idse_sua.nominas.match_service import build_review_match
+    from modules.gestion_idse_sua.nominas.schema import ensure_gis_nominas_tables
+
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    ensure_gis_nominas_tables(connection)
+    connection.execute(
+        "INSERT INTO gis_nomina_imports (id, original_filename, file_hash, uploaded_at, status) "
+        "VALUES (1, 'synthetic-manual.xlsx', 'manual-hash', '2026-01-01', 'extracted')"
+    )
+    connection.execute(
+        "INSERT INTO gis_nomina_sheets "
+        "(id, import_id, sheet_index, sheet_name, is_hidden, confirmed_classification, estimated_rows) "
+        "VALUES (1, 1, 0, 'Synthetic', 0, 'nomina', 1)"
+    )
+    period_id = repo.upsert_period(
+        connection,
+        1,
+        {
+            "fecha_inicio": "01/06/2026",
+            "fecha_fin": "07/06/2026",
+            "semana_num": 23,
+            "source": "manual",
+            "cut_warning": None,
+        },
+        confirmed=True,
+    )
+    worker_id = repo.insert_workers(
+        connection,
+        period_id,
+        [
+            {
+                "row_number": 4,
+                "num_empleado": "",
+                "nombre_original": "Diego Rocha",
+                "nombre_normalizado": "DIEGO ROCHA",
+                "puesto": "Operador",
+                "planta_original": "DIA",
+                "planta_normalizada": "DIA",
+                "cuenta": "",
+                "row_json": "{}",
+            }
+        ],
+    )[0]
+    repo.update_worker_cliente(connection, worker_id, "AURIGA")
+    comparative_id = repo.create_comparative(
+        connection,
+        period_id=period_id,
+        cliente="AURIGA",
+        generated_by="test",
+    )
+    result_id = repo.insert_result(
+        connection,
+        comparative_id,
+        {
+            "worker_id": worker_id,
+            "resultado": "Revisión",
+            "semaforo": "amarillo",
+            "tipo_sugerido": "",
+            "decision_final": "Revisión",
+        },
+    )
+    repo.upsert_match(
+        connection,
+        worker_id,
+        build_review_match(
+            [candidate],
+            method="candidato_nombre",
+            reason="Nombre Diego exacto · Apellido Rocha exacto",
+        ),
+    )
+    connection.commit()
+    connection.close()
+    return period_id, worker_id, result_id
+
+
+@pytest.mark.parametrize(
+    ("operation_status", "expected_result", "expected_movement"),
+    [
+        ("ALTA", "Coincidencia", ""),
+        ("BAJA", "Reingreso", "ALTA"),
+    ],
+)
+def test_selecting_candidate_recalculates_result_from_headcount_status(
+    tmp_path,
+    monkeypatch,
+    operation_status,
+    expected_result,
+    expected_movement,
+):
+    candidate = {
+        "nombre_completo": "DIEGO ESTEBAN ROCHA MEZA",
+        "nombre": "DIEGO ESTEBAN",
+        "apellido_paterno": "ROCHA",
+        "apellido_materno": "MEZA",
+        "cliente": "AURIGA",
+        "ubicacion": "DIA",
+        "status_operacion": operation_status,
+        "nss": "55555555555",
+    }
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    _, worker_id, result_id = _seed_candidate_resolution(app, candidate)
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.load_full_headcount",
+        lambda: [candidate],
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.manual_search",
+        lambda *_args, **_kwargs: {"encontrado": False},
+    )
+
+    response = client.post(
+        f"/gestion-idse-sua/nominas/worker/{worker_id}/match",
+        data={
+            "action": "confirm_candidate",
+            "candidate_index": "0",
+            "result_id": str(result_id),
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    match = connection.execute(
+        "SELECT status, match_method FROM gis_nomina_matches WHERE worker_id = ?",
+        (worker_id,),
+    ).fetchone()
+    result = connection.execute(
+        "SELECT resultado, decision_final, tipo_sugerido FROM gis_nomina_results WHERE id = ?",
+        (result_id,),
+    ).fetchone()
+    connection.close()
+    assert match == ("confirmed", "manual_candidate")
+    assert result == (expected_result, expected_result, expected_movement)
+
+
+def test_rejecting_current_candidates_persists_no_match_and_releases_possible_baja(
+    tmp_path, monkeypatch
+):
+    from modules.gestion_idse_sua.nominas.comparative_service import run_comparative
+
+    candidate = {
+        "nombre_completo": "NORA ISABEL LEON CRUZ",
+        "nombre": "NORA ISABEL",
+        "apellido_paterno": "LEON",
+        "apellido_materno": "CRUZ",
+        "cliente": "AURIGA",
+        "ubicacion": "DIA",
+        "status_operacion": "ALTA",
+        "nss": "66666666666",
+    }
+    app = _full_app(tmp_path, monkeypatch, role="admin")
+    client = app.test_client()
+    _login(client)
+    period_id, worker_id, result_id = _seed_candidate_resolution(app, candidate)
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_activos", lambda: [candidate]
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.obtener_patrones", lambda: []
+    )
+    monkeypatch.setattr(
+        "modules.gestion_idse_sua.routes_nominas.manual_search",
+        lambda *_args, **_kwargs: {"encontrado": False},
+    )
+
+    html = client.get(
+        f"/gestion-idse-sua/nominas/workspace/{period_id}"
+    ).get_data(as_text=True)
+    assert 'name="candidate_index" value="0"' in html
+    assert 'value="confirm_candidate"' in html
+    assert "Ninguna corresponde" in html
+    assert "Movimiento final" in html
+    assert "Movimiento manual" not in html
+
+    response = client.post(
+        f"/gestion-idse-sua/nominas/worker/{worker_id}/match",
+        data={"action": "reject_candidates", "result_id": str(result_id)},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    connection = sqlite3.connect(app.config["DATABASE"])
+    connection.row_factory = sqlite3.Row
+    persisted = connection.execute(
+        "SELECT status, match_method FROM gis_nomina_matches WHERE worker_id = ?",
+        (worker_id,),
+    ).fetchone()
+    result = connection.execute(
+        "SELECT resultado, decision_final, tipo_sugerido FROM gis_nomina_results WHERE id = ?",
+        (result_id,),
+    ).fetchone()
+    rerun = run_comparative(
+        connection,
+        period_id=period_id,
+        cliente="AURIGA",
+        generated_by="test",
+        headcount_rows=[candidate],
+    )
+    rerun_match = connection.execute(
+        "SELECT status, match_method FROM gis_nomina_matches WHERE worker_id = ?",
+        (worker_id,),
+    ).fetchone()
+    possible_bajas = {
+        row[0]
+        for row in connection.execute(
+            "SELECT hc_nombre FROM gis_nomina_results WHERE comparative_id = ? AND resultado = 'Posible baja'",
+            (rerun["comparative_id"],),
+        ).fetchall()
+    }
+    connection.close()
+    assert tuple(persisted) == ("unmatched", "manual_reject_candidates")
+    assert tuple(result) == ("Posible alta", "Posible alta", "ALTA")
+    assert tuple(rerun_match) == ("unmatched", "manual_reject_candidates")
+    assert possible_bajas == {"NORA ISABEL LEON CRUZ"}
+
+
 def test_monthly_workspace_renders_shared_table_and_event_panel(tmp_path, monkeypatch):
     import json
 

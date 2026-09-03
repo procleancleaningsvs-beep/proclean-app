@@ -12,6 +12,7 @@ from modules.gestion_idse_sua.nominas.match_service import (
     load_full_headcount,
     match_headcount_keys,
     match_worker,
+    rejected_candidate_keys,
 )
 from modules.gestion_idse_sua.nominas.planta_cliente_service import (
     period_cut_warnings,
@@ -101,6 +102,49 @@ def _operation_state(row: dict[str, Any]) -> str:
     return "unknown"
 
 
+def apply_identity_resolution_to_result(
+    conn: sqlite3.Connection,
+    *,
+    worker_id: int,
+    result_id: int,
+    match: dict[str, Any],
+    changed_by: str | None,
+) -> None:
+    status = str(match.get("status") or "unmatched")
+    record = _match_record(match)
+    operation_state = _operation_state(record) if record else "unknown"
+    if status in {"confirmed", "manual"} and operation_state == "baja":
+        resultado = "Reingreso"
+        semaforo = "verde"
+        movimiento = "ALTA"
+        observaciones = "Identidad confirmada; antecedente Headcount en BAJA."
+    elif status in {"confirmed", "manual"}:
+        resultado = "Coincidencia"
+        semaforo = "azul"
+        movimiento = ""
+        observaciones = "Identidad confirmada manualmente."
+    elif status in {"review", "suggested"}:
+        resultado = "Revisión"
+        semaforo = "amarillo"
+        movimiento = ""
+        observaciones = "Candidatos de identidad pendientes de resolución."
+    else:
+        resultado = "Posible alta"
+        semaforo = "verde"
+        movimiento = "ALTA"
+        observaciones = "Sin coincidencias después de la resolución manual."
+    repo.update_result_identity_outcome(
+        conn,
+        result_id=result_id,
+        worker_id=worker_id,
+        resultado=resultado,
+        semaforo=semaforo,
+        tipo_sugerido=movimiento,
+        observaciones=observaciones,
+        changed_by=changed_by,
+    )
+
+
 def _reconcile_worker_matches(
     conn: sqlite3.Connection,
     workers: list[dict[str, Any]],
@@ -111,11 +155,13 @@ def _reconcile_worker_matches(
         rows_by_key.setdefault(_hc_key(row), row)
 
     proposals: dict[int, dict[str, Any]] = {}
+    persisted_by_worker: dict[int, dict[str, Any]] = {}
     claims: dict[str, list[int]] = {}
     worker_by_id = {int(worker["id"]): worker for worker in workers}
 
     for worker_id, worker in worker_by_id.items():
         persisted = repo.get_match(conn, worker_id) or {}
+        persisted_by_worker[worker_id] = persisted
         persisted_status = str(persisted.get("status") or "")
         persisted_keys = match_headcount_keys(persisted) & rows_by_key.keys()
         if persisted_status in {"confirmed", "manual"} and len(persisted_keys) == 1:
@@ -157,6 +203,9 @@ def _reconcile_worker_matches(
     for worker_id, worker in worker_by_id.items():
         if worker_id in reconciled:
             continue
+        rejected_keys = rejected_candidate_keys(
+            persisted_by_worker.get(worker_id) or {}, worker, headcount_rows
+        )
         match = match_worker(
             worker,
             headcount_rows,
@@ -165,8 +214,10 @@ def _reconcile_worker_matches(
             )
             or None,
             include_candidates=True,
-            excluded_headcount_keys=consumed,
+            excluded_headcount_keys=consumed | rejected_keys,
         )
+        if match.get("status") == "unmatched" and rejected_keys:
+            match = persisted_by_worker[worker_id]
         reconciled[worker_id] = match
 
     for worker_id, match in reconciled.items():
@@ -279,11 +330,21 @@ def run_comparative(
                     context.append(f"ubicación anterior {previous_location}")
                 suffix = f" ({'; '.join(context)})" if context else ""
                 observaciones = f"Baja histórica — posible reingreso detectado{suffix}."
-            elif operation_state == "active" and (not hc_cliente or hc_cliente == cliente_norm):
+            elif operation_state == "active" and (
+                status in {"confirmed", "manual"}
+                or not hc_cliente
+                or hc_cliente == cliente_norm
+            ):
                 tipo = "Coincidencia"
                 sem = "azul"
                 totals["coincidencias"] += 1
-                observaciones = ""
+                observaciones = (
+                    f"Identidad confirmada; Headcount registrado en {hc_cliente}."
+                    if status in {"confirmed", "manual"}
+                    and hc_cliente
+                    and hc_cliente != cliente_norm
+                    else ""
+                )
                 tipo_mov = ""
             elif operation_state == "active":
                 tipo = "Revisión"

@@ -19,7 +19,12 @@ from modules.gestion_idse_sua.nominas.attendance_service import (
     trajectory_for_periods,
 )
 from modules.gestion_idse_sua.nominas.client_inference_service import infer_period_clients, preview_sheet_clients
-from modules.gestion_idse_sua.nominas.comparative_service import enrich_workers, run_comparative, summarize_results
+from modules.gestion_idse_sua.nominas.comparative_service import (
+    apply_identity_resolution_to_result,
+    enrich_workers,
+    run_comparative,
+    summarize_results,
+)
 from modules.gestion_idse_sua.nominas.excel_export import generate_comparative_excel
 from modules.gestion_idse_sua.nominas.import_service import (
     confirm_classifications,
@@ -29,11 +34,14 @@ from modules.gestion_idse_sua.nominas.import_service import (
 )
 from modules.gestion_idse_sua.nominas.match_service import (
     _build_match,
+    build_rejected_match,
     build_review_match,
     confirm_match,
     load_full_headcount,
     manual_search,
     match_worker,
+    review_candidates,
+    select_review_candidate,
 )
 from modules.gestion_idse_sua.nominas.movement_bridge import convert_results_to_movements
 from modules.gestion_idse_sua.nominas.period_signals import collect_period_signals
@@ -741,7 +749,7 @@ def register_nominas_routes(bp, *, login_required) -> None:
         conn = _db_from_app()
         try:
             worker = conn.execute(
-                "SELECT period_id, cliente_confirmado FROM gis_nomina_workers WHERE id = ?",
+                "SELECT * FROM gis_nomina_workers WHERE id = ?",
                 (worker_id,),
             ).fetchone()
             if worker is None:
@@ -751,6 +759,73 @@ def register_nominas_routes(bp, *, login_required) -> None:
                 return redirect(
                     url_for("gestion_idse_sua.nominas_workspace", period_id=int(worker["period_id"]))
                 )
+            worker_data = dict(worker)
+            raw_result_id = (request.form.get("result_id") or "").strip()
+            result_id = int(raw_result_id) if raw_result_id.isdigit() else None
+            action = (request.form.get("action") or "search").strip()
+            current_match = repo.get_match(conn, worker_id) or {}
+
+            if action == "confirm_candidate":
+                if result_id is None:
+                    abort(400)
+                raw_index = (request.form.get("candidate_index") or "").strip()
+                if not raw_index.isdigit():
+                    abort(400)
+                selected = select_review_candidate(
+                    current_match,
+                    int(raw_index),
+                    load_full_headcount(),
+                )
+                if selected is None:
+                    abort(400)
+                confirm_match(
+                    conn,
+                    worker_id,
+                    _build_match(
+                        selected,
+                        method="manual_candidate",
+                        confidence=1.0,
+                        status="manual",
+                    ),
+                )
+                confirmed = repo.get_match(conn, worker_id) or {}
+                apply_identity_resolution_to_result(
+                    conn,
+                    worker_id=worker_id,
+                    result_id=result_id,
+                    match=confirmed,
+                    changed_by=_session_username(),
+                )
+                conn.commit()
+                flash("Identidad confirmada y resultado actualizado.", "success")
+                return redirect(
+                    url_for(
+                        "gestion_idse_sua.nominas_workspace",
+                        period_id=int(worker["period_id"]),
+                    )
+                )
+
+            if action == "reject_candidates":
+                if result_id is None or not review_candidates(current_match):
+                    abort(400)
+                rejected_match = build_rejected_match(worker_data, current_match)
+                repo.upsert_match(conn, worker_id, rejected_match)
+                apply_identity_resolution_to_result(
+                    conn,
+                    worker_id=worker_id,
+                    result_id=result_id,
+                    match=rejected_match,
+                    changed_by=_session_username(),
+                )
+                conn.commit()
+                flash("Sugerencias rechazadas; la fila queda como Posible alta.", "success")
+                return redirect(
+                    url_for(
+                        "gestion_idse_sua.nominas_workspace",
+                        period_id=int(worker["period_id"]),
+                    )
+                )
+
             search = manual_search(request.form.get("query", ""), request.form.get("campo", "nombre_completo"))
             if not search.get("encontrado"):
                 flash("No se encontró trabajador en Headcount.", "error")
@@ -762,18 +837,31 @@ def register_nominas_routes(bp, *, login_required) -> None:
                         worker_id,
                         _build_match(candidates[0], method="manual", confidence=1.0, status="manual"),
                     )
+                    if result_id is not None:
+                        apply_identity_resolution_to_result(
+                            conn,
+                            worker_id=worker_id,
+                            result_id=result_id,
+                            match=repo.get_match(conn, worker_id) or {},
+                            changed_by=_session_username(),
+                        )
                     conn.commit()
-                    flash("Match confirmado.", "success")
+                    flash("Match confirmado y resultado actualizado.", "success")
                 elif candidates:
-                    repo.upsert_match(
-                        conn,
-                        worker_id,
-                        build_review_match(
-                            candidates,
-                            method="busqueda_manual",
-                            reason="La búsqueda devolvió varias personas del mismo cliente",
-                        ),
+                    review_match = build_review_match(
+                        candidates,
+                        method="busqueda_manual",
+                        reason="La búsqueda devolvió varias personas",
                     )
+                    repo.upsert_match(conn, worker_id, review_match)
+                    if result_id is not None:
+                        apply_identity_resolution_to_result(
+                            conn,
+                            worker_id=worker_id,
+                            result_id=result_id,
+                            match=review_match,
+                            changed_by=_session_username(),
+                        )
                     conn.commit()
                     flash("Se encontraron varias opciones; revise los candidatos antes de confirmar.", "warning")
                 else:

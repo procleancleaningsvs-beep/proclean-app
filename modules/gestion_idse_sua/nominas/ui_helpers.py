@@ -61,11 +61,12 @@ def _candidate_evidence(match: dict[str, Any]) -> list[dict[str, Any]]:
         "candidate_reason",
     )
     evidence = []
-    for option in options[:5]:
+    for candidate_index, option in enumerate(options[:3]):
         if not isinstance(option, dict):
             continue
         item = {key: option[key] for key in allowed if option.get(key) not in (None, "")}
         if item:
+            item["candidate_index"] = candidate_index
             evidence.append(item)
     return evidence
 

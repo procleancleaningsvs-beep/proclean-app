@@ -72,6 +72,7 @@
               {% for day in day_headers %}<th class="col-attendance" data-excel-filter>{{ day.label }}</th>{% endfor %}
               <th data-excel-filter>Totales</th>
               <th data-excel-filter>Resultado</th>
+              <th data-excel-filter>Movimiento final</th>
               <th data-excel-filter data-filter-label="Pendiente">Fecha sugerida</th>
               <th>Acciones</th>
             </tr></thead>
@@ -101,13 +102,12 @@
                 {% endfor %}
                 <td data-filter-value="{{ row.totals_label }}"><span class="gis-ws-totals">{{ row.totals_label or '—' }}</span></td>
                 <td data-filter-value="{{ row.resultado }}"><span class="gis-ws-badge gis-ws-badge--{{ row.result_badge }}">{{ row.resultado or '—' }}</span></td>
-                <td data-filter-value="{{ row.fecha_sugerida or 'Pendiente' }}">{{ row.fecha_sugerida or 'Pendiente' }}</td>
-                <td class="gis-ws-row-actions">
-                  <button type="button" class="btn btn-secondary btn-sm" data-open-modal="editor-{{ record_key }}">Editar</button>
+                <td data-filter-value="{{ row.tipo_movimiento or 'Ninguno' }}">
+                  <span>{{ row.tipo_movimiento or 'Ninguno' }}</span>
                   {% if row.result_id %}
                   <details>
-                    <summary>Movimiento manual</summary>
-                    <label>Tipo
+                    <summary>Cambiar</summary>
+                    <label>Movimiento final
                       <select name="tipo_sugerido" form="manual-movement-{{ row.result_id }}">
                         <option value="" {% if not row.tipo_movimiento %}selected{% endif %}>Ninguno</option>
                         <option value="ALTA" {% if row.tipo_movimiento == 'ALTA' %}selected{% endif %}>ALTA</option>
@@ -117,6 +117,10 @@
                     <button type="submit" class="btn btn-secondary btn-sm" form="manual-movement-{{ row.result_id }}">Guardar</button>
                   </details>
                   {% endif %}
+                </td>
+                <td data-filter-value="{{ row.fecha_sugerida or 'Pendiente' }}">{{ row.fecha_sugerida or 'Pendiente' }}</td>
+                <td class="gis-ws-row-actions">
+                  <button type="button" class="btn btn-secondary btn-sm" data-open-modal="editor-{{ record_key }}">Editar</button>
                   {% if row.result_id %}
                   <button type="submit" class="btn btn-secondary btn-sm"
                           formaction="{{ url_for('gestion_idse_sua.nominas_result_visibility', result_id=row.result_id) }}"
@@ -130,7 +134,7 @@
                   {% endif %}
                 </td>
               </tr>
-              <tr data-detail-for="{{ record_key }}" class="gis-ws-detail-row" hidden><td colspan="18">
+              <tr data-detail-for="{{ record_key }}" class="gis-ws-detail-row" hidden><td colspan="19">
                 <div class="gis-ws-detail-grid">
                   <section><h4>Identidad y match</h4>
                     <p><strong>Nómina:</strong> {{ row.nombre_nomina or '—' }}</p>
@@ -138,8 +142,11 @@
                     <p><strong>Headcount:</strong> {{ row.nombre_hc or 'Sin coincidencia confirmada' }}</p>
                     <p><strong>Método:</strong> {{ row.match_method or 'sin coincidencias' }}</p>
                     {% if row.match_candidates %}<div><strong>Candidatos Headcount:</strong><ul>{% for candidate in row.match_candidates %}
-                      <li><strong>{{ candidate.nombre_completo }}</strong> · {{ candidate.cliente or row.cliente }}{% if candidate.ubicacion or candidate.planta %} · {{ candidate.ubicacion or candidate.planta }}{% endif %}{% if candidate.status_operacion %} · {{ candidate.status_operacion }}{% endif %}{% if candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado %} · Empleado {{ candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado }}{% endif %}{% if candidate.nss %} · NSS {{ candidate.nss }}{% endif %}{% if candidate.rfc or candidate.rfc_homoclave %} · RFC {{ candidate.rfc or candidate.rfc_homoclave }}{% endif %}{% if candidate.curp %} · CURP {{ candidate.curp }}{% endif %}{% if candidate.puesto %} · {{ candidate.puesto }}{% endif %}<br><small>{{ candidate.candidate_reason or 'Candidato de identidad' }}</small></li>
-                    {% endfor %}</ul></div>{% endif %}
+                      <li><label><input type="radio" name="candidate_index" value="{{ candidate.candidate_index }}" form="candidate-resolution-{{ row.worker_id }}"> <strong>{{ candidate.nombre_completo }}</strong></label> · {{ candidate.cliente or row.cliente }}{% if candidate.ubicacion or candidate.planta %} · {{ candidate.ubicacion or candidate.planta }}{% endif %}{% if candidate.status_operacion %} · {{ candidate.status_operacion }}{% endif %}{% if candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado %} · Empleado {{ candidate.numero_empleado or candidate.codigo_contpaq or candidate.num_empleado }}{% endif %}{% if candidate.nss %} · NSS {{ candidate.nss }}{% endif %}{% if candidate.rfc or candidate.rfc_homoclave %} · RFC {{ candidate.rfc or candidate.rfc_homoclave }}{% endif %}{% if candidate.curp %} · CURP {{ candidate.curp }}{% endif %}{% if candidate.puesto %} · {{ candidate.puesto }}{% endif %}<br><small>{{ candidate.candidate_reason or 'Candidato de identidad' }}</small></li>
+                    {% endfor %}</ul>
+                      <button class="btn btn-primary btn-sm" type="submit" name="action" value="confirm_candidate" form="candidate-resolution-{{ row.worker_id }}">Confirmar identidad</button>
+                      <button class="btn btn-secondary btn-sm" type="submit" name="action" value="reject_candidates" form="candidate-resolution-{{ row.worker_id }}">Ninguna corresponde</button>
+                    </div>{% endif %}
                   </section>
                   <section><h4>Cliente y origen</h4>
                     <p>{{ row.cliente or 'Pendiente' }} · {{ row.cliente_source or 'sin fuente' }} · {{ ((row.cliente_confidence or 0) * 100)|round|int }}%</p>
@@ -165,6 +172,7 @@
                     <p>Nómina: <strong>{{ row.nombre_nomina }}</strong></p>
                     <p>Actual: {{ row.nombre_hc or 'Sin coincidencia confirmada' }}</p>
                     <form method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=row.worker_id) }}">
+                      {% if row.result_id %}<input type="hidden" name="result_id" value="{{ row.result_id }}">{% endif %}
                       <select name="campo"><option value="nombre_completo">Nombre</option><option value="nss">NSS</option><option value="rfc_homoclave">RFC</option><option value="curp">CURP</option></select>
                       <input name="query" placeholder="Buscar sugerencias" required>
                       <button class="btn btn-secondary btn-sm" type="submit">Buscar y confirmar</button>
@@ -205,6 +213,11 @@
       {% for row in table_rows if row.result_id %}
       <form id="manual-movement-{{ row.result_id }}" method="post" action="{{ url_for('gestion_idse_sua.nominas_update_decision', result_id=row.result_id) }}">
         <input type="hidden" name="decision_final" value="{{ row.decision_final }}">
+      </form>
+      {% endfor %}
+      {% for row in table_rows if row.worker_id and row.result_id and row.match_candidates %}
+      <form id="candidate-resolution-{{ row.worker_id }}" method="post" action="{{ url_for('gestion_idse_sua.nominas_confirm_match', worker_id=row.worker_id) }}">
+        <input type="hidden" name="result_id" value="{{ row.result_id }}">
       </form>
       {% endfor %}
     </section>
